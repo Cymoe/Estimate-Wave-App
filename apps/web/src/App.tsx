@@ -39,6 +39,7 @@ import { PlanGate } from './components/market/plan';
 import FundAccountPage from './pages/FundAccountPage';
 import JobApplyPage from './pages/JobApplyPage';
 import HiresPage from './pages/HiresPage';
+import RecruitLandingPage from './pages/RecruitLandingPage';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
 import { ClientDetailPage } from './pages/ClientDetailPage';
@@ -446,6 +447,7 @@ function AppRoutes() {
       {/* Recruiting (National Sales Registry): the apply page an ad links to, and a client's hires link - no auth required */}
       <Route path="/jobs/:slug" element={<JobApplyPage />} />
       <Route path="/hires/:token" element={<HiresPage />} />
+      <Route path="/recruit" element={<RecruitLandingPage />} />
       {/* "Open it in Claude / ChatGPT" from a lead alert. */}
       <Route path="/open/:app/:leadId" element={<OpenInAssistant />} />
       {/* Packages route removed as part of simplification */}

@@ -90,3 +90,70 @@ export async function verifyStripeSignature(
   const expected = await hmacHex(secret, `${timestamp}.${rawBody}`);
   return signatures.some((s) => sameString(s, expected));
 }
+
+export interface SubscriptionCheckoutInput {
+  monthlyCents: number;
+  productName: string;
+  customerEmail?: string;
+  metadata: Record<string, string>;
+  successUrl: string;
+  cancelUrl: string;
+}
+
+/** Opens a Stripe Checkout session for a monthly subscription (a recruiting retainer) and returns where to send the payer. */
+export async function createSubscriptionCheckout(
+  secretKey: string,
+  input: SubscriptionCheckoutInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ id: string; url: string }> {
+  const params = new URLSearchParams();
+  params.set("mode", "subscription");
+  params.set("line_items[0][quantity]", "1");
+  params.set("line_items[0][price_data][currency]", "usd");
+  params.set("line_items[0][price_data][unit_amount]", String(input.monthlyCents));
+  params.set("line_items[0][price_data][recurring][interval]", "month");
+  params.set("line_items[0][price_data][product_data][name]", input.productName);
+  if (input.customerEmail) params.set("customer_email", input.customerEmail);
+  for (const [k, val] of Object.entries(input.metadata)) {
+    params.set(`metadata[${k}]`, val);
+    // On the subscription too, so its invoices can be traced back without the session.
+    params.set(`subscription_data[metadata][${k}]`, val);
+  }
+  params.set("success_url", input.successUrl);
+  params.set("cancel_url", input.cancelUrl);
+  const res = await fetchImpl("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: { authorization: `Bearer ${secretKey}`, "content-type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+  const body = (await res.json().catch(() => ({}))) as { id?: string; url?: string; error?: { message?: string } };
+  if (!res.ok || !body.id || !body.url) throw new Error(body.error?.message ?? `Stripe answered ${res.status}`);
+  return { id: body.id, url: body.url };
+}
+
+/** A one-off charge on a customer, picked up by their next subscription invoice. */
+export async function createInvoiceItem(
+  secretKey: string,
+  input: { customer: string; amountCents: number; description: string; metadata?: Record<string, string> },
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ id: string }> {
+  const params = new URLSearchParams({ customer: input.customer, amount: String(input.amountCents), currency: "usd", description: input.description });
+  for (const [k, val] of Object.entries(input.metadata ?? {})) params.set(`metadata[${k}]`, val);
+  const res = await fetchImpl("https://api.stripe.com/v1/invoiceitems", {
+    method: "POST",
+    headers: { authorization: `Bearer ${secretKey}`, "content-type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+  const body = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+  if (!res.ok || !body.id) throw new Error(body.error?.message ?? `Stripe answered ${res.status}`);
+  return { id: body.id };
+}
+
+/** Takes back a one-off charge that hasn't been invoiced yet. */
+export async function deleteInvoiceItem(secretKey: string, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const res = await fetchImpl(`https://api.stripe.com/v1/invoiceitems/${encodeURIComponent(id)}`, { method: "DELETE", headers: { authorization: `Bearer ${secretKey}` } });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    throw new Error(body.error?.message ?? `Stripe answered ${res.status}`);
+  }
+}

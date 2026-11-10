@@ -17,6 +17,11 @@ Everything is managed in **Ops → Recruiting** (`/ops/recruiting`, staff only):
 - **By ad:** which ads bring in A's.
 - **Setup:** what's connected, and the addresses to give out.
 
+## Billing clients and the sales page
+
+- **Billing** (`billing.ts`): each client gets a plan in Ops → Recruiting → Clients: a monthly retainer and a fee per hire. **Send payment link** makes a Stripe Checkout subscription and emails it to the client's report email. Stripe's webhook (`/stripe/webhook`, shared with the lead balance) marks them Paying, Payment failed (staff are told) or Canceled. Each rep marked hired adds the hire fee to their next monthly invoice, once; un-marking it before the invoice takes it off. Test and demo reps are never billed. Needs `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, and the webhook must send `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed` and `customer.subscription.deleted`.
+- **The sales page**, `/recruit`: the offer, a scripted screening playing as texts, the prices and Book a call. Set `RECRUIT_PRICE_MONTHLY` and `RECRUIT_PRICE_PER_HIRE` (dollars; default 2500 and 250), `RECRUIT_SALES_BOOKING_URL` (else `RECRUIT_SALES_PHONE` by text, else email).
+
 ## The demo
 
 Ops → Recruiting → Setup → Demo (`demo.ts`): **Load demo data** makes Demo Roofing Co with 14 applicants in every state, threads, ads with spend, a batch of drafts to approve (two with warnings) and two hires. **Watch a live conversation** plays a rep from first text to hired in about a minute and a half. Applying at `/jobs/demo` runs the same script with your own name. All scripted: no Claude, Twilio or Cal.com, and nothing is texted. **Remove demo data** takes it all out. From a terminal: `npx convex run recruiting/demo:seed` (or `:live`, `:clear`).

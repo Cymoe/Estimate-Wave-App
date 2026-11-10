@@ -127,6 +127,7 @@ function SetupTab({ setup, hasDemo, onWatch }: { setup: RecruitSetup | null; has
     [setup.ready.applySecret, 'Apply secret (optional)', "RECRUIT_APPLY_SECRET: only for ad forms that post applicants directly. The apply page doesn't need it."],
     [setup.ready.flags, 'Who gets flags', 'RECRUIT_FLAG_PHONES: Myles and a VA, comma-separated.'],
     [setup.ready.cal, 'Cal.com', 'CAL_API_KEY: so Jordan can book times itself. Without it Jordan sends the booking link.'],
+    [setup.ready.stripe ?? false, 'Stripe', 'STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET: to bill clients (Clients tab). The webhook points at /stripe/webhook.'],
   ];
   return (
     <div className="space-y-5 max-w-2xl">
@@ -220,7 +221,7 @@ export default function RecruitingOpsPage() {
       {tab === 'applicants' && <ApplicantsTab clients={clients} openId={openApplicant} onOpen={openId} />}
       {tab === 'try' && <TryItTab clients={clients} />}
       {tab === 'ads' && <AdsTab />}
-      {tab === 'clients' && <ClientsTab clients={clients} applyUrl={setup?.applyUrl} />}
+      {tab === 'clients' && <ClientsTab clients={clients} applyUrl={setup?.applyUrl} stripeReady={setup?.ready.stripe ?? false} />}
       {tab === 'byad' && <ByAdTab />}
       {tab === 'setup' && <SetupTab setup={setup} hasDemo={clients?.some((c) => c.demo) ?? false} onWatch={(id) => openId(id)} />}
     </div>

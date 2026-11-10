@@ -91,6 +91,26 @@ http.route({
     const session = event?.data?.object;
     const sessionId = typeof session?.id === "string" ? session.id : undefined;
     if (!type || !sessionId) return json({ ok: true, ignored: true });
+    // A recruiting client's retainer (recruiting/billing.ts): its checkout carries recruitClientId; its invoices and
+    // subscription carry it in metadata, or are matched by the Stripe customer.
+    const str = (x: unknown) => (typeof x === "string" ? x : undefined);
+    const meta = (session!.metadata ?? {}) as Record<string, unknown>;
+    const subscriptionMeta = ((session!.subscription_details as { metadata?: Record<string, unknown> } | undefined)?.metadata ?? {}) as Record<string, unknown>;
+    const recruitClientId = str(meta.recruitClientId) ?? str(subscriptionMeta.recruitClientId);
+    const recruitingEvent =
+      (type === "checkout.session.completed" && session!.mode === "subscription") ||
+      type === "invoice.paid" ||
+      type === "invoice.payment_failed" ||
+      type === "customer.subscription.deleted";
+    if (recruitingEvent && (recruitClientId || type !== "checkout.session.completed")) {
+      const r = await ctx.runMutation(internal.recruiting.billing.stripeEvent, {
+        type,
+        clientId: recruitClientId,
+        customer: str(session!.customer),
+        subscription: type === "customer.subscription.deleted" ? sessionId : str(session!.subscription),
+      });
+      if (r.recruiting || type !== "checkout.session.completed") return json({ ok: true, ...r });
+    }
     if ((type === "checkout.session.completed" || type === "checkout.session.async_payment_succeeded") && session!.payment_status === "paid") {
       const details = (session!.customer_details ?? {}) as { name?: string | null; email?: string | null };
       const metadata = (session!.metadata ?? {}) as { fundingRequestId?: string };

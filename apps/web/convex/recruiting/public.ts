@@ -99,3 +99,24 @@ export const setHire = mutation({
     return null;
   },
 });
+
+/**
+ * What the /recruit sales page shows: the prices and where "Book a call" goes.
+ * Set on the deployment: RECRUIT_PRICE_MONTHLY and RECRUIT_PRICE_PER_HIRE (dollars), RECRUIT_SALES_BOOKING_URL, RECRUIT_SALES_PHONE.
+ */
+export const salesInfo = query({
+  args: {},
+  handler: async () => {
+    const dollars = (x: string | undefined, fallback: number) => {
+      const n = Number((x ?? "").replace(/[$,\s]/g, ""));
+      return x && Number.isFinite(n) && n >= 0 ? n : fallback;
+    };
+    return {
+      service: serviceName(),
+      monthly: dollars(process.env.RECRUIT_PRICE_MONTHLY, 2500),
+      perHire: dollars(process.env.RECRUIT_PRICE_PER_HIRE, 250),
+      bookingUrl: process.env.RECRUIT_SALES_BOOKING_URL || null,
+      phone: process.env.RECRUIT_SALES_PHONE || null,
+    };
+  },
+});

@@ -6,6 +6,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { applicantStatus, score } from "./tables";
+import { billOutcome } from "./billing";
 import { markNoShow as noShowIn } from "./followups";
 import { e164, keywordOf, simulating } from "./lib/texts";
 
@@ -281,6 +282,8 @@ export const markNoShow = internalMutation({
  * showed, so a rep still marked booked or no-show becomes interviewed.
  */
 export async function setOutcome(ctx: MutationCtx, a: Doc<"recruitApplicants">, outcome: "hired" | "not_hired" | null) {
+  // The client's per-hire fee follows the mark (billing.ts): on for a hire, off when it's taken back.
+  if (!a.test && !a.demo) await billOutcome(ctx, a._id, a.outcome, outcome);
   if (outcome === null) return await ctx.db.patch(a._id, { outcome: undefined, outcomeAt: undefined });
   const showed = outcome === "hired" && (a.status === "booked" || a.status === "no_show");
   if (showed) await cancelJobs(ctx, a);

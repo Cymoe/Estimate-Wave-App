@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Copy, Plus } from 'lucide-react';
-import { recruitingAPI, type RecruitClient, type RecruitClientInput } from '../../lib/api';
+import { recruitingAPI, type RecruitBilling, type RecruitClient, type RecruitClientInput } from '../../lib/api';
 import { Dialog, Field, input, primary, secondary } from '../ops/ui';
-import { applyLink, copy, errorText, hiresLink } from './labels';
+import { applyLink, copy, dollars, errorText, hiresLink } from './labels';
 
 const TIMEZONES = ['America/Chicago', 'America/New_York', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles'];
 
@@ -116,6 +116,103 @@ function ClientForm({ initial, onClose }: { initial: RecruitClient | null; onClo
   );
 }
 
+const BILLING_LABEL: Record<RecruitBilling['status'], string> = { none: 'Not billed yet', link_sent: 'Payment link sent', active: 'Paying', past_due: 'Payment failed', canceled: 'Canceled' };
+const BILLING_TONE: Record<RecruitBilling['status'], string> = {
+  none: 'text-gray-400',
+  link_sent: 'text-[#7fb0e0]',
+  active: 'text-emerald-300',
+  past_due: 'text-red-400',
+  canceled: 'text-gray-500',
+};
+
+/** The client's plan (retainer and fee per hire), whether they're paying, and the Stripe link to start. */
+function BillingRow({ client, stripeReady }: { client: RecruitClient; stripeReady: boolean }) {
+  const b = client.billing;
+  const [editing, setEditing] = useState(false);
+  const [monthly, setMonthly] = useState(b ? String(b.monthlyCents / 100) : '2500');
+  const [perHire, setPerHire] = useState(b ? String(b.perHireCents / 100) : '250');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(b?.status === 'link_sent' ? (b.link ?? null) : null);
+  if (client.demo) return null;
+  const save = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await recruitingAPI.setPlan(client.id, Number(monthly.replace(/[$,]/g, '')) || 0, Number(perHire.replace(/[$,]/g, '')) || 0);
+      setEditing(false);
+    } catch (err) {
+      setNote(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const send = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await recruitingAPI.sendPaymentLink(client.id);
+      setLink(r.link);
+      setNote(r.emailed ? `Emailed to ${client.reportEmail}.` : 'Copy the link and send it to them.');
+    } catch (err) {
+      setNote(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-3 border-t border-[#2A2A2A] pt-3 text-xs space-y-2" data-testid="billing">
+      {editing ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-gray-400">
+            Monthly ($)
+            <input className={`${input} w-28 mt-1`} inputMode="decimal" value={monthly} onChange={(e) => setMonthly(e.target.value)} aria-label="Monthly fee" />
+          </label>
+          <label className="text-gray-400">
+            Per hire ($)
+            <input className={`${input} w-24 mt-1`} inputMode="decimal" value={perHire} onChange={(e) => setPerHire(e.target.value)} aria-label="Fee per hire" />
+          </label>
+          <button type="button" className={primary} disabled={busy} onClick={() => void save()}>
+            Save plan
+          </button>
+          <button type="button" className={secondary} onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className={`font-medium ${BILLING_TONE[b?.status ?? 'none']}`}>{BILLING_LABEL[b?.status ?? 'none']}</span>
+          {b && (
+            <span className="text-gray-400">
+              {dollars(b.monthlyCents)}/month{b.perHireCents ? ` + ${dollars(b.perHireCents)} per hire` : ''}
+              {client.billedHiresThisMonth ? ` · ${client.billedHiresThisMonth} ${client.billedHiresThisMonth === 1 ? 'hire' : 'hires'} billed this month` : ''}
+            </span>
+          )}
+          <button type="button" className="text-[#7fb0e0]" onClick={() => setEditing(true)}>
+            {b ? 'Change plan' : 'Set plan'}
+          </button>
+          {b && b.monthlyCents > 0 && b.status !== 'active' && (
+            <button type="button" className={secondary} disabled={busy || !stripeReady} onClick={() => void send()} title={stripeReady ? undefined : 'Connect Stripe first (Setup tab)'}>
+              {busy ? 'Making link…' : b.status === 'link_sent' ? 'Send a new payment link' : 'Send payment link'}
+            </button>
+          )}
+        </div>
+      )}
+      {!stripeReady && b && b.status !== 'active' && <p className="text-gray-500">Connect Stripe to bill (Setup tab).</p>}
+      {link && (
+        <p className="flex flex-wrap items-center gap-2">
+          <span className="text-gray-400">Payment link</span>
+          <span className="text-gray-200 break-all">{link}</span>
+          <button type="button" className="text-[#7fb0e0] inline-flex items-center gap-1" onClick={() => void copy(link).then((ok) => setNote(ok ? 'Copied.' : "Couldn't copy."))}>
+            <Copy className="w-3 h-3" /> Copy
+          </button>
+        </p>
+      )}
+      {note && <p className="text-gray-300">{note}</p>}
+    </div>
+  );
+}
+
 function LinkRow({ label, hint, url, copied, onCopy }: { label: string; hint: string; url: string; copied: boolean; onCopy: () => void }) {
   return (
     <div>
@@ -133,7 +230,7 @@ function LinkRow({ label, hint, url, copied, onCopy }: { label: string; hint: st
   );
 }
 
-export function ClientsTab({ clients, applyUrl }: { clients: RecruitClient[] | null; applyUrl?: string }) {
+export function ClientsTab({ clients, applyUrl, stripeReady = false }: { clients: RecruitClient[] | null; applyUrl?: string; stripeReady?: boolean }) {
   const [editing, setEditing] = useState<RecruitClient | 'new' | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const copyIt = async (key: string, text: string) => {
@@ -179,6 +276,7 @@ export function ClientsTab({ clients, applyUrl }: { clients: RecruitClient[] | n
               for ad forms that post applicants straight to the apply address (Setup tab).
             </p>
           </div>
+          <BillingRow client={c} stripeReady={stripeReady} />
         </section>
       ))}
       {applyUrl && clients && clients.length > 0 && <p className="text-xs text-gray-500">Apply address: {applyUrl}</p>}

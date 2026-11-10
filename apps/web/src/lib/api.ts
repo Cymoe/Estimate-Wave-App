@@ -1471,7 +1471,8 @@ export type RecruitClientInput = {
   adsEnabled?: boolean;
   active?: boolean;
 };
-export type RecruitClient = RecruitClientInput & { id: string; active: boolean; applicants: number; A: number; hired: number; createdAt: string; slug: string; hiresToken?: string; demo?: boolean };
+export type RecruitBilling = { monthlyCents: number; perHireCents: number; status: 'none' | 'link_sent' | 'active' | 'past_due' | 'canceled'; link?: string; since?: string };
+export type RecruitClient = RecruitClientInput & { id: string; active: boolean; applicants: number; A: number; hired: number; createdAt: string; slug: string; hiresToken?: string; demo?: boolean; billing?: RecruitBilling; billedHiresThisMonth?: number };
 export type RecruitScore = 'A' | 'B' | 'C';
 export type RecruitOutcome = 'hired' | 'not_hired';
 export type RecruitApplicant = {
@@ -1523,7 +1524,7 @@ export type RecruitAds = {
   approved: Array<{ sourceAdId: string; client: string; slug: string; kind: RecruitAdKind; angle: string; title: string; body: string; approvedAt: string }>;
 };
 export type RecruitByAd = Array<{ sourceAdId: string; applicants: number; A: number; B: number; C: number; booked: number; showed: number; hired: number }>;
-export type RecruitSetup = { applyUrl: string; smsWebhook: string; calWebhook: string; spendUrl: string; ready: { claude: boolean; number: boolean; applySecret: boolean; cal: boolean; flags: boolean } };
+export type RecruitSetup = { applyUrl: string; smsWebhook: string; calWebhook: string; spendUrl: string; ready: { claude: boolean; number: boolean; applySecret: boolean; cal: boolean; flags: boolean; stripe?: boolean } };
 
 export const recruitingAPI = {
   watchClients: (onUpdate: (c: RecruitClient[]) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.clients, {}, onUpdate, onError),
@@ -1548,6 +1549,8 @@ export const recruitingAPI = {
   byAd: (days = 30): Promise<RecruitByAd> => run('query', api.recruiting.ops.byAd, { days }),
   setup: (): Promise<RecruitSetup> => run('query', api.recruiting.ops.setup, {}),
   demoSeed: () => run('mutation', api.recruiting.ops.demoSeed, {}),
+  setPlan: (clientId: string, monthlyDollars: number, perHireDollars: number) => run('mutation', api.recruiting.billing.setPlan, { clientId, monthlyDollars, perHireDollars }),
+  sendPaymentLink: (clientId: string): Promise<{ link: string; emailed: boolean }> => run('action', api.recruiting.billing.sendPaymentLink, { clientId }),
   demoLive: (): Promise<string> => run('mutation', api.recruiting.ops.demoLive, {}),
   demoClear: (): Promise<{ removed: number }> => run('mutation', api.recruiting.ops.demoClear, {}),
 };
@@ -1555,7 +1558,9 @@ export const recruitingAPI = {
 /** The public recruiting pages, no login: the apply page an ad links to, and a client's hires link. */
 export type RecruitJob = { company: string; role: string; city: string; perks: string | null; service: string; consent: string };
 export type RecruitHires = { company: string; role: string; reps: Array<{ id: string; name: string; score: RecruitScore | null; interviewAt: string | null; missed: boolean; outcome: RecruitOutcome | null }> };
+export type RecruitSales = { service: string; monthly: number; perHire: number; bookingUrl: string | null; phone: string | null };
 export const recruitingPublicAPI = {
+  salesInfo: (): Promise<RecruitSales> => run('query', api.recruiting.public.salesInfo, {}),
   job: (slug: string): Promise<RecruitJob | null> => run('query', api.recruiting.public.job, { slug }),
   apply: (details: { slug: string; ad?: string; name: string; phone: string; agreed: boolean }): Promise<{ existing: boolean }> => run('mutation', api.recruiting.public.apply, defined(details)),
   watchHires: (token: string, onUpdate: (h: RecruitHires | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.public.hires, { token }, onUpdate, onError),

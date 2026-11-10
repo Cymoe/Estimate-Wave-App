@@ -67,6 +67,8 @@ export const clients = query({
         applicants: applicants.length,
         A: applicants.filter((a) => a.score === "A").length,
         hired: applicants.filter((a) => a.outcome === "hired").length,
+        // Hire fees added to Stripe this calendar month (UTC).
+        billedHiresThisMonth: applicants.filter((a) => a.hireInvoiceItemId && a.hireBilledAt && a.hireBilledAt.slice(0, 7) === new Date().toISOString().slice(0, 7)).length,
       });
     }
     return out.sort((x, y) => x.name.localeCompare(y.name));
@@ -316,6 +318,7 @@ export const setup = query({
         applySecret: Boolean(process.env.RECRUIT_APPLY_SECRET),
         cal: Boolean(process.env.CAL_API_KEY),
         flags: Boolean(process.env.RECRUIT_FLAG_PHONES ?? process.env.RECRUIT_MYLES_PHONE),
+        stripe: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET),
       },
     };
   },

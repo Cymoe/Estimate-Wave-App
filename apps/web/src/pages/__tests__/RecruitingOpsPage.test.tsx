@@ -19,6 +19,7 @@ const client = {
   hired: 1,
   slug: 'acme',
   hiresToken: 'tok123',
+  billing: { monthlyCents: 250000, perHireCents: 25000, status: 'none' },
   createdAt: '2026-11-01T00:00:00.000Z',
 };
 
@@ -37,6 +38,7 @@ const saveClient = jest.fn(async () => 'c2');
 const markOutcome = jest.fn(async () => null);
 const demoLive = jest.fn(async () => 'a1');
 const reply = jest.fn(async () => null);
+const sendPaymentLink = jest.fn(async () => ({ link: 'https://checkout.stripe.com/c/cs_1', emailed: true }));
 const demoSeed = jest.fn(async () => ({}));
 const ads = {
   clients: [
@@ -58,7 +60,9 @@ const ads = {
 jest.mock('../../lib/api', () => ({
   recruitingAPI: {
     watchClients: (cb: (v: unknown) => void) => watch('clients', [client])(cb),
-    setup: async () => ({ applyUrl: 'https://x.convex.site/recruiting/apply', smsWebhook: 'https://x.convex.site/recruiting/sms', calWebhook: '', spendUrl: '', ready: { claude: true, number: false, applySecret: false, cal: false, flags: false } }),
+    setup: async () => ({ applyUrl: 'https://x.convex.site/recruiting/apply', smsWebhook: 'https://x.convex.site/recruiting/sms', calWebhook: '', spendUrl: '', ready: { claude: true, number: false, applySecret: false, cal: false, flags: false, stripe: true } }),
+    sendPaymentLink: (...a: unknown[]) => sendPaymentLink(...(a as [])),
+    setPlan: async () => null,
     watchApplicants: (_f: unknown, cb: (v: unknown) => void) => watch('applicants', [])(cb),
     watchTryIt: (cb: (v: unknown) => void) => watch('tryIt', tryIt)(cb),
     tryItStart: (...a: unknown[]) => tryItStart(...(a as [])),
@@ -183,6 +187,17 @@ describe('Ops → Recruiting', () => {
     const box = document.querySelector('[data-testid="outcome"]')!;
     await click(Array.from(box.querySelectorAll('button')).find((b) => b.textContent === 'Hired')!);
     expect(markOutcome).toHaveBeenCalledWith('a1', 'hired');
+  });
+
+  it('Clients: the plan, and Send payment link shows the Stripe link and says it was emailed', async () => {
+    const page = await render('/ops/recruiting?tab=clients');
+    const row = page.querySelector('[data-testid="billing"]')!;
+    expect(row.textContent).toContain('Not billed yet');
+    expect(row.textContent).toContain('$2,500/month + $250 per hire');
+    await click(Array.from(row.querySelectorAll('button')).find((b) => b.textContent === 'Send payment link')!);
+    expect(sendPaymentLink).toHaveBeenCalledWith('c1');
+    expect(row.textContent).toContain('https://checkout.stripe.com/c/cs_1');
+    expect(row.textContent).toContain('Emailed to');
   });
 
   it('staff text a rep themselves from the applicant window', async () => {

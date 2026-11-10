@@ -52,10 +52,26 @@ export const recruitTables = {
     hiresToken: v.optional(v.string()),
     // The demo client (Ops → Recruiting → Setup → Demo): everything it has is scripted, and one button removes it.
     demo: v.optional(v.boolean()),
+    // What the client pays National Sales Registry (billing.ts): a monthly retainer through a Stripe
+    // subscription, plus a fee per hire added to the next monthly invoice.
+    billing: v.optional(
+      v.object({
+        monthlyCents: v.number(),
+        perHireCents: v.number(),
+        status: v.union(v.literal("none"), v.literal("link_sent"), v.literal("active"), v.literal("past_due"), v.literal("canceled")),
+        link: v.optional(v.string()),
+        sessionId: v.optional(v.string()),
+        stripeCustomerId: v.optional(v.string()),
+        stripeSubscriptionId: v.optional(v.string()),
+        since: v.optional(v.string()),
+        updatedAt: v.optional(v.string()),
+      }),
+    ),
   })
     .index("by_name", ["name"])
     .index("by_slug", ["slug"])
-    .index("by_hires_token", ["hiresToken"]),
+    .index("by_hires_token", ["hiresToken"])
+    .index("by_stripe_customer", ["billing.stripeCustomerId"]),
 
   recruitApplicants: defineTable({
     name: v.string(),
@@ -86,6 +102,9 @@ export const recruitTables = {
     // After the interview: the client hired them or didn't. Set from Ops or the client's hires link.
     outcome: v.optional(v.union(v.literal("hired"), v.literal("not_hired"))),
     outcomeAt: v.optional(v.string()),
+    // The hire fee: claimed when the hire is marked, then the Stripe invoice item it became.
+    hireBilledAt: v.optional(v.string()),
+    hireInvoiceItemId: v.optional(v.string()),
     // Applied on the apply page: when they agreed to texts, and the exact words they agreed to.
     consentAt: v.optional(v.string()),
     consentText: v.optional(v.string()),
