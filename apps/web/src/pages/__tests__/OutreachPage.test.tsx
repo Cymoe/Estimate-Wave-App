@@ -477,6 +477,18 @@ describe('the Outreach page', () => {
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'commercial' });
     expect(document.body.querySelector('[data-testid="built"]')!.textContent).toContain('Pick a different list');
     expect(document.body.querySelector('input#outreach-title')).not.toBeNull();
+    // Picked, the list takes the sheet at once: its name and empty rows while it counts, never the choices first.
+    await act(async () => (document.body.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
+    await flush();
+    let finish: (v: unknown) => void = () => {};
+    preview.mockImplementationOnce(() => new Promise((r) => (finish = r)) as never);
+    await act(async () => (empty.querySelectorAll('[data-testid="starter-list"]')[0] as HTMLButtonElement).click());
+    expect(document.body.querySelector('[aria-label="Ready-made lists"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="building"]')!.textContent).toContain('Owners of 3+ commercial buildings');
+    await act(async () => finish({ count: 1, truncated: false, limited: false, rows: [contact('r1')] }));
+    await flush();
+    expect(document.body.querySelector('[data-testid="building"]')).toBeNull();
+    expect(document.body.querySelector('input#outreach-title')).not.toBeNull();
     // No second place to describe a list: that's the + sheet's.
     expect(empty.querySelector('input')).toBeNull();
   });

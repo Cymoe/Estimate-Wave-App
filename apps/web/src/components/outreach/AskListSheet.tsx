@@ -44,6 +44,14 @@ export const AskListSheet: React.FC<{
   const [built, setBuilt] = useState<Built | null>(null);
   const [cannot, setCannot] = useState<{ explanation: string; suggestion?: { definition: OutreachDefinition; title: string } } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The choices or one list. A list picked (here or from a card on the page) takes the sheet at once, with
+   * its name and empty rows filling in as the count arrives, instead of the choices flashing first.
+   */
+  const [view, setView] = useState<'choose' | 'result' | null>(null);
+  const showResult = (view ?? (start ? 'result' : 'choose')) === 'result';
+  /** What's being built, named while it counts. */
+  const [pending, setPending] = useState('');
 
   useEffect(() => {
     if (open) return;
@@ -54,11 +62,15 @@ export const AskListSheet: React.FC<{
     setCannot(null);
     setError(null);
     setBusy(null);
+    setView(null);
+    setPending('');
   }, [open]);
 
   /** A ready-made list: the filter runs as written, straight to the count and preview. */
   const pick = async (p: Preset) => {
     setPreset(p.label);
+    setPending(p.label);
+    setView('result');
     setAsk('');
     setBusy('build');
     setError(null);
@@ -69,6 +81,7 @@ export const AskListSheet: React.FC<{
       setBuilt({ definition: p.definition, title: defaultTitle(p.definition), explanation: p.explanation, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
     } catch (err) {
       setError(err instanceof Error ? err.message : "The list couldn't be built");
+      setView('choose');
     } finally {
       setBusy(null);
     }
@@ -77,6 +90,8 @@ export const AskListSheet: React.FC<{
   const build = async () => {
     if (!ask.trim()) return;
     setPreset(null);
+    setPending(ask.trim());
+    setView('result');
     setBusy('build');
     setError(null);
     setCannot(null);
@@ -84,9 +99,13 @@ export const AskListSheet: React.FC<{
     try {
       const got = await outreachAPI.interpret(organizationId, ask.trim());
       if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, note: got.note, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.preview });
-      else setCannot({ explanation: got.explanation, suggestion: got.suggestion });
+      else {
+        setCannot({ explanation: got.explanation, suggestion: got.suggestion });
+        setView('choose');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "The list couldn't be built");
+      setView('choose');
     } finally {
       setBusy(null);
     }
@@ -104,6 +123,8 @@ export const AskListSheet: React.FC<{
   const buildClosest = async () => {
     if (!cannot?.suggestion) return;
     const { definition, title } = cannot.suggestion;
+    setPending(title);
+    setView('result');
     setBusy('build');
     setError(null);
     try {
@@ -112,6 +133,7 @@ export const AskListSheet: React.FC<{
       setCannot(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The list couldn't be built");
+      setView('choose');
     } finally {
       setBusy(null);
     }
@@ -134,7 +156,7 @@ export const AskListSheet: React.FC<{
     <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
       <div className="p-6 space-y-5">
         {/* Once a list is built it has the sheet to itself: the count, a first look and Save, no scrolling past the choices. */}
-        {!built && (
+        {!showResult && (
           <>
         <div className="space-y-2">
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Who do you want to reach?</p>
@@ -207,7 +229,6 @@ export const AskListSheet: React.FC<{
         </div>
           </>
         )}
-        {busy === 'build' && !ask.trim() && <p className="text-sm text-gray-400">Counting owners…</p>}
 
         {error && (
           <p className="text-sm text-red-400" role="alert">
@@ -226,12 +247,38 @@ export const AskListSheet: React.FC<{
           </div>
         )}
 
-        {built && (
+        {showResult && (
           <div className="space-y-4" data-testid="built">
-            <button type="button" onClick={() => setBuilt(null)} className="inline-flex items-center gap-1 text-sm text-[#7fb0e0] hover:text-white">
+            <button
+              type="button"
+              onClick={() => {
+                setBuilt(null);
+                setView('choose');
+              }}
+              disabled={busy === 'save'}
+              className="inline-flex items-center gap-1 text-sm text-[#7fb0e0] hover:text-white"
+            >
               <ChevronLeft className="w-4 h-4" /> Pick a different list
             </button>
-            <div className="border border-[#333333] bg-[#1A1A1A] p-4 space-y-1">
+            {!built ? (
+              // Counting: the list's name and empty rows, so the sheet doesn't jump when the owners arrive.
+              <div className="space-y-4" aria-busy="true" data-testid="building">
+                <div className="border border-[#333333] bg-[#1A1A1A] p-4 space-y-2">
+                  <p className="text-lg font-semibold text-white">{pending}</p>
+                  <p className="text-sm text-gray-400">Counting owners…</p>
+                </div>
+                <ul className="border border-[#333333] divide-y divide-[#333333]">
+                  {Array.from({ length: 6 }, (_, i) => (
+                    <li key={i} className="px-3 py-3 space-y-2 animate-pulse">
+                      <div className="h-3.5 w-1/2 bg-[#2A2A2A]" />
+                      <div className="h-2.5 w-3/4 bg-[#222222]" />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <>
+            <div className="border border-[#333333] bg-[#1A1A1A] p-4 space-y-1 animate-fade-in">
               <p className="text-lg font-semibold text-white">
                 {built.total !== undefined && built.total > built.count ? (
                   <>
@@ -252,8 +299,9 @@ export const AskListSheet: React.FC<{
             {built.rows.length > 0 && (
               // The first look scrolls on its own, so the count above and Save below stay put.
               <ul className="border border-[#333333] divide-y divide-[#333333] max-h-[45vh] overflow-y-auto overscroll-contain" aria-label="Preview">
-                {built.rows.map((r) => (
-                  <li key={r.key} className="px-3 py-2.5 text-sm">
+                {built.rows.map((r, i) => (
+                  // The owners come in one after another, as the list fills.
+                  <li key={r.key} className="px-3 py-2.5 text-sm animate-fade-in" style={{ animationDelay: `${Math.min(i, 12) * 40}ms`, animationFillMode: 'both' }}>
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-white truncate">{r.name}</span>
                       {/* The owner's holdings, not one building: what the list is sorted on. */}
@@ -290,6 +338,8 @@ export const AskListSheet: React.FC<{
                 {busy === 'save' ? 'Saving…' : 'Save list'}
               </button>
             </div>
+              </>
+            )}
           </div>
         )}
       </div>
