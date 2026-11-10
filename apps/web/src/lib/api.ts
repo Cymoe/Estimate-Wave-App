@@ -1217,6 +1217,8 @@ export type OutreachField = 'phone' | 'email' | 'person' | 'research';
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
 /** One source's turn in a cell's waterfall, for the sheet's "How we found it". */
 export type OutreachTry = { source: string; outcome: 'hit' | 'miss' | 'error' | 'skipped'; note?: string };
+/** A running lookup's narration, kept apart from the owner: merged into its running cell on the page. */
+export type OutreachProgress = { contactId: string; field: OutreachField; asking?: string; tries: OutreachTry[] };
 export type OutreachCell = { status: 'locked' | 'running' | 'found' | 'none' | 'failed'; at?: string; /** Who asked for the lookup; none on what a permit or license gave free when the list was built. */ requestedBy?: string; source?: string; chargedCents?: number; error?: string; tries?: OutreachTry[]; /** While running: the source being asked now. */ asking?: string; /** Made up by the simulated chain while no phone source is connected; never charged. */ simulated?: boolean };
 export type OutreachEnrichment = Record<OutreachField, OutreachCell>;
 /** What the AI found on the web about an owner, with where it read it. */
@@ -1315,6 +1317,9 @@ export const outreachAPI = {
   /** The contacts, now and on every change: a lookup's progress, a status set elsewhere. Returns a stop function. */
   watchContacts: (organizationId: string, listId: string | undefined, onUpdate: (c: OutreachContacts) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.contacts, defined({ organizationId, listId }), onUpdate, onError),
+  /** The company's running lookups as they go (the source asked now, the turns so far), now and on every change. Returns a stop function. */
+  watchProgress: (organizationId: string, onUpdate: (p: OutreachProgress[]) => void, onError?: (e: APIError) => void): (() => void) =>
+    watchOn(api.outreach.progress, { organizationId }, onUpdate, onError),
   /** The lists, now and on every change. Returns a stop function. */
   watchLists: (organizationId: string, onUpdate: (l: OutreachListSummary[]) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.lists, { organizationId }, onUpdate, onError),

@@ -1329,11 +1329,23 @@ describe("a company's lists", () => {
     const started = await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] });
     expect(started.at).toEqual(expect.any(String));
     const tries = [{ source: "permits", outcome: "skipped" as const, note: "No permits at the property" }];
+    const updatedAt = (await t.run(async (ctx) => ctx.db.get(oak.id as Id<"outreachContacts">)))!.updatedAt;
     await t.mutation(internal.outreach.noteProgress, { contactId: oak.id, field: "phone", asking: "batchdata", tries });
-    expect((await read()).find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "running", asking: "batchdata", tries });
+    const progress = async () => await co.as.query(api.outreach.progress, { organizationId: org });
+    expect(await progress()).toEqual([{ contactId: oak.id, field: "phone", asking: "batchdata", tries }]);
+    // On its own row: the owner itself is untouched, so the owners page isn't read again for it.
+    expect((await t.run(async (ctx) => ctx.db.get(oak.id as Id<"outreachContacts">)))!.updatedAt).toBe(updatedAt);
+    expect((await read()).find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "running" });
+    // The next step replaces it, not adds another.
+    await t.mutation(internal.outreach.noteProgress, { contactId: oak.id, field: "phone", asking: "tracerfy", tries });
+    expect((await progress()).map((p) => p.asking)).toEqual(["tracerfy"]);
     // Not running: nothing to narrate, and a locked cell stays locked.
     await t.mutation(internal.outreach.noteProgress, { contactId: oak.id, field: "email", asking: "hunter", tries: [] });
     expect((await read()).find((r) => r.id === oak.id)!.enrichment.email).toEqual({ status: "locked" });
+    expect(await progress()).toHaveLength(1);
+    // The answer landing takes the narration away.
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id, field: "phone", source: "batchdata", tries });
+    expect(await progress()).toEqual([]);
 
     // Signals: the first import is not news; one seen days later, within the week, is.
     const parcelOf = async (id: string) => await t.run(async (ctx) => (await ctx.db.get(id as Id<"outreachContacts">))!.property.parcelId);
@@ -1379,7 +1391,10 @@ describe("a company's lists", () => {
     // Another request's watchdog: not these cells.
     expect(await t.mutation(internal.outreach.giveUp, { contactId: oak.id, fields: ["person", "phone"], at: "2026-01-01T00:00:00.000Z" })).toEqual({ failed: 0 });
     // The lookup never wrote back: ten minutes on, both cells are failed, nothing charged, and the phone can be asked for again.
+    await t.mutation(internal.outreach.noteProgress, { contactId: oak.id, field: "phone", asking: "batchdata", tries: [] });
     expect(await t.mutation(internal.outreach.giveUp, { contactId: oak.id, fields: ["person", "phone"], at })).toEqual({ failed: 2 });
+    // Its narration goes with it.
+    expect(await co.as.query(api.outreach.progress, { organizationId: org })).toEqual([]);
     const gaveUp = (await read()).rows.find((r) => r.id === oak.id)!;
     expect(gaveUp.enrichment.phone).toMatchObject({ status: "failed", error: GIVE_UP_ERROR });
     expect(gaveUp.enrichment.person).toMatchObject({ status: "failed", error: GIVE_UP_ERROR });

@@ -1548,6 +1548,8 @@ export const enrich = mutation({
       const cells = { ...cellsOf(contact) };
       for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
       await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
+      // A fresh run starts its narration over.
+      await clearProgress(ctx, contact._id, open);
       await ctx.scheduler.runAfter(delay, internal.skipTrace.trace, { contactId: contact._id, fields: open });
       // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
       await ctx.scheduler.runAfter(delay + GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: contact._id, fields: open, at: now });
@@ -1596,6 +1598,7 @@ export const giveUp = internalMutation({
       failed++;
     }
     if (failed) await ctx.db.patch(contactId, { enrichment: cells, ...(fields.includes("research") && cells.research?.status === "failed" ? { researchQuestion: undefined } : {}), updatedAt: nowIso() });
+    if (failed) await clearProgress(ctx, contactId, fields.filter((f) => cells[f]?.status !== "running"));
     return { failed };
   },
 });
@@ -1636,12 +1639,37 @@ export const noteProgress = internalMutation({
   handler: async (ctx, { contactId, field, asking, tries }) => {
     const c = await ctx.db.get(contactId);
     if (!c) return null;
-    const cells = { ...cellsOf(c) };
-    const cell = cellFor(cells, field);
-    if (cell.status !== "running") return null;
-    cells[field] = { ...cell, asking, tries };
-    await ctx.db.patch(contactId, { enrichment: cells });
+    if (cellFor(cellsOf(c), field).status !== "running") return null;
+    // On its own row, not the owner: the owner changes once, when the answer lands.
+    const row = await progressOf(ctx, contactId, field);
+    if (row) await ctx.db.patch(row._id, { asking, tries });
+    else await ctx.db.insert("outreachProgress", { organizationId: c.organizationId, contactId, field, asking, tries });
     return null;
+  },
+});
+
+async function progressOf(ctx: QueryCtx | MutationCtx, contactId: Id<"outreachContacts">, field: Doc<"outreachProgress">["field"]) {
+  return await ctx.db
+    .query("outreachProgress")
+    .withIndex("by_contact_and_field", (q) => q.eq("contactId", contactId).eq("field", field))
+    .unique();
+}
+
+/** A lookup's narration goes once its cell stops running. */
+async function clearProgress(ctx: MutationCtx, contactId: Id<"outreachContacts">, fields: Doc<"outreachProgress">["field"][]) {
+  for (const field of fields) {
+    const row = await progressOf(ctx, contactId, field);
+    if (row) await ctx.db.delete(row._id);
+  }
+}
+
+/** The company's running lookups as they go: which source each is asking now and the turns so far, for the page to narrate. */
+export const progress = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requirePro(ctx, organizationId);
+    const rows = await ctx.db.query("outreachProgress").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(1000);
+    return rows.map((r) => ({ contactId: r.contactId, field: r.field, asking: r.asking, tries: r.tries }));
   },
 });
 
@@ -1794,6 +1822,7 @@ export const recordEnrichment = internalMutation({
       ...(field === "research" ? { research: kept ? research : c.research, researchQuestion: undefined } : {}),
       updatedAt: now,
     });
+    await clearProgress(ctx, contactId, [field]);
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
     if (!shared && (source || !error)) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
     if (tries && !shared) await noteProblems(ctx, c.organizationId, field, tries, now);

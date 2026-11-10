@@ -78,6 +78,14 @@ const watchContacts = jest.fn((_o: string, _l: string | undefined, onUpdate: (c:
     pushContacts = null;
   };
 });
+// The lookups' narration feed, apart from the owners.
+let pushProgress: ((p: unknown) => void) | null = null;
+const watchProgress = jest.fn((_o: string, onUpdate: (p: unknown) => void) => {
+  pushProgress = onUpdate;
+  return () => {
+    pushProgress = null;
+  };
+});
 let ownersState: Record<string, unknown> | null = null;
 const rebuild = jest.fn(async () => ({ fetched: 58_418, added: 44_120, updated: 0 }));
 const refresh = jest.fn(async () => ({ fetched: 1_240, added: 3, updated: 17 }));
@@ -101,6 +109,7 @@ jest.mock('../../lib/api', () => ({
     enrich: (...args: unknown[]) => enrich(...(args as [])),
     watchContacts: (...args: unknown[]) => watchContacts(...(args as [string, string | undefined, (c: unknown) => void])),
     watchLists: () => () => {},
+    watchProgress: (...args: unknown[]) => watchProgress(...(args as [string, (p: unknown) => void])),
     sources: (...args: unknown[]) => sources(...(args as [])),
     status: async () => ownersState,
     rebuild: () => rebuild(),
@@ -225,6 +234,24 @@ describe('the Outreach page', () => {
     await flush();
     const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[5].textContent;
     expect(statusOf()).toBe('New');
+  });
+
+  it("a lookup's narration comes on its own feed and shows on its running cell, through the owners' own updates, until it lands", async () => {
+    lists = [list];
+    const cells = (phone: Record<string, unknown>) => ({ phone, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } });
+    contacts = { ...twoContacts(), rows: [contact('r1', { enrichment: cells({ status: 'running', at: '2026-11-05T15:00:00Z' }) })] };
+    await render('/outreach/l1');
+    expect(watchProgress).toHaveBeenLastCalledWith('o1', expect.any(Function));
+    const live = () => document.body.querySelector('[data-testid="contact-row"] [data-testid="live"]')?.textContent ?? '';
+    expect(live()).not.toContain('BatchData');
+    await act(async () => pushProgress!([{ contactId: 'r1', field: 'phone', asking: 'batchdata', tries: [{ source: 'permits', outcome: 'skipped' }] }]));
+    expect(live()).toContain('Asking BatchData…');
+    // An update to the owners (another field, a status) keeps the narration on the cell still running.
+    await act(async () => pushContacts!({ ...contacts, rows: [contact('r1', { note: 'Call after 5', enrichment: cells({ status: 'running', at: '2026-11-05T15:00:00Z' }) })] }));
+    expect(live()).toContain('Asking BatchData…');
+    // Landed: the answer, and the narration (still on its feed a moment) doesn't cling to a finished cell.
+    await act(async () => pushContacts!({ ...contacts, rows: [contact('r1', { phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }], enrichment: cells({ status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' }) })] }));
+    expect(document.body.querySelector('[data-testid="contact-row"] [data-testid="live"]')).toBeNull();
   });
 
   it('a research run says so on the banner: owners researched and answers found, not phones and emails', async () => {

@@ -2,7 +2,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
+import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
@@ -57,6 +57,23 @@ const matches = (r: OutreachContact, q: string) => {
 };
 
 /** What keeps an owner when its only list is deleted: something of yours on it (as the server's worthKeeping). */
+/** Running lookups' narration (which source is being asked, the turns so far), merged into their running cells. */
+type Narration = Map<string, OutreachProgress>;
+function withProgress(c: OutreachContacts, narration: Narration): OutreachContacts {
+  if (!narration.size) return c;
+  return {
+    ...c,
+    rows: c.rows.map((r) => {
+      let cells = r.enrichment;
+      for (const f of Object.keys(cells) as OutreachField[]) {
+        const p = narration.get(`${r.id}:${f}`);
+        if (p && cells[f]?.status === 'running') cells = { ...cells, [f]: { ...cells[f], asking: p.asking, tries: p.tries } };
+      }
+      return cells === r.enrichment ? r : { ...r, enrichment: cells };
+    }),
+  };
+}
+
 const workedOn = (r: OutreachContact) =>
   Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || Boolean(r.research) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
 
@@ -350,13 +367,33 @@ const OutreachPage: React.FC = () => {
   const viewKey = `${organizationId ?? ''}:${listId ?? 'all'}`;
   const currentKey = useRef(viewKey);
   currentKey.current = viewKey;
+  const narration = useRef<Narration>(new Map());
   const takeContacts = useCallback((key: string, c: OutreachContacts) => {
     seen.current.set(key, c);
     if (live.current && currentKey.current === key) {
-      setData(c);
+      setData(withProgress(c, narration.current));
       setError(null);
     }
   }, []);
+  /**
+   * The lists' numbers (done, sent, sold) follow the owners, read again a few seconds after they change rather than on
+   * every change: a lookup or a filling list changes owners many times a second, and each read covers every owner.
+   */
+  const listsSoon = useRef<number | null>(null);
+  const refreshListsSoon = useCallback(() => {
+    if (!organizationId || listsSoon.current !== null) return;
+    listsSoon.current = window.setTimeout(() => {
+      listsSoon.current = null;
+      outreachAPI.lists(organizationId).then((l) => live.current && setLists(l), () => {});
+    }, 4000);
+  }, [organizationId]);
+  useEffect(
+    () => () => {
+      if (listsSoon.current !== null) window.clearTimeout(listsSoon.current);
+      listsSoon.current = null;
+    },
+    [],
+  );
   const load = useCallback(async () => {
     if (!organizationId) return;
     const key = `${organizationId}:${listId ?? 'all'}`;
@@ -405,16 +442,25 @@ const OutreachPage: React.FC = () => {
       setData({ ...all, rows: all.rows.filter((r) => r.listIds.includes(listId)).sort((a, b) => order.key(b) - order.key(a) || a.name.localeCompare(b.name)) });
     }
     void load();
-    // Then live: the server sends every change the moment it happens (a lookup's progress, a status set elsewhere), with no re-asking.
-    const stopContacts = outreachAPI.watchContacts?.(organizationId, listId, (c) => takeContacts(key, c));
-    const stopLists = outreachAPI.watchLists?.(organizationId, (l) => live.current && setLists(l));
+    // Then live: the server sends every change the moment it happens (an answer landing, a status set elsewhere), with no re-asking.
+    let first = true;
+    const stopContacts = outreachAPI.watchContacts?.(organizationId, listId, (c) => {
+      takeContacts(key, c);
+      if (!first) refreshListsSoon();
+      first = false;
+    });
+    // A lookup's narration comes on its own, small feed, so its many steps don't read every owner again.
+    const stopProgress = outreachAPI.watchProgress?.(organizationId, (p) => {
+      narration.current = new Map(p.map((x) => [`${x.contactId}:${x.field}`, x]));
+      if (live.current) setData((d) => d && withProgress(d, narration.current));
+    });
     return () => {
       stopContacts?.();
-      stopLists?.();
+      stopProgress?.();
     };
     // lists is read only for the first look at a new list; a change to it must not resubscribe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizationId, listId, load, takeContacts]);
+  }, [organizationId, listId, load, takeContacts, refreshListsSoon]);
   // The sheet shows the row as the table now has it.
   useEffect(() => {
     if (open && data) setOpen(data.rows.find((r) => r.id === open.id) ?? null);

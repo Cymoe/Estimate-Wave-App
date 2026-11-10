@@ -1338,6 +1338,20 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_parcel", ["property.parcelId"]),
 
+  // A running lookup's narration (the source it's asking now, the turns so
+  // far), kept apart from the owner so the many small updates of a lookup
+  // don't make every reader of the owners read them all again. Gone when
+  // the lookup lands.
+  outreachProgress: defineTable({
+    organizationId: v.id("organizations"),
+    contactId: v.id("outreachContacts"),
+    field: outreachField,
+    asking: v.optional(v.string()),
+    tries: v.array(outreachTry),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_contact_and_field", ["contactId", "field"]),
+
   // How each data source has done for a company, per field: the hit rate
   // on the Data sources panel and behind the "about $136" estimate is the
   // company's own, not the vendor's brochure.
