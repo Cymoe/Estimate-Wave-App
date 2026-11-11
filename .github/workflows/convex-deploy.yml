@@ -215,6 +215,10 @@ jobs:
         # Membership rows and indexed fields, so a list (and a company's sister entities) can be read without reading
         # every owner. Owners saved before get theirs; finishes in the background. Safe to re-run.
         run: npx convex run outreach:backfillFiling
+      - name: File each parcel under its owner, so an owner's sheet can list everything they hold
+        # The parcels read before this kept no owner key. A county at a time, in the background; only the unfiled are
+        # read, so a re-run costs a lookup per county.
+        run: npx convex run parcels:fileOwners '{}'
       - name: Count the Outreach lists saved before their numbers were kept on them
         # Owners worked and results in Leads, stored on each list so the lists read without reading every owner.
         # In the background; safe to re-run: a list already counted is left alone.

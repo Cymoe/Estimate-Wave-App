@@ -1446,7 +1446,51 @@ export const changes = query({
   },
 });
 
-/** The counties besides Midland whose owners have been built cleanly: lists can be made there. */
+/** How many of an owner's properties the sheet lists at most; past that it says how many more there are. */
+export const PROPERTIES_MAX = 300;
+
+/**
+ * Everything an owner holds on the roll, the most valuable first: the owner's row keeps only its top property, so the
+ * rest are read from the roll by the key the parcels are filed under (parcels.ts filing). An office (one address that
+ * gets several owners' tax bills) lists what is billed there. A contractor, a tenant or a realtor owns nothing on the
+ * roll as such, and lists nothing. `filed` is false while the parcels read before this are still being filed.
+ */
+export const properties = query({
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
+  handler: async (ctx, { organizationId, contactId }) => {
+    await requirePro(ctx, organizationId);
+    const c = await ctx.db.get(contactId);
+    if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "That owner isn't here any more");
+    const county = knownCounty(await countyOfOwner(ctx, c));
+    const office = c.key.startsWith("office:");
+    // A company on the city's permits, a tenant or a licensed agent has a key of its own kind, and no parcels under it.
+    const onRoll = !/^(contractor|designer|occupant|realtor):/.test(c.key);
+    const read = !onRoll
+      ? []
+      : office
+        ? await ctx.db
+            .query("parcels")
+            .withIndex("by_county_and_mail_key", (q) => q.eq("county", county).eq("mailKey", c.key.slice("office:".length)))
+            .take(PROPERTIES_MAX + 1)
+        : await ctx.db
+            .query("parcels")
+            .withIndex("by_county_and_owner_key", (q) => q.eq("county", county).eq("ownerKey", c.key))
+            .take(PROPERTIES_MAX + 1);
+    const rows = read
+      .sort((a, b) => (b.marketValueCents ?? 0) - (a.marketValueCents ?? 0) || a.siteAddress.localeCompare(b.siteAddress))
+      .slice(0, PROPERTIES_MAX)
+      .map((p) => ({ id: p._id, address: tidyCase(p.siteAddress) ?? p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, deedDate: p.deedDate, ...(office ? { owner: tidyCase(p.owner) ?? p.owner } : {}) }));
+    return {
+      rows,
+      /** How many the owner holds in all, as its row says; the list may be shorter (PROPERTIES_MAX, or a roll read since). */
+      total: Math.max(c.properties, rows.length),
+      more: read.length > PROPERTIES_MAX,
+      city: cityOf(county),
+      filed: rows.length > 0 || c.properties === 0 || !onRoll,
+    };
+  },
+});
+
 /** The Today call sheet: how many days a found number counts as new, how many lookups it reads back, and how many of each kind it shows. */
 export const TODAY_DAYS = 7;
 const TODAY_READ = 400;
@@ -1529,6 +1573,7 @@ export const today = query({
   },
 });
 
+/** The counties besides Midland whose owners have been built cleanly: lists can be made there. */
 async function readyCounties(ctx: QueryCtx): Promise<string[]> {
   const others = Object.keys(COUNTY_PLACES).filter((c) => c !== COUNTY);
   const syncs = await Promise.all(others.map((c) => ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", ownersSource(c))).unique()));

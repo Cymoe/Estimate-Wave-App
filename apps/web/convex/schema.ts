@@ -975,8 +975,15 @@ export default defineSchema({
     buildingValueCents: v.optional(v.number()),
     // "2021-10-11": roughly when the owner bought it.
     deedDate: v.optional(v.string()),
+    // Whose it is, as Outreach groups the roll (lib/outreach.ts OwnerGrouper.keyFor: the owner's name and where their tax
+    // bill goes), and that mailing address's own key (an office that gets several owners' bills). Kept on the parcel so
+    // everything an owner holds can be listed. "" when there is none; absent until filed (parcels:fileOwners).
+    ownerKey: v.optional(v.string()),
+    mailKey: v.optional(v.string()),
     importedAt: v.string(),
   })
+    .index("by_county_and_owner_key", ["county", "ownerKey"])
+    .index("by_county_and_mail_key", ["county", "mailKey"])
     .index("by_cad_id", ["cadId"])
     .index("by_county_and_address_key", ["county", "addressKey"])
     .index("by_county_and_loose_key", ["county", "looseKey"])

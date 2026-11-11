@@ -3819,3 +3819,61 @@ describe("today's call sheet", () => {
     vi.useRealTimers();
   });
 });
+
+describe("everything an owner holds", () => {
+  test("an owner's properties are listed from the roll, the most valuable first; parcels read before are filed in the background", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const lofts = (id: string, street: string, value: number) =>
+      parcel(id, { owner: "WALL STREET LOFTS LLC", companyOwned: true, ownerOccupied: false, siteAddress: street, marketValueCents: value, mailing: { address: "100 W WALL ST", city: "MIDLAND", state: "TX", zip: "79701" } });
+    await addParcels(t, [
+      lofts("a1", "12 ELM ST", 30_000_000),
+      lofts("a2", "400 N MAIN ST", 90_000_000),
+      lofts("a3", "7 OAK AVE", 60_000_000),
+      // The same name billed somewhere else is another owner row, and none of these.
+      parcel("b1", { owner: "WALL STREET LOFTS LLC", companyOwned: true, ownerOccupied: false, siteAddress: "9 PINE ST", mailing: { address: "PO BOX 9", city: "DALLAS", state: "TX", zip: "75201" } }),
+      parcel("c1", { owner: "SOMEONE ELSE LLC", companyOwned: true, ownerOccupied: false, siteAddress: "1 CEDAR ST", mailing: { address: "100 W WALL ST", city: "MIDLAND", state: "TX", zip: "79701" } }),
+    ]);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    const owners = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const mine = owners.find((r) => r.name.startsWith("Wall Street Lofts") && r.properties === 3)!;
+    const ask = (contactId: string) => co.as.query(api.outreach.properties, { organizationId: org, contactId: contactId as never });
+
+    // Parcels the test saved straight into the table carry no owner key yet, as the ones read before this don't: nothing
+    // to list, and the sheet is told so rather than shown an empty list.
+    await t.run(async (ctx) => {
+      for (const p of await ctx.db.query("parcels").collect()) await ctx.db.patch(p._id, { ownerKey: undefined, mailKey: undefined });
+    });
+    expect(await ask(mine.id)).toMatchObject({ rows: [], total: 3, filed: false });
+
+    // Filing goes a page at a time, the rest in the background, and then has nothing left to do.
+    expect(await t.mutation(internal.parcels.fileOwners, { page: 2 })).toEqual({ county: "Midland", filed: 2, done: false });
+    await t.finishAllScheduledFunctions(() => {});
+    expect(await t.mutation(internal.parcels.fileOwners, {})).toMatchObject({ filed: 0 });
+    await t.finishAllScheduledFunctions(() => {});
+
+    const list = await ask(mine.id);
+    expect(list.rows.map((r) => [r.address, r.valueCents])).toEqual([
+      ["400 N Main St", 90_000_000],
+      ["7 Oak Ave", 60_000_000],
+      ["12 Elm St", 30_000_000],
+    ]);
+    expect(list).toMatchObject({ total: 3, more: false, filed: true, city: "Midland" });
+    // The top of the list is the property the owner's row already showed.
+    expect(mine.property!.address.toUpperCase()).toBe("400 N MAIN ST");
+
+    // A parcel read from the roll afterwards is filed as it's saved.
+    await t.mutation(internal.parcels.upsert, {
+      rows: [{ cadId: "R-NEW", useCode: "A1", siteAddress: "55 BIRCH LN", addressKey: "55 BIRCH LN", looseKey: "55 BIRCH", owner: "WALL STREET LOFTS LLC", mailing: { address: "100 W WALL ST", city: "MIDLAND", state: "TX", zip: "79701" }, ownerOccupied: false, companyOwned: true, marketValueCents: 10_000_000 }],
+    });
+    expect((await ask(mine.id)).rows.map((r) => r.address)).toEqual(["400 N Main St", "7 Oak Ave", "12 Elm St", "55 Birch Ln"]);
+
+    // Another company can't read this one's owners.
+    const other = await proCompany(t, "other@roof.example");
+    await expect(other.as.query(api.outreach.properties, { organizationId: other.organizationId, contactId: mine.id as never })).rejects.toThrow();
+    vi.useRealTimers();
+  });
+});

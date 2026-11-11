@@ -1438,6 +1438,15 @@ export type OutreachInterpreted =
   | { ok: false; explanation: string; suggestion?: { definition: OutreachDefinition; title: string } };
 
 /** Outreach: a CRM of property owners from the county roll, pulled by lists asked for in plain words (Pro). */
+/** An owner's properties from the roll. `filed` is false while the roll read before this is still being sorted by owner. */
+export type OwnerProperties = {
+  rows: Array<{ id: string; address: string; useCode: string; valueCents?: number; deedDate?: string; owner?: string }>;
+  total: number;
+  /** There are more than the list holds. */
+  more: boolean;
+  city: string;
+  filed: boolean;
+};
 export type OwnerEmailState = 'drafted' | 'scheduled' | 'emailed' | 'replied' | 'opted_out';
 export type MailboxInfo = {
   connected: { email: string; name?: string; dailyCap: number; connectedAt: string } | null;
@@ -1508,6 +1517,8 @@ export const outreachAPI = {
     watchOn(api.outreach.progress, { organizationId }, onUpdate, onError),
   /** Who to call today: follow-ups due, leads nobody has called, and owners whose phone was found this week. `day` is the device's own date. */
   today: (organizationId: string, day: string): Promise<OutreachToday> => run('query', api.outreach.today, { organizationId, day }),
+  /** Everything an owner holds on the county roll, the most valuable first (their row carries only the top one). */
+  properties: (organizationId: string, contactId: string): Promise<OwnerProperties> => run('query', api.outreach.properties, { organizationId, contactId }),
   /** Asks for the lists' numbers (worked, sent, sold) to be counted again where owners changed; they arrive on the lists (watchLists). */
   tally: (organizationId: string): Promise<{ counting: number }> => run('mutation', api.outreach.tally, { organizationId }),
   /** The lists, now and on every change. Returns a stop function. */

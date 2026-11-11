@@ -4,8 +4,9 @@ import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import { tidyCase } from '../../../convex/lib/addressCase';
-import { emailAPI, type OutreachCell, type OutreachContact, type OutreachContacts, type OutreachCoverage, type OutreachField, type OutreachPhone, type OutreachRowStatus, type OutreachSignal, type OutreachTry, type OutreachWho, type OwnerEmails } from '../../lib/api';
+import { emailAPI, outreachAPI, type OwnerProperties, type OutreachCell, type OutreachContact, type OutreachContacts, type OutreachCoverage, type OutreachField, type OutreachPhone, type OutreachRowStatus, type OutreachSignal, type OutreachTry, type OutreachWho, type OwnerEmails } from '../../lib/api';
 import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
+import { isCommercialUse, isMultifamilyUse } from '../../../convex/lib/parcels';
 import { askingText, callOk, deedSearch, emailStateText, dueAgain, isSimulated, LEAD_STAGE, mailingLine, nobodyToReach, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
 import { operatorBasis, operatorEmails, operatorHolding, operatorPhones, operatorWaiting, ownerItems, type Operator, type Operators } from './operators';
 
@@ -1394,6 +1395,7 @@ export const ContactSheet: React.FC<{
                 {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}
                 {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
               </div>
+              {organizationId && row.properties > 1 && <OwnerPropertiesList key={row.id} organizationId={organizationId} contactId={row.id} count={row.properties} />}
               {deeds && (
                 <a href={deeds.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
                   <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
@@ -1460,6 +1462,83 @@ export const ContactSheet: React.FC<{
   );
 };
 
+/** What a property is, in a word, from the appraisal district's use code. */
+const useWord = (code: string) => (isCommercialUse(code) ? 'Commercial' : isMultifamilyUse(code) ? 'Apartments' : 'Home');
+
+/**
+ * Everything an owner holds, in their sheet: their row carries only the most valuable property, so the rest are read
+ * from the roll when asked for. Each address opens in Maps.
+ */
+const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string; count: number }> = ({ organizationId, contactId, count }) => {
+  const [list, setList] = useState<OwnerProperties | null>(null);
+  const [shown, setShown] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const button = 'inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px] disabled:opacity-60';
+  const show = async () => {
+    setShown(true);
+    // Read once per opening of the sheet; an unfinished or failed read is asked again.
+    if (busy || (list?.filed && !failed)) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      setList(await outreachAPI.properties(organizationId, contactId));
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!shown) {
+    return (
+      <button type="button" onClick={() => void show()} className={button} data-testid="all-properties">
+        <ChevronRight className="w-4 h-4 shrink-0" /> Show all {count} properties
+      </button>
+    );
+  }
+  const left = list ? list.total - list.rows.length : 0;
+  return (
+    <div data-testid="property-list">
+      <button type="button" onClick={() => setShown(false)} className={button}>
+        <ChevronRight className="w-4 h-4 shrink-0 rotate-90" /> Hide the list
+      </button>
+      {busy && !list && <p className="text-sm text-gray-500 pb-2">Reading the county roll…</p>}
+      {failed && (
+        <p className="text-sm text-gray-400 pb-2">
+          Couldn’t read the list.{' '}
+          <button type="button" onClick={() => void show()} className="text-[#7fb0e0] underline">
+            Try again
+          </button>
+        </p>
+      )}
+      {list && !list.filed && <p className="text-sm text-gray-400 pb-2">The full list is still being put together. Try again in a few minutes.</p>}
+      {list && list.rows.length > 0 && (
+        <ul className="divide-y divide-white/5 border-y border-white/5">
+          {list.rows.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 min-h-[44px] py-1.5">
+              <div className="min-w-0 flex-1">
+                <AddressLink address={fullAddress(p.address, list.city, 'TX')} className="text-[15px] text-[#7fb0e0]">
+                  {p.address}
+                </AddressLink>
+                <div className="text-xs text-gray-500 truncate">
+                  {useWord(p.useCode)}
+                  {p.owner ? ` · ${p.owner}` : ''}
+                </div>
+              </div>
+              <div className="text-sm text-gray-300 tabular-nums shrink-0">{p.valueCents ? shortMoney(p.valueCents) : ''}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {list && list.filed && left > 0 && (
+        <p className="text-xs text-gray-500 pt-2">
+          {list.more ? `The ${list.rows.length} most valuable are listed; ${left} more aren\u2019t shown.` : `${left} more ${left === 1 ? 'isn\u2019t' : 'aren\u2019t'} on the roll we read (land, or sold since).`}
+        </p>
+      )}
+    </div>
+  );
+};
+
 /** An owner's emails from Outreach, in their sheet: each one sent or waiting, and their reply. */
 const OwnerEmailsSection: React.FC<{ organizationId: string; contactId: string; label: string }> = ({ organizationId, contactId, label }) => {
   const [mine, setMine] = useState<OwnerEmails | null>(null);
@@ -1495,7 +1574,7 @@ const OwnerEmailsSection: React.FC<{ organizationId: string; contactId: string; 
           </li>
         ))}
       </ul>
-      {mine.state === 'opted_out' && <p className="text-xs text-gray-500 pt-1">Unsubscribed: they won\u2019t be emailed again.</p>}
+      {mine.state === 'opted_out' && <p className="text-xs text-gray-500 pt-1">Unsubscribed: they won’t be emailed again.</p>}
     </div>
   );
 };

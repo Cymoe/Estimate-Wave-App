@@ -103,6 +103,12 @@ const tally = jest.fn(async () => ({ counting: 0 }));
 // Today's calls, as the server would answer; null is a backend with nothing to say (the page shows no line about it).
 let todaySheet: Record<string, unknown> | null = null;
 const getToday = jest.fn(async () => todaySheet);
+// An owner's properties from the roll, as the server would answer.
+let ownerProperties: Record<string, unknown> | Error = { rows: [], total: 0, more: false, city: 'Midland', filed: true };
+const getProperties = jest.fn(async (_o: string, _id: string) => {
+  if (ownerProperties instanceof Error) throw ownerProperties;
+  return ownerProperties;
+});
 const logContact = jest.fn(async () => null);
 const updateLead = jest.fn(async () => null);
 // The lookups' narration feed, apart from the owners.
@@ -126,6 +132,7 @@ jest.mock('../../lib/api', () => ({
   },
   outreachAPI: {
     today: (...args: unknown[]) => getToday(...(args as [])),
+    properties: (...args: unknown[]) => getProperties(...(args as [string, string])),
     lists: async () => lists,
     contacts: (...args: unknown[]) => getContacts(...(args as [])),
     interpret: (...args: unknown[]) => interpret(...(args as [])),
@@ -2273,5 +2280,78 @@ describe('the Outreach page', () => {
     expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(7);
     const noted = Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).filter((r) => r.querySelector('[data-testid="related"]')).map((r) => r.querySelector('td')!.firstChild!.textContent);
     expect(noted).toEqual(['Ortega Rentals LLC', 'Caddo Plaza LLC']);
+  });
+
+  it("an owner's sheet lists everything they hold, read from the roll when asked for", async () => {
+    lists = [list];
+    contacts = { ...twoContacts(), rows: peopleRows(), coverage: coverage(2, 1, 4, 7) };
+    getProperties.mockClear();
+    await render('/outreach/l1');
+    const owners = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"]'));
+    const dialog = () => document.body.querySelector('[role="dialog"]')!;
+    const showAll = () => dialog().querySelector('[data-testid="all-properties"]') as HTMLButtonElement | null;
+    const listed = () => dialog().querySelector('[data-testid="property-list"]');
+
+    // City Of Midland holds four: the sheet offers them, and reads nothing until asked.
+    await act(async () => (owners()[1] as HTMLElement).click());
+    expect(showAll()!.textContent).toContain('Show all 4 properties');
+    expect(getProperties).not.toHaveBeenCalled();
+
+    // The first try fails: it says so and can be asked again.
+    ownerProperties = new Error('offline');
+    await act(async () => showAll()!.click());
+    await flush();
+    expect(listed()!.textContent).toContain('Couldn’t read the list.');
+    ownerProperties = {
+      rows: [
+        { id: 'p1', address: '300 N Loraine St', useCode: 'F1', valueCents: 60_000_000 },
+        { id: 'p2', address: '12 Elm St', useCode: 'B1', valueCents: 40_000_000 },
+        { id: 'p3', address: '7 Oak Ave', useCode: 'A1' },
+      ],
+      total: 4,
+      more: false,
+      city: 'Midland',
+      filed: true,
+    };
+    await act(async () => (Array.from(listed()!.querySelectorAll('button')).find((b) => b.textContent === 'Try again') as HTMLButtonElement).click());
+    await flush();
+    expect(getProperties).toHaveBeenLastCalledWith('o1', 'r2');
+    const items = () => Array.from(listed()!.querySelectorAll('li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(items()).toEqual(['300 N Loraine StCommercial$600K', '12 Elm StApartments$400K', '7 Oak AveHome']);
+    // Each address opens in Maps, with the city the roll is for.
+    expect(listed()!.querySelector('li a')!.getAttribute('aria-label')).toBe('Open 300 N Loraine St, Midland, TX in Apple Maps');
+    // One of the four isn't a building the roll read keeps.
+    expect(listed()!.textContent).toContain('1 more isn’t on the roll we read');
+
+    // Hidden and shown again without another read.
+    const calls = getProperties.mock.calls.length;
+    await act(async () => (listed()!.querySelector('button') as HTMLButtonElement).click());
+    expect(listed()).toBeNull();
+    await act(async () => showAll()!.click());
+    expect(items()).toHaveLength(3);
+    expect(getProperties).toHaveBeenCalledTimes(calls);
+    await act(async () => (dialog().querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
+    await flush();
+
+    // A big holder: the most valuable are listed, and the sheet says how many more there are.
+    ownerProperties = { rows: [{ id: 'p9', address: '100 W Wall St', useCode: 'F1', valueCents: 900_000_000 }], total: 60, more: true, city: 'Midland', filed: true };
+    await act(async () => (owners()[0] as HTMLElement).click());
+    await act(async () => showAll()!.click());
+    await flush();
+    expect(listed()!.textContent).toContain('The 1 most valuable are listed; 59 more aren’t shown.');
+    await act(async () => (dialog().querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
+    await flush();
+
+    // While the roll read before this is still being sorted by owner, it says to come back, and asks again when it is.
+    ownerProperties = { rows: [], total: 40, more: false, city: 'Midland', filed: false };
+    await act(async () => (owners()[2] as HTMLElement).click());
+    await act(async () => showAll()!.click());
+    await flush();
+    expect(listed()!.textContent).toContain('still being put together');
+    const before = getProperties.mock.calls.length;
+    await act(async () => (listed()!.querySelector('button') as HTMLButtonElement).click());
+    await act(async () => showAll()!.click());
+    await flush();
+    expect(getProperties).toHaveBeenCalledTimes(before + 1);
   });
 });
