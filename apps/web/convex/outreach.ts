@@ -21,6 +21,7 @@ import { listResults, outreachDefinition, outreachEmail, outreachField, outreach
 import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
+import { setupMissing as gmailSetupMissing } from "./lib/gmail";
 import { signalsAt, type StoredSignal } from "./lib/contactSignals";
 import {
   DEFAULT_ROWS,
@@ -1503,6 +1504,34 @@ async function readyCounties(ctx: QueryCtx): Promise<string[]> {
     return Boolean(s && !s.error && s.fetched > 0);
   });
 }
+
+/**
+ * What going live still needs, read off the deployment: which sources hold a key, whether email, replies, research
+ * and adding funds are set up, and whether anything is stuck. Yes/no and counts only: never a key's value.
+ * Run by hand: `npx convex run outreach:readiness`.
+ */
+export const readiness = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const env = process.env;
+    const on = (xs: Array<{ name: string; connected: boolean }>) => Object.fromEntries(xs.map((x) => [x.name, x.connected]));
+    const rolls = await ctx.db.query("permitSources").take(200);
+    const waiting = await ctx.db.query("outreachQueue").take(2000);
+    return {
+      simulatedLookups: simulating(),
+      sources: on(vendors(env)),
+      phoneCheckers: on(phoneCheckers(env)),
+      doNotCallScrub: phoneScrub(env).connected,
+      emailChecker: verifier(env).connected,
+      aiResearchAndDrafts: Boolean(env.ANTHROPIC_API_KEY),
+      gmailSendingMissing: gmailSetupMissing(env),
+      emailReplies: { resendKey: Boolean(env.RESEND_API_KEY), replyDomain: Boolean(env.REPLY_DOMAIN), webhookSecret: Boolean(env.RESEND_WEBHOOK_SECRET) },
+      addFunds: { stripeKey: Boolean(env.STRIPE_SECRET_KEY), stripeWebhook: Boolean(env.STRIPE_WEBHOOK_SECRET) },
+      dataReads: { sources: rolls.length, withError: rolls.filter((r) => r.error).map((r) => r.source), empty: rolls.filter((r) => !r.error && r.fetched === 0).map((r) => r.source) },
+      lookupQueue: { waiting: waiting.filter((w) => w.state === "queued").length, running: waiting.filter((w) => w.state === "active").length },
+    };
+  },
+});
 
 /** Staff: the stack in order, whether each source is connected, and how it has done for this company. */
 export const sources = query({
