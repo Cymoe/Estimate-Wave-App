@@ -2296,6 +2296,13 @@ describe('the Outreach page', () => {
     await act(async () => (owners()[1] as HTMLElement).click());
     expect(showAll()!.textContent).toContain('Show all 4 properties');
     expect(getProperties).not.toHaveBeenCalled();
+    // The button and the deeds link under it are each a line of their own, never side by side.
+    const deedsLink = dialog().querySelector('[data-testid="deeds"]')!;
+    expect(showAll()!.nextElementSibling).toBe(deedsLink);
+    for (const el of [showAll()!, deedsLink]) {
+      expect(el.className.split(' ')).toContain('flex');
+      expect(el.className).not.toContain('inline');
+    }
 
     // The first try fails: it says so and can be asked again.
     ownerProperties = new Error('offline');

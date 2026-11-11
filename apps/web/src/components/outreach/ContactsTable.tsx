@@ -1397,7 +1397,7 @@ export const ContactSheet: React.FC<{
               </div>
               {organizationId && row.properties > 1 && <OwnerPropertiesList key={row.id} organizationId={organizationId} contactId={row.id} count={row.properties} />}
               {deeds && (
-                <a href={deeds.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
+                <a href={deeds.url} target="_blank" rel="noreferrer" className="flex w-fit items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
                   <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
                   {!deeds.named && <span className="text-gray-500">{' '}· search {row.name}</span>}
                 </a>
@@ -1474,7 +1474,8 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
   const [shown, setShown] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  const button = 'inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px] disabled:opacity-60';
+  // A line of its own (not inline): the deeds link under it would otherwise run on from it.
+  const button = 'flex w-fit items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px] disabled:opacity-60';
   const show = async () => {
     setShown(true);
     // Read once per opening of the sheet; an unfinished or failed read is asked again.
