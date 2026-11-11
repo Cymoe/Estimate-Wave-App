@@ -58,6 +58,7 @@ import {
   type Facet,
   type OwnerContact,
   type OwnerRow, COUNTY_PLACES, cityOf, knownCounty } from "./lib/outreach";
+import { tidyCase } from "./lib/addressCase";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
@@ -1201,7 +1202,7 @@ async function sendOne(
         updatedAt: now,
       });
     } else {
-      const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
+      const mailing = [tidyCase(contact.mailing.address), tidyCase(contact.mailing.city), contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
       const notes = [
         `From Outreach. ${contact.why}.`,
         mailing ? `Mailing address: ${mailing}.` : "",
@@ -1218,7 +1219,7 @@ async function sendOne(
         // Under a client, the client's number and email when the lookup has none: nothing to pay for.
         ...(phone ? { phone: phone.number } : client?.phone ? { phone: client.phone } : {}),
         ...(email ? { email: email.email } : client?.email ? { email: client.email } : {}),
-        ...(contact.property?.address ? { address: contact.property.address, city: cityOf(await countyOfOwner(ctx, contact)) } : {}),
+        ...(contact.property?.address ? { address: tidyCase(contact.property.address), city: cityOf(await countyOfOwner(ctx, contact)) } : {}),
         source: "Outreach",
         status: "new",
         notes,

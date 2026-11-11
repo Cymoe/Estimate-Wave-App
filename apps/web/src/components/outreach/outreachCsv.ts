@@ -1,6 +1,7 @@
 import { toCsv } from '../../../convex/lib/signals';
 import type { OutreachContact } from '../../lib/api';
 import { phoneText, STATUS_LABEL } from './format';
+import { tidyCase } from '../../../convex/lib/addressCase';
 
 /** The contacts as a CSV: one row per owner, the mailing address split for a mail merge, phones and emails where unlocked. */
 export function outreachCsv(rows: OutreachContact[]): string {
@@ -19,11 +20,11 @@ export function outreachCsv(rows: OutreachContact[]): string {
       r.emails.map((e) => e.email).join(' '),
       STATUS_LABEL[r.status] ?? r.status,
       r.note ?? '',
-      r.mailing.address ?? '',
-      r.mailing.city ?? '',
+      tidyCase(r.mailing.address) ?? '',
+      tidyCase(r.mailing.city) ?? '',
       r.mailing.state ?? '',
       r.mailing.zip?.slice(0, 5) ?? '',
-      r.property?.address ?? '',
+      tidyCase(r.property?.address) ?? '',
       r.property?.valueCents ? Math.round(r.property.valueCents / 100) : '',
       r.properties,
       Math.round(r.totalValueCents / 100),

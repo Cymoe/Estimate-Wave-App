@@ -33,6 +33,7 @@ import {
 } from "./lib/emailOutreach";
 import { authUrl, isRevoked, rawMessage, refreshAccess, sendRaw, setupMissing } from "./lib/gmail";
 import { apiOrigin, randomToken, sha256 } from "./lib/oauth";
+import { tidyCase } from "./lib/addressCase";
 import { cityOf, knownCounty } from "./lib/outreach";
 import { open } from "./lib/secretBox";
 import { cellFor, cellsOf, isSampleRun, leadFromReply, requirePro } from "./outreach";
@@ -294,8 +295,9 @@ export const draftJobs = internalQuery({
             name: c.name,
             company: c.company,
             person: c.person && !cellFor(cellsOf(c), "person").simulated ? { name: c.person.name, title: c.person.title, source: c.person.source } : undefined,
-            property: c.property ? { address: c.property.address, city, state: "TX" } : undefined,
-            mailing: c.mailing,
+            // The roll's capitals tidied, so a draft says "About 1200 N Garfield St".
+            property: c.property ? { address: tidyCase(c.property.address), city, state: "TX" } : undefined,
+            mailing: { ...c.mailing, address: tidyCase(c.mailing.address), city: tidyCase(c.mailing.city) },
           },
           why: c.why,
           signals: (c.signals ?? []).slice(0, 2).map((s) => `${SIGNAL_WORDS[s.kind] ?? s.kind}, ${s.detail}, ${new Date(s.date).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" })}`),
@@ -381,7 +383,7 @@ export const campaign = query({
         contactId,
         name: c.person?.name ?? c.name,
         company: c.company,
-        property: c.property?.address,
+        property: tidyCase(c.property?.address),
         to: list[0].to,
         sample: Boolean(list[0].sample),
         replied: c.email?.state === "replied",

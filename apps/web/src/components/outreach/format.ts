@@ -1,6 +1,7 @@
-/** The mailing line as a letter would carry it: "1 MAIN ST, DALLAS, TX, 75201". */
+import { tidyCase } from '../../../convex/lib/addressCase';
+/** The mailing line as a letter would carry it: "1 Main St, Dallas, TX, 75201" (the roll's capitals tidied). */
 export const mailingLine = (m: { address?: string; city?: string; state?: string; zip?: string }) =>
-  [m.address, [m.city, m.state].filter(Boolean).join(', '), m.zip?.slice(0, 5)].filter(Boolean).join(', ');
+  [tidyCase(m.address), [tidyCase(m.city), m.state].filter(Boolean).join(', '), m.zip?.slice(0, 5)].filter(Boolean).join(', ');
 
 /** "4325550100" → "(432) 555-0100". */
 export const phoneText = (n: string) => (n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : n);

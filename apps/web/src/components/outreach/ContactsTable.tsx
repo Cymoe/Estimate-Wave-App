@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, Mess
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
+import { tidyCase } from '../../../convex/lib/addressCase';
 import { emailAPI, type OutreachCell, type OutreachContact, type OutreachContacts, type OutreachCoverage, type OutreachField, type OutreachPhone, type OutreachRowStatus, type OutreachSignal, type OutreachTry, type OutreachWho, type OwnerEmails } from '../../lib/api';
 import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
 import { askingText, callOk, deedSearch, emailStateText, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
@@ -36,7 +37,7 @@ const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { m
 const monthYear = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 const kindsText = (kinds: OutreachWho[]) => kinds.map((k) => KIND[k]).join(', ');
 /** "DALLAS, TX 75201" under the street. */
-const cityLine = (m: OutreachContact['mailing']) => [m.city, [m.state, m.zip?.slice(0, 5)].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+const cityLine = (m: OutreachContact['mailing']) => [tidyCase(m.city), [m.state, m.zip?.slice(0, 5)].filter(Boolean).join(' ')].filter(Boolean).join(', ');
 
 /** "12 / 200 · 2 sources" under a column's name. */
 const Coverage: React.FC<{ c: OutreachCoverage; of?: string }> = ({ c, of }) => (
@@ -186,8 +187,8 @@ const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis'
  * arrive (a lookup's narration, a phone landing): what doesn't fit is cut
  * with an ellipsis instead of widening its column.
  */
-/** The table's columns after the checkbox and the name, in order. */
-const COLUMN_KEYS = ['person', 'phone', 'email', 'research', 'status', 'mailing', 'property', 'value', 'type', 'signals'] as const;
+/** The table's columns after the name, in order: Status first, pinned beside the name on a tablet or wider. */
+const COLUMN_KEYS = ['status', 'person', 'phone', 'email', 'research', 'mailing', 'property', 'value', 'type', 'signals'] as const;
 type ColumnKey = (typeof COLUMN_KEYS)[number];
 const WIDTH: Record<'name' | ColumnKey, number> = {
   name: 16,
@@ -195,7 +196,7 @@ const WIDTH: Record<'name' | ColumnKey, number> = {
   phone: 12.5,
   email: 15,
   research: 18,
-  status: 6,
+  status: 7,
   mailing: 15,
   property: 13,
   value: 6,
@@ -239,6 +240,8 @@ const holding = (r: OutreachContact) => (r.properties > 1 ? `${r.properties} pro
 
 /** The checkbox and the name stay put while the roll columns scroll under them. */
 const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
+/** Status, beside the name: pinned too on a tablet or wider (on a phone two pinned columns would fill the screen). */
+const pinStatus = 'max-md:static md:sticky md:left-[16rem] border-r border-[#333333]';
 
 /**
  * The CRM: one row per owner. What the row has comes first (the person
@@ -313,6 +316,8 @@ export const ContactsTable: React.FC<{
                   'Name'
                 )}
               </th>
+              {/* Where each owner stands, always in view beside the name (pinned on a tablet or wider) while the rest scroll. */}
+              <th className={`${thBase} ${pinStatus} md:z-30 bg-[#121212]`}>Status</th>
               <th className={th}>
                 Decision maker
                 <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
@@ -329,7 +334,6 @@ export const ContactsTable: React.FC<{
                 Research
                 <Coverage c={coverage.research} />
               </th>
-              <th className={th}>Status</th>
               <th className={th}>Mailing address</th>
               <th className={th}>Property</th>
               <th className={`${th} text-right`}>Value</th>
@@ -372,6 +376,10 @@ export const ContactsTable: React.FC<{
                         Simulated
                       </span>
                     )}
+                  </td>
+                  <td className={`${pinned} ${pinStatus} md:z-10 ${td} ${statusTone(r.status)}`}>
+                    {STATUS_LABEL[r.status] ?? r.status}
+                    {r.leadId && r.leadStage && <span className="block text-[11px] text-gray-500">{LEAD_STAGE[r.leadStage] ?? r.leadStage}</span>}
                   </td>
                   <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'person')}`}>
                     {r.person ? (
@@ -416,16 +424,12 @@ export const ContactsTable: React.FC<{
                   <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
                     {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
                   </td>
-                  <td className={`${td} ${statusTone(r.status)}`}>
-                    {STATUS_LABEL[r.status] ?? r.status}
-                    {r.leadId && r.leadStage && <span className="block text-[11px] text-gray-500">{LEAD_STAGE[r.leadStage] ?? r.leadStage}</span>}
-                  </td>
                   <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
-                    {r.mailing.address ?? ''}
+                    {tidyCase(r.mailing.address) ?? ''}
                     {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
                   </td>
                   <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
-                    {r.property ? r.property.address : <span className="text-gray-600">{r.company ?? '—'}</span>}
+                    {r.property ? tidyCase(r.property.address) : <span className="text-gray-600">{r.company ?? '—'}</span>}
                     {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
                     {placeOf?.(r) ? <span className="block text-[11px] text-gray-500" data-testid="place">{placeOf(r)}</span> : null}
                   </td>
@@ -524,7 +528,7 @@ export const ContactCards: React.FC<{
               <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
                 <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
                 <span className="block text-xs text-gray-500">
-                  {holding(r) || (r.property?.address ?? r.company ?? '')}
+                  {holding(r) || (tidyCase(r.property?.address) ?? r.company ?? '')}
                   {placeOf?.(r) ? ` · ${placeOf(r)}` : ''}
                   {r.related?.length ? ` · +${r.related.length} related` : ''}
                 </span>
@@ -760,9 +764,9 @@ export const ContactSheet: React.FC<{
     onClose();
   };
   const enrich = (fields: OutreachField[], asked?: string) => run(() => onEnrich(row, fields, asked), "Couldn't start that");
-  const property = row.property ? fullAddress(row.property.address, cityOf(county), 'TX') : undefined;
+  const property = row.property ? fullAddress(tidyCase(row.property.address), cityOf(county), 'TX') : undefined;
   const deeds = deedSearch(row.name, knownCounty(county));
-  const mailing = row.mailing.address ? fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5)) : undefined;
+  const mailing = row.mailing.address ? fullAddress(tidyCase(row.mailing.address), tidyCase(row.mailing.city), row.mailing.state, row.mailing.zip?.slice(0, 5)) : undefined;
   const realtor = row.kinds.includes('realtor');
   const link = 'inline-flex items-center gap-2 text-[15px] text-[#7fb0e0] min-h-[44px]';
   const label = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
@@ -804,7 +808,7 @@ export const ContactSheet: React.FC<{
                       {row.person.name}
                       {row.person.title ? <span className="text-gray-400"> · {row.person.title}</span> : null}
                     </div>
-                    {row.person.address && <div className="text-sm text-gray-400">{row.person.address}</div>}
+                    {row.person.address && <div className="text-sm text-gray-400">{tidyCase(row.person.address)}</div>}
                     <div className="text-xs text-gray-500">
                       From {sourceName(row.person.source)}
                       {row.person.confirmedBy?.length ? <span className="text-[#7fb0e0]"> · also named by {sourceList(row.person.confirmedBy)}</span> : null}
@@ -984,7 +988,7 @@ export const ContactSheet: React.FC<{
             <div className="py-3">
               <div className={label}>Property</div>
               <AddressLink address={property} className={link}>
-                <MapPin className="w-4 h-4 shrink-0" /> {row.property.address}
+                <MapPin className="w-4 h-4 shrink-0" /> {tidyCase(row.property.address)}
               </AddressLink>
               <div className="text-sm text-gray-400">
                 {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}

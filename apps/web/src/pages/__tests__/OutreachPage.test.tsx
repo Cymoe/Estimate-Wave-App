@@ -239,7 +239,7 @@ describe('the Outreach page', () => {
     await flush();
     await click('Skip');
     await flush();
-    const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[5].textContent;
+    const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[1].textContent;
     expect(statusOf()).toBe('New');
   });
 
@@ -581,15 +581,16 @@ describe('the Outreach page', () => {
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     expect(rows).toHaveLength(2);
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
-    // What the row has comes first; the roll's columns follow, with the name pinned as they scroll.
-    // The mailing address is one column: street, then city, state and zip under it.
+    // The name and where the owner stands come first (both pinned on a tablet), then what the row has; the roll's columns follow.
+    // The mailing address is one column: street, then city, state and zip under it, in normal capitals.
     // The name carries what the owner holds, as the cards do.
-    expect(cells(0)).toEqual(['Oak Plaza LLC$3M', '—', '—', '—', '—', 'New', '1 MAIN STDALLAS, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
+    expect(cells(0)).toEqual(['Oak Plaza LLC$3M', 'New', '—', '—', '—', '—', '1 Main StDallas, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
     expect(cells(1)[7]).toBe('12 Midkiff Rd +3');
     // An owner with several properties shows what they hold in all, the number the list is sorted on.
     expect(cells(1)[8]).toBe('$1.2M');
     expect(cells(1)[10]).toBe('Code violation Sep 2026');
     expect(rows[0].querySelectorAll('td')[0].className).toContain('sticky');
+    expect(rows[0].querySelectorAll('td')[1].className).toContain('md:sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
     // A tap on Name sorts: most parcels first, then A to Z, then back to the list's own order, remembered on this device.
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.firstChild!.textContent);
@@ -608,7 +609,7 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
     expect(localStorage.getItem('outreach.sort')).toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['NameNewest first', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['NameNewest first', 'Status', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
     // Open the picker and pick the list.
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
     await click('Shopping center owners');
@@ -648,7 +649,7 @@ describe('the Outreach page', () => {
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
     expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Status: All']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
-    const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
+    const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
     await act(async () => (failedCell.querySelector('button') as HTMLButtonElement).click());
     await flush();
@@ -762,7 +763,7 @@ describe('the Outreach page', () => {
     expect(built.querySelector('[data-testid="built-county"]')!.textContent).toBe('in Midland County');
     expect(built.textContent).toContain('Owners of commercial buildings on the roll; no phone numbers.');
     expect(built.querySelectorAll('[aria-label="Preview"] li')).toHaveLength(2);
-    expect(built.textContent).toContain('1 MAIN ST, DALLAS, TX, 75201');
+    expect(built.textContent).toContain('1 Main St, Dallas, TX, 75201');
     // Each row shows the owner's holdings, what the list is sorted on: one building's value, or how many properties and their total.
     const previewRows = Array.from(built.querySelectorAll('[aria-label="Preview"] li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
     expect(previewRows[0]).toContain('Oak Plaza LLC$3M');
@@ -962,7 +963,7 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     expect(Array.from(sheet.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
-      'https://maps.apple.com/?q=1%20MAIN%20ST%2C%20DALLAS%2C%20TX%2075201',
+      'https://maps.apple.com/?q=1%20Main%20St%2C%20Dallas%2C%20TX%2075201',
       'https://maps.apple.com/?q=12%20Midkiff%20Rd%2C%20Odessa%2C%20TX',
       'https://ectorcountytx-web.tylerhost.net/web/',
     ]);
@@ -978,7 +979,7 @@ describe('the Outreach page', () => {
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     const links = Array.from(sheet.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(links).toEqual([
-      'https://maps.apple.com/?q=1%20MAIN%20ST%2C%20DALLAS%2C%20TX%2075201',
+      'https://maps.apple.com/?q=1%20Main%20St%2C%20Dallas%2C%20TX%2075201',
       'https://maps.apple.com/?q=12%20Midkiff%20Rd%2C%20Midland%2C%20TX',
       'https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=Oak%20Plaza%20LLC',
     ]);
@@ -1130,12 +1131,12 @@ describe('the Outreach page', () => {
     expect(localStorage.getItem('outreach.batch')).toBe('{"at":"2026-11-05T15:00:00Z"}');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
-    expect(cells(0)[1]).toBe('Dana ReyesManager · 2 sources agree');
-    expect(cells(0).slice(2, 4)).toEqual(['(432) 555-0100mobile · verified · +2', 'dana@oakplaza.comverified']);
+    expect(cells(0)[2]).toBe('Dana ReyesManager · 2 sources agree');
+    expect(cells(0).slice(3, 5)).toEqual(['(432) 555-0100mobile · verified · +2', 'dana@oakplaza.comverified']);
     // A running cell says what it's doing, and the last thing it found.
     // One not picked up yet, asked a while ago, says it's waiting its turn rather than "Starting" forever.
-    expect(cells(1).slice(1, 4)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Waiting its turn…']);
-    expect(cells(0)[4]).toBe('—');
+    expect(cells(1).slice(2, 5)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Waiting its turn…']);
+    expect(cells(0)[5]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     // Nothing left to look up on the list: the top-right button is gone.
     expect(button('Find phones & emails')).toBeUndefined();
@@ -1178,7 +1179,7 @@ describe('the Outreach page', () => {
     };
     await render();
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
-    expect(Array.from(rows[1].querySelectorAll('td'))[4].textContent).toBe('The City of Midland owns the lot; a parks bond passed in 2026.');
+    expect(Array.from(rows[1].querySelectorAll('td'))[5].textContent).toBe('The City of Midland owns the lot; a parks bond passed in 2026.');
     await act(async () => (rows[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     const box = sheet.querySelector('textarea[aria-label="Research question"]') as HTMLTextAreaElement;
@@ -1224,7 +1225,7 @@ describe('the Outreach page', () => {
     contacts = { ...twoContacts(), balanceCents: 500, rows: [contact('r1', { enrichment: looked(old) }), contact('r2', { name: 'City Of Midland', enrichment: looked(recent) })] };
     await render('/outreach/l1');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
-    const phoneCell = (i: number) => rows[i].querySelectorAll('td')[2];
+    const phoneCell = (i: number) => rows[i].querySelectorAll('td')[3];
     expect(phoneCell(0).textContent).toBe('None foundTry again');
     expect(phoneCell(1).textContent).toBe('None found');
     // Only the month-old one is still open to the list's Look up; the fresh "none" isn't asked again.
@@ -1265,6 +1266,48 @@ describe('the Outreach page', () => {
     lists = [{ ...list, rowCount: 2, total: 2 }];
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
+  });
+
+  it('finding phones & emails on a list with owners not loaded yet asks to load them first, or covers just the loaded ones', async () => {
+    lists = [{ ...list, rowCount: 2, total: 3 }];
+    contacts = { ...twoContacts(), balanceCents: 1000 };
+    await render('/outreach/l1');
+    // Load all first: the list's next page, read again, then the cost covers all three.
+    extend.mockImplementationOnce(async () => {
+      contacts = { ...contacts, rows: [...contacts.rows, contact('r3', { key: 'k-3', name: 'Third Owner LLC' })] };
+      lists = [{ ...list, rowCount: 3, total: 3 }];
+      return { loaded: 1, added: 1, rowCount: 3, total: 3, truncated: false };
+    });
+    await click('Find phones & emails (2)');
+    expect(document.body.textContent).toContain("1 owner on “Shopping center owners” isn't loaded yet");
+    expect(document.body.textContent).toContain('Finding phones & emails now covers the 2 loaded.');
+    await click('Load all 3 first');
+    expect(extend).toHaveBeenCalledTimes(1);
+    expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
+    expect(document.body.textContent).toContain('Find phones & emails for the 3 owners on “Shopping center owners”?');
+    await click('Find them');
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r1', 'r2', 'r3'], undefined, undefined);
+
+    // Just these: no loading, straight to the cost for the ones on screen.
+    clearPage();
+    jest.clearAllMocks();
+    lists = [{ ...list, rowCount: 2, total: 40 }];
+    contacts = { ...twoContacts(), balanceCents: 1000 };
+    await render('/outreach/l1');
+    await click('Find phones & emails (2)');
+    expect(document.body.textContent).toContain("38 owners on “Shopping center owners” aren't loaded yet");
+    await click('Just these 2');
+    expect(extend).not.toHaveBeenCalled();
+    await click('Find them');
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r1', 'r2'], undefined, undefined);
+
+    // A list holding everyone it reaches: no extra question.
+    clearPage();
+    jest.clearAllMocks();
+    lists = [{ ...list, rowCount: 2, total: 2 }];
+    await render('/outreach/l1');
+    await click('Find phones & emails (2)');
+    expect(document.body.textContent).toContain('Find phones & emails for the 2 owners on “Shopping center owners”?');
   });
 
   it('draws a long list 200 owners at a time, with Show more for the rest', async () => {

@@ -21,7 +21,7 @@ import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
-import { DEFAULT_ROWS, cityOf, listOrder } from '../../convex/lib/outreach';
+import { DEFAULT_ROWS, MAX_ROWS, cityOf, listOrder } from '../../convex/lib/outreach';
 import { callOk, isSimulated, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -286,6 +286,8 @@ const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolea
 };
 /** What the main button does, in words: the person behind each owner, their phone and their email. */
 const findLabel = (n: number) => `Find phones & emails (${n.toLocaleString('en-US')})`;
+/** At most this many more owners are loaded in one go before finding phones & emails for a whole list (four pages). */
+const LOAD_REST_MAX = 2000;
 
 const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const row = useRef<HTMLDivElement>(null);
@@ -680,7 +682,6 @@ const OutreachPage: React.FC = () => {
   // The header's buttons act on the whole list (or every contact): everyone a lookup would run on, and everyone with no research yet.
   // Someone already a client or a lead isn't looked up in bulk: their number is already in the app. One can still be looked up from its sheet.
   const listOpen = (data?.rows ?? []).filter((r) => hasLock(r) && !r.known);
-  const listKnown = (data?.rows ?? []).filter((r) => hasLock(r) && r.known).length;
   const listPhones = listOpen.filter(needsPhone).length;
   const listResearch = (data?.rows ?? []).filter(needsResearch);
   const researchCost = listResearch.length * researchCents;
@@ -762,21 +763,88 @@ const OutreachPage: React.FC = () => {
     }
   };
 
-  /** Everyone on the open list (or every contact) who still has a lock, after a word on the cost. */
+  /**
+   * The rest of the open list (up to LOAD_REST_MAX more owners), loaded a page at a time, then the list read again:
+   * the owners it holds now, or null when it couldn't.
+   */
+  const loadRest = async (): Promise<OutreachContact[] | null> => {
+    if (!organizationId || !listId || !list) return null;
+    setExtending(true);
+    setError(null);
+    try {
+      const stop = list.rowCount + LOAD_REST_MAX;
+      let at = { rowCount: list.rowCount, total: list.total ?? 0 };
+      while (at.rowCount < at.total && at.rowCount < stop) {
+        const next = await outreachAPI.extend(organizationId, listId);
+        // Nothing more came (the roll changed under it): stop rather than ask again.
+        if (next.rowCount <= at.rowCount) break;
+        at = next;
+      }
+      const [l, c] = await Promise.all([outreachAPI.lists(organizationId), outreachAPI.contacts(organizationId, listId)]);
+      if (!live.current) return null;
+      setLists(keep(l));
+      takeContacts(`${organizationId}:${listId}`, c);
+      return c.rows;
+    } catch (err) {
+      if (live.current) setError(err instanceof Error ? err.message : "The rest of the list couldn't be loaded");
+      return null;
+    } finally {
+      if (live.current) setExtending(false);
+    }
+  };
+
+  /**
+   * Everyone on the open list (or every contact) who still has a lock, after a word on the cost. A list with owners not
+   * loaded yet asks first whether to load them too, so "find phones" doesn't quietly cover only the first page.
+   */
   const enrichAll = async () => {
     if (listOpen.length === 0) return;
-    const who = list ? `the ${listOpen.length} ${listOpen.length === 1 ? 'owner' : 'owners'} on “${list.title}”` : `all ${listOpen.length} ${listOpen.length === 1 ? 'contact' : 'contacts'}`;
+    let rows = data?.rows ?? [];
+    const more = list && !list.filling ? Math.max(0, (list.total ?? 0) - list.rowCount) : 0;
+    if (list && more > 0) {
+      const n = (x: number) => x.toLocaleString('en-US');
+      const take = Math.min(more, LOAD_REST_MAX);
+      const whole = take === more && !list.truncated;
+      const answer = await choose({
+        title: `${n(more)}${list.truncated ? '+' : ''} ${more === 1 ? 'owner' : 'owners'} on “${list.title}” ${more === 1 ? "isn't" : "aren't"} loaded yet`,
+        message: `Finding phones & emails now covers the ${n(list.rowCount)} loaded. Load ${whole ? 'the rest' : `the next ${n(take)}`} first and it covers them too; loading is free.`,
+        confirmLabel: whole ? `Load all ${n(list.rowCount + more)} first` : `Load ${n(take)} more first`,
+        altLabel: `Just these ${n(list.rowCount)}`,
+        tone: 'default',
+      });
+      if (!answer) return;
+      if (answer === 'confirm') {
+        const all = await loadRest();
+        if (!all) return;
+        rows = all;
+      }
+    }
+    const open = rows.filter((r) => hasLock(r) && !r.known);
+    if (open.length === 0) return;
+    const known = rows.filter((r) => hasLock(r) && r.known).length;
+    const phones = open.filter(needsPhone).length;
+    const who = list ? `the ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'owner' : 'owners'} on “${list.title}”` : `all ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'contact' : 'contacts'}`;
     const ok = await confirm({
       title: `Find phones & emails for ${who}?`,
-      message: `${listPhones} ${listPhones === 1 ? 'phone' : 'phones'} to find: ${estimate(listPhones)}. Charged only for phones found; the person behind each company and emails are free.${
-        listKnown ? ` ${listKnown} you already have as ${listKnown === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
+      message: `${phones} ${phones === 1 ? 'phone' : 'phones'} to find: ${estimate(phones)}. Charged only for phones found; the person behind each company and emails are free.${
+        known ? ` ${known} you already have as ${known === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
       }`,
       confirmLabel: 'Find them',
       // Going ahead, not removing anything: the blue button, not the red one.
       tone: 'default',
     });
     if (!ok) return;
-    await enrich(listOpen.map((r) => r.id)).catch(() => {});
+    // A page at a time, so no one request reads thousands of owners.
+    const ids = open.map((r) => r.id);
+    for (let i = 0; i < ids.length; i += MAX_ROWS) {
+      try {
+        await enrich(ids.slice(i, i + MAX_ROWS));
+      } catch {
+        // Refused (the balance): enrich says why; what's started stays started.
+        void load();
+        return;
+      }
+    }
   };
 
   /** A research answer for everyone on the list without one, after a word on the cost. */
