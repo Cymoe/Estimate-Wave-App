@@ -574,7 +574,9 @@ describe('the Outreach page', () => {
     Object.defineProperty(HTMLDivElement.prototype, 'clientWidth', { configurable: true, get: () => 900 });
     await render();
     // One picker instead of a chip per list.
-    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('All owners');
+    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('All owners2');
+    // The count beside the name, at a glance.
+    expect(document.body.querySelector('[data-testid="list-count"]')!.textContent).toBe('2');
     expect(document.body.querySelector('[aria-label="Lists"]')).toBeNull();
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     expect(rows).toHaveLength(2);
@@ -782,7 +784,7 @@ describe('the Outreach page', () => {
     expect(getContacts).toHaveBeenCalledWith('o1', 'l9');
     expect(path).toBe('/outreach/l9');
     expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Strip centers');
+    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Strip centers2');
     expect(document.body.querySelectorAll('[data-testid="contact-row"]').length).toBe(2);
   });
 
@@ -1438,7 +1440,7 @@ describe('the Outreach page', () => {
     await flush();
     expect(path).toBe('/outreach/unlisted');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'unlisted');
-    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Not on a list');
+    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Not on a list2');
     expect(document.body.querySelector('[data-testid="unlisted-line"]')!.textContent).toContain('Kept from lists you deleted, because you worked them.');
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     expect(button('Delete list')).toBeUndefined();
@@ -1457,7 +1459,7 @@ describe('the Outreach page', () => {
     contacts = twoContacts();
     await render('/outreach/l2');
     const picker = () => document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement;
-    expect(picker().textContent).toBe('Real estate investors, Midland');
+    expect(picker().textContent).toBe('Real estate investors, Midland1,000');
     await act(async () => picker().click());
     const panel = () => document.body.querySelector('[role="dialog"][aria-label="Lists"]')!;
     const headings = () => Array.from(panel().querySelectorAll('h3')).map((h) => h.textContent);

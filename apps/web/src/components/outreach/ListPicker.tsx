@@ -3,7 +3,7 @@ import { ChevronDown, LayoutGrid, Pin, PinOff, Search, X } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 import { countyOf } from './county';
-import { listProgress, recentLists, rememberList, UNLISTED } from './listsStore';
+import { listProgress, ownerTotal, recentLists, rememberList, UNLISTED } from './listsStore';
 
 /**
  * The lists, one tap away: the open list's name as a button; it opens a panel
@@ -20,6 +20,7 @@ export function ListPicker({
   onManage,
   compact = false,
   unlisted = 0,
+  count,
 }: {
   lists: OutreachListSummary[];
   currentId?: string;
@@ -30,6 +31,8 @@ export function ListPicker({
   compact?: boolean;
   /** Owners on no list (kept from deleted lists): a row of their own under All owners while there are any. */
   unlisted?: number;
+  /** How many owners All owners (or Not on a list) shows, beside its name; a list's own count comes from the list. */
+  count?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -226,6 +229,12 @@ export function ListPicker({
         }
       >
         <span className="truncate">{current ? current.title : currentId === UNLISTED ? 'Not on a list' : 'All owners'}</span>
+        {/* How many owners, at a glance beside the name. */}
+        {(current || count !== undefined) && (
+          <span className={`shrink-0 font-normal tabular-nums text-gray-400 ${compact ? 'text-sm' : 'text-base'}`} data-testid="list-count">
+            {current ? ownerTotal(current) : count!.toLocaleString('en-US')}
+          </span>
+        )}
         <ChevronDown className={`w-4 h-4 shrink-0 text-gray-500 transition-transform ${compact ? 'ml-auto' : ''} ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open &&

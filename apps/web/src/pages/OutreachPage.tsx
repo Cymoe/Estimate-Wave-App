@@ -995,7 +995,7 @@ const OutreachPage: React.FC = () => {
         <div className="min-w-0 flex-1">
           <h1 className="sr-only">Outreach</h1>
           {/* On a wide screen the open list's name is the page's title, a tap away from the others. */}
-          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} />}
+          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} />}
           {isStaff(user) && (
             <div className="md:mt-1 text-xs text-gray-500">
               <button type="button" onClick={() => setStaffOpen((v) => !v)} aria-expanded={staffOpen} className="md:hidden inline-flex items-center gap-1 min-h-[32px] text-gray-500 hover:text-white">
@@ -1123,7 +1123,7 @@ const OutreachPage: React.FC = () => {
       )}
       {/* The lists: one picker (search, pinned, recent, grouped by kind) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
       {lists && lists.length > 0 && narrow && !(data && data.rows.length > 0) && (
-        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} />
+        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} />
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
@@ -1179,7 +1179,7 @@ const OutreachPage: React.FC = () => {
           {narrow ? (
             <div className="flex w-full items-center gap-2 py-1.5">
               {lists && lists.length > 0 && !searching && (
-                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} compact />
+                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} compact />
               )}
               <SearchBox value={query} onChange={setQuery} onOpenChange={setSearching} />
               <PopMenu label={mixed ? 'Filter' : 'Filter by status'} icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all' || countyNow !== 'all'} size="w-9 h-9">
