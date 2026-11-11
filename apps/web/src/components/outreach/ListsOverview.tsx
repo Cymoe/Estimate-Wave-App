@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Pencil, Pin, PinOff, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Pin, Search, Trash2 } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { inMoney, ownerTotal } from './listsStore';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
@@ -135,11 +135,13 @@ export function ListsOverview({
                   <button
                     type="button"
                     onClick={() => void act(l.id, { pinned: !l.pinned })}
-                    className={`${small} w-9 justify-center !px-0`}
+                    className={`${small} w-9 justify-center !px-0 ${l.pinned ? '!text-[#7fb0e0]' : ''}`}
+                    aria-pressed={Boolean(l.pinned)}
+                    data-testid="pin-toggle"
                     aria-label={l.pinned ? `Unpin ${l.title}` : `Pin ${l.title}`}
                     title={l.pinned ? 'Unpin: take it off the top of the list picker' : 'Pin: keep it at the top of the list picker'}
                   >
-                    {l.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                    <Pin className="w-4 h-4" fill={l.pinned ? 'currentColor' : 'none'} aria-hidden />
                   </button>
                 )}
                 <button

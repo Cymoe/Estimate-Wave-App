@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, LayoutGrid, Pin, PinOff, Search, X } from 'lucide-react';
+import { ChevronDown, LayoutGrid, Pin, Search, X } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 import { countyOf } from './county';
@@ -114,9 +114,12 @@ export function ListPicker({
           onClick={() => onPin(l.id, !l.pinned)}
           aria-label={l.pinned ? `Unpin ${l.title}` : `Pin ${l.title}`}
           title={l.pinned ? 'Unpin' : 'Pin to the top'}
-          className={`mr-2 w-9 h-9 shrink-0 inline-flex items-center justify-center hover:bg-[#2A2A2A] ${l.pinned ? 'text-[#7fb0e0]' : 'text-gray-600 hover:text-gray-300'}`}
+          aria-pressed={Boolean(l.pinned)}
+          data-testid="pin-toggle"
+          className={`mr-2 w-9 h-9 shrink-0 inline-flex items-center justify-center ${l.pinned ? 'text-[#7fb0e0] hover:text-[#a8cbee]' : 'text-gray-600 hover:text-gray-300'}`}
         >
-          {l.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+          {/* Pinned is a solid pin, unpinned an outline one; a tap switches it. No crossed-out pin: it read like a fault. */}
+          <Pin className="w-4 h-4" fill={l.pinned ? 'currentColor' : 'none'} aria-hidden />
         </button>
       )}
     </li>

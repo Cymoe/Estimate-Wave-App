@@ -2040,10 +2040,18 @@ describe('the Outreach page', () => {
     // Two lists fit on the panel: no search box to find one with.
     expect(panel().querySelector('input[aria-label="Find a list"]')).toBeNull();
     // Pin the shopping center list: it moves to Pinned.
+    const pinIcon = (label: string) => panel().querySelector(`button[aria-label="${label}"] svg`)!;
+    expect(pinIcon('Pin Shopping center owners').getAttribute('fill')).toBe('none');
     await act(async () => (panel().querySelector('button[aria-label="Pin Shopping center owners"]') as HTMLButtonElement).click());
     await flush();
     expect(organizeList).toHaveBeenCalledWith('o1', 'l1', { pinned: true });
     expect(headings()[0]).toBe('Pinned');
+    // Pinned shows as a solid pin (the same pin filled in), not a crossed-out one; tapping it again unpins.
+    const pinned = panel().querySelector('button[aria-label="Unpin Shopping center owners"]')!;
+    expect(pinned.getAttribute('aria-pressed')).toBe('true');
+    expect(pinIcon('Unpin Shopping center owners').getAttribute('fill')).toBe('currentColor');
+    expect(pinIcon('Unpin Shopping center owners').getAttribute('class')).toContain('lucide-pin');
+    expect(pinIcon('Unpin Shopping center owners').getAttribute('class')).not.toContain('pin-off');
     // Manage lists: a card per list, with progress and results.
     await click('Manage lists');
     expect(path).toBe('/outreach/l2?lists=1');
