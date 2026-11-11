@@ -1506,12 +1506,14 @@ export const outreachAPI = {
   setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string) =>
     run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
   /** Sends many owners to Leads at once (up to 500); owners run by the same people share one lead. */
-  sendManyToLeads: (organizationId: string, contactIds: string[]): Promise<{ sent: number; leads: number; joined: number }> =>
-    run('mutation', api.outreach.sendManyToLeads, { organizationId, contactIds }),
+  /** alongside: owners already in Leads that the page shows as run by the same people; the server checks, and the ones sent join their lead. */
+  sendManyToLeads: (organizationId: string, contactIds: string[], alongside?: string[]): Promise<{ sent: number; leads: number; joined: number }> =>
+    run('mutation', api.outreach.sendManyToLeads, defined({ organizationId, contactIds, alongside: alongside?.length ? alongside : undefined })),
   /** Takes back one send to Leads: its leads still at New go, and their owners are New again here. */
   undoSend: (organizationId: string, at: string): Promise<{ removed: number; kept: number }> => run('mutation', api.outreach.undoSend, { organizationId, at }),
   /** Sends an owner to Leads (once); returns the lead's id. */
-  sendToLeads: (organizationId: string, contactId: string): Promise<string> => run('mutation', api.outreach.sendToLeads, { organizationId, contactId }),
+  sendToLeads: (organizationId: string, contactId: string, alongside?: string[]): Promise<string> =>
+    run('mutation', api.outreach.sendToLeads, defined({ organizationId, contactId, alongside: alongside?.length ? alongside : undefined })),
   /** The Outreach owners a lead came from: who, what they own and why they were picked. */
   ownersOfLead: (organizationId: string, leadId: string): Promise<OutreachOwnerOfLead[]> => run('query', api.outreach.ownersOfLead, { organizationId, leadId }),
   /** alsoWorked: the worked owners only this list holds go too (all but leads and clients). */

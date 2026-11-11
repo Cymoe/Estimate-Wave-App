@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, User, ArrowRight, ArrowUpDown } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronRight, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, User, ArrowRight, ArrowUpDown } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import { tidyCase } from '../../../convex/lib/addressCase';
 import { emailAPI, type OutreachCell, type OutreachContact, type OutreachContacts, type OutreachCoverage, type OutreachField, type OutreachPhone, type OutreachRowStatus, type OutreachSignal, type OutreachTry, type OutreachWho, type OwnerEmails } from '../../lib/api';
 import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearch, emailStateText, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
+import { askingText, callOk, deedSearch, emailStateText, dueAgain, isSimulated, LEAD_STAGE, mailingLine, nobodyToReach, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
+import { operatorBasis, operatorEmails, operatorHolding, operatorPhones, operatorWaiting, ownerItems, type Operator, type Operators } from './operators';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -31,7 +32,46 @@ const KIND: Record<OutreachWho, string> = {
 const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };
 
 const statusTone = (s: OutreachRowStatus) =>
-  s === 'lead' || s === 'interested' || s === 'client' || s === 'done' ? 'text-[#7fb0e0]' : s === 'skip' || s === 'not_interested' ? 'text-gray-600' : s === 'new' ? 'text-gray-500' : 'text-amber-300';
+  s === 'lead' || s === 'interested' || s === 'client' || s === 'done' ? 'text-[#7fb0e0] border-[#336699]/60' : s === 'skip' || s === 'not_interested' ? 'text-gray-500 border-[#333333]' : 'text-amber-300 border-amber-400/40';
+
+/** A word or two in a fine box under the name: what would otherwise take a column to say. */
+const badge = 'inline-block px-1.5 border text-[11px] leading-[18px] whitespace-nowrap no-underline';
+
+/**
+ * Where an owner stands, as a badge under the name. New says nothing (nearly
+ * every owner is New, so a column of it told nobody anything): a badge here
+ * means something happened.
+ */
+const StatusBadge: React.FC<{ row: OutreachContact }> = ({ row }) =>
+  row.status === 'new' ? null : (
+    <span className={`${badge} ${statusTone(row.status)}`} data-testid="status-badge">
+      {STATUS_LABEL[row.status] ?? row.status}
+      {row.leadId && row.leadStage ? ` · ${LEAD_STAGE[row.leadStage] ?? row.leadStage}` : ''}
+    </span>
+  );
+
+/** Research as a badge, only on an owner that has some: an answer (its words a hover away, and in the sheet), one being read, or one that failed. */
+const ResearchBadge: React.FC<{ row: OutreachContact }> = ({ row }) => {
+  const state = row.enrichment.research?.status;
+  if (row.research)
+    return (
+      <span className={`${badge} text-violet-200 border-violet-400/40`} title={row.research.answer} data-testid="research-badge">
+        Research
+      </span>
+    );
+  if (state === 'running') return <span className={`${badge} text-violet-200 border-violet-400/40`} data-testid="research-badge">Researching…</span>;
+  if (state === 'failed') return <span className={`${badge} text-amber-300 border-amber-400/40`} data-testid="research-badge">Research failed</span>;
+  return null;
+};
+
+/** An owner's badges on one line, or nothing when there are none. */
+const Badges: React.FC<{ row: OutreachContact }> = ({ row }) =>
+  row.status === 'new' && !row.research && row.enrichment.research?.status !== 'running' && row.enrichment.research?.status !== 'failed' ? null : (
+    <span className="mt-0.5 flex flex-wrap gap-1" data-testid="badges">
+      <StatusBadge row={row} />
+      <ResearchBadge row={row} />
+    </span>
+  );
 
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 const monthYear = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
@@ -111,21 +151,31 @@ function useJustFilled(rows: OutreachContact[]): Set<string> {
   return lit;
 }
 
+/**
+ * Looked up, nothing there. With real sources this is the common answer, not
+ * the odd one, so it is the quietest thing in the table: a dash, where a
+ * column of "None found" would shout over the numbers that were found. A
+ * padlock still marks what hasn't been looked up, and a failure keeps its words.
+ */
+const Nothing: React.FC<{ title?: string }> = ({ title = 'None found' }) => (
+  <span role="img" aria-label="None found" className="text-gray-600" title={title} data-testid="nothing">
+    —
+  </span>
+);
+
 /** A cell that hasn't a value: the lock, the wait, the miss, or the failure with its reason and a retry. */
 const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, onRetry }) => {
   switch (cell.status) {
     case 'running':
       return <Live cell={cell} />;
     case 'found':
-      return <span className="text-gray-600">None found</span>;
+      return <Nothing />;
     case 'none': {
       // The sources refresh monthly: once a month has gone by, the owner can be tried again, free unless something turns up.
       const from = tryAgainFrom(cell);
       return (
         <span className="flex items-center gap-2 min-w-0">
-          <span className="text-gray-600 truncate" title={from && !dueAgain(cell) ? `Can be tried again from ${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : undefined}>
-            None found
-          </span>
+          <Nothing title={from && !dueAgain(cell) ? `None found. Can be tried again from ${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : undefined} />
           {onRetry && dueAgain(cell) && (
             <button
               type="button"
@@ -179,29 +229,34 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
 
 const thBase = 'font-medium px-3 py-2 whitespace-nowrap align-top overflow-hidden';
 const th = thBase;
-/** The checkbox and name headers stay put as the rest of the header slides with the rows. */
+/** The name's header stays put as the rest of the header slides with the rows. */
 const head = 'sticky bg-[#121212]';
 const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis';
+/**
+ * The table's columns after the name, in order: who to reach and how, where to write, then the roll's. Status and
+ * Research are not among them. Nearly every owner is New and most have no research, so as columns they would push
+ * the mailing address off a tablet's screen to say nothing; each is a badge under the name, there only when it has
+ * something to say. Research has a column at the far end once a view has any, for reading down the answers.
+ * Name through Mailing address is 68.5rem (1,096px), inside an iPad's 1,180 on its side.
+ */
+const COLUMN_KEYS = ['person', 'phone', 'email', 'mailing', 'property', 'value', 'type', 'signals'] as const;
+type ColumnKey = (typeof COLUMN_KEYS)[number] | 'research';
 /**
  * Each column's width, in rem, fixed so the table never shifts as answers
  * arrive (a lookup's narration, a phone landing): what doesn't fit is cut
  * with an ellipsis instead of widening its column.
  */
-/** The table's columns after the name, in order: Status first, pinned beside the name on a tablet or wider. */
-const COLUMN_KEYS = ['status', 'person', 'phone', 'email', 'research', 'mailing', 'property', 'value', 'type', 'signals'] as const;
-type ColumnKey = (typeof COLUMN_KEYS)[number];
 const WIDTH: Record<'name' | ColumnKey, number> = {
   name: 16,
-  person: 13,
+  person: 12,
   phone: 12.5,
-  email: 15,
-  research: 18,
-  status: 7,
-  mailing: 15,
+  email: 14,
+  mailing: 14,
   property: 13,
   value: 6,
   type: 9,
   signals: 14,
+  research: 18,
 };
 /** How many owners are drawn at first, and how many more each time the end comes into view. */
 export const DRAW_STEP = 200;
@@ -238,16 +293,79 @@ function useDrawn<T>(rows: T[]) {
 /** "8 properties · $4.2M", or one property's value: what an owner holds, in a few words. */
 const holding = (r: OutreachContact) => (r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : '');
 
-/** The checkbox and the name stay put while the roll columns scroll under them. */
+/** The name stays put while the other columns scroll under it. */
 const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
-/** Status, beside the name: pinned too on a tablet or wider (on a phone two pinned columns would fill the screen). */
-const pinStatus = 'max-md:static md:sticky md:left-[16rem] border-r border-[#333333]';
+/** A person's line, over the companies they run: a shade apart from an owner's row, so it reads as the heading it is. */
+const operatorRow = 'bg-[#151b23] hover:bg-[#1a222c]';
+const pinnedOperator = 'sticky bg-[#151b23] group-hover:bg-[#1a222c]';
+/** A small button whose touch area reaches past its words, so a finger finds it without the row growing taller. */
+const reach = "relative after:absolute after:-inset-x-2 after:-inset-y-2 after:content-['']";
+
+/** Which people's lines are open, and a way to flip one. openAll: every one (a search is on, so what it found isn't folded away). */
+function useOpened(openAll: boolean) {
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
+  const isOpen = (key: string) => openAll || opened.has(key);
+  const toggle = (key: string) =>
+    setOpened((was) => {
+      const next = new Set(was);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  return { isOpen, toggle };
+}
+
+/** Where a person's entities stand, in a badge: all skipped, or how many are in Leads. */
+const OperatorBadge: React.FC<{ op: Operator }> = ({ op }) => {
+  const total = op.members.length;
+  const inLeads = op.members.filter((m) => m.leadId).length;
+  if (inLeads > 0)
+    return (
+      <span className={`${badge} ${statusTone('lead')}`} data-testid="status-badge">
+        {inLeads === total ? 'In Leads' : `${inLeads} of ${total} in Leads`}
+      </span>
+    );
+  if (op.members.every((m) => m.status === 'skip'))
+    return (
+      <span className={`${badge} ${statusTone('skip')}`} data-testid="status-badge">
+        Skipped
+      </span>
+    );
+  return null;
+};
+
+/** What a person's line offers once it's open: all their entities to Leads (or the lead they became), and skip them all. */
+const OperatorActions: React.FC<{ op: Operator; onLeadAll?: (op: Operator) => void; onSkipAll?: (op: Operator) => void; className?: string }> = ({ op, onLeadAll, onSkipAll, className = '' }) => {
+  const waiting = operatorWaiting(op).length;
+  const inLeads = op.members.some((m) => m.leadId);
+  const skipped = op.members.every((m) => m.status === 'skip' || m.leadId) && op.members.some((m) => m.status === 'skip');
+  const stop = (act: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    act();
+  };
+  const small = 'px-2 min-h-[28px] text-xs whitespace-nowrap';
+  return (
+    <span className={`flex flex-wrap gap-2 ${className}`} data-testid="operator-actions">
+      {onLeadAll && (waiting > 0 || inLeads) && (
+        <button type="button" onClick={stop(() => onLeadAll(op))} className={`${small} text-white bg-[#336699] hover:bg-[#2a5580]`} data-testid="operator-lead">
+          {waiting > 0 ? `Send ${waiting === op.members.length ? 'all' : waiting} to Leads` : 'Open in Leads'}
+        </button>
+      )}
+      {onSkipAll && op.members.some((m) => !m.leadId) && (
+        <button type="button" onClick={stop(() => onSkipAll(op))} aria-pressed={skipped} className={`${small} text-gray-300 border border-[#333333] hover:bg-[#2A2A2A]`} data-testid="operator-skip">
+          {skipped ? 'Skipped · undo' : 'Skip all'}
+        </button>
+      )}
+    </span>
+  );
+};
 
 /**
- * The CRM: one row per owner. What the row has comes first (the person
- * behind a company, phone, email, status), then the roll's columns and
- * the property's signals; the name stays pinned as the rest scroll, the header stays on top as the rows scroll, and the right edge
- * fades while more columns wait. Tap a row for the sheet.
+ * The CRM: one row per owner, and where one person runs several of them, one
+ * line for the person with their companies under it. What a row has comes
+ * first (the person behind a company, phone, email), then where to write and
+ * the roll's columns and the property's signals; the name stays pinned as the
+ * rest scroll, the header stays on top as the rows scroll, and the right edge
+ * fades while more columns wait. Tap a row for the sheet, a person's line to open it.
  */
 /** How the owners are ordered: the list's own order, most parcels first, or A to Z. */
 export type OwnerSort = 'list' | 'parcels' | 'name';
@@ -268,11 +386,26 @@ export const ContactsTable: React.FC<{
   below?: number;
   /** The city an owner's property is in, when the page mixes counties. */
   placeOf?: (row: OutreachContact) => string | undefined;
-}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0, placeOf }) => {
+  /** The person behind each owner: owners run by the same people are one line that opens to its entities. */
+  operators?: Operators;
+  /** Every person's line open. */
+  openAll?: boolean;
+  /** From a person's line: all their entities to Leads, or skipped. */
+  onLeadAll?: (op: Operator) => void;
+  onSkipAll?: (op: Operator) => void;
+  /** "Simulated" on each row that is. The page turns it off when every result is (it says so once, above the table). */
+  markSimulated?: boolean;
+}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0, placeOf, operators, openAll = false, onLeadAll, onSkipAll, markSimulated = true }) => {
   const lit = useJustFilled(rows);
-  const { drawn, tail } = useDrawn(rows);
+  const { isOpen, toggle } = useOpened(openAll);
+  const { drawn, tail } = useDrawn(ownerItems(rows, operators, isOpen));
+  /** Owners whose other numbers are showing under the first. */
+  const [morePhones, setMorePhones] = useState<Set<string>>(() => new Set());
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
-  const tableWidth = WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
+  // Research has a column only once the view has some to read down.
+  const researched = rows.some((r) => r.research || (r.enrichment.research && r.enrichment.research.status !== 'locked'));
+  const columns: ColumnKey[] = researched ? [...COLUMN_KEYS, 'research'] : [...COLUMN_KEYS];
+  const tableWidth = WIDTH.name + columns.reduce((sum, k) => sum + WIDTH[k], 0);
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
   // The header follows the rows sideways.
@@ -285,11 +418,246 @@ export const ContactsTable: React.FC<{
   const cols = (
     <colgroup>
       <col style={{ width: `${WIDTH.name}rem` }} />
-      {COLUMN_KEYS.map((k) => (
+      {columns.map((k) => (
         <col key={k} style={{ width: `${WIDTH[k]}rem` }} />
       ))}
     </colgroup>
   );
+  const dash = <span className="text-gray-700">—</span>;
+
+  /** One owner: on its own, or (nested) one of a person's entities, set in under their line. */
+  const ownerRow = (r: OutreachContact, nested: boolean) => {
+    const phone = r.phones[0];
+    const email = r.emails[0];
+    const more = morePhones.has(r.id);
+    // Looked up and nobody to call or write to: the row goes quiet, and the mailing address is what it has.
+    const quiet = nobodyToReach(r);
+    return (
+      <tr key={r.id} onClick={() => onOpen(r)} className="group cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row" data-nested={nested || undefined} data-quiet={quiet || undefined}>
+        <td className={`${pinned} left-0 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${nested ? 'pl-8 shadow-[inset_2px_0_0_rgba(51,102,153,0.7)]' : ''} ${r.status === 'skip' ? 'text-gray-500' : quiet ? 'text-gray-400' : 'text-white'}`}>
+          <span className={r.status === 'skip' ? 'line-through' : undefined}>{r.name}</span>
+          {/* What the owner holds, as on the cards: the list is ordered by it, so it shows by the name. */}
+          {holding(r) && (
+            <span className="block text-[11px] text-gray-500 tabular-nums" data-testid="holding">
+              {holding(r)}
+            </span>
+          )}
+          {r.related?.length ? (
+            <span className="block text-[11px] text-gray-500" title={`Related: ${r.related.map((x) => x.name).join(', ')}`} data-testid="related">
+              +{r.related.length} related
+            </span>
+          ) : null}
+          <Known row={r} />
+          {emailStateText(r.email) && (
+            <span className={`block text-[11px] ${r.email?.state === 'replied' ? 'text-emerald-300' : 'text-gray-500'}`} data-testid="email-state">
+              {emailStateText(r.email)}
+            </span>
+          )}
+          <Badges row={r} />
+          {markSimulated && isSimulated(r) && (
+            <span className="block text-[11px] text-gray-500" title="No phone source is connected yet, so this lookup was simulated: made-up results, nothing charged." data-testid="simulated">
+              Simulated
+            </span>
+          )}
+        </td>
+        <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'person')}`}>
+          {r.person ? (
+            <>
+              <span className="text-white">{r.person.name}</span>
+              {r.person.title || r.person.confirmedBy?.length ? (
+                <span className="block text-[11px] text-gray-500">
+                  {r.person.title}
+                  {r.person.confirmedBy?.length ? <span className="text-[#7fb0e0]">{r.person.title ? ' · ' : ''}{r.person.confirmedBy.length + 1} sources agree</span> : null}
+                </span>
+              ) : null}
+            </>
+          ) : r.company ? (
+            <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} />
+          ) : (
+            dash
+          )}
+        </td>
+        <td className={`${td}${glow(r.id, 'phone')}`}>
+          {phone ? (
+            <>
+              <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
+              {r.phones.length > 1 && (
+                // The owner's other numbers, counted beside the first (where the count is never cut off) and shown here in the row on a tap, without opening the sheet.
+                <button
+                  type="button"
+                  aria-expanded={more}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMorePhones((was) => {
+                      const next = new Set(was);
+                      if (!next.delete(r.id)) next.add(r.id);
+                      return next;
+                    });
+                  }}
+                  className={`${reach} ml-2 text-[11px] text-[#7fb0e0] hover:text-white`}
+                  data-testid="more-phones"
+                >
+                  {more ? 'show less' : `+${r.phones.length - 1} more`}
+                </button>
+              )}
+              <span className="block">
+                <PhoneBadges p={phone} />
+              </span>
+              {more &&
+                r.phones.slice(1).map((p) => (
+                  <span key={p.number} className="block mt-1" data-testid="other-phone">
+                    <span className={callOk(p) ? 'text-gray-200' : 'text-gray-400'}>{phoneText(p.number)}</span>
+                    <span className="block">
+                      <PhoneBadges p={p} />
+                    </span>
+                  </span>
+                ))}
+            </>
+          ) : (
+            <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
+          )}
+        </td>
+        <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'email')}`}>
+          {email ? (
+            <>
+              <span className="text-white">{email.email}</span>
+              {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
+            </>
+          ) : (
+            <Empty cell={r.enrichment.email} onRetry={() => onRetry(r, 'email')} />
+          )}
+        </td>
+        {/* With nobody to call or write to, the mailing address is how this owner is reached: it stays bright as the rest of the row goes quiet. */}
+        <td className={`${td} max-w-[16rem] truncate ${quiet ? 'text-gray-100' : 'text-gray-300'}`}>
+          {tidyCase(r.mailing.address) ?? ''}
+          {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
+        </td>
+        <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
+          {r.property ? tidyCase(r.property.address) : <span className="text-gray-600">{r.company ?? '—'}</span>}
+          {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1} more</span> : null}
+          {placeOf?.(r) ? <span className="block text-[11px] text-gray-500" data-testid="place">{placeOf(r)}</span> : null}
+        </td>
+        <td className={`${td} text-right tabular-nums text-gray-300`} title={r.properties > 1 ? `${r.properties} properties in all` : undefined}>
+          {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property?.valueCents ? shortMoney(r.property.valueCents) : ''}
+        </td>
+        <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
+        <td className={`${td} text-amber-300`}>
+          {r.signals.length === 0
+            ? dash
+            : r.signals.map((s, i) => (
+                <span key={s.kind}>
+                  {i > 0 ? ' · ' : ''}
+                  {s.fresh ? <span className="mr-1 px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null}
+                  {SIGNAL_LABEL[s.kind]} {monthYear(s.date)}
+                </span>
+              ))}
+        </td>
+        {researched && (
+          <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
+            {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
+          </td>
+        )}
+      </tr>
+    );
+  };
+
+  /** A person, over the companies they run: who they are and what they hold in all, the best number among their entities, and a tap to open them. */
+  const personRow = (op: Operator, shown: OutreachContact[], open: boolean) => {
+    const phones = operatorPhones(op);
+    const emails = operatorEmails(op);
+    const looking = (f: 'phone' | 'email') => op.members.find((m) => m.enrichment[f].status === 'running');
+    const mailings = [...new Map(op.members.filter((m) => m.mailing.address).map((m) => [mailingLine(m.mailing), m.mailing] as const)).values()];
+    const titles = [...new Set(op.members.map((m) => m.person?.title).filter(Boolean))];
+    const signals = op.members.reduce((n, m) => n + m.signals.length, 0);
+    const answers = op.members.filter((m) => m.research).length;
+    return (
+      <tr key={`operator:${op.key}`} onClick={() => toggle(op.key)} className={`group cursor-pointer ${operatorRow}`} data-testid="operator-row">
+        <td className={`${pinnedOperator} left-0 z-10 ${td} border-r border-[#333333] max-w-[16rem]`}>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle(op.key);
+            }}
+            className="flex w-full min-w-0 items-start gap-1.5 text-left"
+            data-testid="operator-toggle"
+          >
+            <ChevronRight className={`w-4 h-4 mt-0.5 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+            <span className="min-w-0">
+              <span className="block truncate font-medium text-white" data-testid="operator-name">
+                {op.label}
+              </span>
+              {/* What this person controls across their companies: the line a row per LLC can't say. */}
+              <span className="block truncate text-[11px] text-[#7fb0e0] tabular-nums" data-testid="operator-holding">
+                {operatorHolding(op)}
+              </span>
+              {shown.length < op.members.length && (
+                <span className="block text-[11px] text-gray-500" data-testid="operator-showing">
+                  {shown.length} of {op.members.length} showing
+                </span>
+              )}
+            </span>
+          </button>
+          <span className="mt-0.5 flex flex-wrap gap-1 pl-[22px] empty:hidden">
+            <OperatorBadge op={op} />
+          </span>
+          {open && <OperatorActions op={op} onLeadAll={onLeadAll} onSkipAll={onSkipAll} className="mt-1.5 pl-[22px]" />}
+        </td>
+        <td className={`${td} max-w-[14rem] truncate text-gray-300`} data-testid="operator-basis">
+          {operatorBasis(op)}
+          {titles.length > 0 && <span className="block text-[11px] text-gray-500">{titles.join(', ')}</span>}
+        </td>
+        <td className={td}>
+          {phones[0] ? (
+            <>
+              <span className={callOk(phones[0]) ? 'text-white' : 'text-gray-300'}>{phoneText(phones[0].number)}</span>
+              {phones.length > 1 ? <span className="ml-2 text-[11px] text-gray-500">+{phones.length - 1} more</span> : null}
+              <span className="block">
+                <PhoneBadges p={phones[0]} />
+              </span>
+            </>
+          ) : looking('phone') ? (
+            <Live cell={looking('phone')!.enrichment.phone} />
+          ) : (
+            dash
+          )}
+        </td>
+        <td className={`${td} max-w-[14rem] truncate`}>
+          {emails[0] ? (
+            <>
+              <span className="text-white">{emails[0].email}</span>
+              {emails.length > 1 ? <span className="block text-[11px] text-gray-500">+{emails.length - 1} more</span> : null}
+            </>
+          ) : looking('email') ? (
+            <Live cell={looking('email')!.enrichment.email} />
+          ) : (
+            dash
+          )}
+        </td>
+        <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
+          {mailings.length === 1 ? (
+            <>
+              {tidyCase(mailings[0].address) ?? ''}
+              {cityLine(mailings[0]) ? <span className="block text-[11px] text-gray-500">{cityLine(mailings[0])}</span> : null}
+            </>
+          ) : mailings.length > 1 ? (
+            `${mailings.length} mailing addresses`
+          ) : (
+            dash
+          )}
+        </td>
+        <td className={`${td} text-gray-300 tabular-nums`}>
+          {op.properties.toLocaleString('en-US')} {op.properties === 1 ? 'property' : 'properties'}
+        </td>
+        <td className={`${td} text-right tabular-nums text-white`}>{op.totalValueCents > 0 ? shortMoney(op.totalValueCents) : ''}</td>
+        <td className={`${td} text-gray-400`}>{kindsText([...new Set(op.members.flatMap((m) => m.kinds))])}</td>
+        <td className={`${td} text-amber-300`}>{signals > 0 ? `${signals} ${signals === 1 ? 'signal' : 'signals'}` : dash}</td>
+        {researched && <td className={`${td} text-gray-400`}>{answers > 0 ? `${answers} researched` : dash}</td>}
+      </tr>
+    );
+  };
+
   // Up and down is the page's scroll and sideways is the table's, so a slanted swipe moves one way, not both.
   // The header is its own strip: it sticks under the top bar and the filters as the page scrolls and is moved sideways with the rows.
   return (
@@ -316,8 +684,6 @@ export const ContactsTable: React.FC<{
                   'Name'
                 )}
               </th>
-              {/* Where each owner stands, always in view beside the name (pinned on a tablet or wider) while the rest scroll. */}
-              <th className={`${thBase} ${pinStatus} md:z-30 bg-[#121212]`}>Status</th>
               <th className={th}>
                 Decision maker
                 <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
@@ -330,15 +696,17 @@ export const ContactsTable: React.FC<{
                 Email
                 <Coverage c={coverage.email} />
               </th>
-              <th className={th}>
-                Research
-                <Coverage c={coverage.research} />
-              </th>
               <th className={th}>Mailing address</th>
               <th className={th}>Property</th>
               <th className={`${th} text-right`}>Value</th>
               <th className={th}>Type</th>
               <th className={th}>Signals</th>
+              {researched && (
+                <th className={th}>
+                  Research
+                  <Coverage c={coverage.research} />
+                </th>
+              )}
             </tr>
           </thead>
         </table>
@@ -346,114 +714,7 @@ export const ContactsTable: React.FC<{
       <div className="overflow-x-auto overscroll-x-contain" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
         <table className="text-sm table-fixed" style={tableStyle} aria-label="Contacts">
           {cols}
-          <tbody className="divide-y divide-[#333333]">
-            {drawn.map((r) => {
-              const phone = r.phones[0];
-              const email = r.emails[0];
-              return (
-                <tr key={r.id} onClick={() => onOpen(r)} className="group cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row">
-                  <td className={`${pinned} left-0 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>
-                    {r.name}
-                    {/* What the owner holds, as on the cards: the list is ordered by it, so it shows by the name. */}
-                    {holding(r) && (
-                      <span className="block text-[11px] text-gray-500 tabular-nums" data-testid="holding">
-                        {holding(r)}
-                      </span>
-                    )}
-                    {r.related?.length ? (
-                      <span className="block text-[11px] text-gray-500 no-underline" title={`Related: ${r.related.map((x) => x.name).join(', ')}`} data-testid="related">
-                        +{r.related.length} related
-                      </span>
-                    ) : null}
-                    <Known row={r} />
-                    {emailStateText(r.email) && (
-                      <span className={`block text-[11px] ${r.email?.state === 'replied' ? 'text-emerald-300' : 'text-gray-500'}`} data-testid="email-state">
-                        {emailStateText(r.email)}
-                      </span>
-                    )}
-                    {isSimulated(r) && (
-                      <span className="block text-[11px] text-gray-500" title="No phone source is connected yet, so this lookup was simulated: made-up results, nothing charged." data-testid="simulated">
-                        Simulated
-                      </span>
-                    )}
-                  </td>
-                  <td className={`${pinned} ${pinStatus} md:z-10 ${td} ${statusTone(r.status)}`}>
-                    {STATUS_LABEL[r.status] ?? r.status}
-                    {r.leadId && r.leadStage && <span className="block text-[11px] text-gray-500">{LEAD_STAGE[r.leadStage] ?? r.leadStage}</span>}
-                  </td>
-                  <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'person')}`}>
-                    {r.person ? (
-                      <>
-                        <span className="text-white">{r.person.name}</span>
-                        {r.person.title || r.person.confirmedBy?.length ? (
-                          <span className="block text-[11px] text-gray-500">
-                            {r.person.title}
-                            {r.person.confirmedBy?.length ? <span className="text-[#7fb0e0]">{r.person.title ? ' · ' : ''}{r.person.confirmedBy.length + 1} sources agree</span> : null}
-                          </span>
-                        ) : null}
-                      </>
-                    ) : r.company ? (
-                      <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} />
-                    ) : (
-                      <span className="text-gray-700">—</span>
-                    )}
-                  </td>
-                  <td className={`${td}${glow(r.id, 'phone')}`}>
-                    {phone ? (
-                      <>
-                        <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
-                        <span className="block">
-                          <PhoneBadges p={phone} />
-                          {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1}</span> : null}
-                        </span>
-                      </>
-                    ) : (
-                      <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
-                    )}
-                  </td>
-                  <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'email')}`}>
-                    {email ? (
-                      <>
-                        <span className="text-white">{email.email}</span>
-                        {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
-                      </>
-                    ) : (
-                      <Empty cell={r.enrichment.email} onRetry={() => onRetry(r, 'email')} />
-                    )}
-                  </td>
-                  <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
-                    {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
-                  </td>
-                  <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
-                    {tidyCase(r.mailing.address) ?? ''}
-                    {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
-                  </td>
-                  <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
-                    {r.property ? tidyCase(r.property.address) : <span className="text-gray-600">{r.company ?? '—'}</span>}
-                    {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
-                    {placeOf?.(r) ? <span className="block text-[11px] text-gray-500" data-testid="place">{placeOf(r)}</span> : null}
-                  </td>
-                  <td className={`${td} text-right tabular-nums text-gray-300`} title={r.properties > 1 ? `${r.properties} properties in all` : undefined}>
-                    {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property?.valueCents ? shortMoney(r.property.valueCents) : ''}
-                  </td>
-                  <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
-                  <td className={`${td} text-amber-300`}>
-                    {r.signals.length === 0 ? (
-                      <span className="text-gray-700">—</span>
-                    ) : (
-                      r.signals.map((s, i) => (
-                        <span key={s.kind}>
-                          {i > 0 ? ' · ' : ''}
-                          {s.fresh ? <span className="mr-1 px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null}
-                          {SIGNAL_LABEL[s.kind]} {monthYear(s.date)}
-                        </span>
-                      ))
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
+          <tbody className="divide-y divide-[#333333]">{drawn.map((item) => (item.kind === 'operator' ? personRow(item.op, item.shown, item.open) : ownerRow(item.row, Boolean(item.op))))}</tbody>
         </table>
       </div>
       {tail}
@@ -464,7 +725,8 @@ export const ContactsTable: React.FC<{
 };
 
 /**
- * The list for calling from a phone: one card per owner, stacked. The
+ * The list for calling from a phone: one card per owner, stacked, and one
+ * card for a person who runs several, with their companies inside it. The
  * decision maker, the best number, a signal if the property has one, and one
  * row of actions: Call, Text and Email as icons, and To Leads. Skip sits small
  * in the corner. Tap the card for the full sheet.
@@ -487,10 +749,16 @@ export const ContactCards: React.FC<{
   onLead: (row: OutreachContact) => void;
   /** The city an owner's property is in, when the page mixes counties. */
   placeOf?: (row: OutreachContact) => string | undefined;
-}> = ({ rows, onOpen, onStatus, onRetry, onLead, placeOf }) => {
+  /** The person behind each owner: owners run by the same people share one card that opens to its entities. */
+  operators?: Operators;
+  openAll?: boolean;
+  onLeadAll?: (op: Operator) => void;
+  onSkipAll?: (op: Operator) => void;
+}> = ({ rows, onOpen, onStatus, onRetry, onLead, placeOf, operators, openAll = false, onLeadAll, onSkipAll }) => {
   const [saving, setSaving] = useState<string | null>(null);
   const lit = useJustFilled(rows);
-  const { drawn, tail } = useDrawn(rows);
+  const { isOpen, toggle } = useOpened(openAll);
+  const { drawn, tail } = useDrawn(ownerItems(rows, operators, isOpen));
   const skip = async (row: OutreachContact) => {
     setSaving(row.id);
     try {
@@ -504,105 +772,212 @@ export const ContactCards: React.FC<{
   };
   const big = 'flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] text-sm font-medium';
   const square = 'w-11 h-11 shrink-0 inline-flex items-center justify-center border border-[#333333] text-gray-200 hover:bg-[#2A2A2A]';
+
+  const ownerCard = (r: OutreachContact) => {
+    const call = r.phones.find(callOk);
+    const text = r.phones.find((p) => callOk(p) && p.type === 'mobile');
+    const email = r.emails.find((e) => e.nameMatch !== false) ?? r.emails[0];
+    const signal = r.signals[0];
+    // Looked up, nobody to call or write to: one quiet line and where the mail goes, instead of a line per miss.
+    const quiet = nobodyToReach(r);
+    const mail = mailingLine(r.mailing);
+    return (
+      <li key={r.id} className={`relative bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card" data-quiet={quiet || undefined}>
+        {!r.leadId && (
+          <button
+            type="button"
+            onClick={() => void skip(r)}
+            disabled={saving === r.id}
+            aria-pressed={r.status === 'skip'}
+            className={`absolute top-1 right-1 z-10 px-3 min-h-[40px] text-xs disabled:opacity-50 ${r.status === 'skip' ? 'text-gray-300' : 'text-gray-500 hover:text-white'}`}
+          >
+            {r.status === 'skip' ? 'Skipped' : 'Skip'}
+          </button>
+        )}
+        <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
+          <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : quiet ? 'text-gray-300' : 'text-white'}`}>{r.name}</span>
+          <span className="block text-xs text-gray-500">
+            {holding(r) || (tidyCase(r.property?.address) ?? r.company ?? '')}
+            {placeOf?.(r) ? ` · ${placeOf(r)}` : ''}
+            {r.related?.length ? ` · +${r.related.length} related` : ''}
+          </span>
+          {emailStateText(r.email) && <span className={`block text-xs ${r.email?.state === 'replied' ? 'text-emerald-300' : 'text-gray-500'}`} data-testid="email-state">{emailStateText(r.email)}</span>}
+          <Known row={r} className="mt-0.5 text-xs" />
+          {signal && (
+            <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
+              <AlertTriangle className="w-3.5 h-3.5" /> {signal.fresh ? <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null} {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
+            </span>
+          )}
+          {quiet ? (
+            <span className="block mt-2 text-sm text-gray-500" data-testid="nobody-to-reach">
+              {r.person ? (
+                <span className="block text-gray-300">
+                  {r.person.name}
+                  {r.person.title ? <span className="text-gray-500"> · {r.person.title}</span> : null}
+                </span>
+              ) : null}
+              {r.phones.length > 0 ? 'No number that can be called, no email' : 'No number or email found'}
+              {mail ? (
+                <span className="block text-gray-300">
+                  <span className="text-gray-500">Mail to</span> {mail}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <>
+              {r.company && (
+                <span className="block mt-2 text-sm">
+                  {r.person ? (
+                    <>
+                      <span className="text-gray-200">{r.person.name}</span>
+                      {r.person.title ? <span className="text-gray-500"> · {r.person.title}</span> : null}
+                    </>
+                  ) : r.enrichment.person.status === 'running' ? (
+                    <Live cell={r.enrichment.person} />
+                  ) : (
+                    <span className="text-gray-500">Decision maker: {r.enrichment.person.status === 'none' ? 'none found' : 'not looked up'}</span>
+                  )}
+                </span>
+              )}
+              <span className="block mt-1 text-sm">
+                {r.phones[0] ? (
+                  <>
+                    <span className={callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? r.phones[0]).number)}</span> <PhoneBadges p={call ?? r.phones[0]} />
+                    {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1} more</span> : null}
+                  </>
+                ) : r.enrichment.phone.status === 'failed' ? null : r.enrichment.phone.status === 'running' ? (
+                  <Live cell={r.enrichment.phone} />
+                ) : (
+                  <span className="text-gray-500">Phone: {r.enrichment.phone.status === 'none' ? 'none found' : 'not looked up'}</span>
+                )}
+              </span>
+            </>
+          )}
+        </button>
+        {!r.phones[0] && r.enrichment.phone.status === 'failed' && (
+          <div className="px-4 pb-2 text-sm">
+            <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
+          </div>
+        )}
+        <div className="flex gap-2 px-4 pb-3" data-testid="card-actions">
+          {call && (
+            <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="card-call">
+              <Phone className="w-4 h-4" /> Call
+            </a>
+          )}
+          {text && (
+            <a href={`sms:${text.number}`} aria-label="Text" title="Text" className={square}>
+              <MessageSquare className="w-4 h-4" />
+            </a>
+          )}
+          {email && (
+            <a href={`mailto:${email.email}`} aria-label="Email" title="Email" className={square}>
+              <Mail className="w-4 h-4" />
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => onLead(r)}
+            disabled={saving === r.id}
+            className={`${call ? 'shrink-0 px-3' : 'flex-1'} inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm border disabled:opacity-50 ${
+              r.leadId ? 'text-[#7fb0e0] border-[#336699]/50 bg-[#336699]/15' : 'text-gray-200 border-[#333333] hover:bg-[#2A2A2A]'
+            }`}
+            data-testid="to-leads"
+          >
+            {r.leadId ? (r.leadStage ? (LEAD_STAGE[r.leadStage] ?? 'In Leads') : 'In Leads') : 'To Leads'} <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </li>
+    );
+  };
+
+  /** A person who runs several of the owners: one card, one call. Their companies are inside it, a tap away. */
+  const personCard = (op: Operator, shown: OutreachContact[], open: boolean) => {
+    const phones = operatorPhones(op);
+    const call = phones.find(callOk);
+    const text = phones.find((p) => callOk(p) && p.type === 'mobile');
+    const email = operatorEmails(op)[0];
+    const waiting = operatorWaiting(op).length;
+    const inLeads = op.members.some((m) => m.leadId);
+    const skipped = op.members.every((m) => m.status === 'skip' || m.leadId) && op.members.some((m) => m.status === 'skip');
+    return (
+      <li key={`operator:${op.key}`} className="relative bg-[#151b23] border border-[#336699]/50" data-testid="operator-card">
+        {onSkipAll && op.members.some((m) => !m.leadId) && (
+          <button type="button" onClick={() => onSkipAll(op)} aria-pressed={skipped} className={`absolute top-1 right-1 z-10 px-3 min-h-[40px] text-xs ${skipped ? 'text-gray-300' : 'text-gray-500 hover:text-white'}`} data-testid="operator-skip">
+            {skipped ? 'Skipped' : 'Skip all'}
+          </button>
+        )}
+        <button type="button" aria-expanded={open} onClick={() => toggle(op.key)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2" data-testid="operator-toggle">
+          <span className="flex items-center gap-1.5 text-[15px] font-medium text-white">
+            <ChevronRight className={`w-4 h-4 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+            <span className="truncate" data-testid="operator-name">
+              {op.label}
+            </span>
+          </span>
+          <span className="block text-xs text-[#7fb0e0] tabular-nums" data-testid="operator-holding">
+            {operatorHolding(op)}
+          </span>
+          <span className="block text-xs text-gray-500">
+            {operatorBasis(op)}
+            {shown.length < op.members.length ? ` · ${shown.length} of ${op.members.length} showing` : ''}
+          </span>
+          <span className="mt-1 flex flex-wrap gap-1 empty:hidden">
+            <OperatorBadge op={op} />
+          </span>
+          <span className="block mt-1 text-sm">
+            {phones[0] ? (
+              <>
+                <span className={call ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? phones[0]).number)}</span> <PhoneBadges p={call ?? phones[0]} />
+                {phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{phones.length - 1} more</span> : null}
+              </>
+            ) : (
+              <span className="text-gray-500">No number for any of them yet</span>
+            )}
+          </span>
+        </button>
+        <div className="flex gap-2 px-4 pb-3" data-testid="card-actions">
+          {call && (
+            <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="card-call">
+              <Phone className="w-4 h-4" /> Call
+            </a>
+          )}
+          {text && (
+            <a href={`sms:${text.number}`} aria-label="Text" title="Text" className={square}>
+              <MessageSquare className="w-4 h-4" />
+            </a>
+          )}
+          {email && (
+            <a href={`mailto:${email.email}`} aria-label="Email" title="Email" className={square}>
+              <Mail className="w-4 h-4" />
+            </a>
+          )}
+          {onLeadAll && (waiting > 0 || inLeads) && (
+            <button
+              type="button"
+              onClick={() => onLeadAll(op)}
+              className={`${call ? 'shrink-0 px-3' : 'flex-1'} inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm border ${
+                waiting === 0 ? 'text-[#7fb0e0] border-[#336699]/50 bg-[#336699]/15' : 'text-gray-200 border-[#333333] hover:bg-[#2A2A2A]'
+              }`}
+              data-testid="operator-lead"
+            >
+              {waiting > 0 ? 'To Leads' : 'In Leads'} <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {open && (
+          <ul className="space-y-2 border-t border-[#336699]/40 p-2" data-testid="operator-entities">
+            {shown.map(ownerCard)}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       <ul className="space-y-2" data-testid="contact-cards">
-        {drawn.map((r) => {
-          const call = r.phones.find(callOk);
-          const text = r.phones.find((p) => callOk(p) && p.type === 'mobile');
-          const email = r.emails.find((e) => e.nameMatch !== false) ?? r.emails[0];
-          const signal = r.signals[0];
-          return (
-            <li key={r.id} className={`relative bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card">
-              {!r.leadId && (
-                <button
-                  type="button"
-                  onClick={() => void skip(r)}
-                  disabled={saving === r.id}
-                  aria-pressed={r.status === 'skip'}
-                  className={`absolute top-1 right-1 z-10 px-3 min-h-[40px] text-xs disabled:opacity-50 ${r.status === 'skip' ? 'text-gray-300' : 'text-gray-500 hover:text-white'}`}
-                >
-                  {r.status === 'skip' ? 'Skipped' : 'Skip'}
-                </button>
-              )}
-              <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
-                <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
-                <span className="block text-xs text-gray-500">
-                  {holding(r) || (tidyCase(r.property?.address) ?? r.company ?? '')}
-                  {placeOf?.(r) ? ` · ${placeOf(r)}` : ''}
-                  {r.related?.length ? ` · +${r.related.length} related` : ''}
-                </span>
-                {emailStateText(r.email) && <span className={`block text-xs ${r.email?.state === 'replied' ? 'text-emerald-300' : 'text-gray-500'}`} data-testid="email-state">{emailStateText(r.email)}</span>}
-                <Known row={r} className="mt-0.5 text-xs" />
-                {signal && (
-                  <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
-                    <AlertTriangle className="w-3.5 h-3.5" /> {signal.fresh ? <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null} {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
-                  </span>
-                )}
-                {r.company && (
-                  <span className="block mt-2 text-sm">
-                    {r.person ? (
-                      <>
-                        <span className="text-gray-200">{r.person.name}</span>
-                        {r.person.title ? <span className="text-gray-500"> · {r.person.title}</span> : null}
-                      </>
-                    ) : (
-                      r.enrichment.person.status === 'running' ? (
-                        <Live cell={r.enrichment.person} />
-                      ) : (
-                        <span className="text-gray-500">Decision maker: {r.enrichment.person.status === 'none' ? 'none found' : 'not looked up'}</span>
-                      )
-                    )}
-                  </span>
-                )}
-                <span className="block mt-1 text-sm">
-                  {r.phones[0] ? (
-                    <>
-                      <span className={callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? r.phones[0]).number)}</span> <PhoneBadges p={call ?? r.phones[0]} />
-                    </>
-                  ) : r.enrichment.phone.status === 'failed' ? null : r.enrichment.phone.status === 'running' ? (
-                    <Live cell={r.enrichment.phone} />
-                  ) : (
-                    <span className="text-gray-500">Phone: {r.enrichment.phone.status === 'none' ? 'none found' : 'not looked up'}</span>
-                  )}
-                </span>
-              </button>
-              {!r.phones[0] && r.enrichment.phone.status === 'failed' && (
-                <div className="px-4 pb-2 text-sm">
-                  <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
-                </div>
-              )}
-              <div className="flex gap-2 px-4 pb-3" data-testid="card-actions">
-                {call && (
-                  <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="card-call">
-                    <Phone className="w-4 h-4" /> Call
-                  </a>
-                )}
-                {text && (
-                  <a href={`sms:${text.number}`} aria-label="Text" title="Text" className={square}>
-                    <MessageSquare className="w-4 h-4" />
-                  </a>
-                )}
-                {email && (
-                  <a href={`mailto:${email.email}`} aria-label="Email" title="Email" className={square}>
-                    <Mail className="w-4 h-4" />
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onLead(r)}
-                  disabled={saving === r.id}
-                  className={`${call ? 'shrink-0 px-3' : 'flex-1'} inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm border disabled:opacity-50 ${
-                    r.leadId ? 'text-[#7fb0e0] border-[#336699]/50 bg-[#336699]/15' : 'text-gray-200 border-[#333333] hover:bg-[#2A2A2A]'
-                  }`}
-                  data-testid="to-leads"
-                >
-                  {r.leadId ? (r.leadStage ? (LEAD_STAGE[r.leadStage] ?? 'In Leads') : 'In Leads') : 'To Leads'} <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            </li>
-          );
-        })}
+        {/* A person's entities are drawn inside their card, so the list itself holds only people and owners on their own. */}
+        {drawn.map((item) => (item.kind === 'operator' ? personCard(item.op, item.shown, item.open) : item.op ? null : ownerCard(item.row)))}
       </ul>
       {tail}
     </>
@@ -724,7 +1099,13 @@ export const ContactSheet: React.FC<{
   /** For the owner's emails from Outreach, and "Email" drafting one. */
   organizationId?: string;
   onEmail?: (row: OutreachContact) => void;
-}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, freeLookups = 0, onClose, onStatus, onEnrich, onAddFunds, onLead, county, organizationId, onEmail }) => {
+  /** The person this owner is one of several entities of, with the others. */
+  operator?: Operator;
+  /** Something real ties them (not a simulated result), so a send to Leads makes one lead of them. */
+  oneLead?: boolean;
+  /** Opens another of the person's entities. */
+  onOpenOwner?: (row: OutreachContact) => void;
+}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, freeLookups = 0, onClose, onStatus, onEnrich, onAddFunds, onLead, county, organizationId, onEmail, operator, oneLead = false, onOpenOwner }) => {
   const [note, setNote] = useState('');
   const [question, setQuestion] = useState(researchQuestion);
   const [busy, setBusy] = useState(false);
@@ -793,7 +1174,33 @@ export const ContactSheet: React.FC<{
           {row.why}
           {row.kinds.length ? <span className="text-gray-500"> · {row.kinds.map((k) => WHO_LABEL[k]).join(', ')}</span> : null}
         </p>
-        {row.related?.length ? (
+        {operator ? (
+          <div className="border-l-2 border-[#336699] pl-3 text-sm" data-testid="operator-sheet">
+            <div className="text-white">
+              {operator.label}
+              <span className="text-gray-400 font-mono text-[13px]"> · {operatorHolding(operator)}</span>
+            </div>
+            <div className="text-xs text-gray-500">
+              {operatorBasis(operator)}. {oneLead ? 'One person to call: sent to Leads, these become one lead.' : 'Tied by a simulated lookup, so each still goes to Leads on its own.'}
+            </div>
+            <ul className="pt-1">
+              {operator.members
+                .filter((m) => m.id !== row.id)
+                .map((m) => (
+                  <li key={m.id}>
+                    <button type="button" onClick={() => onOpenOwner?.(m)} className="min-h-[36px] text-left text-[#7fb0e0] hover:text-white" data-testid="operator-sibling">
+                      {m.name}
+                      <span className="text-gray-500 font-mono text-xs">
+                        {' '}
+                        · {m.properties} {m.properties === 1 ? 'property' : 'properties'}
+                        {m.leadId ? ' · in Leads' : m.status === 'skip' ? ' · skipped' : ''}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ) : row.related?.length ? (
           <p className="text-sm text-gray-400" data-testid="related-sheet">
             Related: {row.related.map((x) => x.name).join(', ')}
             <span className="block text-xs text-gray-500">Likely one operator. Once one is looked up, the others copy the same person's phone and email free.</span>
