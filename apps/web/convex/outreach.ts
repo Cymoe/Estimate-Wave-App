@@ -1156,6 +1156,92 @@ export const contacts = query({
   },
 });
 
+/** Owners one page of a view carries. OUTREACH_PAGE sets it (the tests read in small pages). */
+const ownersPage = () => Number(process.env.OUTREACH_PAGE) || 300;
+/** The most owners on no list counted for the picker's "Not on a list"; a company rarely keeps more than a few. */
+const UNLISTED_COUNT_MAX = 1000;
+
+/**
+ * The company's contacts a page at a time, so a view of any size loads: one list's owners (read from its membership
+ * rows, which are in the list's own order), those on no list, or all of them newest first. The page reads them in
+ * turn (outreachAPI.contacts) and puts them in order itself. The first page (no cursor) also carries the facts the
+ * screen needs: the balance, the prices, the last send, and where the live feed picks up. Nothing here reads every
+ * owner the company has; `contacts` above did, and stays only for a page loaded before this existed.
+ */
+export const contactsPage = query({
+  args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")), unlisted: v.optional(v.boolean()), cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { organizationId, listId, unlisted, cursor }) => {
+    const { organization } = await requirePro(ctx, organizationId);
+    const paging = { cursor: cursor ?? null, numItems: ownersPage() };
+    const list = listId ? await ctx.db.get(listId) : null;
+    let picked: Doc<"outreachContacts">[] = [];
+    let next: string | null = null;
+    if (listId) {
+      if (list && list.organizationId === organizationId) {
+        const read = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", listId)).paginate(paging);
+        const owners = await Promise.all(read.page.map((m) => ctx.db.get(m.contactId)));
+        picked = owners.filter((c): c is Doc<"outreachContacts"> => c !== null && c.organizationId === organizationId && c.listIds.includes(listId));
+        next = read.isDone ? null : read.continueCursor;
+      }
+    } else {
+      const read = unlisted
+        ? await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0)).paginate(paging)
+        : await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).order("desc").paginate(paging);
+      picked = read.page;
+      next = read.isDone ? null : read.continueCursor;
+    }
+    // Sister entities across all the company's contacts, not only this page: each family read once, by its index.
+    const families = new Map<string, Array<{ id: Id<"outreachContacts">; name: string }>>();
+    const related = async (c: Doc<"outreachContacts">) => {
+      const f = isCompany(c) ? familyKey(c.name) : undefined;
+      if (f === undefined) return [];
+      let kin = families.get(f);
+      if (!kin) {
+        const owners = await ctx.db.query("outreachContacts").withIndex("by_organization_and_family", (q) => q.eq("organizationId", organizationId).eq("family", f)).take(PEERS_MAX);
+        kin = owners.filter(isCompany).map((o) => ({ id: o._id, name: o.name }));
+        families.set(f, kin);
+      }
+      return kin.filter((r) => r.id !== c._id);
+    };
+    const since = await freshSince(ctx);
+    const index = await knownOf(ctx, organizationId);
+    const rows = [];
+    for (const c of picked) {
+      const signals = c.signals ? badgesOf(c.signals, since) : c.property ? await signalsFor(ctx, c.property.parcelId, since) : [];
+      // A lead deleted in Leads leaves its owner New here, ready to send again; one still there shows its stage.
+      const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
+      const shown = c.leadId && !lead ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
+      rows.push(contactView(shown, signals, await related(c), shown.leadId ? undefined : knownFor(shown, index), lead?.status));
+    }
+    if (cursor) return { rows, cursor: next };
+    const onNone = await ctx.db
+      .query("outreachContacts")
+      .withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0))
+      .take(UNLISTED_COUNT_MAX);
+    return {
+      rows,
+      cursor: next,
+      facts: {
+        balanceCents: organization.walletBalanceCents ?? 0,
+        freeLookups: freeLookupsLeft(organization),
+        unlockCents: UNLOCK_CENTS,
+        researchCents: RESEARCH_CENTS,
+        researchQuestion: DEFAULT_RESEARCH_QUESTION,
+        phoneHitRate: await phoneHitRate(ctx, organizationId),
+        lastSend: await lastSendOf(ctx, organizationId),
+        unlisted: onNone.length,
+        county: knownCounty(organization.outreachCounty),
+        simulating: simulating(),
+        readyCounties: await readyCounties(ctx),
+        asOf: nowIso(),
+        removedAt: organization.outreachRemovedAt,
+        /** The open list's definition: the page puts its owners in the list's own order from it. */
+        definition: list && list.organizationId === organizationId ? list.definition : undefined,
+      },
+    };
+  },
+});
+
 /**
  * How big the owners are, by company: how many, their average and largest
  * stored size, and how far one read of them all is from what a read may hold

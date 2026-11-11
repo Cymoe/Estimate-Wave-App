@@ -543,9 +543,14 @@ const OutreachPage: React.FC = () => {
     if (!organizationId) return;
     const key = `${organizationId}:${listId ?? 'all'}`;
     try {
-      const [l, c] = await Promise.all([outreachAPI.lists(organizationId), outreachAPI.contacts(organizationId, listId)]);
+      // A long view arrives a page at a time: with nothing to show yet, its first owners show while the rest are read.
+      const early = seen.current.has(key) ? undefined : (c: OutreachContacts) => takeContacts(key, c);
+      // The lists show as soon as they're read: a long view's first owners need them, and don't wait for its last page.
+      const listsRead = outreachAPI.lists(organizationId).then((l) => {
+        if (live.current) setLists(keep(l));
+      });
+      const [, c] = await Promise.all([listsRead, outreachAPI.contacts(organizationId, listId, early)]);
       if (!live.current) return;
-      setLists(keep(l));
       takeContacts(key, c);
       return c;
     } catch (err) {
@@ -1174,13 +1179,14 @@ const OutreachPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => (freeTry ? void tryFree() : short ? addFunds() : void enrichAll())}
-                disabled={busy || extending}
+                disabled={busy || extending || Boolean(data.partial)}
                 className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`}
                 title={freeTry ? 'Your first phones found are free' : short ? `Your balance is ${dollars(balanceCents)}; finding these costs ${costOf(listPhones)}` : costOf(listPhones)}
                 data-testid="find-all"
               >
                 {/* On a phone the short-of-funds label is cut down, so the button is two lines at most, not three. */}
-                {extending
+                {/* A long view still arriving, a page at a time: the button waits for all of it, so it covers every owner. */}
+                {extending || data.partial
                   ? 'Loading owners…'
                   : freeTry
                     ? `Find ${freeTry} ${freeTry === 1 ? 'phone' : 'phones'} free`

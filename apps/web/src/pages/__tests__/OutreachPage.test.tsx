@@ -627,7 +627,7 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
-    expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
+    expect((getContacts.mock.lastCall as unknown[] | undefined)?.slice(0, 2)).toEqual(['o1', 'l1']);
     // One quiet line about the list over it; no step cards.
     expect(document.body.querySelector('[data-testid="steps"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="list-line"]')!.textContent).toBe('0 done · made Nov 5');
@@ -1273,7 +1273,7 @@ describe('the Outreach page', () => {
     await click('Load the next 500');
     expect(extend).toHaveBeenCalledWith('o1', 'l1');
     // The lists and contacts are read again once the page has loaded.
-    expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
+    expect((getContacts.mock.lastCall as unknown[] | undefined)?.slice(0, 2)).toEqual(['o1', 'l1']);
     // A list that already holds everyone it reaches says nothing about a cap.
     clearPage();
     lists = [{ ...list, rowCount: 2, total: 2 }];
@@ -1304,6 +1304,32 @@ describe('the Outreach page', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('a long view arrives a page at a time: its first owners show while the rest are read, and the find button waits for all of them', async () => {
+    lists = [list];
+    const full = twoContacts();
+    let finish: (c: unknown) => void = () => {};
+    getContacts.mockImplementationOnce(async (...args: unknown[]) => {
+      // The first page: one owner so far.
+      (args[2] as (c: unknown) => void)({ ...full, rows: [full.rows[0]], partial: true });
+      return await new Promise((resolve) => (finish = resolve));
+    });
+    await render('/outreach/l1');
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(1);
+    const find = () => document.body.querySelector('[data-testid="find-all"]') as HTMLButtonElement;
+    expect(find().textContent).toBe('Loading owners…');
+    expect(find().disabled).toBe(true);
+    // The rest arrive: everyone shows, and the button covers them all.
+    await act(async () => finish(full));
+    await flush();
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
+    expect(find().disabled).toBe(false);
+    expect(find().textContent).not.toBe('Loading owners…');
+    // Opened again with the view already there: it stays whole while it's read again (no first-owners-only flash).
+    await act(async () => pushChanges!({ rows: [], balanceCents: 0, freeLookups: 0, removedAt: 'later', reload: true, upTo: '2026-11-05T15:00:05.000Z' }));
+    await flush();
+    expect((getContacts.mock.lastCall as unknown[])[2]).toBeUndefined();
   });
 
   it('the live feed: owners removed elsewhere, or more changed than one answer carries, and the page reads its view again and listens from there', async () => {
@@ -1389,7 +1415,7 @@ describe('the Outreach page', () => {
     expect(document.body.textContent).toContain('Finding phones & emails now covers the 2 loaded.');
     await click('Load all 3 first');
     expect(extend).toHaveBeenCalledTimes(1);
-    expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
+    expect((getContacts.mock.lastCall as unknown[] | undefined)?.slice(0, 2)).toEqual(['o1', 'l1']);
     expect(document.body.textContent).toContain('Find phones & emails for the 3 owners on “Shopping center owners”?');
     await click('Find them');
     expect(enrich).toHaveBeenLastCalledWith('o1', ['r1', 'r2', 'r3'], undefined, undefined);
@@ -1588,7 +1614,7 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('[data-testid="unlisted-option"]') as HTMLButtonElement).click());
     await flush();
     expect(path).toBe('/outreach/unlisted');
-    expect(getContacts).toHaveBeenLastCalledWith('o1', 'unlisted');
+    expect((getContacts.mock.lastCall as unknown[] | undefined)?.slice(0, 2)).toEqual(['o1', 'unlisted']);
     expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Not on a list2');
     expect(document.body.querySelector('[data-testid="unlisted-line"]')!.textContent).toContain('Kept from lists you deleted, because you worked them.');
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());

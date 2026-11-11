@@ -8,6 +8,8 @@
 
 import { ConvexError } from 'convex/values';
 import { UNLISTED } from '../components/outreach/listsStore';
+import { coverageOfRows } from '../components/outreach/liveMerge';
+import { listOrder } from '../../convex/lib/outreach';
 import type { FunctionReference } from 'convex/server';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -1313,6 +1315,8 @@ export type OutreachContacts = {
   asOf?: string;
   /** When owners were last removed from the company's Outreach; the feed says when it moves. */
   removedAt?: string;
+  /** The first owners of a long view, with more still being read. */
+  partial?: boolean;
 };
 /** The live feed's answer: the owners changed since a moment (without their related owners or client/lead match), or word to read the view again. */
 export type OutreachChanges = {
@@ -1326,6 +1330,40 @@ export type OutreachChanges = {
   upTo: string;
 };
 const contactsArgs = (organizationId: string, listId?: string) => (listId === UNLISTED ? { organizationId, unlisted: true } : defined({ organizationId, listId }));
+
+type ContactsPage = { rows: OutreachContact[]; cursor: string | null; facts?: Omit<OutreachContacts, 'rows' | 'coverage' | 'partial'> & { definition?: OutreachDefinition } };
+/**
+ * A view's owners, read from the server a page at a time (outreach.contactsPage) and put together here: in the list's
+ * own order (or newest first), each owner once, with the column counts taken from the rows. The first page carries
+ * the balance, the prices and where the live feed picks up.
+ */
+async function readContacts(organizationId: string, listId: string | undefined, onPage?: (c: OutreachContacts) => void): Promise<OutreachContacts> {
+  const args = contactsArgs(organizationId, listId);
+  let page: ContactsPage;
+  try {
+    page = await run('query', api.outreach.contactsPage, { ...args, cursor: null });
+  } catch (first) {
+    // The backend is a version behind for a minute during a deploy and has no pages yet: the whole view in one read, as before.
+    try {
+      return await run('query', api.outreach.contacts, args);
+    } catch {
+      throw first;
+    }
+  }
+  const { definition, ...facts } = page.facts ?? ({} as NonNullable<ContactsPage['facts']>);
+  const order = definition ? listOrder(definition) : undefined;
+  const byId = new Map<string, OutreachContact>();
+  const view = (partial: boolean): OutreachContacts => {
+    const rows = [...byId.values()].sort((a, b) => (order ? order.key(b) - order.key(a) || a.name.localeCompare(b.name) : (b.createdAt ?? '').localeCompare(a.createdAt ?? '') || a.name.localeCompare(b.name)));
+    return { ...facts, rows, coverage: coverageOfRows(rows), ...(partial ? { partial: true } : {}) };
+  };
+  for (;;) {
+    for (const r of page.rows) byId.set(r.id, r);
+    if (!page.cursor) return view(false);
+    onPage?.(view(true));
+    page = await run('query', api.outreach.contactsPage, { ...args, cursor: page.cursor });
+  }
+}
 /** A source in the stack, as staff see it: connected or not, and how it has done for this company. */
 export type OutreachSource = {
   name: string;
@@ -1395,8 +1433,11 @@ export const emailAPI = {
 
 export const outreachAPI = {
   lists: (organizationId: string): Promise<OutreachListSummary[]> => run('query', api.outreach.lists, { organizationId }),
-  /** Every contact, or those on one list, with the balance for unlocks. */
-  contacts: (organizationId: string, listId?: string): Promise<OutreachContacts> => run('query', api.outreach.contacts, contactsArgs(organizationId, listId)),
+  /**
+   * Every contact, or those on one list, with the balance for unlocks. Read a page at a time, so a view of any size
+   * loads; onPage is given the view so far after each page but the last (the first owners can show while the rest arrive).
+   */
+  contacts: (organizationId: string, listId?: string, onPage?: (c: OutreachContacts) => void): Promise<OutreachContacts> => readContacts(organizationId, listId, onPage),
   /** The contacts, now and on every change: a lookup's progress, a status set elsewhere. Returns a stop function. */
   watchContacts: (organizationId: string, listId: string | undefined, onUpdate: (c: OutreachContacts) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.contacts, contactsArgs(organizationId, listId), onUpdate, onError),

@@ -3338,6 +3338,77 @@ describe("asking in plain words", () => {
   });
 });
 
+describe("the owners a page at a time", () => {
+  test("a list, All owners and Not on a list each read in pages: every owner once, the same rows as the whole read, the facts on the first page", async () => {
+    vi.stubEnv("OUTREACH_PAGE", "2");
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const commercial = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const investor = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    const whole = async (args: { listId?: Id<"outreachLists">; unlisted?: boolean } = {}) => await co.as.query(api.outreach.contacts, { organizationId: org, ...args });
+    // An owner sent to Leads (its stage shows), one with a note that then loses its only list (on no list).
+    const before = (await whole()).rows;
+    await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: before.find((r) => r.name === "Oak Plaza LLC")!.id });
+    const paged = async (args: { listId?: Id<"outreachLists">; unlisted?: boolean } = {}) => {
+      const rows = [];
+      const sizes = [];
+      let cursor: string | null = null;
+      let facts;
+      do {
+        const page: Awaited<ReturnType<typeof co.as.query<typeof api.outreach.contactsPage>>> = await co.as.query(api.outreach.contactsPage, { organizationId: org, ...args, cursor });
+        // Only the first page carries the facts.
+        if (cursor === null) facts = page.facts;
+        else expect(page.facts).toBeUndefined();
+        rows.push(...page.rows);
+        sizes.push(page.rows.length);
+        cursor = page.cursor;
+      } while (cursor);
+      return { rows, sizes, facts: facts! };
+    };
+    const byId = <T extends { id: string }>(rows: T[]) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+
+    // All four owners, two a page; the same rows the whole read gives (related owners, lead stage, known matches and all).
+    const all = await paged();
+    expect(all.sizes.filter((n) => n > 0)).toEqual([2, 2]);
+    expect(byId(all.rows)).toEqual(byId((await whole()).rows));
+    expect(all.rows.find((r) => r.name === "Oak Plaza LLC")).toMatchObject({ status: "lead", leadStage: "new" });
+    // Newest first, as the whole read orders All owners.
+    expect(all.rows.map((r) => r.createdAt)).toEqual([...all.rows.map((r) => r.createdAt)].sort().reverse());
+    // The first page's facts: the balance, the prices, where the live feed picks up; no definition without a list.
+    const { rows: _rows, coverage: _coverage, asOf: _asOf, ...facts } = await whole();
+    expect(all.facts).toMatchObject(facts);
+    expect(all.facts.asOf).toEqual(expect.any(String));
+    expect(all.facts.definition).toBeUndefined();
+
+    // One list: its three owners in the list's own order (as they were added), with its definition for the page to order by.
+    const list = await paged({ listId: investor.listId });
+    expect(list.sizes).toEqual([2, 1]);
+    expect(list.rows.map((r) => r.id)).toEqual((await whole({ listId: investor.listId })).rows.map((r) => r.id));
+    expect(list.facts.definition).toEqual({ county: "Midland", who: "investor" });
+    expect(byId((await paged({ listId: commercial.listId })).rows)).toEqual(byId((await whole({ listId: commercial.listId })).rows));
+
+    // Sister companies show as related though they're on another page (read by family, not from the page).
+    const nuka = list.rows.find((r) => r.name === "Nuka Hiva LLC")!;
+    expect(nuka.related).toEqual((await whole()).rows.find((r) => r.id === nuka.id)!.related);
+
+    // Not on a list: a worked owner whose only list was deleted.
+    const lone = list.rows.find((r) => r.listIds.length === 1)!;
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: lone.id, status: "new", note: "Call in spring" });
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: investor.listId });
+    const none = await paged({ unlisted: true });
+    expect(none.rows.map((r) => r.id)).toEqual([lone.id]);
+    expect(none.facts.unlisted).toBe(1);
+    expect(byId(none.rows)).toEqual(byId((await whole({ unlisted: true })).rows));
+    // A list that's gone (or another company's) has no owners; and it's all for Pro members.
+    expect((await co.as.query(api.outreach.contactsPage, { organizationId: org, listId: investor.listId })).rows).toEqual([]);
+    const free = await signUp(t, "owner@free.example");
+    await expect(free.as.query(api.outreach.contactsPage, { organizationId: free.organizationId })).rejects.toThrow(/Pro plan/);
+  });
+});
+
 describe("deleting a long list", () => {
   test("its owners come off a step at a time in the background; it's gone from the lists at once, and the same owners stay as in one go", async () => {
     vi.stubEnv("OUTREACH_REMOVE_PAGE", "2");
