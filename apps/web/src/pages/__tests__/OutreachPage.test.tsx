@@ -1289,6 +1289,8 @@ describe('the Outreach page', () => {
           enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'found', at: '2026-11-05T15:01:00Z', source: 'claude', chargedCents: 25 } },
           research: { question: 'Who is this owner?', answer: 'The City of Midland owns the lot; a parks bond passed in 2026.', sources: [{ title: 'Midland parks bond', url: 'https://example.com/bond' }], at: '2026-11-05T15:01:00Z' },
         }),
+        // Research ran and the web had nothing: said in words, so it doesn't read as "not asked yet".
+        contact('r3', { name: 'Garcia Maria', enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'none', at: new Date().toISOString() } } }),
       ],
     };
     await render();
@@ -1305,6 +1307,8 @@ describe('the Outreach page', () => {
     expect(researchCell(1).querySelector('span')!.className).toContain('line-clamp-2');
     expect(researchCell(0).textContent!.trim()).toBe('—');
     expect(researchCell(0).querySelector('svg')).not.toBeNull();
+    expect(researchCell(2).textContent!.trim()).toBe('Nothing found');
+    expect(researchCell(2).querySelector('svg')).toBeNull();
     expect(document.body.querySelector('[data-testid="research-badge"]')).toBeNull();
     await act(async () => (rows[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;

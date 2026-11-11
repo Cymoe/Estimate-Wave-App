@@ -150,8 +150,11 @@ const Nothing: React.FC<{ title?: string }> = ({ title = 'None found' }) => (
   </span>
 );
 
-/** A cell that hasn't a value: the lock, the wait, the miss, or the failure with its reason and a retry. */
-const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, onRetry }) => {
+/**
+ * A cell that hasn't a value: the lock, the wait, the miss, or the failure with its reason and a retry.
+ * noneText says the miss in words where a dash would read as "not asked yet" (the research column).
+ */
+const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void; noneText?: string }> = ({ cell, onRetry, noneText }) => {
   switch (cell.status) {
     case 'running':
       return <Live cell={cell} />;
@@ -162,7 +165,13 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
       const from = tryAgainFrom(cell);
       return (
         <span className="flex items-center gap-2 min-w-0">
-          <Nothing title={from && !dueAgain(cell) ? `None found. Can be tried again from ${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : undefined} />
+          {noneText ? (
+            <span className="text-gray-500 whitespace-nowrap" data-testid="nothing-found">
+              {noneText}
+            </span>
+          ) : (
+            <Nothing title={from && !dueAgain(cell) ? `None found. Can be tried again from ${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : undefined} />
+          )}
           {onRetry && dueAgain(cell) && (
             <button
               type="button"
@@ -520,12 +529,12 @@ export const ContactsTable: React.FC<{
             <Empty cell={r.enrichment.email} onRetry={() => onRetry(r, 'email')} />
           )}
         </td>
-        {/* What research found, two lines of it (the whole answer and its sources are in the owner's sheet, a tap away); a lock when nobody has asked. */}
+        {/* What research found, two lines of it (the whole answer and its sources are in the owner's sheet, a tap away); a lock when nobody has asked; "Nothing found" when it ran and the web had nothing. */}
         <td className={`${td}${glow(r.id, 'research')}`} data-testid="research-cell">
           {r.research ? (
             <span className="line-clamp-2 whitespace-normal text-gray-200">{r.research.answer}</span>
           ) : (
-            <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />
+            <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} noneText="Nothing found" />
           )}
         </td>
         {/* With nobody to call or write to, the mailing address is how this owner is reached: it stays bright as the rest of the row goes quiet. */}
