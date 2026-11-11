@@ -737,11 +737,14 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
       .unique();
     if (existing) {
       if (existing.listIds.includes(listId)) continue;
+      const listIds = [...existing.listIds, listId];
       await ctx.db.patch(existing._id, {
-        listIds: [...existing.listIds, listId],
+        listIds,
         kinds: existing.kinds.includes(who) ? existing.kinds : [...existing.kinds, who],
+        ...filing({ ...existing, listIds }),
         updatedAt: now,
       });
+      await ctx.db.insert("outreachMembers", { organizationId, listId, contactId: existing._id });
     } else {
       const { found, ...rest } = row;
       // A contractor's permits (or a realtor's license) already name who to call: those cells start found, from that record, at no charge.
@@ -760,7 +763,19 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
           }
         : {};
       const signals = rest.property ? await signalsAt(ctx, rest.property.parcelId) : undefined;
-      await ctx.db.insert("outreachContacts", { organizationId, ...rest, ...given, ...(signals ? { signals } : {}), kinds: [who], listIds: [listId], status: "new", createdAt: now, updatedAt: now });
+      const contactId = await ctx.db.insert("outreachContacts", {
+        organizationId,
+        ...rest,
+        ...given,
+        ...(signals ? { signals } : {}),
+        kinds: [who],
+        listIds: [listId],
+        ...filing({ ...rest, kinds: [who], listIds: [listId] }),
+        status: "new",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("outreachMembers", { organizationId, listId, contactId });
       added++;
     }
   }
@@ -1509,7 +1524,8 @@ export const remove = mutation({
         }
       }
       const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
-      await ctx.db.patch(c._id, { listIds, kinds, updatedAt: nowIso() });
+      await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, kinds, listIds }), updatedAt: nowIso() });
+      await leaveLists(ctx, c._id, listId);
     }
     await ctx.db.delete(listId);
     return null;
@@ -1538,8 +1554,60 @@ const lookingUp = (c: Doc<"outreachContacts">) => Object.values(cellsOf(c)).some
 const alwaysStays = (c: Doc<"outreachContacts">, leadGone: boolean) => Boolean(c.clientId) || (Boolean(c.leadId) && !leadGone) || lookingUp(c);
 
 /** An owner removed for good, with any lookup narration it left. */
+/**
+ * How an owner is filed besides its lists, each indexed so nothing has to read every owner a company has: how many
+ * lists it's on (none: "Not on a list"), its company family (sister entities) and its mailing address (the same
+ * people behind two owners). Written wherever listIds is, and by backfillFiling for owners saved before.
+ */
+function filing(c: Pick<Doc<"outreachContacts">, "name" | "company" | "kinds" | "mailing" | "listIds">) {
+  return { onLists: c.listIds.length, family: isCompany(c) ? familyKey(c.name) : undefined, mail: mailKey(c.mailing) };
+}
+
+/** Takes an owner off a list's membership rows, or off every list's when none is named. */
+async function leaveLists(ctx: MutationCtx, contactId: Id<"outreachContacts">, listId?: Id<"outreachLists">) {
+  for (const m of await ctx.db.query("outreachMembers").withIndex("by_contact", (q) => q.eq("contactId", contactId)).collect()) {
+    if (!listId || m.listId === listId) await ctx.db.delete(m._id);
+  }
+}
+
+/**
+ * Run on deploy: owners saved before they were filed (filing) get their membership rows and their onLists, family and
+ * mail, and any out of step are put right. A page at a time in the background; safe to re-run.
+ */
+export const backfillFiling = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ fixed: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let fixed = 0;
+    for (const c of page.page) {
+      const want = filing(c);
+      const members = await ctx.db.query("outreachMembers").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect();
+      const has = new Set(members.map((m) => m.listId));
+      let changed = false;
+      for (const listId of c.listIds) {
+        if (has.has(listId)) continue;
+        await ctx.db.insert("outreachMembers", { organizationId: c.organizationId, listId, contactId: c._id });
+        changed = true;
+      }
+      for (const m of members) {
+        if (c.listIds.includes(m.listId)) continue;
+        await ctx.db.delete(m._id);
+        changed = true;
+      }
+      if (c.onLists !== want.onLists || c.family !== want.family || c.mail !== want.mail) {
+        await ctx.db.patch(c._id, want);
+        changed = true;
+      }
+      if (changed) fixed++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.backfillFiling, { cursor: page.continueCursor });
+    return { fixed, done: page.isDone };
+  },
+});
+
 async function dropOwner(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
   await clearProgress(ctx, contactId, ["phone", "email", "person", "research"]);
+  await leaveLists(ctx, contactId);
   const c = await ctx.db.get(contactId);
   await ctx.db.delete(contactId);
   if (c) await ownersRemoved(ctx, c.organizationId);
@@ -1622,6 +1690,7 @@ export const clearLeftovers = internalMutation({
     let removed = 0;
     for (const c of page.page) {
       if (c.listIds.length > 0 || worthKeeping(c, await leadGone(ctx, c))) continue;
+      await leaveLists(ctx, c._id);
       await ctx.db.delete(c._id);
       await ownersRemoved(ctx, c.organizationId);
       removed++;
@@ -2621,7 +2690,10 @@ export const clearOwnersOf = internalMutation({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     const page = await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(1000);
-    for (const c of page) await ctx.db.delete(c._id);
+    for (const c of page) {
+      await leaveLists(ctx, c._id);
+      await ctx.db.delete(c._id);
+    }
     if (page.length) await ownersRemoved(ctx, organizationId);
     if (page.length === 1000) await ctx.scheduler.runAfter(0, internal.outreach.clearOwnersOf, { organizationId });
     return { removed: page.length };

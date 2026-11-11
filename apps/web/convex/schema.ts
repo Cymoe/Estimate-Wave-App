@@ -1314,6 +1314,11 @@ export default defineSchema({
     why: v.string(),
     kinds: v.array(outreachWho),
     listIds: v.array(v.id("outreachLists")),
+    // Kept with listIds, the name and the mailing address (outreach.ts filing): how many lists the owner is on, its
+    // company family ("NUKA HIVA ALPHA") and its mailing address's key, each indexed.
+    onLists: v.optional(v.number()),
+    family: v.optional(v.string()),
+    mail: v.optional(v.string()),
     status: outreachRowStatus,
     note: v.optional(v.string()),
     // Earlier call tracking, no longer written (calls are worked in Leads).
@@ -1353,7 +1358,23 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_parcel", ["property.parcelId"])
     // What changed since a moment, for the page's live feed (outreach.changes): every write stamps updatedAt.
-    .index("by_organization_and_updated", ["organizationId", "updatedAt"]),
+    .index("by_organization_and_updated", ["organizationId", "updatedAt"])
+    // How an owner is filed besides its lists (outreach.ts filing), so nothing has to read every owner of a company:
+    // those on no list, a company's sister entities, the owners billed at one address, and the owners of one send to Leads.
+    .index("by_organization_and_on_lists", ["organizationId", "onLists"])
+    .index("by_organization_and_family", ["organizationId", "family"])
+    .index("by_organization_and_mail", ["organizationId", "mail"])
+    .index("by_organization_and_sent", ["organizationId", "sentAt"]),
+
+  // Which owners are on which list, a row each (an owner's listIds says the same): a list's owners can be read a
+  // page at a time, which an array on the owner can't be indexed for.
+  outreachMembers: defineTable({
+    organizationId: v.id("organizations"),
+    listId: v.id("outreachLists"),
+    contactId: v.id("outreachContacts"),
+  })
+    .index("by_list", ["listId"])
+    .index("by_contact", ["contactId"]),
 
   // Email outreach (emailOutreach.ts). A company's own Gmail, connected
   // once with Google's send-only permission; the refresh token is sealed

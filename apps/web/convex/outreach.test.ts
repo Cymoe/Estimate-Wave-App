@@ -1843,6 +1843,47 @@ describe("a company's lists", () => {
     expect(await feed(landed.upTo)).toMatchObject({ reload: true, rows: [] });
   });
 
+  test("each owner is filed under its lists, family and mailing address, kept in step as lists come and go, and put right by the backfill", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const a = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const filed = async () =>
+      await t.run(async (ctx) => {
+        const owners = await ctx.db.query("outreachContacts").collect();
+        const members = await ctx.db.query("outreachMembers").collect();
+        return { owners: owners.map((c) => ({ name: c.name, onLists: c.onLists, family: c.family, mail: c.mail, lists: c.listIds.length })).sort((x, y) => x.name.localeCompare(y.name)), members: members.length, inStep: owners.every((c) => c.listIds.every((id) => members.some((m) => m.contactId === c._id && m.listId === id))) };
+      });
+    const one = await filed();
+    expect(one.members).toBe(2);
+    expect(one.inStep).toBe(true);
+    expect(one.owners.map((o) => [o.name, o.onLists])).toEqual([["City Of Midland", 1], ["Oak Plaza LLC", 1]]);
+    expect(one.owners.find((o) => o.name === "Oak Plaza LLC")).toMatchObject({ family: "OAK PLAZA", mail: expect.stringContaining("|") });
+
+    // The same owners on a second list: a row each more, and two lists on each owner.
+    const b = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    expect(await filed()).toMatchObject({ members: 4, inStep: true, owners: [{ onLists: 2 }, { onLists: 2 }] });
+    // The first list deleted: its rows go, the owners stay on the other.
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: a.listId as Id<"outreachLists"> });
+    expect(await filed()).toMatchObject({ members: 2, inStep: true, owners: [{ onLists: 1 }, { onLists: 1 }] });
+
+    // Owners saved before they were filed: the backfill gives them their rows and fields, once.
+    await t.run(async (ctx) => {
+      for (const m of await ctx.db.query("outreachMembers").collect()) await ctx.db.delete(m._id);
+      for (const c of await ctx.db.query("outreachContacts").collect()) await ctx.db.patch(c._id, { onLists: undefined, family: undefined, mail: undefined });
+    });
+    expect(await t.mutation(internal.outreach.backfillFiling, {})).toEqual({ fixed: 2, done: true });
+    expect(await filed()).toMatchObject({ members: 2, inStep: true, owners: [{ onLists: 1 }, { name: "Oak Plaza LLC", onLists: 1, family: "OAK PLAZA" }] });
+    expect(await t.mutation(internal.outreach.backfillFiling, {})).toEqual({ fixed: 0, done: true });
+
+    // The last list deleted with nobody worked: owners and their rows all go.
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: b.listId as Id<"outreachLists"> });
+    expect(await filed()).toEqual({ owners: [], members: 0, inStep: true });
+  });
+
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();

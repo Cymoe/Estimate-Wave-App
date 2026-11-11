@@ -209,6 +209,10 @@ jobs:
         # So the owners page reads them with the owners, not one lookup each.
         # Owners saved before get theirs; finishes in the background. Safe to re-run.
         run: npx convex run outreach:backfillContactSignals
+      - name: File each Outreach owner under its lists, company family and mailing address
+        # Membership rows and indexed fields, so a list (and a company's sister entities) can be read without reading
+        # every owner. Owners saved before get theirs; finishes in the background. Safe to re-run.
+        run: npx convex run outreach:backfillFiling
       - name: Key permits by address for Outreach
         # Permits imported before the key existed get theirs; finishes in the background. Safe to re-run.
         run: npx convex run permits:backfillAddressKeys
