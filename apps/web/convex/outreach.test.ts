@@ -801,6 +801,8 @@ describe("a company's lists", () => {
       await contact("Looking Up On List LLC", { listIds: [listId], enrichment: running });
       return { listId, a };
     });
+    // Saved straight into the table: filed under their list as owners a list adds are (the deploy's backfill does it for older ones).
+    await t.mutation(internal.outreach.backfillFiling, {});
     const view = await co.as.query(api.outreach.contacts, { organizationId: org, unlisted: true });
     expect(view.rows.map((r) => r.name).sort()).toEqual(["Kept A LLC", "Kept B LLC", "Looking Up LLC", "Sent LLC"]);
     expect(view.unlisted).toBe(4);
@@ -3333,6 +3335,50 @@ describe("asking in plain words", () => {
     // Off the plan: refused before any call.
     const free = await signUp(t, "owner@free.example");
     await expect(free.as.action(api.outreach.interpret, { organizationId: free.organizationId, request: "investors" })).rejects.toThrow(/Pro plan/);
+  });
+});
+
+describe("deleting a long list", () => {
+  test("its owners come off a step at a time in the background; it's gone from the lists at once, and the same owners stay as in one go", async () => {
+    vi.stubEnv("OUTREACH_REMOVE_PAGE", "2");
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const commercial = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const investor = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    const rows = (await co.as.query(api.outreach.contacts, { organizationId: org, listId: investor.listId })).rows;
+    expect(rows).toHaveLength(3);
+    // One owner on the investor list alone is worked (a note); the one on both lists is too.
+    const alone = rows.filter((r) => r.listIds.length === 1);
+    expect(alone).toHaveLength(2);
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: alone[0].id, status: "new", note: "Call in spring" });
+    const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => [c.name, c.listIds.length]).sort();
+    const before = await names();
+    expect(before).toHaveLength(4);
+
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: investor.listId });
+    // Two owners handled, one to go: the list is gone from the lists already, and can't be deleted or loaded further again.
+    expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => l.id)).toEqual([commercial.listId]);
+    expect(await t.run(async (ctx) => (await ctx.db.get(investor.listId))?.removing)).toEqual({ alsoWorked: false });
+    await expect(co.as.mutation(api.outreach.remove, { organizationId: org, listId: investor.listId })).rejects.toThrow(/No such list/);
+    await expect(co.as.mutation(api.outreach.extend, { organizationId: org, listId: investor.listId })).rejects.toThrow(/No such list/);
+    expect(await co.as.mutation(api.outreach.tally, { organizationId: org })).toEqual({ counting: 1 });
+    await t.finishAllScheduledFunctions(() => {});
+
+    // Done: the list itself and its membership rows are gone; the worked owner stays on no list, the unworked one went,
+    // and the owner of both lists is on the commercial list alone.
+    expect(await t.run(async (ctx) => ctx.db.get(investor.listId))).toBeNull();
+    expect(await t.run(async (ctx) => (await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", investor.listId)).collect()).length)).toBe(0);
+    expect(await names()).toEqual(
+      before
+        .filter(([name]) => name !== alone[1].name)
+        .map(([name, n]) => [name, name === alone[0].name ? 0 : name === "Oak Plaza LLC" ? 1 : n])
+        .sort(),
+    );
+    const kept = await t.run(async (ctx) => (await ctx.db.query("outreachContacts").collect()).find((c) => c.name === alone[0].name)!);
+    expect(kept).toMatchObject({ listIds: [], onLists: 0, kinds: [] });
   });
 });
 

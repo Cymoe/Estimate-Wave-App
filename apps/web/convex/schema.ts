@@ -1277,6 +1277,11 @@ export default defineSchema({
     kept: v.optional(v.number()),
     results: v.optional(v.object({ sent: v.number(), estimates: v.number(), sold: v.number() })),
     countedAt: v.optional(v.string()),
+    /**
+     * Deleted, with owners still being taken off it in the background (a list longer than one step of outreach.remove):
+     * gone from the lists already. `alsoWorked` is how the delete was asked for.
+     */
+    removing: v.optional(v.object({ alsoWorked: v.boolean() })),
   }).index("by_organization", ["organizationId"]),
 
   // The lists' rows before contacts (outreach:migrateRows moves them over on deploy; drop the table once it has run clean).

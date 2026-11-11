@@ -716,7 +716,8 @@ export const fillList = internalMutation({
   args: { listId: v.id("outreachLists"), offset: v.number(), target: v.number() },
   handler: async (ctx, { listId, offset, target }) => {
     const list = await ctx.db.get(listId);
-    if (!list) return null;
+    // Deleted while it was still filling: nothing more to add.
+    if (!list || list.removing) return null;
     const built = await buildRows(ctx, list.definition, offset, Math.min(FILL_ROWS, target - offset));
     await addRows(ctx, list.organizationId, listId, list.definition.who, built.rows, nowIso());
     const next = built.next;
@@ -791,7 +792,7 @@ export const extend = mutation({
   handler: async (ctx, { organizationId, listId }) => {
     await requirePro(ctx, organizationId);
     const list = await ctx.db.get(listId);
-    if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
+    if (!list || list.organizationId !== organizationId || list.removing) fail("NOT_FOUND", "No such list");
     // The background fill is still adding this list's first owners: the next page would run into it.
     if (list.filling) fail("INVALID", "Still adding owners to this list; load more once it's done");
     const built = await buildRows(ctx, list.definition, list.rowCount);
@@ -814,7 +815,8 @@ export const listsDef = queryDef({
   handler: async (ctx, { organizationId }) => {
     await requirePro(ctx, organizationId);
     const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
-    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, l.done, l.results, l.kept ?? 0));
+    // A list being deleted (its last owners still coming off it in the background) is gone already.
+    return lists.filter((l) => !l.removing).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, l.done, l.results, l.kept ?? 0));
   },
 });
 export const lists = query(listsDef);
@@ -890,7 +892,7 @@ export const tally = mutation({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     const { organization } = await requirePro(ctx, organizationId);
-    const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+    const lists = (await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).filter((l) => !l.removing);
     const old = new Date(Date.now() - COUNT_FRESH_MS).toISOString();
     const removedAt = organization.outreachRemovedAt ?? "";
     const stale = new Set(lists.filter((l) => !l.countedAt || l.countedAt < old || removedAt >= l.countedAt).map((l) => l._id));
@@ -1597,33 +1599,69 @@ export const sendManyToLeads = mutation({
   },
 });
 
-/** Drops a list. Its contacts lose the tag; one on no other list goes too, unless the company paid to unlock it. */
+/** How many of a list's owners one step of deleting it handles. OUTREACH_REMOVE_PAGE sets it (the tests delete in small steps). */
+const removePage = () => Number(process.env.OUTREACH_REMOVE_PAGE) || 300;
+
+/**
+ * One step of deleting a list: its next owners (read from its membership rows, not from every owner the company has)
+ * lose the tag, and one on no other list goes too unless it holds work (worthKeeping), or, asked to take the worked
+ * ones as well, unless it always stays. Says whether owners are left for another step.
+ */
+async function removeStep(ctx: MutationCtx, list: Doc<"outreachLists">, alsoWorked: boolean): Promise<boolean> {
+  const listId = list._id;
+  const size = removePage();
+  const members = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", listId)).take(size);
+  const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", list.organizationId)).collect();
+  const whoOf = new Map(lists.map((l) => [l._id, l.definition.who] as const));
+  for (const m of members) {
+    const c = await ctx.db.get(m.contactId);
+    if (!c || !c.listIds.includes(listId)) {
+      await ctx.db.delete(m._id);
+      continue;
+    }
+    const listIds = c.listIds.filter((id) => id !== listId);
+    // Owners you've worked stay (under All owners) even when this was their only list; the rest go with it.
+    if (listIds.length === 0) {
+      const gone = await leadGone(ctx, c);
+      if (alsoWorked ? !alwaysStays(c, gone) : !worthKeeping(c, gone)) {
+        await dropOwner(ctx, c._id);
+        continue;
+      }
+    }
+    const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
+    await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, listIds }), updatedAt: nowIso() });
+    await leaveLists(ctx, c._id, listId);
+  }
+  return members.length === size;
+}
+
+/**
+ * Drops a list. Its contacts lose the tag; one on no other list goes too, unless it holds work. A list longer than one
+ * step is gone from the lists at once and its remaining owners follow in the background (removeRest).
+ */
 export const remove = mutation({
   /** alsoWorked: the worked owners only this list holds go too, all but those now a lead or a client or still being looked up. */
   args: { organizationId: v.id("organizations"), listId: v.id("outreachLists"), alsoWorked: v.optional(v.boolean()) },
   handler: async (ctx, { organizationId, listId, alsoWorked }) => {
     await requirePro(ctx, organizationId);
     const list = await ctx.db.get(listId);
-    if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
-    const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
-    const whoOf = new Map(lists.map((l) => [l._id, l.definition.who] as const));
-    const contacts = await contactsOf(ctx, organizationId);
-    // Owners you've worked stay (under All owners) even when this was their only list; the rest go with it.
-    for (const c of contacts) {
-      if (!c.listIds.includes(listId)) continue;
-      const listIds = c.listIds.filter((id) => id !== listId);
-      if (listIds.length === 0) {
-        const gone = await leadGone(ctx, c);
-        if (alsoWorked ? !alwaysStays(c, gone) : !worthKeeping(c, gone)) {
-          await dropOwner(ctx, c._id);
-          continue;
-        }
-      }
-      const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
-      await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, listIds }), updatedAt: nowIso() });
-      await leaveLists(ctx, c._id, listId);
-    }
-    await ctx.db.delete(listId);
+    if (!list || list.organizationId !== organizationId || list.removing) fail("NOT_FOUND", "No such list");
+    if (await removeStep(ctx, list, alsoWorked === true)) {
+      await ctx.db.patch(listId, { removing: { alsoWorked: alsoWorked === true }, filling: undefined });
+      await ctx.scheduler.runAfter(0, internal.outreach.removeRest, { listId });
+    } else await ctx.db.delete(listId);
+    return null;
+  },
+});
+
+/** A deleted list's owners past the first step, a step at a time; the last one deletes the list itself. */
+export const removeRest = internalMutation({
+  args: { listId: v.id("outreachLists") },
+  handler: async (ctx, { listId }) => {
+    const list = await ctx.db.get(listId);
+    if (!list?.removing) return null;
+    if (await removeStep(ctx, list, list.removing.alsoWorked)) await ctx.scheduler.runAfter(0, internal.outreach.removeRest, { listId });
+    else await ctx.db.delete(listId);
     return null;
   },
 });
@@ -1864,7 +1902,7 @@ export const organizeList = mutation({
   handler: async (ctx, { organizationId, listId, title, pinned, archived }) => {
     await requirePro(ctx, organizationId);
     const list = await ctx.db.get(listId);
-    if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
+    if (!list || list.organizationId !== organizationId || list.removing) fail("NOT_FOUND", "No such list");
     const patch: Partial<Doc<"outreachLists">> = {};
     if (title !== undefined) {
       const t = title.trim().replace(/\s+/g, " ");
