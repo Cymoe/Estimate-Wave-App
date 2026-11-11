@@ -1731,16 +1731,73 @@ describe('the Outreach page', () => {
     expect(table()).toBe(450);
     expect(more()).toBeNull();
   });
+  it("a lookup's toast never stays in the way: it can be closed while the lookup runs, comes back for the next one, and the finished summary goes by itself", async () => {
+    const progress = () => document.body.querySelector('[data-testid="lookup-progress"]') as HTMLElement | null;
+    const running = { status: 'running', at: '2026-11-05T15:00:30Z' };
+    const runningRows = () => ({
+      ...twoContacts(),
+      balanceCents: 1000,
+      rows: [contact('r1', { enrichment: { phone: running, email: running, person: running, research: { status: 'locked' } } }), contact('r2', { name: 'City Of Midland' })],
+    });
+    lists = [list];
+    contacts = runningRows();
+    localStorage.setItem('outreach.batch', JSON.stringify({ at: '2026-11-05T15:00:00Z' }));
+    await render('/outreach/l1');
+    // A toast, not a bar: rounded, floating in the stack at the bottom of the screen.
+    expect(progress()!.textContent).toContain('Looking up 1 owner · 0 done');
+    expect(progress()!.className).toContain('rounded-2xl');
+    expect(progress()!.parentElement!.getAttribute('data-testid')).toBe('status-toasts');
+    // Closed mid-lookup: the toast goes, the lookup doesn't. The row still shows its own progress.
+    const x = progress()!.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement;
+    expect(x.title).toBe('Hide this; the lookup carries on');
+    await act(async () => x.click());
+    expect(progress()).toBeNull();
+    expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Waiting its turn');
+    // More of the same lookup landing doesn't bring it back.
+    await act(async () => pushContacts(runningRows()));
+    expect(progress()).toBeNull();
+    // The next lookup started here has its toast.
+    await click('Find phones & emails');
+    await click('Find them');
+    expect(progress()).not.toBeNull();
+    clearPage();
+
+    // Finished: the summary stays a few seconds, fades, and is gone for good.
+    jest.useFakeTimers();
+    try {
+      const at = '2026-11-05T15:01:00Z';
+      const none = { status: 'none', at };
+      localStorage.setItem('outreach.batch', JSON.stringify({ at: '2026-11-05T15:00:00Z' }));
+      contacts = { ...twoContacts(), rows: [contact('r1', { enrichment: { phone: none, email: none, person: none, research: { status: 'locked' } } }), contact('r2', { name: 'City Of Midland' })] };
+      await render('/outreach/l1');
+      expect(progress()!.textContent).toBe('Done: 1 owner looked up0 phones · 0 emails · $0 charged');
+      expect(progress()!.className).toContain('opacity-100');
+      await act(async () => void jest.advanceTimersByTime(7900));
+      expect(progress()!.className).toContain('opacity-100');
+      await act(async () => void jest.advanceTimersByTime(200));
+      expect(progress()!.className).toContain('opacity-0');
+      await act(async () => void jest.advanceTimersByTime(400));
+      expect(progress()).toBeNull();
+      expect(localStorage.getItem('outreach.batch')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('a new list still adding owners in the background says so, with no Load the next until it is done', async () => {
     lists = [{ ...list, rowCount: 50, total: 2340, filling: true }];
     contacts = twoContacts();
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-filling"]')!.textContent).toBe('Adding owners to this list: 2 so far…');
-    // In the strip along the page's bottom edge, after everything else: it never sits on top of a row's buttons.
-    const strip = document.body.querySelector('[data-testid="outreach-page"] > [data-testid="status-strip"]')!;
-    expect(strip.querySelector('[data-testid="list-filling"]')).not.toBeNull();
-    expect(strip.className).toContain('sticky bottom-0');
-    expect(strip.nextElementSibling).toBeNull();
+    // A toast floating at the bottom of the screen, outside the page's layout: taps go through the space around it.
+    const toasts = document.body.querySelector('[data-testid="status-toasts"]')!;
+    expect(toasts.querySelector('[data-testid="list-filling"]')).not.toBeNull();
+    expect(toasts.parentElement).toBe(document.body);
+    expect(toasts.className).toContain('fixed bottom-');
+    expect(toasts.className).toContain('pointer-events-none');
+    expect(document.body.querySelector('[data-testid="status-strip"]')).toBeNull();
+    // The page keeps room after its last row, so one can always be scrolled clear of the toast.
+    expect(document.body.querySelector('[data-testid="outreach-page"]')!.className).toContain('pb-24');
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
     lists = [{ ...list, filling: false }];
     clearPage();
