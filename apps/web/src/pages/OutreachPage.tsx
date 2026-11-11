@@ -475,6 +475,14 @@ const OutreachPage: React.FC = () => {
   useEffect(() => {
     if (listId && listId !== UNLISTED) rememberList(listId);
   }, [listId]);
+  // Another list (or a new one just saved) opens at its top: the page doesn't keep the scroll of the one before, which
+  // on a phone left a new list showing from its fifth owner with the buttons out of sight.
+  const shownList = useRef(listId);
+  useEffect(() => {
+    if (shownList.current === listId) return;
+    shownList.current = listId;
+    for (let el = document.querySelector('[data-testid="outreach-page"]'); el; el = el.parentElement) if (el.scrollTop) el.scrollTop = 0;
+  }, [listId]);
   const live = useRef(true);
   useEffect(() => {
     live.current = true;
