@@ -1518,7 +1518,7 @@ const GrowingTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement
 };
 
 /** What a property is, in a word, from the appraisal district's use code. */
-const useWord = (code: string) => (isCommercialUse(code) ? 'Commercial' : isMultifamilyUse(code) ? 'Apartments' : 'Home');
+const wordForUse = (code: string) => (isCommercialUse(code) ? 'Commercial' : isMultifamilyUse(code) ? 'Apartments' : 'Home');
 
 /**
  * Everything an owner holds, in their sheet: their row carries only the most valuable property, so the rest are read
@@ -1577,7 +1577,7 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
                   {p.address}
                 </AddressLink>
                 <div className="text-xs text-gray-500 truncate">
-                  {useWord(p.useCode)}
+                  {wordForUse(p.useCode)}
                   {p.owner ? ` · ${p.owner}` : ''}
                 </div>
               </div>
