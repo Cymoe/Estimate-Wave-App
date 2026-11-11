@@ -2167,54 +2167,41 @@ describe('the Outreach page', () => {
     ];
   };
 
-  it('companies run by one person are one line: what they hold in all, their companies a tap away, and sending or skipping them is one decision', async () => {
+  it('the list is one row per owner, always; owners run by the same person say how many are related, and the sheet lists them', async () => {
     lists = [list];
     contacts = { ...twoContacts(), rows: peopleRows(), coverage: coverage(2, 1, 4, 7) };
     await render('/outreach/l1');
-    const people = () => Array.from(document.body.querySelectorAll('[data-testid="operator-row"]'));
     const owners = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"]'));
     const first = (el: Element) => el.querySelector('td')!.firstChild!.textContent;
-    // Seven owners are four lines: each person once, where the first of their companies stood, then the owners on their own.
-    expect(people().map((p) => p.querySelector('[data-testid="operator-name"]')!.textContent)).toEqual(['Karen Holt', 'Luis Ortega']);
-    expect(owners().map(first)).toEqual(['City Of Midland', 'Tall City Towers LLC']);
-    expect(Array.from(document.body.querySelectorAll('tbody tr')).map((r) => r.getAttribute('data-testid'))).toEqual(['operator-row', 'contact-row', 'operator-row', 'contact-row']);
-    // What she controls across her companies, and why they are shown as hers.
-    expect(people()[0].querySelector('[data-testid="operator-holding"]')!.textContent).toBe('3 entities · 128 properties · $41.2M');
-    expect(people()[0].querySelector('[data-testid="operator-basis"]')!.textContent).toBe('Same decision makerGeneral partner');
-    // He is named on one of the two, and the other answers the same number: the best number is on his line, once.
-    expect(people()[1].querySelector('[data-testid="operator-basis"]')!.textContent).toBe('Same phone numberManager');
-    const cells = (row: Element) => Array.from(row.querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
-    expect(cells(people()[1]).slice(2, 4)).toEqual(['(432) 555-7104+1 moremobile · verified', 'luis@ortega.example']);
-    expect(cells(people()[0]).slice(4, 8)).toEqual(['—', '100 W Wall StMidland, TX 79701', '128 properties', '$41.2M']);
-    expect(document.body.querySelector('[data-testid="operators-line"]')!.textContent).toBe(
-      '5 of these 7 owners are run by 2 people, each shown once with their companies under them. Biggest: Karen Holt, 3 entities · 128 properties · $41.2M.',
-    );
+    // Seven owners are seven rows, in the list's order: nobody folded under anybody, nothing to open.
+    expect(owners().map(first)).toEqual(['Bluebonnet Holdings LLC', 'City Of Midland', 'Permian Storage LP', 'Ortega Rentals LLC', 'Wall Street Lofts LLC', 'Caddo Plaza LLC', 'Tall City Towers LLC']);
+    expect(document.body.querySelectorAll('[data-testid="operator-row"]')).toHaveLength(0);
+    expect(document.body.querySelector('[data-testid="operator-toggle"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="operator-actions"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="operators-line"]')).toBeNull();
+    // Under a name: how many other owners here are the same people (one office and one decision maker; one number).
+    const related = (i: number) => owners()[i].querySelector('[data-testid="related"]');
+    expect(related(0)!.textContent).toBe('+2 related');
+    expect(related(0)!.getAttribute('title')).toBe('Related: Permian Storage LP, Wall Street Lofts LLC');
+    expect([related(2)!.textContent, related(4)!.textContent]).toEqual(['+2 related', '+2 related']);
+    expect([related(3)!.textContent, related(5)!.textContent]).toEqual(['+1 related', '+1 related']);
+    expect([related(1), related(6)]).toEqual([null, null]);
     // Looked up, and nobody to call or write to: the row goes quiet, each miss a dash, the mailing address what it has.
-    const quiet = owners()[1];
+    const cells = (row: Element) => Array.from(row.querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
+    const quiet = owners()[6];
     expect(quiet.getAttribute('data-quiet')).toBe('true');
     expect(cells(quiet).slice(1, 6)).toEqual(['—', '—', '—', '—', '600 Illinois AveMidland, TX 79701']);
     expect(quiet.querySelectorAll('td')[5].className).toContain('text-gray-100');
     // Not looked up is not the same as nothing found: it keeps its padlock.
-    expect(owners()[0].getAttribute('data-quiet')).toBeNull();
-    expect(owners()[0].querySelectorAll('td')[2].querySelector('svg')).not.toBeNull();
+    expect(owners()[1].getAttribute('data-quiet')).toBeNull();
+    expect(owners()[1].querySelectorAll('td')[2].querySelector('svg')).not.toBeNull();
 
-    // Most parcels first ranks a person by all they hold, not company by company: his two companies' four properties
-    // are worth more than the city's four, so he comes before it, though neither of his companies would alone.
+    // Most parcels first goes owner by owner, by what each holds itself.
     await act(async () => (document.body.querySelector('[data-testid="name-sort"]') as HTMLButtonElement).click());
-    expect(Array.from(document.body.querySelectorAll('tbody tr')).map((r) => r.querySelector('[data-testid="operator-name"]')?.textContent ?? first(r))).toEqual(['Karen Holt', 'Luis Ortega', 'City Of Midland', 'Tall City Towers LLC']);
+    expect(owners().map(first)).toEqual(['Bluebonnet Holdings LLC', 'Permian Storage LP', 'Wall Street Lofts LLC', 'City Of Midland', 'Ortega Rentals LLC', 'Caddo Plaza LLC', 'Tall City Towers LLC']);
 
-    // A tap opens her line to her companies, set in under it, with the two things to do about all of them.
-    const toggle = (i: number) => people()[i].querySelector('[data-testid="operator-toggle"]') as HTMLButtonElement;
-    expect(toggle(0).getAttribute('aria-expanded')).toBe('false');
-    expect(people()[0].querySelector('[data-testid="operator-actions"]')).toBeNull();
-    await act(async () => toggle(0).click());
-    expect(toggle(0).getAttribute('aria-expanded')).toBe('true');
-    const nested = () => owners().filter((r) => r.getAttribute('data-nested'));
-    expect(nested().map(first)).toEqual(['Bluebonnet Holdings LLC', 'Permian Storage LP', 'Wall Street Lofts LLC']);
-    expect(Array.from(people()[0].querySelectorAll('[data-testid="operator-actions"] button')).map((b) => b.textContent)).toEqual(['Send all to Leads', 'Skip all']);
-
-    // One of her companies opens to its own sheet, which says whose it is and lists the others; a tap goes to one of them.
-    await act(async () => (nested()[1] as HTMLElement).click());
+    // An owner's sheet says whose it is and lists the related owners; a tap goes to one of them.
+    await act(async () => (owners()[1] as HTMLElement).click());
     const sheet = () => document.body.querySelector('[data-testid="operator-sheet"]')!;
     expect(sheet().textContent).toContain('Karen Holt · 3 entities · 128 properties · $41.2M');
     expect(sheet().textContent).toContain('Same decision maker. One person to call: sent to Leads, these become one lead.');
@@ -2224,111 +2211,67 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     await flush();
 
-    // Skip all: one decision, said once. Each of her companies is skipped, and again puts them back.
-    await act(async () => (people()[0].querySelector('[data-testid="operator-skip"]') as HTMLButtonElement).click());
-    await flush();
-    expect(setStatus.mock.calls.map((c) => (c as unknown[]).slice(1, 3))).toEqual([['r1', 'skip'], ['r3', 'skip'], ['r5', 'skip']]);
-    expect(people()[0].querySelector('[data-testid="status-badge"]')!.textContent).toBe('Skipped');
-    expect(people()[0].querySelector('[data-testid="operator-skip"]')!.textContent).toBe('Skipped · undo');
-    expect(people()[0].querySelector('[data-testid="operator-lead"]')).toBeNull();
-    setStatus.mockClear();
-    await act(async () => (people()[0].querySelector('[data-testid="operator-skip"]') as HTMLButtonElement).click());
-    await flush();
-    expect(setStatus.mock.calls.map((c) => (c as unknown[]).slice(1, 3))).toEqual([['r1', 'new'], ['r3', 'new'], ['r5', 'new']]);
-
-    // Send all: after a word on what they become, his two companies go as one send, to be one lead.
-    await act(async () => toggle(1).click());
-    await act(async () => (people()[1].querySelector('[data-testid="operator-lead"]') as HTMLButtonElement).click());
-    await flush();
-    expect(document.body.textContent).toContain('Send Luis Ortega’s 2 entities to Leads?');
-    expect(document.body.textContent).toContain('They become one lead: one person to call');
-    sendManyToLeads.mockImplementationOnce(async () => ({ sent: 2, leads: 1, joined: 1 }));
-    await act(async () => (Array.from(document.body.querySelectorAll('[role="alertdialog"] button')).find((b) => b.textContent === 'Send to Leads') as HTMLButtonElement).click());
-    await flush();
-    expect(sendManyToLeads).toHaveBeenLastCalledWith('o1', ['r4', 'r6']);
-    expect(document.body.querySelector('[data-testid="sent-note"]')!.textContent).toContain('Luis Ortega: 2 entities sent as 1 lead.');
-
-    // A search opens every line it finds something under, and the person's line says how many of theirs are showing.
+    // A search finds owners, each still its own row.
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'permian'));
-    expect(people()).toHaveLength(1);
-    expect(people()[0].querySelector('[data-testid="operator-showing"]')!.textContent).toBe('1 of 3 showing');
-    expect(people()[0].querySelector('[data-testid="operator-holding"]')!.textContent).toBe('3 entities · 128 properties · $41.2M');
     expect(owners().map(first)).toEqual(['Permian Storage LP']);
+    expect(related(0)!.textContent).toBe('+2 related');
   });
 
-  it("a person's company sent on its own joins the lead another of theirs already made; the send-all button counts leads by person", async () => {
+  it("a person's company sent on its own joins the lead another of theirs already made", async () => {
     lists = [list];
     const rows = peopleRows().map((r) => (r.id === 'r4' ? { ...r, status: 'lead', leadId: 'lead4', leadStage: 'contacted' } : r));
     contacts = { ...twoContacts(), rows, coverage: coverage(2, 1, 4, 7) };
     await render('/outreach/l1');
-    const luis = () => document.body.querySelectorAll('[data-testid="operator-row"]')[1];
-    // One of his two is in Leads: his line says so.
-    expect(luis().querySelector('[data-testid="status-badge"]')!.textContent).toBe('1 of 2 in Leads');
-    await act(async () => (luis().querySelector('[data-testid="operator-toggle"]') as HTMLButtonElement).click());
-    expect(luis().querySelector('[data-testid="operator-lead"]')!.textContent).toBe('Send 1 to Leads');
-    const caddo = Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).find((r) => r.textContent?.includes('Caddo Plaza'))!;
-    // The entity in Leads says where it stands in a badge; the one still New says nothing.
-    const ortega = Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).find((r) => r.textContent?.includes('Ortega Rentals'))!;
-    expect(ortega.querySelector('[data-testid="status-badge"]')!.textContent).toBe('In Leads · Contacted');
-    expect(caddo.querySelector('[data-testid="badges"]')).toBeNull();
+    const row = (name: string) => Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).find((r) => r.textContent?.includes(name))!;
+    // The owner in Leads says where it stands in a badge; the one still New says nothing.
+    expect(row('Ortega Rentals').querySelector('[data-testid="status-badge"]')!.textContent).toBe('In Leads · Contacted');
+    expect(row('Caddo Plaza').querySelector('[data-testid="badges"]')).toBeNull();
     // From its sheet, the other company goes to Leads naming the one already there, so the server joins that lead.
-    await act(async () => (caddo as HTMLElement).click());
+    await act(async () => (row('Caddo Plaza') as HTMLElement).click());
     await click('Send to Leads');
     expect(sendToLeads).toHaveBeenLastCalledWith('o1', 'r6', ['r4']);
   });
 
-  it('on a phone a person is one card: the best number among their companies to call, the companies inside it; an owner with nobody to reach is one quiet line and where to mail', async () => {
+  it('on a phone it is one card per owner too, with how many are related; an owner with nobody to reach is one quiet line and where to mail', async () => {
     narrowScreen = true;
     lists = [list];
     contacts = { ...twoContacts(), rows: peopleRows(), coverage: coverage(2, 1, 4, 7) };
     await render('/outreach/l1');
-    const people = () => Array.from(document.body.querySelectorAll('[data-testid="operator-card"]'));
-    const top = () => Array.from(document.body.querySelectorAll('[data-testid="contact-cards"] > li')).map((li) => li.querySelector('[data-testid="operator-name"]')?.textContent ?? li.querySelector('button span')!.textContent);
-    expect(top()).toEqual(['Karen Holt', 'City Of Midland', 'Luis Ortega', 'Tall City Towers LLC']);
-    expect(people()[0].textContent).toContain('3 entities · 128 properties · $41.2M');
-    expect(people()[0].textContent).toContain('Same decision maker');
-    expect(people()[0].textContent).toContain('No number for any of them yet');
-    // One Call for the two companies his number answers for, not one each.
-    expect(Array.from(people()[1].querySelectorAll(':scope > [data-testid="card-actions"] a')).map((a) => [a.textContent?.trim() || a.getAttribute('aria-label'), a.getAttribute('href')])).toEqual([
-      ['Call', 'tel:4325557104'],
-      ['Text', 'sms:4325557104'],
-      ['Email', 'mailto:luis@ortega.example'],
-    ]);
-    expect(document.body.querySelectorAll('[data-testid="card-call"]')).toHaveLength(1);
-    expect(people()[1].textContent).toContain('(432) 555-7104 mobile · verified · +1 more');
-    // His companies are inside the card, a tap away.
-    expect(people()[1].querySelector('[data-testid="operator-entities"]')).toBeNull();
-    await act(async () => (people()[1].querySelector('[data-testid="operator-toggle"]') as HTMLButtonElement).click());
-    expect(Array.from(people()[1].querySelectorAll('[data-testid="operator-entities"] [data-testid="contact-card"]')).map((c) => c.querySelector('button + button span')!.textContent)).toEqual(['Ortega Rentals LLC', 'Caddo Plaza LLC']);
+    const cards = () => Array.from(document.body.querySelectorAll('[data-testid="contact-cards"] > li'));
+    expect(cards()).toHaveLength(7);
+    expect(cards().every((c) => c.getAttribute('data-testid') === 'contact-card')).toBe(true);
+    expect(document.body.querySelector('[data-testid="operator-card"]')).toBeNull();
+    const card = (name: string) => cards().find((c) => c.textContent?.includes(name))!;
+    expect(card('Bluebonnet Holdings').textContent).toContain('+2 related');
+    expect(card('Ortega Rentals').textContent).toContain('+1 related');
+    expect(card('City Of Midland').textContent).not.toContain('related');
+    // Each owner with a number has its own Call.
+    expect(Array.from(document.body.querySelectorAll('[data-testid="card-call"]')).map((a) => a.getAttribute('href'))).toEqual(['tel:4325557104', 'tel:4325557104']);
     // Looked up and nothing found: one line and the mailing address, in place of a line per miss.
-    const quiet = Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')).find((c) => c.textContent?.includes('Tall City Towers'))!;
+    const quiet = card('Tall City Towers');
     expect(quiet.getAttribute('data-quiet')).toBe('true');
     expect(quiet.querySelector('[data-testid="nobody-to-reach"]')!.textContent).toBe('No number or email foundMail to 600 Illinois Ave, Midland, TX, 79701');
     expect(quiet.textContent).not.toContain('none found');
-    // Skip all, from the card's corner.
-    await act(async () => (people()[0].querySelector('[data-testid="operator-skip"]') as HTMLButtonElement).click());
-    await flush();
-    expect(setStatus.mock.calls.map((c) => (c as unknown[]).slice(1, 3))).toEqual([['r1', 'skip'], ['r3', 'skip'], ['r5', 'skip']]);
   });
 
-  it('simulated lookups tie nobody: made-up people and numbers are never shown as one person, and a name with nothing else in common is not one either', async () => {
+  it('who counts as related: never a made-up person or number, and never a name with nothing else in common', async () => {
     lists = [list];
     const sim = (cell: Record<string, unknown>) => (cell.status === 'locked' ? cell : { ...cell, simulated: true });
     const rows = peopleRows().map((r) => ({ ...r, enrichment: Object.fromEntries(Object.entries(r.enrichment as Record<string, Record<string, unknown>>).map(([k, c]) => [k, sim(c)])) }));
     contacts = { ...twoContacts(), rows, coverage: coverage(2, 1, 4, 7) };
     await render('/outreach/l1');
-    // Every owner is its own line: no "6 people run 113 owners" from a handful of invented names.
-    expect(document.body.querySelectorAll('[data-testid="operator-row"]')).toHaveLength(0);
+    // Simulated lookups reuse a handful of invented names and numbers: they tie nobody.
     expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(7);
-    expect(document.body.querySelector('[data-testid="operators-line"]')).toBeNull();
+    expect(document.body.querySelectorAll('[data-testid="related"]')).toHaveLength(0);
     expect(document.body.querySelector('[data-testid="sample-note"]')!.textContent).toContain('Sample results: no phone source is connected yet');
     clearPage();
 
-    // Real results, but her three companies are billed at three addresses: the name alone doesn't make them one person.
+    // Real results, but her three companies are billed at three addresses: the name alone doesn't relate them.
     const apart = peopleRows().map((r, i) => (r.person && (r.person as { name: string }).name === 'Karen Holt' ? { ...r, mailing: { address: `${i} OTHER ST`, city: 'MIDLAND', state: 'TX', zip: '79701' } } : r));
     contacts = { ...twoContacts(), rows: apart, coverage: coverage(2, 1, 4, 7) };
     await render('/outreach/l1');
-    expect(Array.from(document.body.querySelectorAll('[data-testid="operator-name"]')).map((n) => n.textContent)).toEqual(['Luis Ortega']);
-    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(5);
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(7);
+    const noted = Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).filter((r) => r.querySelector('[data-testid="related"]')).map((r) => r.querySelector('td')!.firstChild!.textContent);
+    expect(noted).toEqual(['Ortega Rentals LLC', 'Caddo Plaza LLC']);
   });
 });

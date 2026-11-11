@@ -25,7 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { DEFAULT_ROWS, FREE_LOOKUPS, MAX_ROWS, cityOf, listOrder } from '../../convex/lib/outreach';
 import { callOk, isSimulated, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
-import { operatorHolding, operatorList, operatorsOf, operatorWaiting, sortByOperator, type Operator } from '../components/outreach/operators';
+import { operatorsOf } from '../components/outreach/operators';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-10 h-10 md:w-11 md:h-11 shrink-0 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
@@ -808,25 +808,34 @@ const OutreachPage: React.FC = () => {
   const [onlyNew, setOnlyNew] = useState(false);
   useEffect(() => setOnlyNew(false), [listId]);
   const justNew = onlyNew && newHere > 0;
-  // The person behind the owners: companies that name the same decision maker at one address, share a number or an
-  // email, or are one family are one line on the page, over everyone in the view (so a filter doesn't change who a
-  // person is said to hold). Never resting on a simulated result: the simulated chain reuses a handful of made-up
-  // people and numbers, which made six "people" run a hundred owners. What the page shows as one person is what a send
-  // to Leads makes one lead of (the server leaves simulated results out the same way).
+  // Who runs which owners: companies that name the same decision maker at one address, share a number or an email, or
+  // are one family. The list itself is one row per owner, always (folding a person's companies into one line took more
+  // explaining than it saved): this is only for what a send to Leads will make one lead of, the note under a name saying
+  // how many related owners there are, and the owner's sheet, which lists them. Over everyone in the view, so a filter
+  // doesn't change who is related to whom; never resting on a simulated result, as the server's own grouping isn't.
   const viewRows = data?.rows;
   const operators = useMemo(() => operatorsOf(viewRows ?? [], { realOnly: true }), [viewRows]);
   const sureOperators = operators;
-  const people = useMemo(() => operatorList(operators), [operators]);
   const rows = useMemo(() => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
     const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && (countyNow === 'all' || countiesOf(r).includes(countyNow)) && has(r) && (!justNew || isNewHere(r)) && (!q || matches(r, q)));
-    // With people on the page, a person is ordered as one: by all they hold, or by the name they go by. (In the list's
-    // own order they stand where the first of their companies does.)
-    if (operators.size > 0 && (sortNow === 'parcels' || sortNow === 'name')) return sortByOperator(kept, operators, sortNow);
-    if (sortNow === 'parcels') return [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name));
-    if (sortNow === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
-    return kept;
+    // "+2 related" under a name counts everyone a send would put on one lead with this owner: its sister companies (which
+    // the server names) and the owners in the view tied to it by a shared number, email, or decision maker and address.
+    const withRelated = (r: OutreachContact): OutreachContact => {
+      const group = operators.get(r.id);
+      if (!group) return r;
+      const related = new Map((r.related ?? []).map((x) => [x.id, x] as const));
+      for (const m of group.members) if (m.id !== r.id && !related.has(m.id)) related.set(m.id, { id: m.id, name: m.name });
+      return related.size === (r.related?.length ?? 0) ? r : { ...r, related: [...related.values()] };
+    };
+    const sorted =
+      sortNow === 'parcels'
+        ? [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name))
+        : sortNow === 'name'
+          ? [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }))
+          : kept;
+    return operators.size > 0 ? sorted.map(withRelated) : sorted;
   }, [data, status, show, query, sortNow, countyNow, countiesOf, justNew, isNewHere, operators]);
   /** The county filter's choices: every county, then each with its owners, most first. */
   const countyItems = (close: () => void) =>
@@ -1178,49 +1187,6 @@ const OutreachPage: React.FC = () => {
   const alreadySent = (sending: OutreachContact[]) => {
     const going = new Set(sending.map((r) => r.id));
     return [...new Set(sending.flatMap((r) => sureOperators.get(r.id)?.members ?? []))].filter((m) => m.leadId && !going.has(m.id)).map((m) => m.id);
-  };
-  /** A person's entities to Leads from their own line, after a word on what they become; all there already, it opens the lead. */
-  const leadOperator = async (op: Operator) => {
-    if (!organizationId) return;
-    const going = operatorWaiting(op);
-    const there = op.members.find((m) => m.leadId);
-    if (going.length === 0) return void (there?.leadId && navigate(`/leads?lead=${there.leadId}`));
-    // The page shows as one person only what something real ties (never a simulated name or number), which is what the
-    // server joins on: so what is one line here is one lead there.
-    const n = going.length;
-    const ok = await confirm({
-      title: `Send ${op.label}’s ${n === 1 ? 'entity' : `${n} entities`} to Leads?`,
-      message: `${n === 1 ? 'It joins' : 'They become'} one lead${there ? ', the one already in Leads' : ''}: one person to call, with each company and what it owns on the lead's notes.`,
-      confirmLabel: 'Send to Leads',
-      tone: 'default',
-    });
-    if (!ok) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const ids = going.map((r) => r.id);
-      const alongside = alreadySent(going);
-      const r = alongside.length ? await outreachAPI.sendManyToLeads(organizationId, ids, alongside) : await outreachAPI.sendManyToLeads(organizationId, ids);
-      setUndoNote(null);
-      setSentNote(r.leads === 0 ? `${op.label}: ${r.sent} ${r.sent === 1 ? 'entity' : 'entities'} added to the lead already in Leads.` : `${op.label}: ${r.sent} ${r.sent === 1 ? 'entity' : 'entities'} sent as ${r.leads} ${r.leads === 1 ? 'lead' : 'leads'}.`);
-      void load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't send them to Leads");
-    } finally {
-      setBusy(false);
-    }
-  };
-  /** Skip everyone a person runs in one tap, since it's one decision; again puts them back. Ones already in Leads stay as they are. */
-  const skipOperator = async (op: Operator) => {
-    const open = op.members.filter((m) => !m.leadId);
-    const undo = open.length > 0 && open.every((m) => m.status === 'skip');
-    setError(null);
-    try {
-      for (const m of open) if (undo || m.status !== 'skip') await setContactStatus(m, undo ? 'new' : 'skip', m.note ?? '');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save that");
-    }
-    refreshListsSoon();
   };
 
   // Any list can be deleted: owners you've worked (a status, a note, a lookup, a lead) stay under All owners; the rest go with it.
@@ -1714,13 +1680,6 @@ const OutreachPage: React.FC = () => {
           Sample results: no phone source is connected yet, so the people, numbers and emails here are made up and nothing was charged. Expect real sources to find fewer.
         </p>
       )}
-      {/* What a row per company can't say: how many of these owners come down to a few people, and who holds the most. */}
-      {people.length > 0 && data && rows.length > 0 && (
-        <p className="text-xs text-gray-500" data-testid="operators-line">
-          {operators.size.toLocaleString('en-US')} of these {data.rows.length.toLocaleString('en-US')} owners are run by {people.length.toLocaleString('en-US')} {people.length === 1 ? 'person' : 'people'}, each shown once with their companies under them. Biggest:{' '}
-          <span className="text-gray-300">{people[0].label}</span>, {operatorHolding(people[0])}.
-        </p>
-      )}
       {lists && lists.length === 0 && data && data.rows.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-[#333333] bg-[#121212] px-4 py-3 text-sm text-gray-300" data-testid="no-lists-hint">
           <span>
@@ -1781,10 +1740,6 @@ const OutreachPage: React.FC = () => {
       ) : view === 'cards' ? (
         <ContactCards
           rows={rows}
-          operators={operators}
-          openAll={query.trim().length > 0}
-          onLeadAll={(op) => void leadOperator(op)}
-          onSkipAll={(op) => void skipOperator(op)}
           placeOf={placeOf}
           onOpen={setOpen}
           onStatus={(row, next) => setContactStatus(row, next, row.note ?? '')}
@@ -1794,10 +1749,6 @@ const OutreachPage: React.FC = () => {
       ) : (
         <ContactsTable
           rows={rows}
-          operators={operators}
-          openAll={query.trim().length > 0}
-          onLeadAll={(op) => void leadOperator(op)}
-          onSkipAll={(op) => void skipOperator(op)}
           markSimulated={mixedResults}
           placeOf={placeOf}
           coverage={data.coverage}
