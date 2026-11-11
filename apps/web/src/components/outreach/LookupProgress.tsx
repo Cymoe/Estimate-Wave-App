@@ -58,7 +58,7 @@ export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string;
       role="status"
       aria-live="polite"
       data-testid="lookup-progress"
-      className={`relative overflow-hidden rounded-2xl border border-[#336699]/50 bg-[#10243a]/95 text-sm text-white shadow-2xl backdrop-blur animate-appear transition-opacity duration-300 ${leaving ? 'opacity-0' : 'opacity-100'} ${className}`}
+      className={`relative overflow-hidden rounded-2xl border border-[#333333] bg-[#1E1E1E] text-sm text-white shadow-2xl animate-appear transition-opacity duration-300 ${leaving ? 'opacity-0' : 'opacity-100'} ${className}`}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2.5 pl-4 pr-4">
         {finished ? <CheckCircle2 className="w-4 h-4 shrink-0 text-[#7fb0e0]" aria-hidden /> : <span className="live-dot" aria-hidden />}

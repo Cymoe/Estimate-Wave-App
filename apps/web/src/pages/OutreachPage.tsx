@@ -1693,7 +1693,7 @@ const OutreachPage: React.FC = () => {
           {list?.filling && (
             <div
               role="status"
-              className="flex items-center gap-3 rounded-full border border-[#336699]/50 bg-[#10243a]/95 px-4 py-2.5 text-sm text-white shadow-2xl backdrop-blur animate-appear"
+              className="flex items-center gap-3 rounded-full border border-[#333333] bg-[#1E1E1E] px-4 py-2.5 text-sm text-white shadow-2xl animate-appear"
               data-testid="list-filling"
             >
               <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
