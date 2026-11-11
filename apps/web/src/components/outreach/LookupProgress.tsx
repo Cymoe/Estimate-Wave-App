@@ -70,7 +70,7 @@ export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string;
           onClick={() => onDismiss(!finished)}
           aria-label="Dismiss"
           title={finished ? 'Dismiss' : 'Hide this; the lookup carries on'}
-          className="-my-1.5 -mr-2 ml-auto inline-flex items-center justify-center w-8 h-8 text-gray-400 hover:text-white"
+          className="relative -my-1.5 -mr-2 ml-auto inline-flex items-center justify-center w-8 h-8 text-gray-400 hover:text-white after:absolute after:-inset-1.5 after:content-['']"
         >
           <X className="w-4 h-4" />
         </button>

@@ -94,7 +94,7 @@ export const SlideOutDrawer: React.FC<SlideOutDrawerProps> = ({
           <button
             onClick={handleClose}
             aria-label="Close"
-            className="p-1 hover:bg-[#333333] rounded-[4px] transition-colors"
+            className="relative p-1 hover:bg-[#333333] rounded-[4px] transition-colors after:absolute after:-inset-2 after:content-['']"
           >
             <X className="w-5 h-5 text-gray-400" />
           </button>

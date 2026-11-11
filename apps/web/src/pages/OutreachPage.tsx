@@ -88,13 +88,13 @@ function withProgress(c: OutreachContacts, narration: Narration): OutreachContac
 const lookingUp = (r: OutreachContact) => Object.values(r.enrichment).some((c) => c?.status === 'running' && c.requestedBy !== undefined);
 /** Stays whatever is deleted: a lead, a client, or one still being looked up. */
 const alwaysStays = (r: OutreachContact) => Boolean(r.leadId) || r.status === 'client' || lookingUp(r);
-/** Whether an owner holds work of the company's own, as the server decides it; sim: simulated lookups count (no phone source yet). */
-const workedOn = (r: OutreachContact, sim = false) =>
+/** Whether an owner holds work of the company's own, as the server decides it. Sample results are made up, so they never count. */
+const workedOn = (r: OutreachContact) =>
   alwaysStays(r) ||
   r.status !== 'new' ||
   Boolean(r.note?.trim()) ||
-  (Boolean(r.research) && (sim || !r.enrichment.research?.simulated)) ||
-  Object.values(r.enrichment).some((c) => c.status === 'found' && (sim || !c.simulated) && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
+  (Boolean(r.research) && !r.enrichment.research?.simulated) ||
+  Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
 
 /** What a delete did with lookups in progress, in words; nothing when there were none. */
 export const removedNote = (done: { cancelled: number; finishing: number; more?: boolean } | null | undefined): string | null => {
@@ -125,7 +125,7 @@ function pruneGone(c: OutreachContacts, gone: Gone): OutreachContacts {
       continue;
     }
     const listIds = r.listIds.filter((id) => !gone.has(id));
-    const stays = listIds.length > 0 || (hit.some((id) => gone.get(id)) ? alwaysStays(r) : workedOn(r, c.simulating));
+    const stays = listIds.length > 0 || (hit.some((id) => gone.get(id)) ? alwaysStays(r) : workedOn(r));
     if (stays) rows.push({ ...r, listIds });
   }
   return { ...c, rows };
@@ -222,7 +222,7 @@ const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; on
           onClick={() => box.current?.focus()}
           aria-label="Open search"
           title="Search owner, person or street"
-          className={`${chip(false)} absolute inset-0 w-9 justify-center !px-0`}
+          className={`${chip(false)} absolute inset-0 w-9 justify-center !px-0 after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']`}
         >
           <Search className="w-[18px] h-[18px] shrink-0" />
         </button>
@@ -247,7 +247,7 @@ const PopMenu: React.FC<{ label: string; icon: React.ReactNode; dot?: boolean; s
   }, [open]);
   return (
     <div ref={box} className="relative shrink-0">
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-label={label} aria-expanded={open} title={label} className={`${size ? `${size} shrink-0 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]` : iconButton} relative ${open ? 'text-white bg-[#2A2A2A]' : ''}`}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-label={label} aria-expanded={open} title={label} className={`${size ? `${size} shrink-0 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333] after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']` : iconButton} relative ${open ? 'text-white bg-[#2A2A2A]' : ''}`}>
         {icon}
         {dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#7fb0e0]" aria-hidden />}
       </button>

@@ -179,7 +179,7 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void; noneText?: str
                 e.stopPropagation();
                 onRetry();
               }}
-              className="shrink-0 px-2 min-h-[28px] text-xs text-[#7fb0e0] border border-[#336699] hover:bg-[#336699]/20 whitespace-nowrap"
+              className={`${reach} shrink-0 px-2 min-h-[28px] text-xs text-[#7fb0e0] border border-[#336699] hover:bg-[#336699]/20 whitespace-nowrap`}
             >
               Try again
             </button>
@@ -207,7 +207,7 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void; noneText?: str
                 e.stopPropagation();
                 onRetry();
               }}
-              className="shrink-0 px-2 min-h-[28px] text-xs text-amber-300 border border-amber-400/60 hover:bg-amber-400/10 whitespace-nowrap"
+              className={`${reach} shrink-0 px-2 min-h-[28px] text-xs text-amber-300 border border-amber-400/60 hover:bg-amber-400/10 whitespace-nowrap`}
             >
               Retry
             </button>
@@ -303,6 +303,10 @@ const operatorRow = 'bg-[#151b23] hover:bg-[#1a222c]';
 const pinnedOperator = 'sticky bg-[#151b23] group-hover:bg-[#1a222c]';
 /** A small button whose touch area reaches past its words, so a finger finds it without the row growing taller. */
 const reach = "relative after:absolute after:-inset-x-2 after:-inset-y-2 after:content-['']";
+/** For a word-sized link ("+1 more"): the same, taller, so a fingertip has the 44px it needs. */
+const reachTall = "relative after:absolute after:-inset-x-2 after:-inset-y-3.5 after:content-['']";
+/** For small buttons side by side: taller only, so one doesn't take its neighbour's taps. */
+const reachY = "relative after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']";
 
 /** Which people's lines are open, and a way to flip one. openAll: every one (a search is on, so what it found isn't folded away). */
 function useOpened(openAll: boolean) {
@@ -345,7 +349,7 @@ const OperatorActions: React.FC<{ op: Operator; onLeadAll?: (op: Operator) => vo
     e.stopPropagation();
     act();
   };
-  const small = 'px-2 min-h-[28px] text-xs whitespace-nowrap';
+  const small = `${reachY} px-2 min-h-[28px] text-xs whitespace-nowrap`;
   return (
     <span className={`flex flex-wrap gap-2 ${className}`} data-testid="operator-actions">
       {onLeadAll && (waiting > 0 || inLeads) && (
@@ -496,7 +500,7 @@ export const ContactsTable: React.FC<{
                       return next;
                     });
                   }}
-                  className={`${reach} ml-2 text-[11px] text-[#7fb0e0] hover:text-white`}
+                  className={`${reachTall} ml-2 text-[11px] text-[#7fb0e0] hover:text-white`}
                   data-testid="more-phones"
                 >
                   {more ? 'show less' : `+${r.phones.length - 1} more`}
@@ -678,7 +682,7 @@ export const ContactsTable: React.FC<{
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
               <th className={`${head} left-0 z-30 ${thBase} border-r border-[#333333]`} aria-sort={sort === 'name' ? 'ascending' : 'none'}>
                 {onSort ? (
-                  <button type="button" onClick={onSort} className="group/sort flex items-center gap-1 text-left uppercase tracking-wide hover:text-white" title="Tap to change the order" data-testid="name-sort">
+                  <button type="button" onClick={onSort} className={`${reachY} group/sort flex items-center gap-1 text-left uppercase tracking-wide hover:text-white`} title="Tap to change the order" data-testid="name-sort">
                     <span>
                       Name
                       <span className={`block normal-case tracking-normal text-[11px] ${sort === 'list' ? 'text-gray-500' : 'text-[#7fb0e0]'}`}>{sort === 'list' ? (sortLabel ?? SORT_LABEL.list) : SORT_LABEL[sort]}</span>
@@ -1204,7 +1208,7 @@ export const ContactSheet: React.FC<{
                 .filter((m) => m.id !== row.id)
                 .map((m) => (
                   <li key={m.id}>
-                    <button type="button" onClick={() => onOpenOwner?.(m)} className="min-h-[36px] text-left text-[#7fb0e0] hover:text-white" data-testid="operator-sibling">
+                    <button type="button" onClick={() => onOpenOwner?.(m)} className="min-h-[44px] text-left text-[#7fb0e0] hover:text-white" data-testid="operator-sibling">
                       {m.name}
                       <span className="text-gray-500 text-xs whitespace-nowrap">
                         {' '}

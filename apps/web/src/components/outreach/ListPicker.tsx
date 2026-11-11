@@ -116,7 +116,7 @@ export function ListPicker({
           title={l.pinned ? 'Unpin' : 'Pin to the top'}
           aria-pressed={Boolean(l.pinned)}
           data-testid="pin-toggle"
-          className={`mr-2 w-9 h-9 shrink-0 inline-flex items-center justify-center ${l.pinned ? 'text-[#7fb0e0] hover:text-[#a8cbee]' : 'text-gray-600 hover:text-gray-300'}`}
+          className={`relative after:absolute after:-inset-1 after:content-[''] mr-2 w-9 h-9 shrink-0 inline-flex items-center justify-center ${l.pinned ? 'text-[#7fb0e0] hover:text-[#a8cbee]' : 'text-gray-600 hover:text-gray-300'}`}
         >
           {/* Pinned is a solid pin, unpinned an outline one; a tap switches it. No crossed-out pin: it read like a fault. */}
           <Pin className="w-4 h-4" fill={l.pinned ? 'currentColor' : 'none'} aria-hidden />
@@ -170,7 +170,7 @@ export function ListPicker({
             <span className="flex-1 text-sm font-medium text-white">Lists</span>
           )}
           {narrow && (
-            <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="w-9 h-9 inline-flex items-center justify-center text-gray-400 hover:text-white">
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="relative after:absolute after:-inset-1 after:content-[''] w-9 h-9 inline-flex items-center justify-center text-gray-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
           )}
@@ -244,7 +244,7 @@ export function ListPicker({
         data-testid="list-picker"
         className={
           compact
-            ? 'flex items-center gap-2 max-w-full w-full h-9 px-3 text-base border border-[#333333] bg-[#1A1A1A] text-white hover:bg-[#2A2A2A]'
+            ? "relative after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] flex items-center gap-2 max-w-full w-full h-9 px-3 text-base border border-[#333333] bg-[#1A1A1A] text-white hover:bg-[#2A2A2A]"
             : // The list's name, as the page's title, in a box that stays one size: the count and the arrow keep their place.
               'flex items-center gap-2 w-full h-10 md:h-11 px-3 text-lg font-semibold text-white border border-[#333333] bg-[#1A1A1A] hover:bg-[#2A2A2A]'
         }
