@@ -670,6 +670,7 @@ export const createDef = mutationDef({
     const { user } = await requirePro(ctx, organizationId);
     // The first owners go in now, so the list opens with them at once; the rest follow in the background, live on the page.
     const built = await buildRows(ctx, definition, 0, FIRST_ROWS);
+    await roomFor(ctx, organizationId, built.count);
     const now = nowIso();
     const more = built.count > built.next;
     const listId = await ctx.db.insert("outreachLists", {
@@ -690,6 +691,21 @@ export const createDef = mutationDef({
   },
 });
 export const create = mutation(createDef);
+
+/**
+ * The most owners a company's lists hold between them, for now: every
+ * Outreach read still loads all of a company's owners, and past a few
+ * thousand that read stops fitting. Refusing here, with the reason, beats a
+ * page that won't load. Goes once the reads are paged.
+ */
+export const OWNER_CAP = 4000;
+export const OWNER_CAP_ERROR = `This company has ${OWNER_CAP.toLocaleString("en-US")} owners loaded, the most Outreach holds right now. Delete a list you're done with to load more.`;
+async function roomFor(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">, adding: number) {
+  // Counted from the lists' own sizes (an owner on two lists counts twice): no read of the owners themselves.
+  const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+  const held = lists.reduce((sum, l) => sum + l.rowCount, 0);
+  if (adding > 0 && held + adding > OWNER_CAP) fail("INVALID", OWNER_CAP_ERROR);
+}
 
 /** How many owners a new list holds the moment it's saved, and how many each background step adds after. */
 const FIRST_ROWS = 50;
@@ -764,6 +780,7 @@ export const extend = mutation({
     // The background fill is still adding this list's first owners: the next page would run into it.
     if (list.filling) fail("INVALID", "Still adding owners to this list; load more once it's done");
     const built = await buildRows(ctx, list.definition, list.rowCount);
+    await roomFor(ctx, organizationId, built.rows.length);
     const now = nowIso();
     const added = await addRows(ctx, organizationId, listId, list.definition.who, built.rows, now);
     const rowCount = built.next;
@@ -1650,7 +1667,7 @@ export const enrich = mutation({
     const answers = jobs.filter((j) => j.fields.includes("research")).length;
     const balance = organization.walletBalanceCents ?? 0;
     // Lookups still running are charged when they land, so what they could cost is spoken for already.
-    const running = phones || answers ? heldLookups(await contactsOf(ctx, organizationId)) : { phones: 0, research: 0 };
+    const running = phones || answers ? await heldLookups(ctx, organizationId) : { phones: 0, research: 0 };
     // The company's free phones cover the running lookups first, then these.
     const freeForThese = Math.max(0, freeLookupsLeft(organization) - running.phones);
     const cost = Math.max(0, phones - freeForThese) * UNLOCK_CENTS + answers * RESEARCH_CENTS;
@@ -1664,35 +1681,139 @@ export const enrich = mutation({
     const now = nowIso();
     // Sister entities wait their turn: the first finds the person and the phone, the rest find the same person free and copy it.
     const place = new Map<string, number>();
+    const later = new Set<number>(jobs.length ? [0] : []);
     for (const { contact, fields: open } of jobs) {
       const family = isCompany(contact) && open.some((f) => f === "phone" || f === "email") ? familyKey(contact.name) : undefined;
       const turn = family ? (place.get(family) ?? 0) : 0;
       if (family) place.set(family, turn + 1);
       const delay = turn * FAMILY_STAGGER_MS;
+      later.add(delay);
       const cells = { ...cellsOf(contact) };
       for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
       await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
       // A fresh run starts its narration over.
       await clearProgress(ctx, contact._id, open);
-      await ctx.scheduler.runAfter(delay, internal.skipTrace.trace, { contactId: contact._id, fields: open });
-      // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
-      await ctx.scheduler.runAfter(delay + GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: contact._id, fields: open, at: now });
+      // Into the queue: the pump starts it when its turn comes (and its watchdog with it), so a big batch can't flood the sources
+      // or have lookups time out while they wait in line.
+      for (const stale of await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", contact._id)).collect()) await ctx.db.delete(stale._id);
+      await ctx.db.insert("outreachQueue", { organizationId, contactId: contact._id, fields: open, at: now, notBefore: Date.now() + delay, state: "queued", ...(isSampleRun(contact) ? { free: true } : {}) });
     }
+    // One pump now, and one for each later turn of a sister company.
+    for (const delay of later) await ctx.scheduler.runAfter(delay, internal.outreach.pump, {});
     return { queued: jobs.length, costCents: cost, at: now };
   },
 });
 
 /** The most the company's running lookups can still charge: a phone or a research answer each, sample runs aside. */
-function heldLookups(contacts: Doc<"outreachContacts">[]) {
+async function heldLookups(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
   const held = { phones: 0, research: 0 };
-  for (const c of contacts) {
-    if (isSampleRun(c)) continue;
-    const cells = cellsOf(c);
-    if (cells.phone.status === "running") held.phones++;
-    if (cellFor(cells, "research").status === "running") held.research++;
+  // From the queue (waiting and running), whose rows keep only the fields still to land: no read of every owner.
+  for (const state of ["queued", "active"] as const) {
+    const rows = await ctx.db.query("outreachQueue").withIndex("by_state_and_organization", (q) => q.eq("state", state).eq("organizationId", organizationId)).collect();
+    for (const r of rows) {
+      if (r.free) continue;
+      if (r.fields.includes("phone")) held.phones++;
+      if (r.fields.includes("research")) held.research++;
+    }
   }
   return held;
 }
+
+/** How many lookups run at once across every company: under the 64 the Node runtime allows on the smallest plan, with room left for the rest of the app. OUTREACH_MAX_ACTIVE raises it on a bigger plan. */
+export const maxActive = () => Math.max(1, Number(process.env.OUTREACH_MAX_ACTIVE) || 40);
+/** How many companies with lookups waiting one pump looks at. */
+const QUEUE_COMPANIES = 50;
+
+/**
+ * Starts waiting lookups while there's room. A company on its own may use
+ * every slot; when several have lookups waiting, the slots are shared
+ * evenly and handed out one each in turn, starting after the company served
+ * last, so one big batch never holds the others up. A lookup's watchdog
+ * starts with it, not when it was asked for.
+ */
+async function pumpQueue(ctx: MutationCtx) {
+  const cap = maxActive();
+  const nowMs = Date.now();
+  const active = await ctx.db.query("outreachQueue").withIndex("by_state_and_organization", (q) => q.eq("state", "active")).take(cap);
+  let room = cap - active.length;
+  if (room <= 0) return { started: 0 };
+  const running = new Map<Id<"organizations">, number>();
+  for (const r of active) running.set(r.organizationId, (running.get(r.organizationId) ?? 0) + 1);
+  const last = active.reduce<Doc<"outreachQueue"> | undefined>((a, b) => (!a || (b.startedAt ?? 0) > (a.startedAt ?? 0) ? b : a), undefined)?.organizationId;
+  // The companies with lookups waiting, from just after the one served last and round again.
+  const companies: Id<"organizations">[] = [];
+  let after = last;
+  let wrapped = !last;
+  while (companies.length < QUEUE_COMPANIES) {
+    const from = after;
+    const next = await ctx.db
+      .query("outreachQueue")
+      .withIndex("by_state_and_organization", (q) => (from ? q.eq("state", "queued").gt("organizationId", from) : q.eq("state", "queued")))
+      .first();
+    if (!next) {
+      if (wrapped) break;
+      wrapped = true;
+      after = undefined;
+      continue;
+    }
+    if (companies.includes(next.organizationId)) break;
+    companies.push(next.organizationId);
+    after = next.organizationId;
+  }
+  // Each company's lookups that are due, as many as there's room for.
+  const waiting: Array<{ organizationId: Id<"organizations">; rows: Doc<"outreachQueue">[]; next: number }> = [];
+  for (const organizationId of companies) {
+    const rows = await ctx.db
+      .query("outreachQueue")
+      .withIndex("by_state_and_organization", (q) => q.eq("state", "queued").eq("organizationId", organizationId).lte("notBefore", nowMs))
+      .take(room);
+    if (rows.length) waiting.push({ organizationId, rows, next: 0 });
+  }
+  const share = Math.max(1, Math.floor(cap / Math.max(1, waiting.length)));
+  let started = 0;
+  // First within each company's even share, then whatever room is left to anyone still waiting.
+  for (const within of [true, false]) {
+    for (let any = true; any && room > 0; ) {
+      any = false;
+      for (const w of waiting) {
+        if (room <= 0) break;
+        if (within && (running.get(w.organizationId) ?? 0) >= share) continue;
+        const row = w.rows[w.next];
+        if (!row) continue;
+        w.next++;
+        any = true;
+        // The owner went (its list was deleted before its turn came): nothing to look up.
+        if (!(await ctx.db.get(row.contactId))) {
+          await ctx.db.delete(row._id);
+          continue;
+        }
+        await ctx.db.patch(row._id, { state: "active", startedAt: nowMs });
+        await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: row.contactId, fields: row.fields, queueId: row._id });
+        // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
+        await ctx.scheduler.runAfter(GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: row.contactId, fields: row.fields, at: row.at, queueId: row._id });
+        running.set(w.organizationId, (running.get(w.organizationId) ?? 0) + 1);
+        room--;
+        started++;
+      }
+    }
+  }
+  return { started };
+}
+
+/** Starts whatever is waiting and has room: after a request, when a lookup ends, and every few minutes as a safety net. */
+export const pump = internalMutation({
+  args: {},
+  handler: async (ctx) => await pumpQueue(ctx),
+});
+
+/** A lookup ended (however it went): its place is free for the next one waiting. */
+export const lookupDone = internalMutation({
+  args: { queueId: v.id("outreachQueue") },
+  handler: async (ctx, { queueId }) => {
+    if (await ctx.db.get(queueId)) await ctx.db.delete(queueId);
+    return await pumpQueue(ctx);
+  },
+});
 
 export const UNPAID_ERROR = "Found, but the balance ran out before it could be paid for. Add funds and look it up again.";
 
@@ -1709,8 +1830,13 @@ export const GIVE_UP_ERROR = `Took longer than ${GIVE_UP_AFTER_MS / 60_000} minu
  * the same field is left to its own watchdog. Nothing is charged.
  */
 export const giveUp = internalMutation({
-  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), at: v.string() },
-  handler: async (ctx, { contactId, fields, at }) => {
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), at: v.string(), queueId: v.optional(v.id("outreachQueue")) },
+  handler: async (ctx, { contactId, fields, at, queueId }) => {
+    // Its place in the queue is given up too, should the lookup have died without saying it ended.
+    if (queueId && (await ctx.db.get(queueId))) {
+      await ctx.db.delete(queueId);
+      await pumpQueue(ctx);
+    }
     const c = await ctx.db.get(contactId);
     if (!c) return { failed: 0 };
     const cells = { ...cellsOf(c) };
@@ -1954,6 +2080,10 @@ export const recordEnrichment = internalMutation({
       updatedAt: now,
     });
     await clearProgress(ctx, contactId, [field]);
+    // Its queue row keeps only what's still to land, so the balance held for running lookups stays exact.
+    for (const row of await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", contactId)).collect()) {
+      if (row.fields.includes(field)) await ctx.db.patch(row._id, { fields: row.fields.filter((f) => f !== field) });
+    }
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
     if (!shared && (source || !error)) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
     if (tries && !shared) await noteProblems(ctx, c.organizationId, field, tries, now);

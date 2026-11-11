@@ -9,7 +9,7 @@ import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
-import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
+import { GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1691,6 +1691,99 @@ describe("a company's lists", () => {
     const paid = await read();
     expect(paid.rows.find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "found", chargedCents: 100 });
     expect(paid.balanceCents).toBe(0);
+  });
+
+  test("lookups wait their turn: only so many run at once, companies share the room, the next starts as one ends, and the watchdog counts from the start", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    vi.stubEnv("OUTREACH_MAX_ACTIVE", "4");
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const a = await proCompany(t);
+    const b = await proCompany(t, "second@roof.example");
+    await a.as.mutation(api.outreach.create, { organizationId: a.organizationId, definition: { county: "Midland", who: "commercial" } });
+    // Owners of their own for each company: copies of one from the roll, under names no two of which are sister companies.
+    const names = ["Alder", "Birchwood", "Cedarline", "Dogwood", "Elmhurst", "Firethorn", "Ginkgo", "Hazelnut"];
+    const ids = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...owner } = (await ctx.db.query("outreachContacts").first())!;
+      void _id, _creationTime;
+      const made: Id<"outreachContacts">[] = [];
+      for (const [i, name] of names.entries()) {
+        made.push(await ctx.db.insert("outreachContacts", { ...owner, organizationId: i < 6 ? a.organizationId : b.organizationId, key: `owner:${name}`, name: `${name} Partners`, company: `${name} Partners`, listIds: [] }));
+      }
+      await ctx.db.patch(a.organizationId, { walletBalanceCents: 10_000 });
+      await ctx.db.patch(b.organizationId, { walletBalanceCents: 10_000 });
+      return made;
+    });
+    const queue = async () => (await t.run(async (ctx) => ctx.db.query("outreachQueue").collect())).map((r) => ({ id: r._id, mine: r.organizationId === a.organizationId, state: r.state, contactId: r.contactId, startedAt: r.startedAt }));
+    const count = (rows: Awaited<ReturnType<typeof queue>>, mine: boolean, state: string) => rows.filter((r) => r.mine === mine && r.state === state).length;
+
+    // The first company asks for six, then the second for two: nothing starts until the pump runs.
+    await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: ids.slice(0, 6), fields: ["phone"] })).resolves.toMatchObject({ queued: 6 });
+    await expect(b.as.mutation(api.outreach.enrich, { organizationId: b.organizationId, contactIds: ids.slice(6), fields: ["phone"] })).resolves.toMatchObject({ queued: 2 });
+    expect((await queue()).every((r) => r.state === "queued")).toBe(true);
+    // Each request scheduled one pump, not two functions an owner.
+    const scheduled = async () => (await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((f) => f.state.kind === "pending");
+    expect((await scheduled()).map((f) => f.name)).toEqual(["outreach:pump", "outreach:pump"]);
+
+    // Room for four: two each, though the first company asked first and for more.
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 4 });
+    let rows = await queue();
+    expect([count(rows, true, "active"), count(rows, false, "active"), count(rows, true, "queued")]).toEqual([2, 2, 4]);
+    // Full: another pump starts nothing.
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 0 });
+    // Each started lookup has its watchdog ten minutes from its start; the ones still waiting have none yet.
+    const watchdogs = (await scheduled()).filter((f) => f.name === "outreach:giveUp");
+    expect(watchdogs).toHaveLength(4);
+    expect(watchdogs.every((f) => Math.round(f.scheduledTime) === NOW + GIVE_UP_AFTER_MS)).toBe(true);
+
+    // One of the second company's ends: it has none waiting, so the place goes to the first.
+    const done = rows.find((r) => !r.mine && r.state === "active")!;
+    expect(await t.mutation(internal.outreach.lookupDone, { queueId: done.id })).toEqual({ started: 1 });
+    rows = await queue();
+    expect([count(rows, true, "active"), count(rows, false, "active"), count(rows, true, "queued")]).toEqual([3, 1, 3]);
+
+    // A lookup that died without a word: its watchdog fails its cell and gives its place to the next one waiting.
+    vi.setSystemTime(NOW + GIVE_UP_AFTER_MS);
+    const dead = rows.find((r) => r.mine && r.state === "active")!;
+    const at = (await t.run(async (ctx) => ctx.db.get(dead.contactId)))!.enrichment!.phone.at!;
+    expect(await t.mutation(internal.outreach.giveUp, { contactId: dead.contactId, fields: ["phone"], at, queueId: dead.id })).toEqual({ failed: 1 });
+    rows = await queue();
+    expect(rows.find((r) => r.id === dead.id)).toBeUndefined();
+    expect([count(rows, true, "active"), count(rows, true, "queued")]).toEqual([3, 2]);
+    // The one just started counts its ten minutes from now, not from when it was asked for.
+    const latest = (await scheduled()).filter((f) => f.name === "outreach:giveUp").map((f) => Math.round(f.scheduledTime));
+    expect(Math.max(...latest)).toBe(NOW + 2 * GIVE_UP_AFTER_MS);
+
+    // What's waiting or running holds the balance, from the queue alone; a field that has landed holds nothing more.
+    await t.run(async (ctx) => ctx.db.patch(a.organizationId, { walletBalanceCents: 500 }));
+    const spare = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...owner } = (await ctx.db.get(ids[0]))!;
+      void _id, _creationTime;
+      return await ctx.db.insert("outreachContacts", { ...owner, key: "owner:Ironwood", name: "Ironwood Partners", company: "Ironwood Partners", enrichment: { phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } } });
+    });
+    // Five still to land at $1 each against $5: no room for a sixth.
+    await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: [spare], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available \(\$5\.00 held for lookups still running\)/);
+    const landed = rows.find((r) => r.mine && r.state === "active")!;
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: landed.contactId, field: "phone", source: "batchdata" });
+    await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: [spare], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+  });
+
+  test("a company's lists stop at the owner cap, with the reason, on a new list and on loading more", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const made = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    // The lists already hold all but one of what's allowed.
+    await t.run(async (ctx) => ctx.db.patch(made.listId as Id<"outreachLists">, { rowCount: OWNER_CAP - 1 }));
+    await expect(co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } })).rejects.toThrow(OWNER_CAP_ERROR);
+    expect(OWNER_CAP_ERROR).toBe("This company has 4,000 owners loaded, the most Outreach holds right now. Delete a list you're done with to load more.");
+    // With room again, a list is made as before.
+    await t.run(async (ctx) => ctx.db.patch(made.listId as Id<"outreachLists">, { rowCount: 2 }));
+    await expect(co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } })).resolves.toMatchObject({ rowCount: 2 });
   });
 
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {

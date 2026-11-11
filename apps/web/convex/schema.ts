@@ -1446,6 +1446,26 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_contact_and_field", ["contactId", "field"]),
 
+  // Lookups waiting their turn and the ones running now (outreach.ts pump):
+  // only so many run at once across every company, shared out in turn, so
+  // a big batch neither floods the sources nor times out waiting in line.
+  // `fields` are the ones still to land; the row goes when the lookup ends.
+  outreachQueue: defineTable({
+    organizationId: v.id("organizations"),
+    contactId: v.id("outreachContacts"),
+    fields: v.array(outreachField),
+    // The request's stamp on the running cells, for the watchdog.
+    at: v.string(),
+    // Not started before this (ms): sister companies wait behind the first.
+    notBefore: v.number(),
+    state: v.union(v.literal("queued"), v.literal("active")),
+    startedAt: v.optional(v.number()),
+    // A sample run: free, so it holds none of the balance.
+    free: v.optional(v.boolean()),
+  })
+    .index("by_state_and_organization", ["state", "organizationId", "notBefore"])
+    .index("by_contact", ["contactId"]),
+
   // How each data source has done for a company, per field: the hit rate
   // on the Data sources panel and behind the "about $136" estimate is the
   // company's own, not the vendor's brochure.

@@ -16,8 +16,9 @@ import { sampleFor, sampleIndex, sampleStack } from "./lib/outreachSample";
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
 
 export const trace = internalAction({
-  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField) },
-  handler: async (ctx, args) => {
+  /** queueId: the lookup's place in the queue (outreach.ts pump), freed when it ends so the next one waiting starts. */
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), queueId: v.optional(v.id("outreachQueue")) },
+  handler: async (ctx, { queueId, ...args }) => {
     try {
       await run(ctx, args);
     } catch (e) {
@@ -26,6 +27,8 @@ export const trace = internalAction({
       for (const field of args.fields) {
         await ctx.runMutation(internal.outreach.recordEnrichment, { contactId: args.contactId, field, error: `The lookup stopped: ${text}` });
       }
+    } finally {
+      if (queueId) await ctx.runMutation(internal.outreach.lookupDone, { queueId });
     }
     return null;
   },
