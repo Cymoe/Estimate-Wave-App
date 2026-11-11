@@ -1373,6 +1373,9 @@ export default defineSchema({
     research: v.optional(outreachResearch),
     /** The question a running research cell is answering. */
     researchQuestion: v.optional(v.string()),
+    // Its last list was deleted while a lookup of its was running: what the delete asked for, applied once the lookup
+    // lands (outreach.ts settleAfterLookup). "keep": it stays only if it holds work; "drop": it goes unless a lead or client.
+    afterLookup: v.optional(v.union(v.literal("keep"), v.literal("drop"))),
     enrichment: v.optional(outreachEnrichment),
     unlock: v.optional(outreachUnlock),
     /** The newest public record of each kind on the property, kept here so the page needn't look each owner's up (lib/contactSignals.ts). */

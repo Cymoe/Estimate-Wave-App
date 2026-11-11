@@ -1513,7 +1513,9 @@ export const outreachAPI = {
   /** The Outreach owners a lead came from: who, what they own and why they were picked. */
   ownersOfLead: (organizationId: string, leadId: string): Promise<OutreachOwnerOfLead[]> => run('query', api.outreach.ownersOfLead, { organizationId, leadId }),
   /** alsoWorked: the worked owners only this list holds go too (all but leads and clients). */
-  remove: (organizationId: string, listId: string, alsoWorked?: boolean) => run('mutation', api.outreach.remove, defined({ organizationId, listId, alsoWorked })),
+  /** cancelled: lookups waiting their turn, taken out of line (nothing charged); finishing: ones already running, that finish first. */
+  remove: (organizationId: string, listId: string, alsoWorked?: boolean): Promise<{ cancelled: number; finishing: number; more: boolean } | null> =>
+    run('mutation', api.outreach.remove, defined({ organizationId, listId, alsoWorked })),
   /** The owners on no list (or just contactIds of them) removed; those now a lead or a client stay. */
   removeUnlisted: (organizationId: string, contactIds?: string[]): Promise<{ removed: number; kept: number }> =>
     run('mutation', api.outreach.removeUnlisted, defined({ organizationId, contactIds })),

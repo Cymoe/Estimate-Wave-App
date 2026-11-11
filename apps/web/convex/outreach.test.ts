@@ -9,7 +9,7 @@ import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
-import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
+import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1896,6 +1896,102 @@ describe("a company's lists", () => {
     expect([after.person.status, after.phone.status, after.email.status]).toEqual(["failed", "running", "failed"]);
     expect(after.email.error).toBe(STUCK_ERROR);
     expect(await t.action(internal.outreach.repairStuck, {})).toMatchObject({ fixed: 0, owners: [] });
+    vi.useRealTimers();
+  });
+
+  test("deleting a list mid-lookup: waiting lookups are cancelled (nothing held or charged), running ones finish and then the delete is finished as asked", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    // One lookup at a time, so the rest wait in line.
+    vi.stubEnv("OUTREACH_MAX_ACTIVE", "1");
+    const t = setup();
+    const names = ["ALDER PARTNERS LLC", "BIRCHWOOD HOLDINGS LP", "CEDARLINE INC", "DOGWOOD RENTALS LLC", "ELMHURST LAND LP", "FIRETHORN TRUST LLC"];
+    await addParcels(t, names.map((owner, i) => parcel(`p${i}`, { owner, companyOwned: true, ownerOccupied: false, siteAddress: `${i + 1} ELM ST` })));
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 10_000 }));
+    const listA = (await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } })).listId as Id<"outreachLists">;
+    const owners = (await co.as.query(api.outreach.contacts, { organizationId: org, listId: listA })).rows;
+    const id = (start: string) => owners.find((r) => r.name.startsWith(start))!.id as Id<"outreachContacts">;
+    const [running, waiting, worked, twoLists] = [id("Alder"), id("Birchwood"), id("Cedarline"), id("Dogwood")];
+    const owner = (c: Id<"outreachContacts">) => t.run(async (ctx) => ctx.db.get(c));
+    const queue = async () => (await t.run(async (ctx) => ctx.db.query("outreachQueue").collect())).map((r) => ({ contactId: r.contactId, state: r.state, id: r._id }));
+    // A second list holds one of them too; another of them has a note (worked).
+    await t.run(async (ctx) => {
+      const { _id, _creationTime, ...a } = (await ctx.db.get(listA))!;
+      void _id, _creationTime;
+      const listB = await ctx.db.insert("outreachLists", { ...a, title: "Other list" });
+      const c = (await ctx.db.get(twoLists))!;
+      await ctx.db.patch(twoLists, { listIds: [...c.listIds, listB] });
+      await ctx.db.insert("outreachMembers", { organizationId: org, listId: listB, contactId: twoLists });
+      await ctx.db.patch(worked, { note: "Wants a quote in spring" });
+    });
+
+    // The first owner's lookup starts; the next three wait in line behind it.
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [running], fields: ["phone"] });
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 1 });
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [waiting, worked, twoLists], fields: ["phone"] });
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 0 });
+    const runRow = (await queue()).find((r) => r.contactId === running)!;
+    expect(runRow.state).toBe("active");
+
+    // Deleted, keeping the worked owners: the three waiting on this list alone are cancelled; the one also on another
+    // list keeps its place; the running one finishes first.
+    expect(await co.as.mutation(api.outreach.remove, { organizationId: org, listId: listA })).toEqual({ cancelled: 2, finishing: 1, more: false });
+    expect((await queue()).map((r) => [r.contactId, r.state]).sort()).toEqual([[running, "active"], [twoLists, "queued"]].sort());
+    // Nothing worked on the one waiting: it went with the list. The noted one stays, its lookup cancelled with a Try again.
+    expect(await owner(waiting)).toBeNull();
+    const kept = (await owner(worked))!;
+    expect(kept.listIds).toEqual([]);
+    expect(kept.enrichment!.phone).toMatchObject({ status: "failed", error: CANCELLED_ERROR });
+    expect((await owner(twoLists))!.enrichment!.phone.status).toBe("running");
+    // The running one waits under Not on a list, marked to be settled when it lands.
+    expect((await owner(running))!).toMatchObject({ listIds: [], afterLookup: "keep" });
+    // It lands with nothing: nothing of yours on it, so the delete is finished for it.
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: running, field: "phone" });
+    expect(await t.mutation(internal.outreach.lookupDone, { queueId: runRow.id })).toBeNull();
+    expect(await owner(running)).toBeNull();
+    // The other list's owner is now let in line, as before.
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 1 });
+
+    // "Delete them too", with a lookup running that finds a phone: it still goes once it lands, as asked.
+    const listC = (await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" }, title: "Again" })).listId as Id<"outreachLists">;
+    await t.run(async (ctx) => {
+      for (const r of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(r._id);
+    });
+    // The new list brought the owners back (the ones nobody worked went with the first list).
+    const onC = (await co.as.query(api.outreach.contacts, { organizationId: org, listId: listC })).rows;
+    const runFound = onC.find((r) => r.name.startsWith("Elmhurst"))!.id as Id<"outreachContacts">;
+    const rejoins = onC.find((r) => r.name.startsWith("Firethorn"))!.id as Id<"outreachContacts">;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [runFound], fields: ["phone"] });
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 1 });
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [rejoins], fields: ["phone"] });
+    expect(await co.as.mutation(api.outreach.remove, { organizationId: org, listId: listC, alsoWorked: true })).toMatchObject({ cancelled: 1, finishing: 1 });
+    const foundRow = (await queue()).find((r) => r.contactId === runFound)!;
+    expect((await owner(runFound))!.afterLookup).toBe("drop");
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: runFound, field: "phone", source: "batchdata", phones: [{ number: "+14325550177", type: "mobile", source: "batchdata" }] });
+    await t.mutation(internal.outreach.lookupDone, { queueId: foundRow.id });
+    expect(await owner(runFound)).toBeNull();
+
+    // A running one taken back by a new list before it lands just stays on that list.
+    await t.run(async (ctx) => {
+      for (const r of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(r._id);
+    });
+    const listD = (await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" }, title: "Third" })).listId as Id<"outreachLists">;
+    const third = (await co.as.query(api.outreach.contacts, { organizationId: org, listId: listD })).rows.find((r) => r.name.startsWith("Alder") || r.name.startsWith("Birchwood"))!;
+    const tid = third.id as Id<"outreachContacts">;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [tid], fields: ["phone"] });
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 1 });
+    const thirdRow = (await queue()).find((r) => r.contactId === tid)!;
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: listD, alsoWorked: true });
+    expect((await owner(tid))!.afterLookup).toBe("drop");
+    const listE = (await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" }, title: "Fourth" })).listId;
+    expect((await owner(tid))!.listIds).toEqual([listE]);
+    expect((await owner(tid))!.afterLookup).toBeUndefined();
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: tid, field: "phone" });
+    await t.mutation(internal.outreach.lookupDone, { queueId: thirdRow.id });
+    expect(await owner(tid)).not.toBeNull();
+    vi.unstubAllEnvs();
     vi.useRealTimers();
   });
 

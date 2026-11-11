@@ -547,7 +547,7 @@ describe('the Outreach page', () => {
     // Done with them: Remove them, after a warning that what they hold goes too.
     await click('Remove them');
     expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Remove the 2 owners not on a list?');
-    expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Owners you sent to Leads or made clients, and any still being looked up, stay.');
+    expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Owners you sent to Leads or made clients stay. Lookups waiting to start are cancelled (nothing is charged); an owner whose lookup is already running goes once it finishes.');
     await act(async () => (Array.from(document.body.querySelectorAll('[role="alertdialog"] button')).find((b) => b.textContent === 'Remove') as HTMLButtonElement).click());
     await flush();
     expect(removeUnlisted).toHaveBeenCalledWith('o1');
@@ -1927,10 +1927,18 @@ describe('the Outreach page', () => {
     await flush();
     const dialog = () => document.body.querySelector('[role="alertdialog"]')!;
     expect(dialog().textContent).toContain('2 owners on it were worked (a status, a note, a paid lookup or a lead) and are on no other list.');
+    // What happens to lookups in progress, said before it happens.
+    expect(dialog().textContent).toContain('Lookups waiting to start are cancelled (nothing is charged); any already running finish first.');
     expect(Array.from(dialog().querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Delete, keep the worked owners', 'Delete them too', 'Cancel']);
+    // The server cancelled 12 waiting lookups; 1 was running and finishes first.
+    remove.mockImplementationOnce(async () => ({ cancelled: 12, finishing: 1, more: false }) as never);
     await click('Delete, keep the worked owners');
+    await flush();
     expect(remove).toHaveBeenCalledWith('o1', 'l1');
     expect(path).toBe('/outreach');
+    expect(document.body.querySelector('[data-testid="remove-note"]')!.textContent).toBe(
+      'List deleted. 12 lookups waiting to start were cancelled; nothing was charged for them. 1 lookup already running will finish first.',
+    );
     // Another worked list, and this time its worked owners go too.
     clearPage();
     lists = [{ ...list, deletable: false, worked: 1 }];
@@ -1939,7 +1947,10 @@ describe('the Outreach page', () => {
     await click('Delete list');
     expect(dialog().textContent).toContain('1 owner on it was worked');
     await click('Delete them too');
+    await flush();
     expect(remove).toHaveBeenLastCalledWith('o1', 'l1', true);
+    // Nothing was in progress: no note.
+    expect(document.body.querySelector('[data-testid="remove-note"]')).toBeNull();
   });
 
   it('owners on no list have a place in the picker: Not on a list shows them, says why, and can let them all go', async () => {

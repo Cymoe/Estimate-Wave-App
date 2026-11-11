@@ -765,6 +765,8 @@ async function addRows(
         listIds,
         kinds: existing.kinds.includes(who) ? existing.kinds : [...existing.kinds, who],
         ...filing({ ...existing, listIds }),
+        // On a list again: what a delete decided for it once its lookup landed no longer applies.
+        afterLookup: undefined,
         updatedAt: now,
       });
       await ctx.db.insert("outreachMembers", { organizationId, listId, contactId: existing._id });
@@ -1930,9 +1932,11 @@ const removePage = () => Number(process.env.OUTREACH_REMOVE_PAGE) || 300;
  * lose the tag, and one on no other list goes too unless it holds work (worthKeeping), or, asked to take the worked
  * ones as well, unless it always stays. Says whether owners are left for another step.
  */
-async function removeStep(ctx: MutationCtx, list: Doc<"outreachLists">, alsoWorked: boolean): Promise<boolean> {
+async function removeStep(ctx: MutationCtx, list: Doc<"outreachLists">, alsoWorked: boolean): Promise<RemoveStep> {
   const listId = list._id;
   const size = removePage();
+  let cancelled = 0;
+  let finishing = 0;
   const members = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", listId)).take(size);
   const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", list.organizationId)).collect();
   const whoOf = new Map(lists.map((l) => [l._id, l.definition.who] as const));
@@ -1943,19 +1947,74 @@ async function removeStep(ctx: MutationCtx, list: Doc<"outreachLists">, alsoWork
       continue;
     }
     const listIds = c.listIds.filter((id) => id !== listId);
+    let afterLookup: Doc<"outreachContacts">["afterLookup"];
     // Owners you've worked stay (under All owners) even when this was their only list; the rest go with it.
     if (listIds.length === 0) {
-      const gone = await leadGone(ctx, c);
-      if (alsoWorked ? !alwaysStays(c, gone) : !worthKeeping(c, gone)) {
-        await dropOwner(ctx, c._id);
+      // Its lookups still waiting their turn are cancelled: no source was asked, so nothing is charged. Ones already
+      // running finish (a source is being asked), and the delete is finished for the owner when they land.
+      const waiting = await cancelWaiting(ctx, c);
+      cancelled += waiting.cancelled;
+      const owner = waiting.contact;
+      const gone = await leadGone(ctx, owner);
+      if (alsoWorked ? !alwaysStays(owner, gone) : !worthKeeping(owner, gone)) {
+        await dropOwner(ctx, owner._id);
         continue;
+      }
+      if (lookingUp(owner)) {
+        finishing++;
+        afterLookup = alsoWorked ? "drop" : "keep";
       }
     }
     const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
-    await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, listIds }), updatedAt: nowIso() });
+    await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, listIds }), ...(afterLookup ? { afterLookup } : {}), updatedAt: nowIso() });
     await leaveLists(ctx, c._id, listId);
   }
-  return members.length === size;
+  return { more: members.length === size, cancelled, finishing };
+}
+
+/** What one step of deleting a list did: whether owners are left for another step, and what became of their lookups. */
+type RemoveStep = { more: boolean; cancelled: number; finishing: number };
+
+export const CANCELLED_ERROR = "Cancelled: its list was deleted before its turn came. Nothing was charged.";
+
+/**
+ * Takes an owner's lookups still waiting their turn out of the queue (they hold balance, and would be charged when they
+ * land): their cells read cancelled, with a Try again. Ones already running are left to finish. Returns the owner as it
+ * now is, and how many lookups were cancelled.
+ */
+async function cancelWaiting(ctx: MutationCtx, c: Doc<"outreachContacts">): Promise<{ contact: Doc<"outreachContacts">; cancelled: number }> {
+  const waiting = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).filter((r) => r.state === "queued");
+  if (!waiting.length) return { contact: c, cancelled: 0 };
+  const fields = [...new Set(waiting.flatMap((r) => r.fields))];
+  for (const r of waiting) await ctx.db.delete(r._id);
+  const cells = { ...cellsOf(c) };
+  const now = nowIso();
+  for (const f of fields) {
+    const cell = cellFor(cells, f);
+    if (cell.status === "running") cells[f] = { status: "failed", at: now, requestedBy: cell.requestedBy, error: CANCELLED_ERROR };
+  }
+  const patch = { enrichment: cells, ...(fields.includes("research") ? { researchQuestion: undefined } : {}), updatedAt: now };
+  await ctx.db.patch(c._id, patch);
+  await clearProgress(ctx, c._id, fields);
+  return { contact: { ...c, ...patch }, cancelled: waiting.length };
+}
+
+/**
+ * An owner whose last list was deleted while a lookup of its ran: once nothing is running any more, the delete is
+ * finished for it as asked. Kept worked owners stay only if they hold work now (a lookup that found nothing no longer
+ * keeps one); "delete them too" lets it go unless it became a lead or a client. On a list again, it just stays.
+ */
+async function settleAfterLookup(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
+  const c = await ctx.db.get(contactId);
+  if (!c?.afterLookup) return;
+  if (c.listIds.length > 0) {
+    await ctx.db.patch(contactId, { afterLookup: undefined });
+    return;
+  }
+  if (lookingUp(c)) return;
+  const gone = await leadGone(ctx, c);
+  if (c.afterLookup === "drop" ? !alwaysStays(c, gone) : !worthKeeping(c, gone)) await dropOwner(ctx, contactId);
+  else await ctx.db.patch(contactId, { afterLookup: undefined });
 }
 
 /**
@@ -1969,11 +2028,14 @@ export const remove = mutation({
     await requirePro(ctx, organizationId);
     const list = await ctx.db.get(listId);
     if (!list || list.organizationId !== organizationId || list.removing) fail("NOT_FOUND", "No such list");
-    if (await removeStep(ctx, list, alsoWorked === true)) {
+    const step = await removeStep(ctx, list, alsoWorked === true);
+    if (step.more) {
       await ctx.db.patch(listId, { removing: { alsoWorked: alsoWorked === true }, filling: undefined });
       await ctx.scheduler.runAfter(0, internal.outreach.removeRest, { listId });
     } else await ctx.db.delete(listId);
-    return null;
+    // For the page's note: lookups cancelled, and ones running that finish first. A long list's later steps do the same
+    // in the background (`more`), so these are the first step's.
+    return { cancelled: step.cancelled, finishing: step.finishing, more: step.more };
   },
 });
 
@@ -1983,7 +2045,7 @@ export const removeRest = internalMutation({
   handler: async (ctx, { listId }) => {
     const list = await ctx.db.get(listId);
     if (!list?.removing) return null;
-    if (await removeStep(ctx, list, list.removing.alsoWorked)) await ctx.scheduler.runAfter(0, internal.outreach.removeRest, { listId });
+    if ((await removeStep(ctx, list, list.removing.alsoWorked)).more) await ctx.scheduler.runAfter(0, internal.outreach.removeRest, { listId });
     else await ctx.db.delete(listId);
     return null;
   },
@@ -2140,9 +2202,13 @@ const UNLISTED_PAGE = 300;
 async function removeUnlistedPage(ctx: MutationCtx, page: Doc<"outreachContacts">[]) {
   let removed = 0;
   let kept = 0;
-  for (const c of page) {
-    if (c.listIds.length > 0) continue;
+  for (const listed of page) {
+    if (listed.listIds.length > 0) continue;
+    // As deleting a list does: lookups still waiting are cancelled (nothing charged); one already running finishes, and
+    // the owner goes when it lands unless it became a lead or a client.
+    const c = (await cancelWaiting(ctx, listed)).contact;
     if (alwaysStays(c, await leadGone(ctx, c))) {
+      if (lookingUp(c) && !c.clientId && !c.leadId) await ctx.db.patch(c._id, { afterLookup: "drop" });
       kept++;
       continue;
     }
@@ -2361,7 +2427,8 @@ export const enrich = mutation({
       later.add(delay);
       const cells = { ...cellsOf(contact) };
       for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
-      await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
+      // Asked for on purpose: whatever a delete decided for it once its lookup landed no longer applies.
+      await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, afterLookup: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
       // A fresh run starts its narration over.
       await clearProgress(ctx, contact._id, open);
       // Into the queue: the pump starts it when its turn comes (and its watchdog with it), so a big batch can't flood the sources
@@ -2508,6 +2575,7 @@ export const failStuck = internalMutation({
     if (failed.length) {
       await ctx.db.patch(contactId, { enrichment: cells, ...(failed.includes("research") ? { researchQuestion: undefined } : {}), updatedAt: now });
       await clearProgress(ctx, contactId, failed);
+      await settleAfterLookup(ctx, contactId);
     }
     return { failed: failed.length };
   },
@@ -2555,7 +2623,12 @@ export const pump = internalMutation({
 export const lookupDone = internalMutation({
   args: { queueId: v.id("outreachQueue") },
   handler: async (ctx, { queueId }) => {
-    if (await ctx.db.get(queueId)) await ctx.db.delete(queueId);
+    const row = await ctx.db.get(queueId);
+    if (row) {
+      await ctx.db.delete(queueId);
+      // Its list deleted while it ran: finish the delete for the owner now the answer is in.
+      await settleAfterLookup(ctx, row.contactId);
+    }
     await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
     return null;
   },
@@ -2596,6 +2669,7 @@ export const giveUp = internalMutation({
     }
     if (failed) await ctx.db.patch(contactId, { enrichment: cells, ...(fields.includes("research") && cells.research?.status === "failed" ? { researchQuestion: undefined } : {}), updatedAt: nowIso() });
     if (failed) await clearProgress(ctx, contactId, fields.filter((f) => cells[f]?.status !== "running"));
+    await settleAfterLookup(ctx, contactId);
     return { failed };
   },
 });

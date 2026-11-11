@@ -95,6 +95,18 @@ const workedOn = (r: OutreachContact, sim = false) =>
   (Boolean(r.research) && (sim || !r.enrichment.research?.simulated)) ||
   Object.values(r.enrichment).some((c) => c.status === 'found' && (sim || !c.simulated) && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
 
+/** What a delete did with lookups in progress, in words; nothing when there were none. */
+export const removedNote = (done: { cancelled: number; finishing: number; more?: boolean } | null | undefined): string | null => {
+  if (!done || (done.cancelled === 0 && done.finishing === 0)) return null;
+  const n = (k: number) => `${k.toLocaleString('en-US')} ${k === 1 ? 'lookup' : 'lookups'}`;
+  const parts = [
+    done.cancelled ? `${n(done.cancelled)} waiting to start ${done.cancelled === 1 ? 'was' : 'were'} cancelled; nothing was charged for ${done.cancelled === 1 ? 'it' : 'them'}.` : '',
+    done.finishing ? `${n(done.finishing)} already running will finish first.` : '',
+    done.more ? 'The rest of the list is being deleted the same way.' : '',
+  ].filter(Boolean);
+  return `List deleted. ${parts.join(' ')}`;
+};
+
 /** Lists deleted on this page, each with whether its worked owners went too. */
 type Gone = Map<string, boolean>;
 /**
@@ -1067,6 +1079,13 @@ const OutreachPage: React.FC = () => {
   const mixedResults = rows.some(isSimulated) && rows.some((r) => Object.values(r.enrichment).some((c) => c && !c.simulated && (c.status === 'found' || c.status === 'none')));
   const [sentNote, setSentNote] = useState<string | null>(null);
   const [undoNote, setUndoNote] = useState<string | null>(null);
+  /** After a list is deleted with lookups in progress: how many were cancelled and how many finish first. Goes by itself. */
+  const [removeNote, setRemoveNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!removeNote) return;
+    const t = window.setTimeout(() => setRemoveNote(null), UNDO_NOTE_MS);
+    return () => window.clearTimeout(t);
+  }, [removeNote]);
   // The latest send of many, offered for Undo for a day, until dismissed on this device.
   const lastSend = data?.lastSend ?? null;
   const [seenSend, setSeenSend] = useState<string | null>(() => {
@@ -1173,7 +1192,7 @@ const OutreachPage: React.FC = () => {
       const owners = n > 0 ? `${n.toLocaleString('en-US')} ${n === 1 ? 'owner' : 'owners'}` : 'Some owners';
       const answer = await choose({
         title: `Delete “${list.title}”?`,
-        message: `${owners} on it ${n === 1 ? 'was' : 'were'} worked (a status, a note, a paid lookup or a lead) and ${n === 1 ? 'is' : 'are'} on no other list. Keep them under Not on a list, or let them go with it. Owners sent to Leads or made clients, and any still being looked up, always stay.`,
+        message: `${owners} on it ${n === 1 ? 'was' : 'were'} worked (a status, a note, a paid lookup or a lead) and ${n === 1 ? 'is' : 'are'} on no other list. Keep them under Not on a list, or let them go with it. Owners sent to Leads or made clients always stay. Lookups waiting to start are cancelled (nothing is charged); any already running finish first.`,
         confirmLabel: 'Delete, keep the worked owners',
         altLabel: 'Delete them too',
       });
@@ -1198,7 +1217,10 @@ const OutreachPage: React.FC = () => {
       navigate('/outreach');
     }
     try {
-      await (alsoWorked ? outreachAPI.remove(organizationId, id, true) : outreachAPI.remove(organizationId, id));
+      const done = await (alsoWorked ? outreachAPI.remove(organizationId, id, true) : outreachAPI.remove(organizationId, id));
+      // What became of lookups in progress, when there were any.
+      const said = removedNote(done);
+      if (said && live.current) setRemoveNote(said);
       // Done on the server: the lists as they now are (the last one gone, the page shows the ready-made lists).
       const l = await outreachAPI.lists(organizationId);
       if (live.current) setLists(keep(l));
@@ -1216,7 +1238,7 @@ const OutreachPage: React.FC = () => {
     const owners = `${n.toLocaleString('en-US')} ${n === 1 ? 'owner' : 'owners'}`;
     const ok = await confirm({
       title: `Remove the ${owners} not on a list?`,
-      message: "Their notes, call outcomes and lookups go with them, paid ones too. Owners you sent to Leads or made clients, and any still being looked up, stay. A new list that includes one brings it back fresh.",
+      message: "Their notes, call outcomes and lookups go with them, paid ones too. Owners you sent to Leads or made clients stay. Lookups waiting to start are cancelled (nothing is charged); an owner whose lookup is already running goes once it finishes. A new list that includes one brings it back fresh.",
       confirmLabel: 'Remove',
     });
     if (!ok) return;
@@ -1405,6 +1427,14 @@ const OutreachPage: React.FC = () => {
         <p className="text-sm text-red-400" role="alert">
           {error}
         </p>
+      )}
+      {removeNote && (
+        <div className="flex items-center gap-3 border border-[#333333] bg-[#121212] px-3 py-2 text-sm text-gray-300" data-testid="remove-note" role="status">
+          <span className="flex-1">{removeNote}</span>
+          <button type="button" onClick={() => setRemoveNote(null)} aria-label="Dismiss" className="w-8 h-8 inline-flex items-center justify-center text-gray-500 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       )}
       {emailNote && (
         <div className={`flex items-center gap-3 border px-3 py-2 text-sm ${emailNote.good ? 'border-[#333333] bg-[#121212] text-gray-300' : 'border-red-500/30 bg-red-500/10 text-red-200'}`} data-testid="email-note" role="status">
