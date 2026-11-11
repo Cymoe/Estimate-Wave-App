@@ -1363,39 +1363,6 @@ type ContactsPage = { rows: OutreachContact[]; cursor: string | null; facts?: Om
  * own order (or newest first), each owner once, with the column counts taken from the rows. The first page carries
  * the balance, the prices and where the live feed picks up.
  */
-/** A lead on the Today call sheet: enough to call them and to say why today. */
-export interface TodayLead {
-  id: string;
-  name: string;
-  company?: string;
-  phone?: string;
-  email?: string;
-  /** The job's street and town. */
-  place?: string;
-  status: string;
-  followUpDate?: string;
-  lastContactAt?: string;
-  calls: number;
-  /** The newest line of the lead's notes. */
-  note?: string;
-  source?: string;
-  createdAt: string;
-}
-/** The Today call sheet (outreach.today). Each list is the first of its kind; the counts are of all of them. */
-export interface OutreachToday {
-  day: string;
-  followUps: TodayLead[];
-  followUpCount: number;
-  uncalled: TodayLead[];
-  uncalledCount: number;
-  fresh: OutreachContact[];
-  freshCount: number;
-  freshCapped: boolean;
-  /** How many days back a found phone counts as new. */
-  days: number;
-  simulating: boolean;
-}
-
 async function readContacts(organizationId: string, listId: string | undefined, onPage?: (c: OutreachContacts) => void): Promise<OutreachContacts> {
   const args = contactsArgs(organizationId, listId);
   let page: ContactsPage;
@@ -1515,8 +1482,6 @@ export const outreachAPI = {
   /** The company's running lookups as they go (the source asked now, the turns so far), now and on every change. Returns a stop function. */
   watchProgress: (organizationId: string, onUpdate: (p: OutreachProgress[]) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.progress, { organizationId }, onUpdate, onError),
-  /** Who to call today: follow-ups due, leads nobody has called, and owners whose phone was found this week. `day` is the device's own date. */
-  today: (organizationId: string, day: string): Promise<OutreachToday> => run('query', api.outreach.today, { organizationId, day }),
   /** Everything an owner holds on the county roll, the most valuable first (their row carries only the top one). */
   properties: (organizationId: string, contactId: string): Promise<OwnerProperties> => run('query', api.outreach.properties, { organizationId, contactId }),
   /** Asks for the lists' numbers (worked, sent, sold) to be counted again where owners changed; they arrive on the lists (watchLists). */

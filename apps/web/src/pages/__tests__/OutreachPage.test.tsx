@@ -100,17 +100,12 @@ const watchLists = jest.fn((_o: string, onUpdate: (l: unknown[]) => void) => {
   };
 });
 const tally = jest.fn(async () => ({ counting: 0 }));
-// Today's calls, as the server would answer; null is a backend with nothing to say (the page shows no line about it).
-let todaySheet: Record<string, unknown> | null = null;
-const getToday = jest.fn(async () => todaySheet);
 // An owner's properties from the roll, as the server would answer.
 let ownerProperties: Record<string, unknown> | Error = { rows: [], total: 0, more: false, city: 'Midland', filed: true };
 const getProperties = jest.fn(async (_o: string, _id: string) => {
   if (ownerProperties instanceof Error) throw ownerProperties;
   return ownerProperties;
 });
-const logContact = jest.fn(async () => null);
-const updateLead = jest.fn(async () => null);
 // The lookups' narration feed, apart from the owners.
 let pushProgress: ((p: unknown) => void) | null = null;
 const watchProgress = jest.fn((_o: string, onUpdate: (p: unknown) => void) => {
@@ -126,12 +121,7 @@ let authUser: Record<string, unknown> = { id: 'u1', role: 'user' };
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser }) }));
 jest.mock('../../components/market/WalletBar', () => ({ openFundingPage: jest.fn(async () => undefined), fundErrorText: (e: unknown) => String(e) }));
 jest.mock('../../lib/api', () => ({
-  leadsAPI: {
-    logContact: (...args: unknown[]) => logContact(...(args as [])),
-    update: (...args: unknown[]) => updateLead(...(args as [])),
-  },
   outreachAPI: {
-    today: (...args: unknown[]) => getToday(...(args as [])),
     properties: (...args: unknown[]) => getProperties(...(args as [string, string])),
     lists: async () => lists,
     contacts: (...args: unknown[]) => getContacts(...(args as [])),
@@ -164,7 +154,6 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
 import OutreachPage from '../OutreachPage';
 import { openFundingPage } from '../../components/market/WalletBar';
 import { ContactsTable, Live } from '../../components/outreach/ContactsTable';
-import { localDay } from '../../components/outreach/TodaySheet';
 
 // The screen width the page asks about: a laptop unless a test says it's a phone.
 let narrowScreen = false;
@@ -251,7 +240,6 @@ afterEach(() => {
   contacts = { rows: [], coverage: coverage(0, 0, 0, 0), ...money };
   authUser = { id: 'u1', role: 'user' };
   ownersState = null;
-  todaySheet = null;
   syncFeed = null;
   narrowScreen = false;
   touchScreen = false;
@@ -1682,120 +1670,26 @@ describe('the Outreach page', () => {
     expect(document.body.textContent).toContain("37 owners on “Shopping center owners” aren't loaded yet");
   });
 
-  it("today's calls: the page says how many there are, and the sheet lists follow-ups due, leads not called yet and new numbers, each worked from its card", async () => {
-    const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'tracerfy' };
-    const ready = (id: string, name: string, over: Record<string, unknown> = {}) =>
-      contact(id, { name, company: name, phones: [{ number: '4325550100', type: 'mobile', source: 'tracerfy' }], enrichment: { phone: found, email: { status: 'none' }, person: { status: 'none' }, research: { status: 'locked' } }, ...over });
-    const sheet = () => ({
-      day: localDay(),
-      followUps: [
-        { id: 'L1', name: 'Dana Reyes', company: 'Reyes Roofing', phone: '4325550111', place: '12 Main St, Midland', status: 'contacted', followUpDate: localDay(-3), calls: 2, lastContactAt: new Date(Date.now() - 3 * 86_400_000).toISOString(), note: 'Nov 8: wants metal, call back', source: 'Outreach', createdAt: '2026-11-01T15:00:00Z' },
-        { id: 'L2', name: 'Sam Ortiz', phone: '+14325550112', status: 'quoted', followUpDate: localDay(), calls: 0, createdAt: '2026-11-02T15:00:00Z' },
-      ],
-      followUpCount: 2,
-      uncalled: [{ id: 'L3', name: 'Pat New', email: 'pat@example.com', phone: '4325550113', status: 'new', calls: 0, source: 'Website', createdAt: new Date(Date.now() - 2 * 3_600_000).toISOString() }],
-      uncalledCount: 1,
-      fresh: [ready('r1', 'Oak Plaza LLC', { signals: [{ kind: 'code_violation', date: '2026-09-14', detail: 'High weeds', fresh: true }] }), ready('r2', 'City Of Midland')],
-      freshCount: 2,
-      freshCapped: false,
-      days: 7,
-      simulating: false,
-    });
+  it("has no call sheet of its own: who to call and when is the Leads section's job", async () => {
     lists = [list];
     contacts = twoContacts();
-    todaySheet = sheet();
-    await render('/outreach/l1');
-    // The page's own line, read with the device's date; a tap opens the sheet, remembering the list it came from.
-    expect(getToday).toHaveBeenCalledWith('o1', localDay());
-    const banner = document.body.querySelector('[data-testid="today-banner"]') as HTMLButtonElement;
-    expect(banner.textContent).toBe('5 to call today · 2 follow-ups due · 1 new lead · 2 new numbersOpen ');
-    await act(async () => banner.click());
-    await flush();
-    expect(path).toBe('/outreach?today=1&from=l1');
-    expect(document.body.querySelector('h1')!.textContent).toBe("Today's calls");
-    expect(document.body.querySelector('[data-testid="today-summary"]')!.textContent).toContain(' · 5 to call');
-    expect(Array.from(document.body.querySelectorAll('h2')).map((h) => h.textContent)).toEqual(['Follow-ups due 2', 'New leads, not called yet 1', 'New numbers 2']);
-
-    // Each lead says why it's on today's sheet, with what was last noted and how many calls so far.
-    const leadCards = () => Array.from(document.body.querySelectorAll('[data-testid="today-lead"]'));
-    const whys = () => leadCards().map((c) => c.querySelector('[data-testid="today-why"]')!.textContent);
-    expect(whys()[0]).toMatch(/^Follow-up was due [A-Z][a-z]{2} \d+ · from Outreach$/);
-    expect(whys().slice(1)).toEqual(['Follow-up due today', 'New lead · came in 2h ago · from Website']);
-    expect(leadCards()[0].textContent).toContain('Reyes Roofing · 12 Main St, Midland');
-    expect(leadCards()[0].textContent).toContain('2 calls so far · last 3d ago');
-    expect(leadCards()[0].textContent).toContain('Nov 8: wants metal, call back');
-    expect(leadCards()[0].textContent).toContain('(432) 555-0111');
-    // Call dials and counts the call on the lead, as Leads does; the card says so.
-    const call = leadCards()[1].querySelector('[data-testid="today-call"]') as HTMLAnchorElement;
-    expect(call.getAttribute('href')).toBe('tel:+14325550112');
-    call.addEventListener('click', (e) => e.preventDefault());
-    // A click event of its own: earlier tests stand in for a link's click() to catch the CSV download.
-    await act(async () => void call.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
-    expect(logContact).toHaveBeenCalledWith('L2', 'call');
-    expect(leadCards()[1].textContent).toContain('Called just now');
-    // Later moves the follow-up: the lead leaves today's sheet, and the count with it.
-    const later = leadCards()[0].querySelector('[data-testid="today-later"]') as HTMLSelectElement;
-    expect(Array.from(later.options).map((o) => o.textContent)).toEqual(['Later…', 'Tomorrow', 'In 3 days', 'Next week']);
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(later, '7');
-    await act(async () => void later.dispatchEvent(new Event('change', { bubbles: true })));
-    await flush();
-    expect(updateLead).toHaveBeenCalledWith('L1', { followUpDate: localDay(7) });
-    expect(leadCards().map((c) => c.querySelector('button')!.textContent)).not.toContain('Dana Reyes');
-    expect(document.body.querySelector('h2')!.textContent).toBe('Follow-ups due 1');
-    expect(document.body.querySelector('[data-testid="today-summary"]')!.textContent).toContain(' · 4 to call');
-
-    // New numbers are the owners' own cards: Call, then To Leads or Skip, shown at once.
-    const fresh = document.body.querySelector('[data-testid="today-fresh"]')!;
-    expect(fresh.textContent).toContain('Owners whose phone was found in the last 7 days. After the call, send them to Leads or skip them.');
-    const ownerCards = () => Array.from(fresh.querySelectorAll('[data-testid="contact-card"]'));
-    expect(ownerCards().map((c) => c.querySelector('[data-testid="card-call"]')!.getAttribute('href'))).toEqual(['tel:4325550100', 'tel:4325550100']);
-    await act(async () => (ownerCards()[0].querySelector('[data-testid="to-leads"]') as HTMLButtonElement).click());
-    await flush();
-    expect(sendToLeads).toHaveBeenCalledWith('o1', 'r1');
-    expect(ownerCards()[0].querySelector('[data-testid="to-leads"]')!.textContent).toContain('In Leads');
-    await act(async () => (Array.from(ownerCards()[1].querySelectorAll('button')).find((b) => b.textContent === 'Skip') as HTMLButtonElement).click());
-    await flush();
-    expect(setStatus).toHaveBeenCalledWith('o1', 'r2', 'skip', '');
-    expect(ownerCards()[1].textContent).toContain('Skipped');
-
-    // A lead's name opens it in Leads.
-    await act(async () => (leadCards()[0].querySelector('button') as HTMLButtonElement).click());
-    expect(path).toBe('/leads?lead=L2');
-    // Back to owners returns to the list it was opened from.
-    clearPage();
-    todaySheet = sheet();
+    // An old bookmark to the call sheet opens the owners as usual.
     await render('/outreach?today=1&from=l1');
-    await click('Back to owners');
-    expect(path).toBe('/outreach/l1');
-  });
-
-  it("today's calls with nobody to call: no line on the page, the picker still opens the sheet, and it says what will show up there; a sheet that can't be read says so", async () => {
-    lists = [list];
-    contacts = twoContacts();
-    todaySheet = { day: localDay(), followUps: [], followUpCount: 0, uncalled: [], uncalledCount: 0, fresh: [], freshCount: 0, freshCapped: false, days: 7, simulating: false };
-    await render('/outreach');
+    expect(document.body.querySelector('h1')?.textContent).not.toBe("Today's calls");
+    expect(document.body.querySelector('[data-testid="contacts-table"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="today-banner"]')).toBeNull();
-    await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
-    const option = document.body.querySelector('[data-testid="today-option"]') as HTMLButtonElement;
-    expect(option.textContent).toBe("Today's callsFollow-ups due and new numbers");
-    await act(async () => option.click());
-    await flush();
-    expect(path).toBe('/outreach?today=1');
-    expect(document.body.querySelector('[data-testid="today-summary"]')!.textContent).toContain(' · nobody to call');
-    expect(document.body.querySelector('[data-testid="today-empty"]')!.textContent).toBe(
-      "Nobody to call today. Follow-ups you set in Leads show up here the day they're due, and so do owners the day their phone is found.",
-    );
-    await click('Back to owners');
-    expect(path).toBe('/outreach');
-
-    // The read fails: the owners page carries on with no line about today, and the sheet offers another try.
+    expect(document.body.textContent).not.toContain('to call today');
     clearPage();
-    getToday.mockRejectedValue(new Error('down'));
-    await render('/outreach?today=1');
-    expect(document.body.querySelector('[data-testid="today-failed"]')!.textContent).toBe("Today's calls couldn't be read. Try again · Back to owners");
-    getToday.mockImplementation(async () => todaySheet);
-    await click('Try again');
-    expect(document.body.querySelector('[data-testid="today-empty"]')).not.toBeNull();
+    // Nor is there a way to it from the list picker, on a phone or off it.
+    for (const phone of [false, true]) {
+      narrowScreen = phone;
+      await render('/outreach/l1');
+      await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
+      expect(document.body.querySelector('[data-testid="today-option"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("Today's calls");
+      clearPage();
+    }
+    narrowScreen = false;
   });
 
   it('draws a long list 200 owners at a time, with Show more for the rest', async () => {

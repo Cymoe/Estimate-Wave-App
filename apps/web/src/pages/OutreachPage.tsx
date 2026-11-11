@@ -1,9 +1,9 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Check, ChevronDown, Download, LayoutList, Mail, MoreHorizontal, PhoneCall, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { Check, ChevronDown, Download, LayoutList, Mail, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { leadsAPI, outreachAPI, type OutreachChanges, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource, type OutreachToday } from '../lib/api';
+import { outreachAPI, type OutreachChanges, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { countyOf, setReadyCounties } from '../components/outreach/county';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
@@ -12,7 +12,6 @@ import { ListPicker } from '../components/outreach/ListPicker';
 import { inMoney, rememberList, UNLISTED } from '../components/outreach/listsStore';
 import { mergeChanged, type ViewOf } from '../components/outreach/liveMerge';
 import { ListsOverview } from '../components/outreach/ListsOverview';
-import { localDay, todayParts, todayTotal, TodaySheet } from '../components/outreach/TodaySheet';
 import { EmailSheet } from '../components/outreach/EmailSheet';
 import { GMAIL_RESULT } from '../lib/gmailConnect';
 import { ContactCards, ContactsTable, ContactSheet, type OwnerSort } from '../components/outreach/ContactsTable';
@@ -497,15 +496,6 @@ const OutreachPage: React.FC = () => {
   const managing = searchParams.get('lists') === '1';
   const openManage = () => setSearchParams({ lists: '1' });
   const pickList = (id: string | null) => navigate(id ? `/outreach/${id}` : '/outreach');
-  /**
-   * Today's calls: follow-ups due, leads nobody has called and owners whose phone was just found, on one sheet. It opens
-   * over All owners (an owner on it can be on any list), remembering the list it was opened from for the way back.
-   */
-  const todayOpen = searchParams.get('today') === '1';
-  const openToday = () => navigate(`/outreach?today=1${listId ? `&from=${listId}` : ''}`);
-  const closeToday = () => pickList(searchParams.get('from'));
-  const [todayData, setTodayData] = useState<OutreachToday | null>(null);
-  const [todayFailed, setTodayFailed] = useState(false);
   // Whichever way a list was opened (the picker, a link, Back), it's the most recent one.
   useEffect(() => {
     if (listId && listId !== UNLISTED) rememberList(listId);
@@ -571,28 +561,6 @@ const OutreachPage: React.FC = () => {
     },
     [],
   );
-  // Read when the page opens (for its line saying how many calls there are) and each time the sheet is opened or
-  // something is done on it. Not listened to: it reads the company's leads and the week's lookups, too much to run
-  // again on every owner a lookup changes.
-  const loadToday = useCallback(async () => {
-    if (!organizationId) return;
-    try {
-      const t = await outreachAPI.today?.(organizationId, localDay());
-      if (!live.current || !t) return;
-      setTodayData(t);
-      setTodayFailed(false);
-    } catch {
-      // The page works without it: no line about today's calls, and the sheet says it couldn't be read.
-      if (live.current) setTodayFailed(true);
-    }
-  }, [organizationId]);
-  useEffect(() => {
-    setTodayData(null);
-  }, [organizationId]);
-  useEffect(() => {
-    void loadToday();
-  }, [loadToday, todayOpen]);
-  const patchToday = (id: string, change: Partial<OutreachContact>) => setTodayData((t) => t && { ...t, fresh: t.fresh.map((r) => (r.id === id ? { ...r, ...change } : r)) });
   const load = useCallback(async (): Promise<OutreachContacts | undefined> => {
     if (!organizationId) return;
     const key = `${organizationId}:${listId ?? 'all'}`;
@@ -730,8 +698,7 @@ const OutreachPage: React.FC = () => {
   }, [organizationId, listId, load, takeContacts, refreshListsSoon]);
   // The sheet shows the row as the table now has it.
   useEffect(() => {
-    // On today's sheet an owner may not be among the rows read yet: its sheet stays as it was opened.
-    if (open && data) setOpen(data.rows.find((r) => r.id === open.id) ?? (todayOpen ? open : null));
+    if (open && data) setOpen(data.rows.find((r) => r.id === open.id) ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -918,7 +885,6 @@ const OutreachPage: React.FC = () => {
       const leadId = alongside.length ? await outreachAPI.sendToLeads(organizationId, row.id, alongside) : await outreachAPI.sendToLeads(organizationId, row.id);
       setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: 'lead', leadId } : r)) });
       setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, 'lead') } : x)));
-      patchToday(row.id, { status: 'lead', leadId });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't send them to Leads");
     }
@@ -1271,7 +1237,7 @@ const OutreachPage: React.FC = () => {
 
   if (!organizationId) return <p className="p-6 text-gray-400">Pick a company first.</p>;
 
-  // One owner's sheet, the same over a list and over today's calls.
+  // One owner's sheet.
   const ownerSheet = (
     <ContactSheet
       row={open}
@@ -1283,11 +1249,7 @@ const OutreachPage: React.FC = () => {
       researchCents={researchCents}
       researchQuestion={data?.researchQuestion ?? ''}
       balanceCents={balanceCents}
-      onClose={() => {
-        setOpen(null);
-        // What was done in the sheet (a note, a skip) shows on today's cards once it's read again.
-        if (todayOpen) void loadToday();
-      }}
+      onClose={() => setOpen(null)}
       onStatus={setContactStatus}
       onEnrich={(row, fields, question) => enrich([row.id], fields, question)}
       freeLookups={freeLeft}
@@ -1295,63 +1257,12 @@ const OutreachPage: React.FC = () => {
       onLead={(row) => void toLeads(row)}
       organizationId={organizationId}
       onEmail={(row) => {
-        // The email drawer lives on the owners page.
-        if (todayOpen) setSearchParams({});
         setOpen(null);
         setEmailNote(null);
         setEmailIds([row.id]);
       }}
     />
   );
-
-  if (todayOpen)
-    return (
-      <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
-        <h1 className="text-2xl font-semibold text-white">Today's calls</h1>
-        {error && (
-          <p className="text-sm text-red-400" role="alert">
-            {error}
-          </p>
-        )}
-        {todayFailed && !todayData ? (
-          <p className="text-sm text-gray-400" data-testid="today-failed">
-            Today's calls couldn't be read.{' '}
-            <button type="button" onClick={() => void loadToday()} className="text-[#7fb0e0] hover:text-white">
-              Try again
-            </button>{' '}
-            ·{' '}
-            <button type="button" onClick={closeToday} className="text-[#7fb0e0] hover:text-white">
-              Back to owners
-            </button>
-          </p>
-        ) : (
-          <TodaySheet
-            today={todayData}
-            onBack={closeToday}
-            onOpenLead={(l) => navigate(`/leads?lead=${l.id}`)}
-            onContact={(l, kind) => void leadsAPI.logContact(l.id, kind).catch(() => {})}
-            onLater={async (l, date) => {
-              await leadsAPI.update(l.id, { followUpDate: date });
-              void loadToday();
-            }}
-            onOpenOwner={setOpen}
-            onStatus={async (row, next) => {
-              patchToday(row.id, { status: next });
-              try {
-                await setContactStatus(row, next, row.note ?? '');
-              } catch (err) {
-                patchToday(row.id, { status: row.status });
-                throw err;
-              }
-            }}
-            onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
-            onLead={(row) => void toLeads(row)}
-          />
-        )}
-        {ownerSheet}
-        {confirmDialog}
-      </div>
-    );
 
   if (managing)
     return (
@@ -1380,7 +1291,7 @@ const OutreachPage: React.FC = () => {
         <div className="min-w-0 flex-1">
           <h1 className="sr-only">Outreach</h1>
           {/* On a wide screen the open list's name is the page's title, a tap away from the others. */}
-          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} onToday={openToday} todayCount={todayData ? todayTotal(todayData) : undefined} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} />}
+          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} />}
           {isStaff(user) && (
             <div className="md:mt-1 text-xs text-gray-500">
               <button type="button" onClick={() => setStaffOpen((v) => !v)} aria-expanded={staffOpen} className="md:hidden inline-flex items-center gap-1 min-h-[32px] text-gray-500 hover:text-white">
@@ -1495,30 +1406,6 @@ const OutreachPage: React.FC = () => {
           {error}
         </p>
       )}
-      {/* Who to call today, when there is anyone: the reason to open this page in the morning, one tap from the sheet. */}
-      {todayData && todayTotal(todayData) > 0 && (
-        <button
-          type="button"
-          onClick={openToday}
-          className="flex w-full items-center gap-3 border border-[#336699]/50 bg-[#336699]/10 px-3 py-2.5 text-left text-sm hover:bg-[#336699]/20"
-          data-testid="today-banner"
-        >
-          <PhoneCall className="w-4 h-4 shrink-0 text-[#7fb0e0]" aria-hidden />
-          <span className="flex-1 min-w-0">
-            <span className="font-medium text-white">
-              {todayTotal(todayData).toLocaleString('en-US')}
-              {todayData.freshCapped ? '+' : ''} to call today
-            </span>
-            <span className="block md:inline text-gray-400">
-              <span className="hidden md:inline"> · </span>
-              {todayParts(todayData)}
-            </span>
-          </span>
-          <span className="shrink-0 inline-flex items-center gap-1 text-[#7fb0e0]">
-            Open <ArrowRight className="w-4 h-4" aria-hidden />
-          </span>
-        </button>
-      )}
       {emailNote && (
         <div className={`flex items-center gap-3 border px-3 py-2 text-sm ${emailNote.good ? 'border-[#333333] bg-[#121212] text-gray-300' : 'border-red-500/30 bg-red-500/10 text-red-200'}`} data-testid="email-note" role="status">
           <span className="flex-1">{emailNote.text}</span>
@@ -1556,7 +1443,7 @@ const OutreachPage: React.FC = () => {
       )}
       {/* The lists: one picker (search, pinned, recent, grouped by kind) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
       {lists && lists.length > 0 && narrow && !(data && data.rows.length > 0) && (
-        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} onToday={openToday} todayCount={todayData ? todayTotal(todayData) : undefined} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} />
+        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} />
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
@@ -1629,7 +1516,7 @@ const OutreachPage: React.FC = () => {
           {narrow ? (
             <div className="flex w-full items-center gap-2 py-1.5">
               {lists && lists.length > 0 && !searching && (
-                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} onToday={openToday} todayCount={todayData ? todayTotal(todayData) : undefined} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} compact />
+                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} count={list ? undefined : data?.rows.length} compact />
               )}
               <SearchBox value={query} onChange={setQuery} onOpenChange={setSearching} />
               <PopMenu label={mixed ? 'Filter' : 'Filter by status'} icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all' || countyNow !== 'all'} size="w-9 h-9">
