@@ -1044,6 +1044,38 @@ export const contacts = query({
   },
 });
 
+/**
+ * How big the owners are, by company: how many, their average and largest
+ * stored size, and how far one read of them all is from what a read may hold
+ * (16 MiB). Read-only, for sizing the paged reads; run from the deploy
+ * workflow's "function" input. Looks at the first 8,000 owners.
+ */
+export const sizes = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const LOOK = 8000;
+    const owners = await ctx.db.query("outreachContacts").take(LOOK);
+    const by = new Map<Id<"organizations">, { owners: number; bytes: number; largest: number; lookedUp: number }>();
+    for (const c of owners) {
+      const size = JSON.stringify(c).length;
+      const row = by.get(c.organizationId) ?? { owners: 0, bytes: 0, largest: 0, lookedUp: 0 };
+      row.owners++;
+      row.bytes += size;
+      row.largest = Math.max(row.largest, size);
+      if (Object.values(cellsOf(c)).some((cell) => cell && cell.status !== "locked")) row.lookedUp++;
+      by.set(c.organizationId, row);
+    }
+    const READ_LIMIT = 16 * 1024 * 1024;
+    return {
+      looked: owners.length,
+      all: owners.length < LOOK,
+      companies: [...by.entries()]
+        .map(([organizationId, r]) => ({ organizationId, owners: r.owners, lookedUp: r.lookedUp, averageBytes: Math.round(r.bytes / r.owners), largestBytes: r.largest, megabytes: Math.round((r.bytes / 1024 / 1024) * 10) / 10, ownersOneReadHolds: Math.floor(READ_LIMIT / (r.bytes / r.owners)) }))
+        .sort((a, b) => b.owners - a.owners),
+    };
+  },
+});
+
 /** The most owners one answer of the live feed carries; past it the page reads its view again instead. */
 export const CHANGES_MAX = 300;
 
