@@ -1218,8 +1218,7 @@ export const ContactSheet: React.FC<{
             <div className="py-3" data-testid="decision-maker">
               <div className={label}>Decision maker</div>
               {row.person ? (
-                <div className="flex items-start gap-2 pt-1">
-                  <User className="w-4 h-4 mt-1 text-gray-500 shrink-0" />
+                <div className="pt-1" data-testid="decision-maker-person">
                   <div>
                     <div className="text-[15px] text-white">
                       {row.person.name}
