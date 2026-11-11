@@ -9,7 +9,7 @@ import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
-import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
+import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1820,9 +1820,12 @@ describe("a company's lists", () => {
     expect(watchdogs).toHaveLength(4);
     expect(watchdogs.every((f) => Math.round(f.scheduledTime) === NOW + GIVE_UP_AFTER_MS)).toBe(true);
 
-    // One of the second company's ends: it has none waiting, so the place goes to the first.
+    // One of the second company's ends: it has none waiting, so the place goes to the first. The end only frees the place and
+    // asks for a pump of its own, so lookups ending together don't all read the queue at once and collide.
     const done = rows.find((r) => !r.mine && r.state === "active")!;
-    expect(await t.mutation(internal.outreach.lookupDone, { queueId: done.id })).toEqual({ started: 1 });
+    expect(await t.mutation(internal.outreach.lookupDone, { queueId: done.id })).toBeNull();
+    expect((await scheduled()).filter((f) => f.name === "outreach:pump").length).toBeGreaterThan(0);
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 1 });
     rows = await queue();
     expect([count(rows, true, "active"), count(rows, false, "active"), count(rows, true, "queued")]).toEqual([3, 1, 3]);
 
@@ -1831,6 +1834,7 @@ describe("a company's lists", () => {
     const dead = rows.find((r) => r.mine && r.state === "active")!;
     const at = (await t.run(async (ctx) => ctx.db.get(dead.contactId)))!.enrichment!.phone.at!;
     expect(await t.mutation(internal.outreach.giveUp, { contactId: dead.contactId, fields: ["phone"], at, queueId: dead.id })).toEqual({ failed: 1 });
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 1 });
     rows = await queue();
     expect(rows.find((r) => r.id === dead.id)).toBeUndefined();
     expect([count(rows, true, "active"), count(rows, true, "queued")]).toEqual([3, 2]);
@@ -1850,6 +1854,49 @@ describe("a company's lists", () => {
     const landed = rows.find((r) => r.mine && r.state === "active")!;
     await t.mutation(internal.outreach.recordEnrichment, { contactId: landed.contactId, field: "phone", source: "batchdata" });
     await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: [spare], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+  });
+
+  test("asking for more on an owner whose lookup is waiting keeps its place; a cell left running with nothing behind it can be asked again, and the repair fails it", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, [parcel("o1", { owner: "NUKA HIVA ALPHA LLC", companyOwned: true, ownerOccupied: false, siteAddress: "1 ELM ST" })]);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    const owner = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows.find((r) => r.name.startsWith("Nuka"))!;
+    const id = owner.id as Id<"outreachContacts">;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 10_000 }));
+    const cells = async () => (await t.run(async (ctx) => ctx.db.get(id)))!.enrichment!;
+    const rows = async () => (await t.run(async (ctx) => ctx.db.query("outreachQueue").collect())).map((r) => ({ id: r._id, fields: r.fields, state: r.state }));
+
+    // Phones and emails asked for: in line, waiting its turn. Then research on the same owner before that turn comes.
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [id], fields: ["person", "phone", "email"] });
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [id], fields: ["research"] });
+    // Both requests keep their places: the first isn't dropped, which left its cells running with nothing behind them.
+    expect((await rows()).map((r) => r.fields).sort()).toEqual([["person", "phone", "email"], ["research"]]);
+    expect(await t.mutation(internal.outreach.pump, {})).toEqual({ started: 2 });
+
+    // A stuck owner, as one was before: its cells running, and nothing in line for them (the request was lost).
+    await t.run(async (ctx) => {
+      for (const r of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(r._id);
+      await ctx.db.patch(id, { enrichment: { ...(await ctx.db.get(id))!.enrichment!, research: { status: "none", at: new Date(NOW).toISOString() } } });
+    });
+    expect([(await cells()).person.status, (await cells()).phone.status, (await cells()).email.status]).toEqual(["running", "running", "running"]);
+    // Asking again works: running with nothing behind it is not "already running".
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1 });
+    expect((await rows()).map((r) => r.fields)).toEqual([["phone"]]);
+    // A cell that is in line is still "already running" and isn't queued twice.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [id], fields: ["phone"] })).resolves.toMatchObject({ queued: 0 });
+
+    // The repair finds the two cells with nothing behind them (person and email), fails them with a Try again, and leaves the
+    // phone, which is in line, running. Run again, it finds nothing.
+    expect(await t.action(internal.outreach.repairStuck, {})).toEqual({ checked: expect.any(Number), fixed: 2, owners: ["Nuka Hiva Alpha LLC: person, email"] });
+    const after = await cells();
+    expect([after.person.status, after.phone.status, after.email.status]).toEqual(["failed", "running", "failed"]);
+    expect(after.email.error).toBe(STUCK_ERROR);
+    expect(await t.action(internal.outreach.repairStuck, {})).toMatchObject({ fixed: 0, owners: [] });
+    vi.useRealTimers();
   });
 
   test("a company's lists stop at the owner cap, with the reason, on a new list and on loading more", async () => {

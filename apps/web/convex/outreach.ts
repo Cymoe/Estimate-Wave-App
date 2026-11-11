@@ -9,6 +9,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   action,
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -2319,13 +2320,19 @@ export const enrich = mutation({
   handler: async (ctx, { organizationId, contactIds, fields = ["person", "phone", "email"], question }) => {
     const { user, organization } = await requireMember(ctx, organizationId, "admin");
     if (!organization.plan || !planIsActive(organization.plan, Date.now())) fail("FORBIDDEN", "Outreach is part of the Pro plan");
-    const jobs: Array<{ contact: Doc<"outreachContacts">; fields: Doc<"dataSourceStats">["field"][] }> = [];
+    const jobs: Array<{ contact: Doc<"outreachContacts">; fields: Doc<"dataSourceStats">["field"][]; rows: Doc<"outreachQueue">[] }> = [];
     for (const id of new Set(contactIds)) {
       const c = await ctx.db.get(id);
       if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
       const cells = cellsOf(c);
-      const open = FIELDS.filter((f) => fields.includes(f) && (f !== "person" || isCompany(c)) && cellFor(cells, f).status !== "found" && cellFor(cells, f).status !== "running");
-      if (open.length) jobs.push({ contact: c, fields: open });
+      // The owner's lookups waiting or running, and the fields they still have to fill. A cell marked running that none of
+      // them covers has nothing behind it (stuck), and is asked for again like a failed one.
+      const rows = await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect();
+      const covered = new Set(rows.flatMap((r) => r.fields));
+      const open = FIELDS.filter(
+        (f) => fields.includes(f) && (f !== "person" || isCompany(c)) && cellFor(cells, f).status !== "found" && (cellFor(cells, f).status !== "running" || !covered.has(f)),
+      );
+      if (open.length) jobs.push({ contact: c, fields: open, rows });
     }
     const phones = jobs.filter((j) => j.fields.includes("phone")).length;
     const answers = jobs.filter((j) => j.fields.includes("research")).length;
@@ -2346,7 +2353,7 @@ export const enrich = mutation({
     // Sister entities wait their turn: the first finds the person and the phone, the rest find the same person free and copy it.
     const place = new Map<string, number>();
     const later = new Set<number>(jobs.length ? [0] : []);
-    for (const { contact, fields: open } of jobs) {
+    for (const { contact, fields: open, rows } of jobs) {
       const family = isCompany(contact) && open.some((f) => f === "phone" || f === "email") ? familyKey(contact.name) : undefined;
       const turn = family ? (place.get(family) ?? 0) : 0;
       if (family) place.set(family, turn + 1);
@@ -2358,8 +2365,10 @@ export const enrich = mutation({
       // A fresh run starts its narration over.
       await clearProgress(ctx, contact._id, open);
       // Into the queue: the pump starts it when its turn comes (and its watchdog with it), so a big batch can't flood the sources
-      // or have lookups time out while they wait in line.
-      for (const stale of await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", contact._id)).collect()) await ctx.db.delete(stale._id);
+      // or have lookups time out while they wait in line. An earlier request for this owner keeps its place while it still has
+      // cells to fill: dropping it (as asking for research while the phone waited once did) left those cells running for good.
+      // Only a leftover with nothing still running on it goes.
+      for (const stale of rows) if (!stale.fields.some((f) => cellFor(cellsOf(contact), f).status === "running" && !open.includes(f))) await ctx.db.delete(stale._id);
       await ctx.db.insert("outreachQueue", { organizationId, contactId: contact._id, fields: open, at: now, notBefore: Date.now() + delay, state: "queued", ...(isSampleRun(contact) ? { free: true } : {}) });
     }
     // One pump now, and one for each later turn of a sister company.
@@ -2464,18 +2473,91 @@ async function pumpQueue(ctx: MutationCtx) {
   return { started };
 }
 
+export const STUCK_ERROR = "Stopped without an answer. Nothing was charged; try again.";
+const STUCK_PAGE = 500;
+
+/** One page of owners: those with a cell marked running that no lookup waiting or running still has to fill. */
+export const stuckPage = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("outreachContacts").paginate({ numItems: STUCK_PAGE, cursor });
+    const stuck: Array<{ contactId: Id<"outreachContacts">; name: string; fields: Doc<"dataSourceStats">["field"][] }> = [];
+    for (const c of page.page) {
+      const cells = cellsOf(c);
+      const running = FIELDS.filter((f) => cellFor(cells, f).status === "running");
+      if (!running.length) continue;
+      const covered = new Set((await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).flatMap((r) => r.fields));
+      const left = running.filter((f) => !covered.has(f));
+      if (left.length) stuck.push({ contactId: c._id, name: c.name, fields: left });
+    }
+    return { stuck, checked: page.page.length, cursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+/** Fails the given cells if they're still running with nothing behind them (looked at again here, in case one has started since). */
+export const failStuck = internalMutation({
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField) },
+  handler: async (ctx, { contactId, fields }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c) return { failed: 0 };
+    const covered = new Set((await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", contactId)).collect()).flatMap((r) => r.fields));
+    const cells = { ...cellsOf(c) };
+    const now = nowIso();
+    const failed = fields.filter((f) => cellFor(cells, f).status === "running" && !covered.has(f));
+    for (const f of failed) cells[f] = { status: "failed", at: now, requestedBy: cellFor(cells, f).requestedBy, error: STUCK_ERROR };
+    if (failed.length) {
+      await ctx.db.patch(contactId, { enrichment: cells, ...(failed.includes("research") ? { researchQuestion: undefined } : {}), updatedAt: now });
+      await clearProgress(ctx, contactId, failed);
+    }
+    return { failed: failed.length };
+  },
+});
+
+/**
+ * Finds every owner with a cell left running and nothing behind it (a lookup's request dropped from the queue, or one whose
+ * end and watchdog both failed to write), and fails those cells so the page offers Try again. Safe to run again:
+ * `npx convex run outreach:repairStuck '{}'`.
+ */
+export const repairStuck = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; fixed: number; owners: string[] }> => {
+    let cursor: string | null = null;
+    let checked = 0;
+    let fixed = 0;
+    const owners: string[] = [];
+    do {
+      const page: { stuck: Array<{ contactId: Id<"outreachContacts">; name: string; fields: Doc<"dataSourceStats">["field"][] }>; checked: number; cursor: string | null } =
+        await ctx.runQuery(internal.outreach.stuckPage, { cursor });
+      checked += page.checked;
+      for (const s of page.stuck) {
+        const { failed } = await ctx.runMutation(internal.outreach.failStuck, { contactId: s.contactId, fields: s.fields });
+        if (failed) {
+          fixed += failed;
+          if (owners.length < 25) owners.push(`${s.name}: ${s.fields.join(", ")}`);
+        }
+      }
+      cursor = page.cursor;
+    } while (cursor);
+    return { checked, fixed, owners };
+  },
+});
+
 /** Starts whatever is waiting and has room: after a request, when a lookup ends, and every few minutes as a safety net. */
 export const pump = internalMutation({
   args: {},
   handler: async (ctx) => await pumpQueue(ctx),
 });
 
-/** A lookup ended (however it went): its place is free for the next one waiting. */
+/**
+ * A lookup ended (however it went): its place is free for the next one waiting. The next is started by a pump of its own:
+ * run in here, every lookup that ended at the same moment read the whole queue, and they collided until some gave up.
+ */
 export const lookupDone = internalMutation({
   args: { queueId: v.id("outreachQueue") },
   handler: async (ctx, { queueId }) => {
     if (await ctx.db.get(queueId)) await ctx.db.delete(queueId);
-    return await pumpQueue(ctx);
+    await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
+    return null;
   },
 });
 
@@ -2496,10 +2578,11 @@ export const GIVE_UP_ERROR = `Took longer than ${GIVE_UP_AFTER_MS / 60_000} minu
 export const giveUp = internalMutation({
   args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), at: v.string(), queueId: v.optional(v.id("outreachQueue")) },
   handler: async (ctx, { contactId, fields, at, queueId }) => {
-    // Its place in the queue is given up too, should the lookup have died without saying it ended.
+    // Its place in the queue is given up too, should the lookup have died without saying it ended; the next starts on its
+    // own pump, so the watchdogs of a batch going off together don't collide (and fail) over the queue.
     if (queueId && (await ctx.db.get(queueId))) {
       await ctx.db.delete(queueId);
-      await pumpQueue(ctx);
+      await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
     }
     const c = await ctx.db.get(contactId);
     if (!c) return { failed: 0 };
