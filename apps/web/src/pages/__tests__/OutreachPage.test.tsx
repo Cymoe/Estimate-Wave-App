@@ -1476,8 +1476,11 @@ describe('the Outreach page', () => {
     contacts = twoContacts();
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-filling"]')!.textContent).toBe('Adding owners to this list: 2 so far…');
-    // Drawn outside the page's layout, so nothing on the page moves when it comes or goes.
-    expect(document.body.querySelector('[data-testid="outreach-page"] [data-testid="list-filling"]')).toBeNull();
+    // In the strip along the page's bottom edge, after everything else: it never sits on top of a row's buttons.
+    const strip = document.body.querySelector('[data-testid="outreach-page"] > [data-testid="status-strip"]')!;
+    expect(strip.querySelector('[data-testid="list-filling"]')).not.toBeNull();
+    expect(strip.className).toContain('sticky bottom-0');
+    expect(strip.nextElementSibling).toBeNull();
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
     lists = [{ ...list, filling: false }];
     clearPage();

@@ -1,5 +1,4 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Check, ChevronDown, Download, LayoutList, Mail, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
@@ -1148,24 +1147,6 @@ const OutreachPage: React.FC = () => {
   return (
     // On a phone the page is a column whose filter bar (the list, search and tabs) comes first, before the buttons and the list's numbers.
     <div className="p-4 md:p-6 flex flex-col gap-4 md:block md:space-y-4" data-testid="outreach-page">
-      {/* What's running in the background (a lookup, a new list still filling) floats at the bottom of the screen,
-          drawn outside the page's layout, so nothing on the page moves when it comes or goes. */}
-      {createPortal(
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex w-max max-w-[calc(100vw-2rem)] flex-col items-center gap-2 pointer-events-none [&>*]:pointer-events-auto [&>*]:max-w-full">
-          {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
-          {list?.filling && (
-            <div
-              role="status"
-              className="flex items-center gap-3 rounded-full border border-[#336699]/50 bg-[#10243a]/95 px-4 py-2.5 text-sm text-white shadow-2xl backdrop-blur animate-appear"
-              data-testid="list-filling"
-            >
-              <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
-              <span className="truncate">Adding owners to this list: {(data?.rows.length ?? 0).toLocaleString('en-US')} so far…</span>
-            </div>
-          )}
-        </div>,
-        document.body,
-      )}
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -1540,6 +1521,18 @@ const OutreachPage: React.FC = () => {
         onSave={saveList}
       />
       {confirmDialog}
+      {/* What's running in the background (a lookup, a new list still filling) is a strip along the bottom edge of the
+          page: in view wherever the list is scrolled to, and never on top of a row's buttons, as a pill floating over
+          the rows was. It has its own room at the end of the page, so nothing above it moves when it comes or goes. */}
+      <div className="sticky bottom-0 z-20 -mx-4 -mb-4 md:-mx-6 md:-mb-6 bg-[#10243a] pb-[env(safe-area-inset-bottom)] empty:hidden" data-testid="status-strip">
+        {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
+        {list?.filling && (
+          <div role="status" className="flex items-center gap-3 border-t border-[#336699]/50 px-4 md:px-6 py-2.5 text-sm text-white animate-appear" data-testid="list-filling">
+            <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
+            <span className="truncate">Adding owners to this list: {(data?.rows.length ?? 0).toLocaleString('en-US')} so far…</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

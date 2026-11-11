@@ -6,7 +6,7 @@ const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { m
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * The lookup that was started, while it runs and once it's done: a card floating at the bottom of the screen that
+ * The lookup that was started, while it runs and once it's done: a strip along the bottom edge of the page that
  * fills as owners finish, with the phones, emails and people found so far
  * and what it has cost. Counts the owners whose cells were asked for at or
  * after `since`, the time the lookup started; without it (a lookup started
@@ -35,14 +35,14 @@ export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string;
       role="status"
       aria-live="polite"
       data-testid="lookup-progress"
-      className={`relative overflow-hidden rounded-2xl border border-[#336699]/50 bg-[#10243a]/95 text-sm text-white shadow-2xl backdrop-blur animate-appear ${className}`}
+      className={`relative overflow-hidden border-t border-[#336699]/50 bg-[#10243a] text-sm text-white animate-appear ${className}`}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2.5 pl-4 pr-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2.5 px-4 md:px-6">
         {finished ? <CheckCircle2 className="w-4 h-4 shrink-0 text-[#7fb0e0]" aria-hidden /> : <span className="live-dot" aria-hidden />}
         <span>{finished ? `Done: ${owners} ${research ? 'researched' : 'looked up'}` : since ? `${research ? 'Researching' : 'Looking up'} ${owners} · ${done} done` : `Looking up ${owners}…`}</span>
         {parts.length > 0 && <span className="text-gray-300 tabular-nums">{parts.join(' · ')}</span>}
         {finished && (
-          <button type="button" onClick={onDismiss} aria-label="Dismiss" className="-my-1.5 -mr-2 inline-flex items-center justify-center w-8 h-8 text-gray-400 hover:text-white">
+          <button type="button" onClick={onDismiss} aria-label="Dismiss" className="-my-1.5 -mr-2 ml-auto inline-flex items-center justify-center w-8 h-8 text-gray-400 hover:text-white">
             <X className="w-4 h-4" />
           </button>
         )}
