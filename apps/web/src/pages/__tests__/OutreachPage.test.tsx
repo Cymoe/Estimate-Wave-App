@@ -883,6 +883,26 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('[data-testid="sent-note"] button[aria-label="Dismiss"]') as HTMLButtonElement).click());
     expect(document.body.querySelector('[data-testid="sent-note"]')).toBeNull();
     expect(localStorage.getItem('outreach.sendSeen')).toBe('2026-11-07T22:58:00.000Z');
+
+    // Left alone, "Took back…" goes by itself after a few seconds; the line about a send (with its Undo) does not.
+    clearPage();
+    localStorage.clear();
+    jest.useFakeTimers();
+    try {
+      await render('/outreach/l1');
+      await act(async () => void jest.advanceTimersByTime(20_000));
+      expect(line()).toContain('125 leads sent to Leads at');
+      await click('Undo send');
+      await click('Take them back');
+      expect(line()).toBe("Took back 120 leads; kept 5 you've already started on.");
+      await act(async () => void jest.advanceTimersByTime(7_900));
+      expect(line()).toContain('Took back 120 leads');
+      await act(async () => void jest.advanceTimersByTime(200));
+      expect(document.body.querySelector('[data-testid="sent-note"]')).toBeNull();
+      expect(localStorage.getItem('outreach.sendSeen')).toBe('2026-11-07T22:58:00.000Z');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('a ready-made list is one tap, run as written with no guessing; the words say what they cannot make and build the closest instead', async () => {

@@ -292,6 +292,8 @@ const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolea
 const findLabel = (n: number, showing = false) => `Find phones & emails (${n.toLocaleString('en-US')}${showing ? ' showing' : ''})`;
 /** Past this many owners in one answer of the live feed, the page listens from the latest change on, so answers stay small. */
 const FEED_STEP = 50;
+/** How long "Took back N leads." stays before it goes on its own. */
+const UNDO_NOTE_MS = 8000;
 /** At most this many more owners are loaded in one go before finding phones & emails for a whole list (four pages). */
 const LOAD_REST_MAX = 2000;
 
@@ -1110,6 +1112,15 @@ const OutreachPage: React.FC = () => {
       // Private browsing: dismissed for this visit.
     }
   };
+  // "Took back 99 leads." has nothing left to offer once it's been read: it goes by itself after a few seconds, as if
+  // dismissed. (The line about a send stays until dismissed, since its Undo is on it.)
+  const dismissSendNow = useRef(dismissSend);
+  dismissSendNow.current = dismissSend;
+  useEffect(() => {
+    if (!undoNote) return;
+    const t = window.setTimeout(() => dismissSendNow.current(), UNDO_NOTE_MS);
+    return () => window.clearTimeout(t);
+  }, [undoNote]);
   /** Takes back the latest send, after a word on what stays. */
   const undoLastSend = async () => {
     if (!organizationId || !lastSend) return;
