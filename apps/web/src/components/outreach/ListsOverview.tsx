@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Pencil, Pin, PinOff, Search, Trash2 } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
+import { ownerTotal } from './listsStore';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -89,7 +90,7 @@ export function ListsOverview({
                     {l.pinned && <Pin className="w-4 h-4 shrink-0 mt-1 text-[#7fb0e0]" aria-label="Pinned" />}
                   </span>
                   <span className="block text-xs text-gray-500 mt-0.5">
-                    {WHO_LABEL[l.who]} · {l.definition.county} · made {day(l.createdAt)}
+                    {[WHO_LABEL[l.who], l.definition.county, `made ${day(l.createdAt)}`].filter(Boolean).join(' · ')}
                   </span>
                 </button>
               )}
@@ -97,6 +98,7 @@ export function ListsOverview({
                 <div className="flex justify-between text-xs text-gray-400">
                   <span>
                     {l.done} of {l.rowCount.toLocaleString('en-US')} worked
+                    {(l.total ?? 0) > l.rowCount && <span className="text-gray-500"> · {ownerTotal(l)} in all</span>}
                   </span>
                   <span>{pct}%</span>
                 </div>
