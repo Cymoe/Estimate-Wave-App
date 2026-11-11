@@ -4,12 +4,17 @@ import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 import { countyOf } from './county';
 import { listProgress, ownerTotal, recentLists, rememberList, UNLISTED } from './listsStore';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
+
+/** How many lists before the panel offers a search (and Recent): fewer all fit on the panel, with nothing to find. */
+const MANY_LISTS = 5;
 
 /**
- * The lists, one tap away: the open list's name as a button; it opens a panel
- * with a search, the pinned lists, the ones opened lately, the rest grouped by
- * who they're of. On a phone it's
- * a sheet from the bottom.
+ * The lists, one tap away: a box of one size holding the open list's name (a
+ * long name is cut short; the box doesn't grow and shrink with it); it opens
+ * a panel the same width with the pinned lists, the ones opened lately and the
+ * rest grouped by who they're of, and a search once there are many. On a phone
+ * it's a sheet from the bottom.
  */
 export function ListPicker({
   lists,
@@ -43,6 +48,9 @@ export function ListPicker({
   const [q, setQ] = useState('');
   const box = useRef<HTMLDivElement>(null);
   const current = lists.find((l) => l.id === currentId);
+  // A finger, not a mouse: putting the cursor in the search box would bring the keyboard up over the lists just opened.
+  const touch = useMediaQuery('(pointer: coarse)');
+  const searchable = lists.length > MANY_LISTS;
 
   useEffect(() => {
     if (!open) return;
@@ -74,7 +82,7 @@ export function ListPicker({
     const byId = new Map(live.map((l) => [l.id, l] as const));
     // With only a handful of lists they all fit already; Recent is for when there are many. The open list isn't repeated.
     const recent =
-      live.length > 5
+      live.length > MANY_LISTS
         ? recentLists()
             .map((id) => byId.get(id))
             .filter((l): l is OutreachListSummary => Boolean(l) && !l!.pinned && l!.id !== currentId)
@@ -131,6 +139,8 @@ export function ListPicker({
     );
 
   const liveCount = lists.length;
+  // The box and its panel on a wide screen: one width, whatever the list is called.
+  const WIDE = 'w-[26rem]';
   const panel = (
     <div
       role="dialog"
@@ -138,28 +148,36 @@ export function ListPicker({
       className={
         narrow
           ? 'fixed inset-x-0 bottom-0 z-50 max-h-[80vh] flex flex-col bg-[#1A1A1A] border-t border-[#333333] shadow-2xl'
-          : 'absolute left-0 top-full mt-1 z-50 w-[30rem] max-w-[90vw] max-h-[70vh] flex flex-col bg-[#1A1A1A] border border-[#333333] shadow-2xl'
+          : `absolute left-0 top-full mt-1 z-50 ${WIDE} max-w-[90vw] max-h-[70vh] flex flex-col bg-[#1A1A1A] border border-[#333333] shadow-2xl`
       }
     >
-      <div className="flex items-center gap-2 p-3 border-b border-[#333333]">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
-          <input
-            autoFocus={!narrow}
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Find a list"
-            aria-label="Find a list"
-            className="w-full h-9 rounded-none border border-[#333333] bg-black pl-8 pr-3 text-base md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
-          />
+      {/* The search comes with many lists; a phone's sheet keeps its top line for the Close button either way. */}
+      {(searchable || narrow) && (
+        <div className="flex items-center gap-2 p-3 border-b border-[#333333]">
+          {searchable ? (
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
+              <input
+                // With a keyboard in hand, typing finds a list straight away. Never on a touch screen or a phone.
+                autoFocus={!narrow && touch === false}
+                type="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Find a list"
+                aria-label="Find a list"
+                className="w-full h-9 rounded-none border border-[#333333] bg-black pl-8 pr-3 text-base md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+              />
+            </div>
+          ) : (
+            <span className="flex-1 text-sm font-medium text-white">Lists</span>
+          )}
+          {narrow && (
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="w-9 h-9 inline-flex items-center justify-center text-gray-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
-        {narrow && (
-          <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="w-9 h-9 inline-flex items-center justify-center text-gray-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
-        )}
-      </div>
+      )}
       <div className="overflow-y-auto pb-2">
         {!q && (
           <ul>
@@ -237,7 +255,7 @@ export function ListPicker({
   );
 
   return (
-    <div ref={box} className={`relative ${compact ? 'flex-1 min-w-0' : 'max-w-full'}`}>
+    <div ref={box} className={`relative ${compact ? 'flex-1 min-w-0' : narrow ? 'max-w-full' : `${WIDE} max-w-full`}`}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -248,8 +266,8 @@ export function ListPicker({
         className={
           compact
             ? 'flex items-center gap-2 max-w-full w-full h-9 px-3 text-base border border-[#333333] bg-[#1A1A1A] text-white hover:bg-[#2A2A2A]'
-            : // Not a box: the list's name, as the page's title, with a small arrow to switch.
-              'flex items-center gap-1.5 max-w-full h-10 -ml-2 px-2 text-lg font-semibold text-white hover:bg-[#1A1A1A]'
+            : // The list's name, as the page's title, in a box that stays one size: the count and the arrow keep their place.
+              'flex items-center gap-2 w-full h-10 md:h-11 px-3 text-lg font-semibold text-white border border-[#333333] bg-[#1A1A1A] hover:bg-[#2A2A2A]'
         }
       >
         <span className="truncate">{current ? current.title : currentId === UNLISTED ? 'Not on a list' : 'All owners'}</span>
@@ -259,7 +277,7 @@ export function ListPicker({
             {current ? ownerTotal(current) : count!.toLocaleString('en-US')}
           </span>
         )}
-        <ChevronDown className={`w-4 h-4 shrink-0 text-gray-500 transition-transform ${compact ? 'ml-auto' : ''} ${open ? 'rotate-180' : ''}`} aria-hidden />
+        <ChevronDown className={`w-4 h-4 shrink-0 ml-auto text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open &&
         (narrow ? (

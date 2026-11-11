@@ -1369,7 +1369,9 @@ const OutreachPage: React.FC = () => {
     // On a phone the page is a column whose filter bar (the list, search and tabs) comes first, before the buttons and the list's numbers.
     <div className="p-4 md:p-6 flex flex-col gap-4 md:block md:space-y-4" data-testid="outreach-page">
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      {/* On a tablet held upright the list's box has a line of its own, above the buttons: beside them it would have
+          whatever room they left, a different width for each list. From a tablet on its side up, they share a line. */}
+      <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="sr-only">Outreach</h1>
           {/* On a wide screen the open list's name is the page's title, a tap away from the others. */}

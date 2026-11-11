@@ -153,9 +153,11 @@ import { localDay } from '../../components/outreach/TodaySheet';
 
 // The screen width the page asks about: a laptop unless a test says it's a phone.
 let narrowScreen = false;
+// A finger rather than a mouse (an iPad): asked about on its own, whatever the width.
+let touchScreen = false;
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: (query: string) => ({ matches: narrowScreen, media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+  value: (query: string) => ({ matches: query.includes('pointer: coarse') ? touchScreen : narrowScreen, media: query, addEventListener: () => {}, removeEventListener: () => {} }),
 });
 
 const flush = () => act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); });
@@ -229,6 +231,7 @@ afterEach(() => {
   ownersState = null;
   todaySheet = null;
   narrowScreen = false;
+  touchScreen = false;
   localStorage.clear();
 });
 
@@ -1900,7 +1903,63 @@ describe('the Outreach page', () => {
     expect(removeUnlisted).toHaveBeenCalledWith('o1');
     expect(path).toBe('/outreach');
   });
-  it('the list picker: search, pin to the top, grouped by kind; Manage lists renames and deletes', async () => {
+  it('the list dropdown is one size whatever the list is called; its search comes with many lists, and takes the cursor only where there is a keyboard', async () => {
+    const six = () => [
+      { ...list, id: 'l1', title: 'Shops' },
+      { ...list, id: 'l2', title: 'Company investors with 5+ properties, Midland', who: 'investor', definition: { county: 'Midland', who: 'investor' } },
+      ...['l3', 'l4', 'l5', 'l6'].map((id, i) => ({ ...list, id, title: `Apartments ${i + 1}`, who: 'multifamily', definition: { county: 'Midland', who: 'multifamily' } })),
+    ];
+    const picker = () => document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement;
+    const panel = () => document.body.querySelector('[role="dialog"][aria-label="Lists"]') as HTMLElement;
+    const search = () => panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement | null;
+    // A short name and a long one: the same box, the same width, the name cut short rather than the box stretched.
+    const boxes: string[] = [];
+    for (const id of ['l1', 'l2']) {
+      lists = six();
+      contacts = twoContacts();
+      await render(`/outreach/${id}`);
+      expect(picker().parentElement!.className).toContain('w-[26rem] max-w-full');
+      expect(picker().className).toContain('w-full');
+      expect(picker().querySelector('span')!.className).toContain('truncate');
+      // The arrow sits at the box's right edge, wherever the name ends.
+      expect(picker().querySelector('svg')!.getAttribute('class')).toContain('ml-auto');
+      boxes.push(`${picker().parentElement!.className} | ${picker().className}`);
+      clearPage();
+    }
+    expect(boxes[0]).toBe(boxes[1]);
+
+    // Many lists, a mouse and keyboard: the panel is the box's width, and typing finds a list straight away.
+    lists = six();
+    contacts = twoContacts();
+    await render('/outreach/l2');
+    await act(async () => picker().click());
+    expect(panel().className).toContain('w-[26rem]');
+    expect(document.activeElement).toBe(search());
+    await act(async () => type(search()!, 'shops'));
+    expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shops2 owners · 0 worked']);
+    clearPage();
+
+    // The same on a touch screen: the search is there to tap, but opening the panel doesn't put the cursor in it, so no keyboard comes up.
+    touchScreen = true;
+    lists = six();
+    contacts = twoContacts();
+    await render('/outreach/l2');
+    await act(async () => picker().click());
+    expect(search()).not.toBeNull();
+    expect(document.activeElement).not.toBe(search());
+    clearPage();
+
+    // One list: nothing to find, so no search box at all.
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    await act(async () => picker().click());
+    expect(search()).toBeNull();
+    expect(panel().textContent).toContain('All owners');
+    expect(panel().textContent).toContain('Manage lists');
+  });
+
+  it('the list picker: pin to the top, grouped by kind; Manage lists renames and deletes', async () => {
     localStorage.clear();
     lists = [
       { ...list, id: 'l1', title: 'Shopping center owners', createdAt: '2026-11-05T15:00:00Z' },
@@ -1919,10 +1978,8 @@ describe('the Outreach page', () => {
     // A handful of lists: grouped by who they're of (Recent only shows once there are many).
     expect(headings()).toEqual(['Commercial owners', 'Investors']);
     expect(panel().textContent).toContain('1,000 owners · 40 worked · 3 sent · 1 sold ($12,400)');
-    // Search narrows the lists.
-    await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, 'shopping'));
-    expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 0 worked']);
-    await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, ''));
+    // Two lists fit on the panel: no search box to find one with.
+    expect(panel().querySelector('input[aria-label="Find a list"]')).toBeNull();
     // Pin the shopping center list: it moves to Pinned.
     await act(async () => (panel().querySelector('button[aria-label="Pin Shopping center owners"]') as HTMLButtonElement).click());
     await flush();
