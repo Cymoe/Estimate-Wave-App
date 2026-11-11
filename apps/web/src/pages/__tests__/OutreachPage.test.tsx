@@ -773,6 +773,12 @@ describe('the Outreach page', () => {
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     const lines = Array.from(sheet.querySelectorAll('[data-testid="contact-details"] li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
     expect(lines.slice(0, 2)).toEqual(['(432) 555-0100mobile · personal · verifiedline in the name of REYES DANA', '(432) 555-0199landline · work · verifiedline in the name of OAK PLAZA LLC']);
+    // A number is never broken over two lines: it keeps its width, and what's said about it wraps beside it.
+    for (const li of Array.from(sheet.querySelectorAll('[data-testid="sheet-phone"]'))) {
+      expect(li.firstElementChild!.className).toContain('whitespace-nowrap');
+      expect(li.firstElementChild!.className).toContain('shrink-0');
+      expect(li.lastElementChild!.className).toContain('flex-wrap');
+    }
     // The CSV: the first number's line in its own column, the others' in brackets.
     const { outreachCsv } = await import('../../components/outreach/outreachCsv');
     const csv = outreachCsv(contacts.rows as never);

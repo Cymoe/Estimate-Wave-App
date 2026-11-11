@@ -1233,18 +1233,21 @@ export const ContactSheet: React.FC<{
             {row.phones.length > 0 || row.emails.length > 0 ? (
               <ul className="space-y-1">
                 {row.phones.map((p) => (
-                  <li key={p.number} className="flex items-baseline gap-2">
+                  <li key={p.number} className="flex items-baseline gap-2" data-testid="sheet-phone">
+                    {/* The number is never broken over two lines: what's said about it wraps beside it instead. */}
                     {callOk(p) ? (
-                      <a href={`tel:${p.number}`} className={link}>
+                      <a href={`tel:${p.number}`} className={`${link} whitespace-nowrap shrink-0`}>
                         {phoneText(p.number)}
                       </a>
                     ) : (
-                      <span className="text-[15px] text-gray-300 min-h-[44px] inline-flex items-center">{phoneText(p.number)}</span>
+                      <span className="text-[15px] text-gray-300 min-h-[44px] inline-flex items-center whitespace-nowrap shrink-0">{phoneText(p.number)}</span>
                     )}
-                    <PhoneBadges p={p} />
-                    {p.name && <span className="text-xs text-gray-500">line in the name of {p.name}</span>}
-                    {p.dnc && <span className="text-xs text-red-400">on the Do Not Call list</span>}
-                    {p.litigator && <span className="text-xs text-red-400">known TCPA litigator</span>}
+                    <span className="min-w-0 flex flex-wrap items-baseline gap-x-2">
+                      <PhoneBadges p={p} />
+                      {p.name && <span className="text-xs text-gray-500">line in the name of {p.name}</span>}
+                      {p.dnc && <span className="text-xs text-red-400">on the Do Not Call list</span>}
+                      {p.litigator && <span className="text-xs text-red-400">known TCPA litigator</span>}
+                    </span>
                   </li>
                 ))}
                 {row.emails.map((e) => (
