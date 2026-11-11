@@ -1070,12 +1070,25 @@ const OutreachPage: React.FC = () => {
   const sendCall = toSend.filter((r) => r.phones.some(callOk)).length;
   const sendEmail = toSend.filter((r) => !r.phones.some(callOk) && r.emails.length > 0).length;
   const sendClient = toSend.length - sendCall - sendEmail;
-  const sendBasis = [sendCall ? `${sendCall} with a number` : '', sendEmail ? `${sendEmail} email only` : '', sendClient ? `${sendClient} already ${sendClient === 1 ? 'a client' : 'clients'}` : ''].filter(Boolean).join(' · ');
   // How many leads they make: companies one person runs share a lead.
   const sendLeads = new Set(toSend.map((r) => sureOperators.get(r.id)?.key ?? r.id)).size;
   // Who an email could go to now: an address of the person's that passed the check (the same rule the sending uses), and not emailed or unsubscribed already.
   const emailable = rows.filter((r) => addressFor(r.emails) && !['scheduled', 'emailed', 'replied', 'opted_out'].includes(r.email?.state ?? '')).length;
   const unreachable = waiting.length - waiting.filter(reachable).length;
+  // Under the button, counted the way the tabs count: everyone going who can be called, everyone going who has an email
+  // (most are in both), then who goes only as a client, and who is left out for having no way to be reached yet.
+  const sendHasEmail = toSend.filter((r) => r.emails.length > 0).length;
+  const sendBasis = [
+    sendCall ? `${sendCall} can be called` : '',
+    sendHasEmail ? `${sendHasEmail} ${sendHasEmail === 1 ? 'has' : 'have'} an email` : '',
+    sendClient ? `${sendClient} already ${sendClient === 1 ? 'a client' : 'clients'}` : '',
+    // On a phone the button is half the screen wide, so the reason waits for the question that follows the tap.
+    unreachable ? `${unreachable} left out${narrow ? '' : ' (no phone or email)'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  // Showing, but not sent again: already in Leads, or skipped. Said in the question, so the numbers add up to the tabs'.
+  const notAgain = rows.length - waiting.length;
   // Some results simulated and some real (a phone source was connected part-way): then each simulated row says so.
   const mixedResults = rows.some(isSimulated) && rows.some((r) => Object.values(r.enrichment).some((c) => c && !c.simulated && (c.status === 'found' || c.status === 'none')));
   const [sentNote, setSentNote] = useState<string | null>(null);
@@ -1144,11 +1157,16 @@ const OutreachPage: React.FC = () => {
     const n = toSend.length;
     const ok = await confirm({
       title: `Send ${n} ${n === 1 ? 'owner' : 'owners'} to Leads?`,
-      message: `Of the owners showing, ${[sendCall ? `${sendCall} ${sendCall === 1 ? 'has' : 'have'} a number to call` : '', sendEmail ? `${sendEmail} ${sendEmail === 1 ? 'has' : 'have'} an email only` : '', sendClient ? `${sendClient} ${sendClient === 1 ? 'is' : 'are'} already your ${sendClient === 1 ? 'client' : 'clients'}` : '']
+      message: `Of the ${n} going, ${[
+        [sendCall ? `${sendCall} can be called` : '', sendHasEmail ? `${sendHasEmail} ${sendHasEmail === 1 ? 'has' : 'have'} an email` : ''].filter(Boolean).join(' and ') + (sendCall + sendHasEmail + sendClient > n ? ' (some have both)' : ''),
+        sendClient ? `${sendClient} ${sendClient === 1 ? 'is' : 'are'} already your ${sendClient === 1 ? 'client' : 'clients'}` : '',
+      ]
         .filter(Boolean)
         .join(', ')}. They go to Leads as New, where you call and follow up. ${
         sendLeads < n ? `Companies run by the same person share a lead, so these make about ${sendLeads} ${sendLeads === 1 ? 'lead' : 'leads'}.` : 'Companies run by the same people become one lead.'
-      }${unreachable ? ` ${unreachable} with no number or email yet stay here; look them up first, or send one from its card.` : ''}`,
+      }${unreachable ? ` ${unreachable} with no number or email yet stay here; look them up first, or send one from its card.` : ''}${
+        notAgain ? ` ${notAgain} showing ${notAgain === 1 ? 'is' : 'are'} already in Leads or skipped, so ${notAgain === 1 ? "isn't" : "aren't"} sent again.` : ''
+      }`,
       confirmLabel: 'Send to Leads',
       // Going ahead, not removing anything: the blue button, not the red one.
       tone: 'default',

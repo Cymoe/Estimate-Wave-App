@@ -482,7 +482,7 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
     // The owner already a lead isn't sent again: only the one with a number goes.
-    expect(more).toEqual(expect.arrayContaining(['Send 1 to Leads1 with a number', 'Show as a table', 'Export CSV', 'Delete list']));
+    expect(more).toEqual(expect.arrayContaining(['Send 1 to Leads1 can be called', 'Show as a table', 'Export CSV', 'Delete list']));
     // A tap elsewhere closes it.
     await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
@@ -859,7 +859,8 @@ describe('the Outreach page', () => {
     contacts = {
       ...twoContacts(),
       rows: [
-        contact('r1', { phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }] }),
+        // A number and an email: counted under both, as the tabs do.
+        contact('r1', { phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }], emails: [{ email: 'dana@oakplaza.example', source: 'batchdata' }] }),
         contact('r2', { name: 'City Of Midland', emails: [{ email: 'clerk@midland.example', source: 'batchdata' }] }),
         contact('r3', { name: 'Skipped Co', status: 'skip' }),
         contact('r4', { name: 'Sent Co', status: 'lead', leadId: 'lead9' }),
@@ -877,14 +878,16 @@ describe('the Outreach page', () => {
     // With owners still to find, sending waits under More.
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const send = document.body.querySelector('[data-testid="send-all"]') as HTMLButtonElement;
-    // The number is neither the list's size nor "Ready to call": the button says what it's made of.
-    expect(send.textContent?.trim()).toBe('Send 3 to Leads1 with a number · 1 email only · 1 already a client');
-    expect(send.querySelector('[data-testid="send-basis"]')!.textContent).toBe('1 with a number · 1 email only · 1 already a client');
+    // The button says what its number is made of, counted the way the tabs count (an owner with both is in both), and who is left out.
+    expect(send.querySelector('[data-testid="send-basis"]')!.textContent).toBe('1 can be called · 2 have an email · 1 already a client · 2 left out (no phone or email)');
+    expect(send.textContent?.trim()).toBe('Send 3 to Leads1 can be called · 2 have an email · 1 already a client · 2 left out (no phone or email)');
     await act(async () => send.click());
     await flush();
     expect(document.body.textContent).toContain('Send 3 owners to Leads?');
-    expect(document.body.textContent).toContain('Of the owners showing, 1 has a number to call, 1 has an email only, 1 is already your client.');
+    expect(document.body.textContent).toContain('Of the 3 going, 1 can be called and 2 have an email (some have both), 1 is already your client.');
     expect(document.body.textContent).toContain('2 with no number or email yet stay here; look them up first, or send one from its card.');
+    // The skipped one, the one sent before and the one matching a lead: showing, and not sent again.
+    expect(document.body.textContent).toContain("3 showing are already in Leads or skipped, so aren't sent again.");
     await click('Send to Leads');
     expect(sendManyToLeads).toHaveBeenCalledWith('o1', ['r1', 'r2', 'r7']);
     expect(document.body.querySelector('[data-testid="sent-note"]')!.textContent).toContain("1 new lead in Leads; 1 joined a related company's lead.");
