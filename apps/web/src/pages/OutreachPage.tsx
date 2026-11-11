@@ -207,11 +207,11 @@ const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; on
             e.currentTarget.blur();
           }
         }}
-        placeholder={open ? 'Search owner, person or street' : ''}
+        placeholder={open ? 'Search name or street' : ''}
         aria-label="Search"
         tabIndex={open ? 0 : -1}
         className={`${alwaysOpen ? 'h-10' : 'h-9'} appearance-none rounded-none border border-[#333333] bg-[#1A1A1A] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] transition-[width] duration-200 ${
-          open ? 'w-full md:w-64 pl-8 pr-3' : 'w-9 p-0 opacity-0'
+          open ? 'w-full md:w-56 pl-8 pr-3' : 'w-9 p-0 opacity-0'
         }`}
       />
       {/* Closed, it's a button like the view switch beside it; a tap focuses the box at once, so the keyboard comes up with it. */}
@@ -221,9 +221,9 @@ const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; on
           onClick={() => box.current?.focus()}
           aria-label="Open search"
           title="Search owner, person or street"
-          className={`${chip(false)} absolute inset-0 w-9 justify-center px-0`}
+          className={`${chip(false)} absolute inset-0 w-9 justify-center !px-0`}
         >
-          <Search className="w-[18px] h-[18px]" />
+          <Search className="w-[18px] h-[18px] shrink-0" />
         </button>
       )}
     </div>
@@ -291,7 +291,7 @@ const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolea
         <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open && (
-        <div role="menu" aria-label={label} className={`${menuPanel} right-0 min-w-[12rem]`}>
+        <div role="menu" aria-label={label} className={`${menuPanel} left-0 min-w-[12rem]`}>
           {children(() => setOpen(false))}
         </div>
       )}
@@ -1519,30 +1519,12 @@ const OutreachPage: React.FC = () => {
       {data && data.rows.length > 0 && (
         <div
           ref={filterBar}
-          className="max-md:order-first flex flex-col-reverse md:flex-row md:items-center md:gap-2 border-b border-[#333333] sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black"
+          className="max-md:order-first flex flex-col md:flex-row md:items-center md:gap-2 border-b border-[#333333] sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black"
           role="group"
           aria-label="Filters"
           data-testid="filter-bar"
         >
-          {/* The quick filters as tabs, underlined in blue like the project and estimate drawers; when they don't fit, they slide sideways instead of wrapping. */}
-          <ChipRow>
-            {SHOWS.map((s) =>
-              (s.value === 'needs' || s.value === 'new' || s.value === 'mail' || s.value === 'personal' || s.value === 'work' || s.value === 'replied') && counts[s.value] === 0 ? null : (
-                <button
-                  key={s.value}
-                  type="button"
-                  onClick={() => setShow(s.value)}
-                  aria-pressed={show === s.value}
-                  className={`shrink-0 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
-                    show === s.value ? 'text-white border-[#336699] bg-[#336699]/10' : `border-transparent hover:text-white hover:bg-[#2a2a2a] ${s.value === 'needs' ? 'text-amber-300' : 'text-gray-400'}`
-                  }`}
-                >
-                  {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== s.value && counts[s.value] > 0 ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
-                </button>
-              ),
-            )}
-          </ChipRow>
-          {/* Search, status and the view switch stay put on the right. On a phone the line above the tabs is the list, search and a filter menu. */}
+          {/* Search and status come first, on the left where the eye starts, then the tabs. On a phone this is the line above the tabs: the list, search and a filter menu. */}
           {narrow ? (
             <div className="flex w-full items-center gap-2 py-1.5">
               {lists && lists.length > 0 && !searching && (
@@ -1569,7 +1551,9 @@ const OutreachPage: React.FC = () => {
               </PopMenu>
             </div>
           ) : (
-          <div className="flex w-full md:w-auto shrink-0 items-center gap-1 py-1.5">
+          <div className="flex w-full md:w-auto shrink-0 items-center gap-1 py-1.5 md:pr-2 md:mr-1 md:border-r md:border-[#333333]">
+            {/* On a tablet an open box leaves no room for the last tabs ("Mail only"), so there it folds to its icon, as on a phone. */}
+            <SearchBox value={query} onChange={setQuery} alwaysOpen={!tablet} />
             <TextMenu label="Status" text={<>Status: {status === 'all' ? 'All' : STATUS_LABEL[status]}</>} active={status !== 'all'}>
               {(close) =>
                 (['all', ...STATUS_FILTERS, ...OLD_STATUSES.filter((x) => status === x || data.rows.some((r) => r.status === x))] as Array<OutreachRowStatus | 'all'>).map((x) => (
@@ -1585,10 +1569,26 @@ const OutreachPage: React.FC = () => {
                 {(close) => countyItems(close)}
               </TextMenu>
             )}
-            {/* On a tablet an open box leaves no room for the last tabs ("Mail only"), so there it folds to its icon, as on a phone. */}
-            <SearchBox value={query} onChange={setQuery} alwaysOpen={!tablet} />
           </div>
           )}
+          {/* The quick filters as tabs, underlined in blue like the project and estimate drawers; when they don't fit, they slide sideways instead of wrapping. */}
+          <ChipRow>
+            {SHOWS.map((s) =>
+              (s.value === 'needs' || s.value === 'new' || s.value === 'mail' || s.value === 'personal' || s.value === 'work' || s.value === 'replied') && counts[s.value] === 0 ? null : (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setShow(s.value)}
+                  aria-pressed={show === s.value}
+                  className={`shrink-0 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
+                    show === s.value ? 'text-white border-[#336699] bg-[#336699]/10' : `border-transparent hover:text-white hover:bg-[#2a2a2a] ${s.value === 'needs' ? 'text-amber-300' : 'text-gray-400'}`
+                  }`}
+                >
+                  {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== s.value && counts[s.value] > 0 ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
+                </button>
+              ),
+            )}
+          </ChipRow>
         </div>
       )}
       {/* Said once here rather than on every row: while no phone source is connected, every result on the page is simulated. */}

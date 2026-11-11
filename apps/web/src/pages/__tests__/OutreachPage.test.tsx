@@ -698,7 +698,10 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.firstChild!.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Status: All']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['Status: All', 'All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1']);
+    // Search and status come first, on the left where the eye starts; the tabs follow.
+    const order = Array.from(filters.querySelectorAll('input[aria-label="Search"], button[aria-label="Status"], button[aria-pressed]')).map((el) => el.getAttribute('aria-label') ?? 'tab');
+    expect(order.slice(0, 3)).toEqual(['Search', 'Status', 'tab']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -717,10 +720,10 @@ describe('the Outreach page', () => {
     // A code violation, demolition order or stalled permit on the property: the warmest calls.
     await click('Has a signal');
     expect(names()).toEqual(['City Of Midland']);
-    await act(async () => (filters.querySelector('button') as HTMLButtonElement).click());
+    await act(async () => (filters.querySelector('button[aria-pressed]') as HTMLButtonElement).click());
     // On a wide screen search is a box you can see, saying what it finds; no icon to tap first.
     const search = document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement;
-    expect(search.placeholder).toBe('Search owner, person or street');
+    expect(search.placeholder).toBe('Search name or street');
     expect(document.body.querySelector('button[aria-label="Open search"]')).toBeNull();
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'elm'));
     expect(names()).toEqual(['Vance Robert & Linda']);
@@ -759,7 +762,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.firstChild!.textContent);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
     // Only the City's number is work and Do Not Call, so it isn't counted as a work number worth calling; the Vances' line says nothing about whose it is.
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 0', 'Ready to call 2', 'Personal number 1', 'Work number 1', 'Has email 0', 'Mail only 1', 'Status: All']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['Status: All', 'All', 'Has a signal 0', 'Ready to call 2', 'Personal number 1', 'Work number 1', 'Has email 0', 'Mail only 1']);
     const first = document.body.querySelector('[data-testid="contact-row"]')!;
     expect(first.textContent).toContain('(432) 555-0100');
     expect(first.textContent).toContain('mobile · personal · verified');
@@ -767,7 +770,7 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['Oak Plaza LLC']);
     await click('Work number');
     expect(names()).toEqual(['Oak Plaza LLC']);
-    await act(async () => (filters.querySelector('button') as HTMLButtonElement).click());
+    await act(async () => (filters.querySelector('button[aria-pressed]') as HTMLButtonElement).click());
     // The sheet lists both lines with whose they are.
     await act(async () => (document.body.querySelector('[data-testid="contact-row"]') as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
