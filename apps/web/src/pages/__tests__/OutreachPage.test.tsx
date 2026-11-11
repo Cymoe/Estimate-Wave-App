@@ -630,7 +630,7 @@ describe('the Outreach page', () => {
     expect((getContacts.mock.lastCall as unknown[] | undefined)?.slice(0, 2)).toEqual(['o1', 'l1']);
     // One quiet line about the list over it; no step cards.
     expect(document.body.querySelector('[data-testid="steps"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="list-line"]')!.textContent).toBe('0 done · made Nov 5');
+    expect(document.body.querySelector('[data-testid="list-line"]')!.textContent).toBe('0 worked · made Nov 5');
     // Two owners and no total: nothing about a cap.
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
@@ -746,7 +746,7 @@ describe('the Outreach page', () => {
   it("the + button's Outreach list asks in plain words, shows the count and a preview, and Save opens the list", async () => {
     await render('/outreach?new=1');
     expect(path).toBe('/outreach');
-    const dialog = document.body.querySelector('[role="dialog"][aria-label="Ask for a list"]')!;
+    const dialog = document.body.querySelector('[role="dialog"][aria-label="New list"]')!;
     expect(dialog).not.toBeNull();
     // Three closed rows, not one pile of chips; a row opens to its lists, one row at a time.
     const headings = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button[aria-expanded]')).map((b) => [b.textContent, b.getAttribute('aria-expanded')]);
@@ -1010,7 +1010,7 @@ describe('the Outreach page', () => {
     await act(async () => type(sheet.querySelector('textarea#outreach-note') as HTMLTextAreaElement, 'Mailed Nov 5'));
     await click('Skip');
     expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'skip', 'Mailed Nov 5');
-    expect(document.body.textContent).toContain('1 done');
+    expect(document.body.textContent).toContain('1 worked');
     expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Skipped');
     // The status picker: New, In Leads, Skipped; nothing to track calls with here.
     await act(async () => (document.body.querySelector('button[aria-label="Status"]') as HTMLButtonElement).click());
@@ -1023,7 +1023,7 @@ describe('the Outreach page', () => {
     await act(async () => (Array.from(document.body.querySelectorAll('[role="menuitemradio"]')).find((o) => o.textContent === 'All statuses') as HTMLButtonElement).click());
     // The lists are one picker: All owners, then each list with how far it's got.
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
-    expect(Array.from(document.body.querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 1 done']);
+    expect(Array.from(document.body.querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 1 worked']);
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
 
     // The CSV, for a mail merge.
@@ -1290,7 +1290,7 @@ describe('the Outreach page', () => {
       await render('/outreach/l1');
       expect(tally).toHaveBeenCalledTimes(1);
       expect(tally).toHaveBeenCalledWith('o1');
-      expect(document.body.textContent).toContain('0 done');
+      expect(document.body.textContent).toContain('0 worked');
       // An owner changed (skipped on another device): a few seconds on, the page asks for the count again.
       await act(async () => pushChanges!({ rows: [contact('r1', { status: 'skip' })], balanceCents: 0, freeLookups: 0, reload: false, upTo: '2026-11-05T15:00:05.000Z' }));
       expect(tally).toHaveBeenCalledTimes(1);
@@ -1300,10 +1300,25 @@ describe('the Outreach page', () => {
       expect(tally).toHaveBeenCalledTimes(2);
       // The count lands on the list, and the page shows it.
       await act(async () => pushLists!([{ ...list, done: 1 }]));
-      expect(document.body.textContent).toContain('1 done');
+      expect(document.body.textContent).toContain('1 worked');
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('while the owners are being read the page shows the shape of the table to come, not a bare "Loading"', async () => {
+    lists = [list];
+    let finish: (c: unknown) => void = () => {};
+    getContacts.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    await render('/outreach/l1');
+    const waiting = document.body.querySelector('[data-testid="loading-rows"]')!;
+    expect(waiting.getAttribute('role')).toBe('status');
+    expect(waiting.getAttribute('aria-label')).toBe('Loading owners');
+    expect(document.body.textContent).not.toContain('Loading…Loading');
+    await act(async () => finish(twoContacts()));
+    await flush();
+    expect(document.body.querySelector('[data-testid="loading-rows"]')).toBeNull();
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
   });
 
   it('a long view arrives a page at a time: its first owners show while the rest are read, and the find button waits for all of them', async () => {
@@ -1640,10 +1655,10 @@ describe('the Outreach page', () => {
     const headings = () => Array.from(panel().querySelectorAll('h3')).map((h) => h.textContent);
     // A handful of lists: grouped by who they're of (Recent only shows once there are many).
     expect(headings()).toEqual(['Commercial owners', 'Investors']);
-    expect(panel().textContent).toContain('1,000 owners · 40 done · 3 sent · 1 sold');
+    expect(panel().textContent).toContain('1,000 owners · 40 worked · 3 sent · 1 sold');
     // Search narrows the lists.
     await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, 'shopping'));
-    expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 0 done']);
+    expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 0 worked']);
     await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, ''));
     // Pin the shopping center list: it moves to Pinned.
     await act(async () => (panel().querySelector('button[aria-label="Pin Shopping center owners"]') as HTMLButtonElement).click());

@@ -120,8 +120,15 @@ export function ListsOverview({
                   Open
                 </button>
                 {(
-                  <button type="button" onClick={() => void act(l.id, { pinned: !l.pinned })} className={small} aria-label={l.pinned ? `Unpin ${l.title}` : `Pin ${l.title}`}>
-                    {l.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />} {l.pinned ? 'Unpin' : 'Pin'}
+                  // The pin alone, no word: with it the four buttons fit one row on a phone and on a tablet's two columns.
+                  <button
+                    type="button"
+                    onClick={() => void act(l.id, { pinned: !l.pinned })}
+                    className={`${small} w-9 justify-center !px-0`}
+                    aria-label={l.pinned ? `Unpin ${l.title}` : `Pin ${l.title}`}
+                    title={l.pinned ? 'Unpin: take it off the top of the list picker' : 'Pin: keep it at the top of the list picker'}
+                  >
+                    {l.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
                   </button>
                 )}
                 <button

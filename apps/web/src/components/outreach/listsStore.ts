@@ -21,12 +21,12 @@ export function rememberList(id: string) {
   }
 }
 
-/** "125 owners · 2 done · 1 sent · 0 sold": how far a list has got. */
+/** "125 owners · 2 worked · 1 sent · 0 sold": how far a list has got. */
 /** How many owners a list reaches: its whole ask, not just the ones loaded so far ("569", or "1,000+" for the top of a longer one). */
 export const ownerTotal = (l: OutreachListSummary) => `${Math.max(l.total ?? 0, l.rowCount).toLocaleString('en-US')}${l.truncated ? '+' : ''}`;
 
 export const listProgress = (l: OutreachListSummary) =>
-  [`${ownerTotal(l)} owners`, `${l.done} done`, ...(l.results && l.results.sent > 0 ? [`${l.results.sent} sent`, `${l.results.sold} sold`] : [])].join(' · ');
+  [`${ownerTotal(l)} owners`, `${l.done} worked`, ...(l.results && l.results.sent > 0 ? [`${l.results.sent} sent`, `${l.results.sold} sold`] : [])].join(' · ');
 
 /** The page's name for the owners on no list (kept from deleted lists because they were worked), in place of a list's id. */
 export const UNLISTED = 'unlisted';

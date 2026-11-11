@@ -206,7 +206,7 @@ export const AskListSheet: React.FC<{
   );
 
   return (
-    <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
+    <SlideOutDrawer isOpen={open} onClose={onClose} title="New list" width="lg">
       <div className="p-6 space-y-5 min-h-full flex flex-col">
         {/* Once a list is built it has the sheet to itself: the count, a first look and Save, no scrolling past the choices. */}
         {!showResult && (

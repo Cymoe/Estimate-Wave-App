@@ -324,6 +324,19 @@ const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
  * in plain words. The + button's "Outreach list" opens the ask; each list
  * is a filter chip over the one table; ticked rows unlock phones and emails.
  */
+/** In place of a bare "Loading…": the shape of what's coming (an owner's name and the line under it, row after row), quietly pulsing. */
+const LoadingRows: React.FC<{ label: string; rows?: number }> = ({ label, rows = 6 }) => (
+  <div role="status" aria-label={label} data-testid="loading-rows" className="border border-[#2A2A2A] divide-y divide-[#2A2A2A] motion-safe:animate-pulse">
+    {Array.from({ length: rows }, (_, i) => (
+      <div key={i} className="px-3 py-3.5 space-y-2">
+        <div className="h-3.5 bg-[#2A2A2A]" style={{ width: `${[38, 30, 44, 34, 40, 28][i % 6]}%` }} />
+        <div className="h-2.5 w-1/5 bg-[#222222]" />
+      </div>
+    ))}
+    <span className="sr-only">{label}…</span>
+  </div>
+);
+
 const OutreachPage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id || undefined;
@@ -1126,7 +1139,7 @@ const OutreachPage: React.FC = () => {
         {lists ? (
           <ListsOverview lists={lists} onOpen={(id) => pickList(id)} onOrganize={organize} onDelete={(l) => void removeList(l)} onBack={() => setSearchParams({})} />
         ) : (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <LoadingRows label="Loading your lists" rows={3} />
         )}
         {confirmDialog}
       </div>
@@ -1302,7 +1315,7 @@ const OutreachPage: React.FC = () => {
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
           {/* What's done, what it's turned into and when it was made: who it is is in the title, the order under Name. */}
-          {list.done} done
+          {list.done} worked
           {list.results && list.results.sent > 0 && (
             <span data-testid="list-results">
               {' '}
@@ -1316,7 +1329,7 @@ const OutreachPage: React.FC = () => {
               · {list.rowCount.toLocaleString('en-US')} of {list.total.toLocaleString('en-US')}
               {list.truncated ? '+' : ''} loaded{' '}
               <button type="button" onClick={() => void extend()} disabled={extending} className="text-[#7fb0e0] hover:text-white disabled:text-gray-500">
-                {extending ? 'Loading…' : `Load the next ${Math.min(list.total - list.rowCount, list.definition.limit ?? DEFAULT_ROWS).toLocaleString('en-US')}`}
+                {extending ? 'Loading owners…' : `Load the next ${Math.min(list.total - list.rowCount, list.definition.limit ?? DEFAULT_ROWS).toLocaleString('en-US')}`}
               </button>
             </span>
           )}
@@ -1428,7 +1441,7 @@ const OutreachPage: React.FC = () => {
         </p>
       )}
       {data === null || lists === null ? (
-        <p className="text-sm text-gray-500">Loading…</p>
+        <LoadingRows label="Loading owners" />
       ) : lists.length === 0 && data.rows.length === 0 ? (
         <ListStarter
           organizationId={organizationId}
