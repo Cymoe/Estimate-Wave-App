@@ -3646,3 +3646,104 @@ describe("a list's numbers, kept on the list", () => {
     expect((await stored()).commercial[0]).toBe(2);
   });
 });
+
+describe("today's call sheet", () => {
+  test("follow-ups due, leads nobody has called, and the numbers found this week, each in the order to call them", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const day = new Date(NOW).toISOString().slice(0, 10);
+    const daysAgo = (n: number) => new Date(NOW - n * 24 * 60 * 60 * 1000).toISOString();
+    const dayAgo = (n: number) => daysAgo(n).slice(0, 10);
+    const ask = () => co.as.query(api.outreach.today, { organizationId: org, day });
+
+    // Nothing yet: an empty sheet.
+    expect(await ask()).toMatchObject({ followUps: [], uncalled: [], fresh: [], followUpCount: 0, uncalledCount: 0, freshCount: 0, days: 7 });
+
+    // Leads: two follow-ups due (one overdue), one for next week, one won, one new and never called, one new with no phone, a sample.
+    const lead = (data: Record<string, unknown>) => co.as.mutation(api.leads.create, { organizationId: org, data });
+    await lead({ name: "Due Today", phone: "4325550101", status: "contacted", followUpDate: day, notes: "Asked for a quote\nNov 9: wants metal, call back" });
+    await lead({ name: "Overdue", phone: "4325550102", status: "quoted", followUpDate: dayAgo(3) });
+    await lead({ name: "Next Week", phone: "4325550103", status: "contacted", followUpDate: dayAgo(-7) });
+    await lead({ name: "Already Won", phone: "4325550104", status: "won", followUpDate: dayAgo(1) });
+    await lead({ name: "Brand New", phone: "4325550105", company: "New Co LLC", address: "12 MAIN ST", city: "Midland" });
+    await lead({ name: "Email Only", email: "only@example.com" });
+    const sample = await lead({ name: "Sample Lead", phone: "4325550106" });
+    const called = await lead({ name: "Called Once", phone: "4325550107", status: "no_answer" });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(sample!._id, { isSample: true });
+    });
+    await co.as.mutation(api.leads.logContact, { id: called!._id, kind: "call" });
+
+    // Owners: phones found at different times, and the ones that don't belong on a call sheet.
+    vi.setSystemTime(NOW + 60_000);
+    const locked = { status: "locked" as const };
+    const found = (at: string) => ({ phone: { status: "found" as const, at, source: "batchdata" }, email: locked, person: locked });
+    const mobile = (n: string, over: Record<string, unknown> = {}) => [{ number: n, type: "mobile" as const, source: "batchdata", ...over }];
+    const listId = await t.run(async (ctx) =>
+      ctx.db.insert("outreachLists", { organizationId: org, title: "Shops", definition: { county: "Midland", who: "commercial" as const }, rowCount: 0, done: 0, truncated: false, createdBy: co.userId, createdAt: daysAgo(10) }),
+    );
+    // Each its own number: two owners with one number are one operator, and would share a lead.
+    let line = 1234;
+    const owner = (name: string, extra: Record<string, unknown>) =>
+      t.run(async (ctx) =>
+        ctx.db.insert("outreachContacts", { organizationId: org, key: name, name, mailing: {}, properties: 1, totalValueCents: 0, why: "", kinds: ["commercial"], listIds: [listId], status: "new", createdAt: daysAgo(10), enrichment: found(daysAgo(1)), phones: mobile(`+1432683${line++}`), ...extra }),
+      );
+    await owner("Yesterday LLC", {});
+    await owner("This Morning LLC", { enrichment: found(daysAgo(0.1)) });
+    await owner("Has A Case LLC", { enrichment: found(daysAgo(5)), signals: [{ kind: "code_violation", detail: "High weeds", date: dayAgo(30), importedAt: daysAgo(30) }] });
+    await owner("Last Month LLC", { enrichment: found(daysAgo(20)) });
+    await owner("Do Not Call LLC", { phones: mobile("+14326839999", { dnc: true }) });
+    await owner("Skipped LLC", { status: "skip" });
+    await owner("None Found LLC", { enrichment: { phone: { status: "none" as const, at: daysAgo(1) }, email: locked, person: locked }, phones: [] });
+    await owner("Never Looked Up LLC", { enrichment: { phone: locked, email: locked, person: locked }, phones: [] });
+    const sent = await owner("Sent LLC", {});
+    const gone = await owner("Lead Deleted LLC", {});
+    await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: sent });
+    const goneLead = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: gone });
+    await t.run(async (ctx) => ctx.db.delete(goneLead));
+
+    const sheet = await ask();
+    // Follow-ups: the longest overdue first; next week's and the won job aren't on it.
+    expect(sheet.followUps.map((l) => [l.name, l.followUpDate])).toEqual([
+      ["Overdue", dayAgo(3)],
+      ["Due Today", day],
+    ]);
+    expect(sheet.followUps[1]).toMatchObject({ phone: "4325550101", status: "contacted", note: "Nov 9: wants metal, call back", calls: 0 });
+    // Not called yet: new leads with a phone nobody has rung, the newest first; the owner just sent to Leads is one of them.
+    expect(sheet.uncalled.map((l) => l.name)).toEqual(["Sent LLC", "Brand New"]);
+    expect(sheet.uncalled[1]).toMatchObject({ company: "New Co LLC", place: "12 Main St, Midland" });
+    // New numbers: found this week, callable, not skipped and not in Leads; something on record first, then the newest.
+    expect(sheet.fresh.map((r) => r.name)).toEqual(["Has A Case LLC", "This Morning LLC", "Lead Deleted LLC", "Yesterday LLC"]);
+    const back = sheet.fresh.find((r) => r.name === "Lead Deleted LLC")!;
+    expect([back.status, back.leadId]).toEqual(["new", undefined]);
+    expect(sheet.fresh[0]).toMatchObject({ phones: [{ number: "+14326831236" }], signals: [{ kind: "code_violation" }] });
+    expect(sheet).toMatchObject({ followUpCount: 2, uncalledCount: 2, freshCount: 4, freshCapped: false });
+
+    // Skipped from the sheet, an owner leaves it; a follow-up moved to next week does too.
+    const yesterday = sheet.fresh.find((r) => r.name === "Yesterday LLC")!;
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: yesterday.id, status: "skip" });
+    await co.as.mutation(api.leads.update, { id: sheet.followUps[0].id, data: { followUpDate: dayAgo(-7) } });
+    const after = await ask();
+    expect(after.fresh.map((r) => r.name)).not.toContain("Yesterday LLC");
+    expect(after.followUps.map((l) => l.name)).toEqual(["Due Today"]);
+
+    // More than the sheet shows: the first fifty, and how many there are in all.
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 60; i++) {
+        await ctx.db.insert("leads", { organizationId: org, userId: co.userId, name: `Bulk ${i}`, phone: "4325550199", status: "new", createdAt: daysAgo(0), updatedAt: daysAgo(0) });
+      }
+    });
+    const many = await ask();
+    expect(many.uncalled).toHaveLength(50);
+    expect(many.uncalledCount).toBe(62);
+
+    // Another company sees none of it, and a company off the plan can't open the sheet.
+    const other = await proCompany(t, "other@roof.example");
+    expect(await other.as.query(api.outreach.today, { organizationId: other.organizationId, day })).toMatchObject({ followUpCount: 0, uncalledCount: 0, freshCount: 0 });
+    await t.run(async (ctx) => ctx.db.patch(org, { plan: undefined }));
+    await expect(ask()).rejects.toThrow();
+    vi.useRealTimers();
+  });
+});

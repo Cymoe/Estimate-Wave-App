@@ -1395,7 +1395,9 @@ export default defineSchema({
     .index("by_organization_and_family", ["organizationId", "family"])
     .index("by_organization_and_mail", ["organizationId", "mail"])
     .index("by_organization_and_home", ["organizationId", "home"])
-    .index("by_organization_and_sent", ["organizationId", "sentAt"]),
+    .index("by_organization_and_sent", ["organizationId", "sentAt"])
+    // The owners whose phone lookup landed lately, newest first, for the Today call sheet (outreach.today).
+    .index("by_organization_and_phone_at", ["organizationId", "enrichment.phone.at"]),
 
   // Which owners are on which list, a row each (an owner's listIds says the same): a list's owners can be read a
   // page at a time, which an array on the owner can't be indexed for.

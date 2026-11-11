@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, LayoutGrid, Pin, PinOff, Search, X } from 'lucide-react';
+import { ChevronDown, LayoutGrid, PhoneCall, Pin, PinOff, Search, X } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 import { countyOf } from './county';
@@ -18,6 +18,8 @@ export function ListPicker({
   onPick,
   onPin,
   onManage,
+  onToday,
+  todayCount,
   compact = false,
   unlisted = 0,
   count,
@@ -28,6 +30,9 @@ export function ListPicker({
   onPick: (id: string | null) => void;
   onPin: (id: string, pinned: boolean) => void;
   onManage: () => void;
+  /** Opens today's calls: follow-ups due and new numbers. With how many there are, once known. */
+  onToday?: () => void;
+  todayCount?: number;
   compact?: boolean;
   /** Owners on no list (kept from deleted lists): a row of their own under All owners while there are any. */
   unlisted?: number;
@@ -158,6 +163,25 @@ export function ListPicker({
       <div className="overflow-y-auto pb-2">
         {!q && (
           <ul>
+            {onToday && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onToday();
+                  }}
+                  className="flex w-full items-center gap-3 text-left px-4 py-2.5 hover:bg-[#2A2A2A]"
+                  data-testid="today-option"
+                >
+                  <PhoneCall className="w-4 h-4 shrink-0 text-[#7fb0e0]" aria-hidden />
+                  <span>
+                    <span className="block text-sm text-white">Today's calls</span>
+                    <span className="block text-xs text-gray-500">{todayCount ? `${todayCount.toLocaleString('en-US')} to call` : 'Follow-ups due and new numbers'}</span>
+                  </span>
+                </button>
+              </li>
+            )}
             <li className={!currentId ? 'bg-[#336699]/15' : ''}>
               <button type="button" onClick={() => pick(null)} className="w-full text-left px-4 py-2.5 hover:bg-[#2A2A2A]">
                 <span className="block text-sm text-white">All owners</span>
