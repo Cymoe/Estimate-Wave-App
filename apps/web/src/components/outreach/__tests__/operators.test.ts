@@ -24,13 +24,15 @@ const owner = (id: string, name: string, over: Record<string, unknown> = {}): Ou
     ...over,
   }) as unknown as OutreachContact;
 const karen = { name: 'Karen Holt', title: 'General partner', source: 'tx-comptroller' };
+/** Her companies are billed at one office: a name alone ties nobody, a name at one address does. */
+const office = { mailing: { address: '100 W WALL ST', city: 'MIDLAND', state: 'TX', zip: '79701' } };
 
 describe('the person behind the owners on the page', () => {
   it('adds up what a person holds across their companies and says why they are shown as one', () => {
     const rows = [
-      owner('a', 'Bluebonnet Holdings LLC', { person: karen, properties: 60, totalValueCents: 2_000_000_000 }),
+      owner('a', 'Bluebonnet Holdings LLC', { person: karen, ...office, properties: 60, totalValueCents: 2_000_000_000 }),
       owner('b', 'City Of Midland'),
-      owner('c', 'Permian Storage LP', { person: karen, properties: 40, totalValueCents: 1_500_000_000 }),
+      owner('c', 'Permian Storage LP', { person: karen, ...office, properties: 40, totalValueCents: 1_500_000_000 }),
       // The same number as one of hers, with nobody named: hers too, though her name is on two of the three.
       owner('d', 'Wall Street Lofts LLC', { properties: 28, totalValueCents: 620_000_000, phones: [{ number: '4325557001', type: 'mobile', source: 'batchdata' }] }),
     ];
@@ -42,7 +44,9 @@ describe('the person behind the owners on the page', () => {
     expect(ops.get('b')).toBeUndefined();
     expect(op.label).toBe('Karen Holt');
     expect(operatorHolding(op)).toBe('3 entities · 128 properties · $41.2M');
-    expect(operatorBasis(op)).toBe('Same decision maker on 2 of 3');
+    expect(operatorBasis(op)).toBe('Same decision maker');
+    // The same name with nothing else in common is someone else, for all the page can tell.
+    expect(operatorsOf([owner('a', 'Bluebonnet Holdings LLC', { person: karen }), owner('c', 'Permian Storage LP', { person: karen })]).size).toBe(0);
     // Each number once, the one that can be called first.
     expect(operatorPhones(op).map((p) => p.number)).toEqual(['4325557001', '4325557002']);
     expect(operatorList(ops)).toEqual([op]);
@@ -61,13 +65,13 @@ describe('the person behind the owners on the page', () => {
     expect(operatorsOf([owner('a', 'Tall City Towers LLC', others), owner('b', 'Vance Pat', { company: undefined, ...others })]).size).toBe(0);
   });
 
-  it('what a send to Leads goes by leaves out simulated and sample results', () => {
+  it('what the page shows as one person, and a send to Leads goes by, leaves out simulated and sample results', () => {
     const sim = { ...found, simulated: true };
     const rows = [
-      owner('a', 'Bluebonnet Holdings LLC', { person: karen, enrichment: { person: found, phone: locked, email: locked } }),
-      owner('b', 'Permian Storage LP', { person: karen, enrichment: { person: found, phone: locked, email: locked } }),
-      owner('c', 'Wall Street Lofts LLC', { person: karen, enrichment: { person: sim, phone: locked, email: locked } }),
-      owner('d', 'Caddo Plaza LLC', { person: karen, note: 'Sample data to show the layout, not a real lookup.', enrichment: { person: found, phone: locked, email: locked } }),
+      owner('a', 'Bluebonnet Holdings LLC', { person: karen, ...office, enrichment: { person: found, phone: locked, email: locked } }),
+      owner('b', 'Permian Storage LP', { person: karen, ...office, enrichment: { person: found, phone: locked, email: locked } }),
+      owner('c', 'Wall Street Lofts LLC', { person: karen, ...office, enrichment: { person: sim, phone: locked, email: locked } }),
+      owner('d', 'Caddo Plaza LLC', { person: karen, ...office, note: 'Sample data to show the layout, not a real lookup.', enrichment: { person: found, phone: locked, email: locked } }),
     ];
     expect(operatorsOf(rows).get('a')!.members.map((m) => m.id)).toEqual(['a', 'b', 'c', 'd']);
     const sure = operatorsOf(rows, { realOnly: true });
@@ -79,10 +83,10 @@ describe('the person behind the owners on the page', () => {
   it("draws a person where the first of their companies stands, their companies under them only when open, and counts who is still to send", () => {
     const rows = [
       owner('a', 'City Of Midland'),
-      owner('b', 'Bluebonnet Holdings LLC', { person: karen, status: 'lead', leadId: 'lead1' }),
+      owner('b', 'Bluebonnet Holdings LLC', { person: karen, ...office, status: 'lead', leadId: 'lead1' }),
       owner('c', 'Tall City Towers LLC'),
-      owner('d', 'Permian Storage LP', { person: karen, status: 'skip' }),
-      owner('e', 'Wall Street Lofts LLC', { person: karen, properties: 9 }),
+      owner('d', 'Permian Storage LP', { person: karen, ...office, status: 'skip' }),
+      owner('e', 'Wall Street Lofts LLC', { person: karen, ...office, properties: 9 }),
     ];
     const ops = operatorsOf(rows);
     const drawn = (open: boolean, shown = rows) => ownerItems(shown, ops, () => open).map((i) => (i.kind === 'operator' ? `${i.op.label} (${i.shown.length})` : `${i.op ? '  ' : ''}${i.row.name}`));

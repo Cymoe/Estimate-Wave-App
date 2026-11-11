@@ -808,15 +808,15 @@ const OutreachPage: React.FC = () => {
   const [onlyNew, setOnlyNew] = useState(false);
   useEffect(() => setOnlyNew(false), [listId]);
   const justNew = onlyNew && newHere > 0;
-  // The person behind the owners: companies that name the same decision maker, share a number or an email, or are one
-  // family are one line on the page, over everyone in the view (so a filter doesn't change who a person is said to hold).
+  // The person behind the owners: companies that name the same decision maker at one address, share a number or an
+  // email, or are one family are one line on the page, over everyone in the view (so a filter doesn't change who a
+  // person is said to hold). Never resting on a simulated result: the simulated chain reuses a handful of made-up
+  // people and numbers, which made six "people" run a hundred owners. What the page shows as one person is what a send
+  // to Leads makes one lead of (the server leaves simulated results out the same way).
   const viewRows = data?.rows;
-  const operators = useMemo(() => operatorsOf(viewRows ?? []), [viewRows]);
-  // What a send to Leads goes by: the same groups, never resting on a simulated result (the server leaves those out too).
-  const sureOperators = useMemo(() => ((viewRows ?? []).some(isSimulated) ? operatorsOf(viewRows ?? [], { realOnly: true }) : operators), [viewRows, operators]);
+  const operators = useMemo(() => operatorsOf(viewRows ?? [], { realOnly: true }), [viewRows]);
+  const sureOperators = operators;
   const people = useMemo(() => operatorList(operators), [operators]);
-  // Some of the people shown are tied only by simulated results (a real source wouldn't say so, and a send keeps them apart).
-  const madeUpTies = useMemo(() => sureOperators !== operators && people.some((op) => op.members.some((m) => sureOperators.get(m.id)?.members.length !== op.members.length)), [people, operators, sureOperators]);
   const rows = useMemo(() => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
@@ -1185,17 +1185,12 @@ const OutreachPage: React.FC = () => {
     const going = operatorWaiting(op);
     const there = op.members.find((m) => m.leadId);
     if (going.length === 0) return void (there?.leadId && navigate(`/leads?lead=${there.leadId}`));
-    // One lead only when something real ties them: a simulated name or number is made up, and the server won't join on it.
-    const sure = sureOperators.get(going[0].id);
-    const one = Boolean(sure) && going.every((r) => sureOperators.get(r.id) === sure);
+    // The page shows as one person only what something real ties (never a simulated name or number), which is what the
+    // server joins on: so what is one line here is one lead there.
     const n = going.length;
     const ok = await confirm({
       title: `Send ${op.label}’s ${n === 1 ? 'entity' : `${n} entities`} to Leads?`,
-      message: one
-        ? `${n === 1 ? 'It joins' : 'They become'} one lead${there ? ', the one already in Leads' : ''}: one person to call, with each company and what it owns on the lead's notes.`
-        : n === 1
-          ? 'It goes to Leads as New, where you call and follow up.'
-          : 'What ties them is from a simulated lookup, so each goes to Leads as its own lead with the made-up details left out. With a real phone source connected, they become one lead.',
+      message: `${n === 1 ? 'It joins' : 'They become'} one lead${there ? ', the one already in Leads' : ''}: one person to call, with each company and what it owns on the lead's notes.`,
       confirmLabel: 'Send to Leads',
       tone: 'default',
     });
@@ -1724,8 +1719,6 @@ const OutreachPage: React.FC = () => {
         <p className="text-xs text-gray-500" data-testid="operators-line">
           {operators.size.toLocaleString('en-US')} of these {data.rows.length.toLocaleString('en-US')} owners are run by {people.length.toLocaleString('en-US')} {people.length === 1 ? 'person' : 'people'}, each shown once with their companies under them. Biggest:{' '}
           <span className="text-gray-300">{people[0].label}</span>, {operatorHolding(people[0])}.
-          {/* The simulated chain reuses a handful of made-up people and numbers, so it ties owners no real source would. */}
-          {madeUpTies && ' Simulated lookups reuse a few made-up people, so these groups are bigger than real ones will be.'}
         </p>
       )}
       {lists && lists.length === 0 && data && data.rows.length > 0 && (

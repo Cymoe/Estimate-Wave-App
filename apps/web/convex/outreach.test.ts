@@ -1397,18 +1397,19 @@ describe("a company's lists", () => {
     expect((await co.as.query(api.outreach.contacts, { organizationId: org })).lastSend).toBeNull();
   });
 
-  test("a send to Leads makes one lead of a person's companies: by the decision maker they name or a number they share, never by a simulated result", async () => {
+  test("a send to Leads makes one lead of a person's companies: by the decision maker they name at one address or a number they share, never by the name alone or a simulated result", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
     const three = (prefix: string, owner: string, street: string) =>
       ["1", "2", "3"].map((n) => parcel(`${prefix}${n}`, { owner, companyOwned: true, ownerOccupied: false, mailing: { address: street, city: "MIDLAND", state: "TX", zip: "79701" } }));
     await addParcels(t, [
       ...three("a", "BLUEBONNET HOLDINGS LLC", "100 W WALL ST"),
-      ...three("b", "PERMIAN STORAGE LP", "200 N BIG SPRING ST"),
-      ...three("c", "WALL STREET LOFTS LLC", "300 N LORAINE ST"),
+      ...three("b", "PERMIAN STORAGE LP", "100 W WALL ST"),
+      ...three("c", "WALL STREET LOFTS LLC", "100 W WALL ST"),
       ...three("d", "ORTEGA RENTALS LLC", "400 ANDREWS HWY"),
       ...three("e", "CADDO PLAZA LLC", "500 GARFIELD ST"),
       ...three("f", "TALL CITY TOWERS LLC", "600 ILLINOIS AVE"),
+      ...three("g", "GARFIELD COMMONS LLC", "700 CUTHBERT AVE"),
     ]);
     await rebuild(t);
     const co = await proCompany(t);
@@ -1423,7 +1424,7 @@ describe("a company's lists", () => {
       await t.run(async (ctx) => ctx.db.patch(id as never, patch as never));
       return id;
     };
-    // Karen Holt is general partner of three companies billed at three addresses: nothing but her name ties them.
+    // Karen Holt is general partner of three companies billed at one office: her name and that address tie them.
     const karen = { name: "Karen Holt", title: "General partner", source: "tx-comptroller" };
     const named = { person: karen, enrichment: { person: found, phone: locked, email: locked } };
     const bluebonnet = await fill("Bluebonnet", named);
@@ -1435,14 +1436,19 @@ describe("a company's lists", () => {
     const caddo = await fill("Caddo", { ...line, enrichment: { person: locked, phone: { ...found, source: "batchdata" }, email: locked } });
     // A simulated lookup made Karen Holt up for this one: that ties nobody.
     const towers = await fill("Tall City", { person: karen, enrichment: { person: { ...found, simulated: true }, phone: locked, email: locked } });
+    // A real lookup names a Karen Holt here too, at another address and with nothing else in common: for all anyone
+    // can tell another woman of that name, so the name alone ties nobody.
+    const garfield = await fill("Garfield", named);
 
-    const all = [bluebonnet, permian, lofts, ortega, caddo, towers];
-    expect(await co.as.mutation(api.outreach.sendManyToLeads, { organizationId: org, contactIds: all as never })).toEqual({ sent: 6, leads: 3, joined: 3 });
+    const all = [bluebonnet, permian, lofts, ortega, caddo, towers, garfield];
+    expect(await co.as.mutation(api.outreach.sendManyToLeads, { organizationId: org, contactIds: all as never })).toEqual({ sent: 7, leads: 4, joined: 3 });
     const leadOf = async (start: string) => (await byName(start)).leadId;
     const hers = await leadOf("Bluebonnet");
     expect([await leadOf("Permian"), await leadOf("Wall Street")]).toEqual([hers, hers]);
     expect(await leadOf("Caddo")).toBe(await leadOf("Ortega"));
     expect(await leadOf("Tall City")).not.toBe(hers);
+    expect(await leadOf("Garfield")).not.toBe(hers);
+    expect(await leadOf("Garfield")).not.toBe(await leadOf("Tall City"));
     const lead = (await t.run(async (ctx) => ctx.db.get(hers as never))) as { name: string; company: string; notes: string };
     expect(lead).toMatchObject({ name: "Karen Holt", company: "Bluebonnet Holdings LLC" });
     expect(lead.notes).toContain("Also owns as Permian Storage LP:");
@@ -1454,10 +1460,13 @@ describe("a company's lists", () => {
     await co.as.mutation(api.leads.remove, { id: hers as never });
     const one = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: bluebonnet as never });
     expect(await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: permian as never, alongside: [bluebonnet] as never })).toBe(one);
-    // An owner named alongside that isn't run by the same person joins nothing: the server looks for itself.
+    // The server looks for itself: owners named alongside that aren't run by the same person (another man's company, a
+    // made-up Karen Holt) tie nothing, and her third company finds her lead by the office it shares with the other two.
     const other = await co.as.mutation(api.outreach.sendManyToLeads, { organizationId: org, contactIds: [lofts] as never, alongside: [ortega, towers] as never });
-    expect(other).toEqual({ sent: 1, leads: 1, joined: 0 });
+    expect(other).toEqual({ sent: 1, leads: 0, joined: 1 });
+    expect(await leadOf("Wall Street")).toBe(one);
     expect(await leadOf("Wall Street")).not.toBe(await leadOf("Ortega"));
+    expect(await leadOf("Wall Street")).not.toBe(await leadOf("Tall City"));
   });
 
   test("a running lookup's progress shows on its cell, only while it runs; a signal first seen this week is new, but not the first import", async () => {

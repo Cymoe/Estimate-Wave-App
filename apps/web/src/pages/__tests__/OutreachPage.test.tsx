@@ -2135,7 +2135,8 @@ describe('the Outreach page', () => {
   });
 
   // Seven owners that come down to two people and two on their own: Karen Holt is general partner of three companies
-  // (billed at three addresses), Luis Ortega's number answers for two, one was looked up and has nothing, one hasn't been.
+  // (billed at one office: her name alone would tie nobody), Luis Ortega's number answers for two, one was looked up and
+  // has nothing, one hasn't been.
   const peopleRows = () => {
     const at = '2026-11-05T15:01:00Z';
     const found = { status: 'found', at, source: 'tx-comptroller' };
@@ -2148,7 +2149,7 @@ describe('the Outreach page', () => {
     return [
       contact('r1', { name: 'Bluebonnet Holdings LLC', company: 'Bluebonnet Holdings LLC', properties: 60, totalValueCents: 2_000_000_000, ...mail('100 W WALL ST'), ...hers }),
       contact('r2', { name: 'City Of Midland', company: 'City Of Midland', properties: 4, totalValueCents: 120_000_000, ...mail('300 N LORAINE ST') }),
-      contact('r3', { name: 'Permian Storage LP', company: 'Permian Storage LP', properties: 40, totalValueCents: 1_500_000_000, ...mail('200 N BIG SPRING ST'), ...hers }),
+      contact('r3', { name: 'Permian Storage LP', company: 'Permian Storage LP', properties: 40, totalValueCents: 1_500_000_000, ...mail('100 W WALL ST'), ...hers }),
       contact('r4', {
         name: 'Ortega Rentals LLC',
         company: 'Ortega Rentals LLC',
@@ -2160,7 +2161,7 @@ describe('the Outreach page', () => {
         emails: [{ email: 'luis@ortega.example', source: 'batchdata', verified: true }],
         enrichment: { person: found, phone: { ...found, source: 'batchdata', chargedCents: 100 }, email: { ...found, source: 'batchdata' }, research: locked },
       }),
-      contact('r5', { name: 'Wall Street Lofts LLC', company: 'Wall Street Lofts LLC', properties: 28, totalValueCents: 620_000_000, ...mail('300 W WALL ST'), ...hers }),
+      contact('r5', { name: 'Wall Street Lofts LLC', company: 'Wall Street Lofts LLC', properties: 28, totalValueCents: 620_000_000, ...mail('100 W WALL ST'), ...hers }),
       contact('r6', { name: 'Caddo Plaza LLC', company: 'Caddo Plaza LLC', ...mail('500 GARFIELD ST'), phones: [line], enrichment: { person: none, phone: { ...found, source: 'batchdata', chargedCents: 100 }, email: none, research: locked } }),
       contact('r7', { name: 'Tall City Towers LLC', company: 'Tall City Towers LLC', ...mail('600 ILLINOIS AVE'), enrichment: { person: none, phone: none, email: none, research: locked } }),
     ];
@@ -2184,7 +2185,7 @@ describe('the Outreach page', () => {
     expect(people()[1].querySelector('[data-testid="operator-basis"]')!.textContent).toBe('Same phone numberManager');
     const cells = (row: Element) => Array.from(row.querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
     expect(cells(people()[1]).slice(2, 4)).toEqual(['(432) 555-7104+1 moremobile · verified', 'luis@ortega.example']);
-    expect(cells(people()[0]).slice(4, 8)).toEqual(['—', '3 mailing addresses', '128 properties', '$41.2M']);
+    expect(cells(people()[0]).slice(4, 8)).toEqual(['—', '100 W Wall StMidland, TX 79701', '128 properties', '$41.2M']);
     expect(document.body.querySelector('[data-testid="operators-line"]')!.textContent).toBe(
       '5 of these 7 owners are run by 2 people, each shown once with their companies under them. Biggest: Karen Holt, 3 entities · 128 properties · $41.2M.',
     );
@@ -2310,20 +2311,24 @@ describe('the Outreach page', () => {
     expect(setStatus.mock.calls.map((c) => (c as unknown[]).slice(1, 3))).toEqual([['r1', 'skip'], ['r3', 'skip'], ['r5', 'skip']]);
   });
 
-  it('simulated lookups show who they tie but never promise one lead: the send keeps each company apart', async () => {
+  it('simulated lookups tie nobody: made-up people and numbers are never shown as one person, and a name with nothing else in common is not one either', async () => {
     lists = [list];
     const sim = (cell: Record<string, unknown>) => (cell.status === 'locked' ? cell : { ...cell, simulated: true });
     const rows = peopleRows().map((r) => ({ ...r, enrichment: Object.fromEntries(Object.entries(r.enrichment as Record<string, Record<string, unknown>>).map(([k, c]) => [k, sim(c)])) }));
     contacts = { ...twoContacts(), rows, coverage: coverage(2, 1, 4, 7) };
     await render('/outreach/l1');
-    // Still shown as two people, with a word that the simulated chain makes groups bigger than real ones.
-    expect(document.body.querySelectorAll('[data-testid="operator-row"]')).toHaveLength(2);
-    expect(document.body.querySelector('[data-testid="operators-line"]')!.textContent).toContain('Simulated lookups reuse a few made-up people, so these groups are bigger than real ones will be.');
+    // Every owner is its own line: no "6 people run 113 owners" from a handful of invented names.
+    expect(document.body.querySelectorAll('[data-testid="operator-row"]')).toHaveLength(0);
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(7);
+    expect(document.body.querySelector('[data-testid="operators-line"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="sample-note"]')!.textContent).toContain('Sample results: no phone source is connected yet');
-    const luis = document.body.querySelectorAll('[data-testid="operator-row"]')[1];
-    await act(async () => (luis.querySelector('[data-testid="operator-toggle"]') as HTMLButtonElement).click());
-    await act(async () => (luis.querySelector('[data-testid="operator-lead"]') as HTMLButtonElement).click());
-    await flush();
-    expect(document.body.textContent).toContain('What ties them is from a simulated lookup, so each goes to Leads as its own lead with the made-up details left out.');
+    clearPage();
+
+    // Real results, but her three companies are billed at three addresses: the name alone doesn't make them one person.
+    const apart = peopleRows().map((r, i) => (r.person && (r.person as { name: string }).name === 'Karen Holt' ? { ...r, mailing: { address: `${i} OTHER ST`, city: 'MIDLAND', state: 'TX', zip: '79701' } } : r));
+    contacts = { ...twoContacts(), rows: apart, coverage: coverage(2, 1, 4, 7) };
+    await render('/outreach/l1');
+    expect(Array.from(document.body.querySelectorAll('[data-testid="operator-name"]')).map((n) => n.textContent)).toEqual(['Luis Ortega']);
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(5);
   });
 });

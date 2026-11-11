@@ -80,10 +80,9 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 export const operatorHolding = (op: Operator) =>
   [plural(op.members.length, 'entity', 'entities'), plural(op.properties, 'property', 'properties'), op.totalValueCents > 0 ? shortMoney(op.totalValueCents) : ''].filter(Boolean).join(' · ');
 
-/** Why these owners are shown as one, in a few words. */
+/** Why these owners are shown as one, in a few words (few enough to fit its column: "on 2 of 3" was cut off there). */
 export function operatorBasis(op: Operator): string {
-  const named = op.members.filter((m) => m.person).length;
-  if (op.ties.includes('person')) return named === op.members.length ? 'Same decision maker' : `Same decision maker on ${named} of ${op.members.length}`;
+  if (op.ties.includes('person')) return 'Same decision maker';
   if (op.ties.includes('phone')) return 'Same phone number';
   if (op.ties.includes('email')) return 'Same email';
   return 'Sister companies';

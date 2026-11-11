@@ -1,8 +1,10 @@
 // Who is behind an owner. A list of LLCs is not a list of people to call:
 // one person often runs several of them. Owners are put in one group when
-// they share a decision maker by name (unless their lookups say these are two
-// people of one name), a phone number, an email, or a company family
-// ("Nuka Hiva Alpha 1-54 LLC" and "Nuka Hiva Alpha LLC"). The Outreach
+// they name the same decision maker and something besides the name agrees
+// (one mailing address, a phone number or an email), when they share a phone
+// number or an email, or when they are one company family
+// ("Nuka Hiva Alpha 1-54 LLC" and "Nuka Hiva Alpha LLC"). A name alone ties
+// nobody: two men called David Martinez are not one person. The Outreach
 // page shows a group as one row with its companies under it, and a send to
 // Leads makes one lead of it. Nothing here reads the database or the browser:
 // the page and the server both group with it, so they agree.
@@ -69,11 +71,10 @@ const emailKey = (e: string) => e.trim().toLowerCase() || undefined;
 /**
  * The owners run by the same people, by owner id; an owner on its own has no
  * entry. Two companies are tied by being one company family, or by naming the
- * same decision maker: at one mailing address or with a phone or email in
- * common for sure, and otherwise for as long as nothing says they are two
- * people. Something does once lookups have found different contact details
- * for the name at different addresses (two men named Kai Moana); from then
- * the name alone ties nothing. A shared phone or email ties any two owners, unless the
+ * same decision maker with something else in common: one mailing address, a
+ * phone or an email. The name by itself is not enough, however rare it looks:
+ * shown as one line and sent to Leads as one lead, two strangers of one name
+ * would be a wrong call to make. A shared phone or email ties any two owners, unless the
  * line is shared by people known to be different (a brokerage's front desk, a
  * registered agent's office): then only those of the same name are tied, and
  * an owner with no name stays out, since there is no telling whose it is.
@@ -110,16 +111,8 @@ export function operatorGroups(owners: OperatorOwner[]): Map<string, OperatorGro
     if (ids.length < 2) continue;
     const named = ids.map((x) => companies.find((o) => o.id === x)!);
     const lines = (o: OperatorOwner) => [o.mailing ? `m:${o.mailing}` : undefined, ...o.phones.map((p) => `p:${phoneKey(p)}`), ...o.emails.map((e) => `e:${emailKey(e)}`)].filter((k) => k && !k.endsWith(":undefined"));
-    // Surely one person: the same address, number or email.
-    const sure = new Map<string, string>(named.map((o) => [o.id, o.id]));
-    const top = (x: string): string => (sure.get(x) === x ? x : top(sure.get(x)!));
-    for (const same of buckets(named, lines, id).values()) {
-      tie(same, "person");
-      for (const x of same.slice(1)) sure.set(top(x), top(same[0]));
-    }
-    // More than one of those with contact details of its own, none in common: two people of one name.
-    const found = new Set(named.filter((o) => o.phones.length + o.emails.length > 0).map((o) => top(o.id)));
-    if (found.size <= 1) tie(ids, "person");
+    // One person: the same name and the same address, number or email. The name on its own ties nothing.
+    for (const same of buckets(named, lines, id).values()) tie(same, "person");
   }
   for (const ids of buckets(companies, (o) => [familyKey(o.name)], id).values()) tie(ids, "family");
 

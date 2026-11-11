@@ -27,24 +27,33 @@ describe("the person behind an owner", () => {
     ).toEqual([]);
   });
 
-  test("companies naming one decision maker are one group; an owner on its own has none", () => {
+  test("companies naming one decision maker at one mailing address are one group; the name alone ties nobody", () => {
+    const office = "100 WALL ST|79701";
     const groups = operatorGroups([
-      owner("a", "Bluebonnet Holdings LLC", { person: "Karen Holt" }),
-      owner("b", "Permian Storage LP", { person: "HOLT, KAREN A" }),
-      owner("c", "Wall Street Lofts LLC", { person: "Karen Holt" }),
-      owner("d", "Big Spring Plaza LLC", { person: "Sam Ortiz" }),
+      owner("a", "Bluebonnet Holdings LLC", { person: "Karen Holt", mailing: office }),
+      owner("b", "Permian Storage LP", { person: "HOLT, KAREN A", mailing: office }),
+      owner("c", "Wall Street Lofts LLC", { person: "Karen Holt", mailing: office }),
+      // The same name with nothing else in common: another Karen Holt, for all anyone can tell.
+      owner("f", "Loop 250 Storage LLC", { person: "Karen Holt", mailing: "9 ELM ST|79761" }),
+      owner("g", "Garfield Commons LLC", { person: "Karen Holt" }),
+      owner("d", "Big Spring Plaza LLC", { person: "Sam Ortiz", mailing: office }),
       owner("e", "Tall City Towers LLC"),
     ]);
     expect(groups.get("a")).toEqual({ key: "a", ids: ["a", "b", "c"], ties: ["person"], person: "Karen Holt" });
     expect(groups.get("b")).toBe(groups.get("a"));
     expect(groups.get("c")).toBe(groups.get("a"));
+    expect(groups.get("f")).toBeUndefined();
+    expect(groups.get("g")).toBeUndefined();
+    // One address is not enough either without the name: a shared office building.
     expect(groups.get("d")).toBeUndefined();
     expect(groups.get("e")).toBeUndefined();
+    // Two companies and nothing but a name: no group at all.
+    expect(groupsOf([owner("a", "Bluebonnet Holdings LLC", { person: "David Martinez" }), owner("b", "Permian Storage LP", { person: "David Martinez" })])).toEqual([]);
   });
 
   test("the group's key is the same in whatever order its owners come", () => {
-    const a = owner("a", "Bluebonnet Holdings LLC", { person: "Karen Holt" });
-    const b = owner("b", "Permian Storage LP", { person: "Karen Holt" });
+    const a = owner("a", "Bluebonnet Holdings LLC", { person: "Karen Holt", mailing: "100 WALL ST|79701" });
+    const b = owner("b", "Permian Storage LP", { person: "Karen Holt", mailing: "100 WALL ST|79701" });
     expect(operatorGroups([a, b]).get("a")!.key).toBe("a");
     expect(operatorGroups([b, a]).get("a")!.key).toBe("a");
     expect(operatorGroups([b, a]).get("a")!.ids).toEqual(["b", "a"]);
@@ -78,11 +87,11 @@ describe("the person behind an owner", () => {
     ).toEqual([{ ids: ["a", "b"], ties: ["person", "phone"], person: "Luis Ortega" }]);
   });
 
-  test("two people of one name: once lookups find different details for them at different addresses, the name alone ties nothing", () => {
+  test("two people of one name: only what they have in common besides the name ties them, before lookups and after", () => {
     const nuka = (id: string, name: string, over: Partial<OperatorOwner> = {}) => owner(id, name, { person: "Kai Moana", mailing: "1 MAIN ST|79701", ...over });
-    // Before any lookup nothing says otherwise: the name is taken for one person.
+    // Before any lookup: the two at one address are one person; the one at another address is not taken for him.
     expect(groupsOf([nuka("a", "Tradewind Rentals LLC"), nuka("b", "Loraine Lofts LP"), owner("c", "Brazos Storage LLC", { person: "Kai Moana", mailing: "9 ELM ST|79761" })])).toEqual([
-      { ids: ["a", "b", "c"], ties: ["person"], person: "Kai Moana" },
+      { ids: ["a", "b"], ties: ["person"], person: "Kai Moana" },
     ]);
     // The lookups turn up one man's number at one office and another's at the other: two people.
     expect(
@@ -107,6 +116,6 @@ describe("the person behind an owner", () => {
         // A person of the same name as a company's decision maker is not tied by the name: only companies are.
         owner("d", "Kai Moana", { company: false }),
       ]),
-    ).toEqual([{ ids: ["a", "b", "c"], ties: ["person", "family"], person: "Kai Moana" }]);
+    ).toEqual([{ ids: ["a", "b", "c"], ties: ["family"], person: "Kai Moana" }]);
   });
 });
