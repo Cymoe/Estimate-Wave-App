@@ -1538,6 +1538,10 @@ export const readiness = internalQuery({
       addFunds: { stripeKey: Boolean(env.STRIPE_SECRET_KEY), stripeWebhook: Boolean(env.STRIPE_WEBHOOK_SECRET) },
       dataReads: { sources: rolls.length, withError: rolls.filter((r) => r.error).map((r) => r.source), empty: rolls.filter((r) => !r.error && r.fetched === 0).map((r) => r.source) },
       lookupQueue: { waiting: waiting.filter((w) => w.state === "queued").length, running: waiting.filter((w) => w.state === "active").length },
+      // How many owners each county's last build put on the commercial, storage and industrial lists, and when it ran.
+      ownerLists: Object.fromEntries(
+        rolls.filter((r) => r.facetCounts).map((r) => [r.source, { builtAt: r.syncedAt, commercial: r.facetCounts?.commercial ?? 0, storage: r.facetCounts?.storage ?? 0, industrial: r.facetCounts?.industrial ?? 0 }]),
+      ),
     };
   },
 });
