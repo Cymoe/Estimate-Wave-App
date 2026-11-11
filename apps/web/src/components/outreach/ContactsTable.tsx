@@ -712,6 +712,8 @@ export const ContactSheet: React.FC<{
   researchCents: number;
   researchQuestion: string;
   balanceCents: number;
+  /** Phones the company can still find free; while there are any, a lookup needs no balance. */
+  freeLookups?: number;
   onClose: () => void;
   onStatus: (row: OutreachContact, status: OutreachRowStatus, note: string) => Promise<void>;
   onEnrich: (row: OutreachContact, fields: OutreachField[], question?: string) => Promise<void>;
@@ -722,7 +724,7 @@ export const ContactSheet: React.FC<{
   /** For the owner's emails from Outreach, and "Email" drafting one. */
   organizationId?: string;
   onEmail?: (row: OutreachContact) => void;
-}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds, onLead, county, organizationId, onEmail }) => {
+}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, freeLookups = 0, onClose, onStatus, onEnrich, onAddFunds, onLead, county, organizationId, onEmail }) => {
   const [note, setNote] = useState('');
   const [question, setQuestion] = useState(researchQuestion);
   const [busy, setBusy] = useState(false);
@@ -775,7 +777,8 @@ export const ContactSheet: React.FC<{
   const { phone, email, person } = row.enrichment;
   const research = row.enrichment.research ?? { status: 'locked' as const };
   const contactOpen = phone.status !== 'found' && phone.status !== 'running' && email.status !== 'running';
-  const canPay = balanceCents >= unlockCents;
+  const free = freeLookups > 0;
+  const canPay = free || balanceCents >= unlockCents;
   const canResearch = balanceCents >= researchCents;
   const when = (c: OutreachCell) => (c.at ? ` ${new Date(c.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '');
   // The buttons: the best number not on the Do Not Call list; a text only to a mobile.
@@ -899,7 +902,7 @@ export const ContactSheet: React.FC<{
             ) : phone.status === 'none' ? (
               <div className="space-y-2">
                 <p className="text-sm text-gray-500">No phone or email found for this owner. Nothing was charged. The mailing address above still reaches them.</p>
-                <TryAgain cell={phone} onClick={() => enrich(['phone', 'email'])} disabled={busy || !canPay} note={`${dollars(unlockCents)} only if a phone is found`} className={quiet} />
+                <TryAgain cell={phone} onClick={() => enrich(['phone', 'email'])} disabled={busy || !canPay} note={free ? 'free' : `${dollars(unlockCents)} only if a phone is found`} className={quiet} />
               </div>
             ) : (
               <div className="space-y-2 pt-1">
@@ -911,9 +914,15 @@ export const ContactSheet: React.FC<{
                   disabled={busy || !contactOpen}
                   className={primary}
                 >
-                  <Lock className="w-4 h-4" /> {canPay ? 'Unlock phone & email' : 'Add funds to unlock'} · {dollars(unlockCents)}
+                  <Lock className="w-4 h-4" /> {canPay ? 'Unlock phone & email' : 'Add funds to unlock'} · {free ? 'free' : dollars(unlockCents)}
                 </button>
-                <p className="text-xs text-gray-500">Charged only when a phone is found. Balance {dollars(balanceCents)}.</p>
+                <p className="text-xs text-gray-500" data-testid="unlock-terms">
+                  {free
+                    ? freeLookups === 1
+                      ? `Your last free lookup, used only if a phone is found. After it, ${dollars(unlockCents)} a phone.`
+                      : `One of your ${freeLookups} free lookups, used only if a phone is found. After those, ${dollars(unlockCents)} a phone.`
+                    : `Charged only when a phone is found. Balance ${dollars(balanceCents)}.`}
+                </p>
               </div>
             )}
           </div>

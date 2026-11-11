@@ -7,7 +7,7 @@ import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
-import { AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
+import { FREE_LOOKUPS, AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
@@ -408,6 +408,8 @@ async function proCompany(t: ReturnType<typeof setup>, email = "owner@roof.examp
   await t.run(async (ctx) => {
     await ctx.db.patch(co.organizationId, {
       plan: { monthlyCents: 9900, claimsIncluded: 10, extraClaimCents: 1500, status: "active", periodStart: "2026-10-01T00:00:00.000Z", nextChargeAt: "2026-12-01T00:00:00.000Z", claimsThisPeriod: 0 },
+      // Its free phone lookups are used up, so the tests below are of paid ones; the free ones have a test of their own.
+      outreachFreeUsed: FREE_LOOKUPS,
     });
   });
   return co;
@@ -1642,6 +1644,53 @@ describe("a company's lists", () => {
     expect(oakNow.phones).toEqual([]);
     expect(after.balanceCents).toBe(0);
     expect(await t.run(async (ctx) => ctx.db.query("walletTransactions").collect())).toEqual([]);
+  });
+
+  test("a company's first five phones found are free: no balance needed, nothing charged, a miss uses none, and the sixth is $1", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { outreachFreeUsed: undefined }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const first = await read();
+    expect(first.freeLookups).toBe(FREE_LOOKUPS);
+    expect(first.balanceCents).toBe(0);
+    const oak = first.rows.find((r) => r.name === "Oak Plaza LLC")!;
+    const cityHall = first.rows.find((r) => r.name === "City Of Midland")!;
+
+    // No balance, and both go: the free ones cover them.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 2, costCents: 0 });
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550100", type: "mobile", source: "batchdata" }] });
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: cityHall.id as Id<"outreachContacts">, field: "phone", source: "batchdata" });
+    const after = await read();
+    const oakNow = after.rows.find((r) => r.id === oak.id)!;
+    expect(oakNow.enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 0 });
+    expect(oakNow.phones.map((p) => p.number)).toEqual(["4325550100"]);
+    expect(after.rows.find((r) => r.id === cityHall.id)!.enrichment.phone.status).toBe("none");
+    // One found, one missed: one free lookup used, nothing charged.
+    expect(after.freeLookups).toBe(FREE_LOOKUPS - 1);
+    expect(await t.run(async (ctx) => ctx.db.query("walletTransactions").collect())).toEqual([]);
+
+    // The last free one is spoken for by a running lookup: the next owner needs a dollar.
+    await t.run(async (ctx) => ctx.db.patch(org, { outreachFreeUsed: FREE_LOOKUPS - 1 }));
+    await t.run(async (ctx) => ctx.db.patch(oak.id as Id<"outreachContacts">, { enrichment: { ...oakNow.enrichment, phone: { status: "locked" } }, phones: [] }));
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 0 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available/);
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: cityHall.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550101", type: "mobile", source: "batchdata" }] });
+    expect((await read()).freeLookups).toBe(0);
+    expect(await t.run(async (ctx) => ctx.db.query("walletTransactions").collect())).toEqual([]);
+
+    // All five used: a phone found now is $1 from the balance.
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 100 }));
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550100", type: "mobile", source: "batchdata" }] });
+    const paid = await read();
+    expect(paid.rows.find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "found", chargedCents: 100 });
+    expect(paid.balanceCents).toBe(0);
   });
 
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {

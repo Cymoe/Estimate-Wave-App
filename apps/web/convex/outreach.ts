@@ -32,6 +32,7 @@ import {
   RESEARCH_CENTS,
   SIGNAL_YEARS,
   UNLOCK_CENTS,
+  freeLookupsLeft,
   DEFAULT_RESEARCH_QUESTION,
   WHO_GUIDE,
   companyKey,
@@ -1004,6 +1005,8 @@ export const contacts = query({
       rows,
       coverage: coverageOf(picked),
       balanceCents: organization.walletBalanceCents ?? 0,
+      /** Phones the company can still find free (its first FREE_LOOKUPS). */
+      freeLookups: freeLookupsLeft(organization),
       unlockCents: UNLOCK_CENTS,
       researchCents: RESEARCH_CENTS,
       researchQuestion: DEFAULT_RESEARCH_QUESTION,
@@ -1646,9 +1649,12 @@ export const enrich = mutation({
     const phones = jobs.filter((j) => j.fields.includes("phone")).length;
     const answers = jobs.filter((j) => j.fields.includes("research")).length;
     const balance = organization.walletBalanceCents ?? 0;
-    const cost = phones * UNLOCK_CENTS + answers * RESEARCH_CENTS;
     // Lookups still running are charged when they land, so what they could cost is spoken for already.
-    const held = cost > 0 ? heldCents(await contactsOf(ctx, organizationId)) : 0;
+    const running = phones || answers ? heldLookups(await contactsOf(ctx, organizationId)) : { phones: 0, research: 0 };
+    // The company's free phones cover the running lookups first, then these.
+    const freeForThese = Math.max(0, freeLookupsLeft(organization) - running.phones);
+    const cost = Math.max(0, phones - freeForThese) * UNLOCK_CENTS + answers * RESEARCH_CENTS;
+    const held = Math.max(0, running.phones - freeLookupsLeft(organization)) * UNLOCK_CENTS + running.research * RESEARCH_CENTS;
     if (cost + held > balance) {
       const needs = [phones ? `${phones} ${phones === 1 ? "phone" : "phones"}` : "", answers ? `${answers} research ${answers === 1 ? "answer" : "answers"}` : ""].filter(Boolean).join(" and ");
       const free = held ? `${dollars(Math.max(0, balance - held))} available (${dollars(held)} held for lookups still running)` : `${dollars(balance)} available`;
@@ -1677,13 +1683,13 @@ export const enrich = mutation({
 });
 
 /** The most the company's running lookups can still charge: a phone or a research answer each, sample runs aside. */
-function heldCents(contacts: Doc<"outreachContacts">[]) {
-  let held = 0;
+function heldLookups(contacts: Doc<"outreachContacts">[]) {
+  const held = { phones: 0, research: 0 };
   for (const c of contacts) {
     if (isSampleRun(c)) continue;
     const cells = cellsOf(c);
-    if (cells.phone.status === "running") held += UNLOCK_CENTS;
-    if (cellFor(cells, "research").status === "running") held += RESEARCH_CENTS;
+    if (cells.phone.status === "running") held.phones++;
+    if (cellFor(cells, "research").status === "running") held.research++;
   }
   return held;
 }
@@ -1912,7 +1918,11 @@ export const recordEnrichment = internalMutation({
     const price = shared ? 0 : field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
     let chargedCents = 0;
     let unpaid = false;
-    if (found && price > 0 && requestedBy) {
+    // A company's first phones found are on the house (FREE_LOOKUPS): counted on the company, nothing charged.
+    const organization = found && price > 0 && field === "phone" && requestedBy ? await ctx.db.get(c.organizationId) : null;
+    if (organization && freeLookupsLeft(organization) > 0) {
+      await ctx.db.patch(organization._id, { outreachFreeUsed: (organization.outreachFreeUsed ?? 0) + 1 });
+    } else if (found && price > 0 && requestedBy) {
       try {
         await postTransaction(ctx, c.organizationId, {
           type: "unlock",

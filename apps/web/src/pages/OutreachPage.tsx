@@ -21,7 +21,7 @@ import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
-import { DEFAULT_ROWS, MAX_ROWS, cityOf, listOrder } from '../../convex/lib/outreach';
+import { DEFAULT_ROWS, FREE_LOOKUPS, MAX_ROWS, cityOf, listOrder } from '../../convex/lib/outreach';
 import { callOk, isSimulated, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -692,8 +692,19 @@ const OutreachPage: React.FC = () => {
   const listOpen = (data?.rows ?? []).filter((r) => hasLock(r) && !r.known);
   const listPhones = listOpen.filter(needsPhone).length;
   const listResearch = (data?.rows ?? []).filter(needsResearch);
+  // Nobody on the page has been looked up or researched yet (every cell still locked).
+  const untouched = (data?.rows ?? []).every((r) => (['phone', 'email', 'person', 'research'] as const).every((f) => (r.enrichment[f]?.status ?? 'locked') === 'locked'));
   const researchCost = listResearch.length * researchCents;
-  const short = listPhones * unlockCents > balanceCents;
+  // The company's first phones found are free: they come off what a lookup needs, and with no balance they can still be tried.
+  const freeLeft = data?.freeLookups ?? 0;
+  const paidPhones = (phones: number) => Math.max(0, phones - freeLeft);
+  const short = paidPhones(listPhones) * unlockCents > balanceCents;
+  const freeTry = short && freeLeft > 0 ? Math.min(freeLeft, listPhones) : 0;
+  /** What finding these phones costs, in words: free while the free ones cover them. */
+  const costOf = (phones: number) =>
+    paidPhones(phones) === 0
+      ? `free (${phones === 1 ? 'one' : phones} of your ${freeLeft} free ${freeLeft === 1 ? 'lookup' : 'lookups'})`
+      : `${estimate(paidPhones(phones))}${freeLeft > 0 ? `, after your ${freeLeft} free ${freeLeft === 1 ? 'one' : 'ones'}` : ''}`;
 
   const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
@@ -834,7 +845,7 @@ const OutreachPage: React.FC = () => {
     const who = list ? `the ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'owner' : 'owners'} on “${list.title}”` : `all ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'contact' : 'contacts'}`;
     const ok = await confirm({
       title: `Find phones & emails for ${who}?`,
-      message: `${phones} ${phones === 1 ? 'phone' : 'phones'} to find: ${estimate(phones)}. Charged only for phones found; the person behind each company and emails are free.${
+      message: `${phones} ${phones === 1 ? 'phone' : 'phones'} to find: ${costOf(phones)}. Charged only for phones found; the person behind each company and emails are free.${
         known ? ` ${known} you already have as ${known === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
       }`,
       confirmLabel: 'Find them',
@@ -853,6 +864,20 @@ const OutreachPage: React.FC = () => {
         return;
       }
     }
+  };
+
+  /** No balance yet, but free lookups left: the first owners on the list who need a phone, as many as the free ones cover. */
+  const tryFree = async () => {
+    const first = listOpen.filter(needsPhone).slice(0, freeTry);
+    if (first.length === 0) return;
+    const ok = await confirm({
+      title: `Find ${first.length === 1 ? 'a phone' : `${first.length} phones`} free?`,
+      message: `Your first ${FREE_LOOKUPS} phone numbers are on us. The first ${first.length === 1 ? 'owner' : `${first.length} owners`} on this list ${first.length === 1 ? 'is' : 'are'} looked up now; a free one is used only when a phone is found. After those it's ${dollars(unlockCents)} a phone, only when found.`,
+      confirmLabel: 'Find them',
+      tone: 'default',
+    });
+    if (!ok) return;
+    await enrich(first.map((r) => r.id)).catch(() => {});
   };
 
   /** A research answer for everyone on the list without one, after a word on the cost. */
@@ -1091,15 +1116,18 @@ const OutreachPage: React.FC = () => {
               // Short of money, the same button adds it: never a greyed-out button with the reason somewhere else.
               <button
                 type="button"
-                onClick={() => (short ? addFunds() : void enrichAll())}
+                onClick={() => (freeTry ? void tryFree() : short ? addFunds() : void enrichAll())}
                 disabled={busy || extending}
                 className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`}
-                title={short ? `Your balance is ${dollars(balanceCents)}; finding these costs ${estimate(listPhones)}` : estimate(listPhones)}
+                title={freeTry ? 'Your first phones found are free' : short ? `Your balance is ${dollars(balanceCents)}; finding these costs ${costOf(listPhones)}` : costOf(listPhones)}
+                data-testid="find-all"
               >
                 {/* On a phone the short-of-funds label is cut down, so the button is two lines at most, not three. */}
                 {extending
                   ? 'Loading owners…'
-                  : short
+                  : freeTry
+                    ? `Find ${freeTry} ${freeTry === 1 ? 'phone' : 'phones'} free`
+                    : short
                     ? narrow
                       ? `Add funds to find phones (${listOpen.length.toLocaleString('en-US')})`
                       : `Add funds to ${findLabel(listOpen.length).replace('Find', 'find')}`
@@ -1230,6 +1258,13 @@ const OutreachPage: React.FC = () => {
             </span>
           )}
           {list.truncated && (list.total === undefined || list.total <= list.rowCount) && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
+        </p>
+      )}
+      {/* A list nobody has looked anyone up on yet: what's already here, and what a phone costs, so the padlocks don't read as an empty list. */}
+      {list && data && data.rows.length > 0 && untouched && (
+        <p className="border border-[#333333] bg-[#161616] px-3 py-2 text-sm text-gray-300" data-testid="fresh-note">
+          Every owner comes with their name, mailing address and property. Phone numbers are looked up when you ask: {dollars(unlockCents)} each, only when one is found
+          {freeLeft === FREE_LOOKUPS ? `, and your first ${FREE_LOOKUPS} are free` : freeLeft > 0 ? `, and you have ${freeLeft} free ${freeLeft === 1 ? 'one' : 'ones'} left` : ''}. Emails and the person behind a company are free.
         </p>
       )}
       {data && data.rows.length > 0 && (
@@ -1400,6 +1435,7 @@ const OutreachPage: React.FC = () => {
         onClose={() => setOpen(null)}
         onStatus={setContactStatus}
         onEnrich={(row, fields, question) => enrich([row.id], fields, question)}
+        freeLookups={freeLeft}
         onAddFunds={addFunds}
         onLead={(row) => void toLeads(row)}
         organizationId={organizationId}

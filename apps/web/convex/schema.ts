@@ -733,6 +733,8 @@ export default defineSchema({
     leadTrades: v.optional(v.array(v.string())),
     // The county the company's Outreach lists are of (outreach.setCounty); absent means Midland.
     outreachCounty: v.optional(v.string()),
+    // How many of the company's free Outreach phone lookups (lib/outreach.ts FREE_LOOKUPS) it has used.
+    outreachFreeUsed: v.optional(v.number()),
     // The monthly plan (Estimates, Price Book, Projects, Older leads).
     plan: v.optional(planFields),
     // Demo company added from the Lead Market; removable in one click.

@@ -1268,6 +1268,46 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
 
+  it("a new company's first phones are free: the fresh list says what is there and what phones cost, and with no balance the button finds the free ones", async () => {
+    lists = [{ ...list, rowCount: 2, total: 2 }];
+    contacts = { ...twoContacts(), balanceCents: 0, freeLookups: 5 };
+    await render('/outreach/l1');
+    // Nobody looked up yet: the note in place of a wall of padlocks with no word.
+    expect(document.body.querySelector('[data-testid="fresh-note"]')!.textContent).toBe(
+      'Every owner comes with their name, mailing address and property. Phone numbers are looked up when you ask: $1 each, only when one is found, and your first 5 are free. Emails and the person behind a company are free.',
+    );
+    // No balance, but not "Add funds": the free ones cover both owners.
+    const find = document.body.querySelector('[data-testid="find-all"]') as HTMLButtonElement;
+    expect(find.textContent).toBe('Find phones & emails (2)');
+    await act(async () => find.click());
+    expect(document.body.textContent).toContain('2 phones to find: free (2 of your 5 free lookups).');
+    await click('Find them');
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r1', 'r2'], undefined, undefined);
+
+    // One free lookup left, two owners, no balance: the button offers the one, and looks up the first owner only.
+    clearPage();
+    jest.clearAllMocks();
+    contacts = { ...twoContacts(), balanceCents: 0, freeLookups: 1 };
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="fresh-note"]')!.textContent).toContain('and you have 1 free one left.');
+    expect(document.body.querySelector('[data-testid="find-all"]')!.textContent).toBe('Find 1 phone free');
+    await act(async () => (document.body.querySelector('[data-testid="find-all"]') as HTMLButtonElement).click());
+    expect(document.body.textContent).toContain('Find a phone free?');
+    await click('Find them');
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r1'], undefined, undefined);
+    // The owner's own sheet says its lookup is free too.
+    await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[1] as HTMLElement).click());
+    await flush();
+    expect(document.body.querySelector('[data-testid="unlock-terms"]')!.textContent).toBe('Your last free lookup, used only if a phone is found. After it, $1 a phone.');
+
+    // None left and no balance: add funds, as before; and the note says only the price.
+    clearPage();
+    contacts = { ...twoContacts(), balanceCents: 0, freeLookups: 0 };
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="find-all"]')!.textContent).toBe('Add funds to find phones & emails (2)');
+    expect(document.body.querySelector('[data-testid="fresh-note"]')!.textContent).toContain('$1 each, only when one is found. Emails');
+  });
+
   it('finding phones & emails on a list with owners not loaded yet asks to load them first, or covers just the loaded ones', async () => {
     lists = [{ ...list, rowCount: 2, total: 3 }];
     contacts = { ...twoContacts(), balanceCents: 1000 };

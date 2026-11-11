@@ -1292,6 +1292,8 @@ export type OutreachContacts = {
   rows: OutreachContact[];
   coverage: Record<OutreachField, OutreachCoverage>;
   balanceCents: number;
+  /** Phones the company can still find free: its first five found are on the house. */
+  freeLookups?: number;
   unlockCents: number;
   researchCents: number;
   researchQuestion: string;

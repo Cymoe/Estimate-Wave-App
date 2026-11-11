@@ -250,6 +250,10 @@ export const OWNERS_VERSION = 7;
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
 export const UNLOCK_CENTS = 100;
+/** Every company's first phones found are free, so a new one sees a real number before paying for any. */
+export const FREE_LOOKUPS = 5;
+/** How many of them a company has left. */
+export const freeLookupsLeft = (organization: { outreachFreeUsed?: number }) => Math.max(0, FREE_LOOKUPS - (organization.outreachFreeUsed ?? 0));
 /** What a research answer costs, charged only when the AI found something worth saying. */
 export const RESEARCH_CENTS = 25;
 /** The question the research column answers unless the company asks another. */
