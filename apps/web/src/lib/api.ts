@@ -1203,7 +1203,7 @@ export const reportAPI = {
 
 // ---- Outreach ----
 
-export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'portfolio' | 'multifamily' | 'storage' | 'industrial' | 'wealthy' | 'recent_buyer' | 'absentee' | 'long_owned' | 'violation' | 'stalled' | 'contractor' | 'designer' | 'occupant' | 'realtor' | 'custom';
+export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'portfolio' | 'multifamily' | 'storage' | 'industrial' | 'wealthy' | 'recent_buyer' | 'absentee' | 'long_owned' | 'violation' | 'stalled' | 'contractor' | 'designer' | 'occupant' | 'realtor' | 'storage_seller' | 'industrial_seller' | 'custom';
 export type OutreachDefinition = {
   county: string;
   who: OutreachWho;
@@ -1411,8 +1411,11 @@ export type OutreachInterpreted =
 /** Outreach: a CRM of property owners from the county roll, pulled by lists asked for in plain words (Pro). */
 /** An owner's properties from the roll. `filed` is false while the roll read before this is still being sorted by owner. */
 export type OwnerProperties = {
-  /** `deeds`: the owners before, newest first, each with when they sold it (Midland's storage and industrial buildings). */
-  rows: Array<{ id: string; address: string; useCode: string; valueCents?: number; deedDate?: string; owner?: string; kind?: 'storage' | 'industrial'; deeds?: Array<{ seller: string; date?: string }> }>;
+  /**
+   * `deeds`: the owners before, newest first, each with when they sold it (Midland's storage and industrial buildings).
+   * `sold`: on a past owner's list, who they sold it to and when.
+   */
+  rows: Array<{ id: string; address: string; useCode: string; valueCents?: number; deedDate?: string; owner?: string; kind?: 'storage' | 'industrial'; deeds?: Array<{ seller: string; date?: string }>; sold?: { to: string; date?: string } }>;
   total: number;
   /** There are more than the list holds. */
   more: boolean;

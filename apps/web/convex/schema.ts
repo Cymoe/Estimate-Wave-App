@@ -462,6 +462,8 @@ export const outreachWho = v.union(
   v.literal("designer"),
   v.literal("occupant"),
   v.literal("realtor"),
+  v.literal("storage_seller"),
+  v.literal("industrial_seller"),
   v.literal("custom"),
 );
 
@@ -1213,7 +1215,7 @@ export default defineSchema({
     // A contractor or designer is a company on the city's permits, not an owner on the roll; its parcels are permits.
     // An occupant is a business in a space it doesn't own; its parcels are its locations.
     // A realtor is a licensed agent or broker, with no parcels at all.
-    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor")),
+    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor"), v.literal("seller")),
     name: v.string(),
     company: v.boolean(),
     mailing: v.object({
@@ -1246,6 +1248,13 @@ export default defineSchema({
     // Who they bought those buildings from, the newest purchases first, where the deed history has been read.
     storageFrom: v.optional(v.array(v.object({ name: v.string(), date: v.optional(v.string()) }))),
     industrialFrom: v.optional(v.array(v.object({ name: v.string(), date: v.optional(v.string()) }))),
+    // A seller (a past owner, from the deed history): what they sold, newest first, and how many properties they still hold here.
+    sales: v.optional(
+      v.array(
+        v.object({ kind: v.union(v.literal("storage"), v.literal("industrial")), parcelId: v.string(), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), to: v.string(), date: v.optional(v.string()) }),
+      ),
+    ),
+    holds: v.optional(v.number()),
     // A storage owner's name on the sign ("KO Storage"), when the roll's name is only the LLC behind it.
     brand: v.optional(v.string()),
     ownerOccupied: v.boolean(),

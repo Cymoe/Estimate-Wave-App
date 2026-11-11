@@ -7,7 +7,7 @@ import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
-import { FREE_LOOKUPS, AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
+import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
@@ -276,6 +276,73 @@ describe("grouping the roll into owners", () => {
     expect(matches(by["Kosf II Midland LLC"], { county: "Midland", who: "storage", minValueCents: 100_000_000 }, "storage", NOW)).toBe(false);
     expect(listOrder({ county: "Midland", who: "storage" }).label).toBe("most properties first");
     expect(listOrder({ county: "Midland", who: "industrial" }).label).toBe("most properties first");
+  });
+
+  test("past owners of storage and industrial buildings: everyone the deed history shows sold one, with what, to whom and when", () => {
+    const ko = { useCode: "F1", kind: "storage" as const, owner: "KOSF II MIDLAND LLC" };
+    const sold = new SellerGrouper().addAll([
+      // The chain eeeeeefhan asked for: an owner sold to a storage company, which sold to another, which sold to KO.
+      { ...ko, parcelId: "k1", address: "1901 W FLORIDA AV", valueCents: 34_800_000, deeds: [{ seller: "MIDLAND LOCK STORAGE LLC", date: "2022-11-15" }, { seller: "A-ALLRIGHT MINI STORAGE LLC", date: "2021-05-13" }, { seller: "HEJL W GOODRICH", date: "2015-11-30" }] },
+      { ...ko, parcelId: "k2", address: "1903 W FLORIDA AV", valueCents: 8_000_000, deeds: [{ seller: "MIDLAND LOCK STORAGE LLC", date: "2022-11-15" }] },
+      // A first row that repeats today's owner is no sale, nor is a row that repeats the one above it.
+      { parcelId: "i1", address: "500 S MIDKIFF RD", useCode: "F2", valueCents: 90_000_000, kind: "industrial" as const, owner: "GGB LEASING LP", deeds: [{ seller: "GGB LEASING LP", date: "2025-06-06" }, { seller: "HEJL W GOODRICH &", date: "2025-06-06" }, { seller: "HEJL W GOODRICH" }] },
+    ]);
+    expect(sold.size).toBe(3);
+    // Who still holds something on the roll, and where their bill goes: the address with the most parcels.
+    const roll = new OwnerGrouper(new Set()).addAll([
+      parcel("h1", { owner: "HEJL W GOODRICH &", mailing: { address: "9 OAK ST", city: "MIDLAND", state: "TX", zip: "79701" } }),
+      parcel("h2", { owner: "HEJL W GOODRICH", mailing: { address: "PO BOX 5", city: "MIDLAND", state: "TX", zip: "79702" } }),
+      parcel("h3", { owner: "HEJL W GOODRICH", mailing: { address: "PO BOX 5", city: "MIDLAND", state: "TX", zip: "79702" } }),
+    ]);
+    expect(roll.holder("Hejl W Goodrich")).toEqual({ mailing: { address: "PO BOX 5", city: "MIDLAND", state: "TX", zip: "79702" }, parcels: 3 });
+    expect(roll.holder("MIDLAND LOCK STORAGE LLC")).toBeUndefined();
+
+    const rows = sold.grouped((name) => roll.holder(name), NOW);
+    const by = Object.fromEntries(rows.map((r) => [r.owner.name, r]));
+    const ranked = (facet: string) =>
+      rows
+        .map((r) => ({ name: r.owner.name, f: r.facets.find((x) => x.facet === facet) }))
+        .filter((x) => x.f)
+        .sort((a, b) => b.f!.sort - a.f!.sort)
+        .map((x) => x.name);
+    // Newest sale first.
+    expect(ranked("storage_seller")).toEqual(["Midland Lock Storage LLC", "A-Allright Mini Storage LLC", "Hejl W Goodrich"]);
+    expect(ranked("industrial_seller")).toEqual(["Hejl W Goodrich"]);
+
+    const lock = by["Midland Lock Storage LLC"].owner;
+    expect(lock).toMatchObject({ key: "seller:MIDLAND LOCK STORAGE LLC", kind: "seller", company: true, parcels: 2, storage: 2, storageDeed: "2022-11-15", mailing: {}, totalValueCents: 42_800_000 });
+    expect(lock.holds).toBeUndefined();
+    // The buyer by the name on the sign, with the LLC behind it.
+    expect(lock.sales).toEqual([
+      { kind: "storage", parcelId: "k1", address: "1901 W FLORIDA AV", useCode: "F1", valueCents: 34_800_000, to: "KO Storage (Kosf II Midland LLC)", date: "2022-11-15" },
+      { kind: "storage", parcelId: "k2", address: "1903 W FLORIDA AV", useCode: "F1", valueCents: 8_000_000, to: "KO Storage (Kosf II Midland LLC)", date: "2022-11-15" },
+    ]);
+    expect(why(lock, "storage_seller")).toBe("Sold 2 storage properties, the newest at 1901 W Florida Av to KO Storage (Kosf II Midland LLC), Nov 2022; owns nothing in Midland County now");
+    expect(why(by["A-Allright Mini Storage LLC"].owner, "storage_seller")).toBe("Sold the storage property at 1901 W Florida Av to Midland Lock Storage LLC, May 2021; owns nothing in Midland County now");
+    // One person, a storage sale and an industrial one: on both lists, reached at the roll's address.
+    const hejl = by["Hejl W Goodrich"].owner;
+    expect(hejl).toMatchObject({ company: false, parcels: 2, storage: 1, industrial: 1, holds: 3, mailing: { address: "PO BOX 5" }, latestAt: "2025-06-06" });
+    expect(why(hejl, "storage_seller")).toBe("Sold the storage property at 1901 W Florida Av to A-Allright Mini Storage LLC, Nov 2015; still owns 3 properties in Midland County");
+    expect(why(hejl, "industrial_seller")).toBe("Sold the industrial building at 500 S Midkiff Rd to Ggb Leasing LP, Jun 2025; still owns 3 properties in Midland County");
+    expect(propertyFor(hejl, "storage_seller")).toMatchObject({ parcelId: "k1" });
+    expect(propertyFor(hejl, "industrial_seller")).toMatchObject({ parcelId: "i1" });
+
+    // "Sold in the last five years": by the newest sale of that kind; once past the window the read can stop.
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const lately = { county: "Midland", who: "storage_seller" as const, withinDays: 1826 };
+    expect(facetFor(lately)).toBe("storage_seller");
+    expect(rows.filter((r) => r.facets.some((f) => f.facet === "storage_seller") && matches(r.owner, lately, "storage_seller", NOW)).map((r) => r.owner.name)).toEqual(["Midland Lock Storage LLC"]);
+    expect(underFloor(hejl, lately, "storage_seller")).toBe(true);
+    expect(underFloor(lock, lately, "storage_seller")).toBe(false);
+    // A value floor never stops the read: the order is by date.
+    expect(underFloor(hejl, { county: "Midland", who: "storage_seller", minValueCents: 900_000_000 }, "storage_seller")).toBe(false);
+    expect(listOrder({ county: "Midland", who: "industrial_seller" }).label).toBe("newest sale first");
+    expect(defaultTitle({ county: "Midland", who: "storage_seller" })).toBe("Past storage owners, Midland");
+    expect(guessDefinition("past storage owners")?.definition).toEqual({ county: "Midland", who: "storage_seller" });
+    expect(guessDefinition("previous owners of storage units")?.definition).toEqual({ county: "Midland", who: "storage_seller" });
+    expect(guessDefinition("who sold a warehouse")?.definition).toEqual({ county: "Midland", who: "industrial_seller" });
+    // Today's owners are still today's owners.
+    expect(guessDefinition("storage unit owners")?.definition).toEqual({ county: "Midland", who: "storage" });
   });
 
   test("the words alone pick a list while the assistant is away; a stretch is no guess at all", () => {

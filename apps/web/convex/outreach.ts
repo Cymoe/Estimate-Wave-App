@@ -45,6 +45,7 @@ import {
   occupantsOn,
   type CondensedOccupant,
   type CondensedRealtor,
+  type CondensedSold,
   facetFor,
   facetsOf,
   familyKey,
@@ -256,10 +257,29 @@ export const storageOutletPage = internalQuery({
   },
 });
 
+/**
+ * One page of the county's storage or industrial parcels whose deed history names an owner before: what the
+ * past-owner rows are built from (lib/outreach.ts SellerGrouper).
+ */
+export const soldPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()), kind: v.union(v.literal("storage"), v.literal("industrial")) },
+  handler: async (ctx, { cursor, county = COUNTY, kind }) => {
+    const page = await ctx.db
+      .query("parcels")
+      .withIndex("by_county_and_kind", (q) => q.eq("county", county).eq("kind", kind))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedSold[] = page.page
+      .filter((p) => p.deeds?.length)
+      .map((p) => ({ parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, kind, owner: p.owner, deeds: p.deeds!.map((d) => ({ seller: d.seller, date: d.date })) }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
 const boughtFrom = v.object({ name: v.string(), date: v.optional(v.string()) });
+const sale = v.object({ kind: v.union(v.literal("storage"), v.literal("industrial")), parcelId: v.string(), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), to: v.string(), date: v.optional(v.string()) });
 const ownerRow = v.object({
   key: v.string(),
-  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor")),
+  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor"), v.literal("seller")),
   name: v.string(),
   company: v.boolean(),
   mailing: v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) }),
@@ -283,6 +303,8 @@ const ownerRow = v.object({
   industrialRecent: v.optional(v.number()),
   storageFrom: v.optional(v.array(boughtFrom)),
   industrialFrom: v.optional(v.array(boughtFrom)),
+  sales: v.optional(v.array(sale)),
+  holds: v.optional(v.number()),
   brand: v.optional(v.string()),
   ownerOccupied: v.boolean(),
   outOfState: v.boolean(),
@@ -310,8 +332,8 @@ const OWNER_KEYS = [
 ] as const;
 const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
-  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources, a.license, a.storageFrom, a.industrialFrom]) ===
-    JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources, b.license, b.storageFrom, b.industrialFrom]);
+  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources, a.license, a.storageFrom, a.industrialFrom, a.sales, a.holds]) ===
+    JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources, b.license, b.storageFrom, b.industrialFrom, b.sales, b.holds]);
 
 /**
  * An owner's facet rows made to match `facets`, stamped with this build.
@@ -1505,7 +1527,13 @@ export const properties = query({
     const county = knownCounty(await countyOfOwner(ctx, c));
     const office = c.key.startsWith("office:");
     // A company on the city's permits, a tenant or a licensed agent has a key of its own kind, and no parcels under it.
-    const onRoll = !/^(contractor|designer|occupant|realtor):/.test(c.key);
+    const onRoll = !/^(contractor|designer|occupant|realtor|seller):/.test(c.key);
+    // A past owner: what they sold, from their row (the parcels are someone else's now).
+    if (c.key.startsWith("seller:")) {
+      const o = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", county).eq("key", c.key)).first();
+      const rows = (o?.sales ?? []).map((s) => ({ id: `${s.parcelId}:${s.date ?? ""}`, address: tidyCase(s.address) ?? s.address, useCode: s.useCode, valueCents: s.valueCents, kind: s.kind, sold: { to: s.to, date: s.date } }));
+      return { rows, total: Math.max(c.properties, rows.length), more: c.properties > rows.length, city: cityOf(county), filed: true, sold: true };
+    }
     const read = !onRoll
       ? []
       : office

@@ -6,7 +6,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { AddressCounter, ContractorGrouper, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, RealtorGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type CondensedRealtor, type GroupedRow, type Property, ownersSource } from "./lib/outreach";
+import { AddressCounter, ContractorGrouper, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, RealtorGrouper, SellerGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type CondensedRealtor, type CondensedSold, type GroupedRow, type Property, ownersSource } from "./lib/outreach";
 import { COUNTY_ROLLS, MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
@@ -73,6 +73,11 @@ async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.co
     await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.occupantPage, { since: arrivals, cursor, county }), occupants);
     await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.outletPage, { since: arrivals, cursor, county }), occupants);
     const tenants = await occupants.grouped(parcelsAt(ctx, county));
+    // The owners before, of storage and industrial buildings whose deed history has been read: rows of their own, reached
+    // at the roll's address when they still hold something here.
+    const sold = new SellerGrouper();
+    for (const kind of ["storage", "industrial"] as const) await readAll<CondensedSold>((cursor) => ctx.runQuery(internal.outreach.soldPage, { cursor, county, kind }), sold);
+    const sellers = sold.grouped((name) => grouper.holder(name));
     // The agents and brokers licensed here, with their brokerages: rows with no property at all.
     const realtors = new RealtorGrouper();
     await readAll<CondensedRealtor>((cursor) => ctx.runQuery(internal.outreach.realtorPage, { cursor, county }), realtors);
@@ -97,6 +102,7 @@ async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.co
       yield* grouper.rows(Date.now());
       yield* contractors;
       yield* tenants;
+      yield* sellers;
       yield* realtors.grouped(Date.now());
     };
     for (const row of all()) {

@@ -559,7 +559,7 @@ describe('the Outreach page', () => {
     await render();
     const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
     const cards = Array.from(empty.querySelectorAll('[data-testid="starter-list"]'));
-    expect(cards).toHaveLength(21);
+    expect(cards).toHaveLength(23);
     expect(cards[1].textContent).toBe('Shopping center ownersOwners of commercial buildings, biggest holdings first');
     // A card opens the sheet straight to that list's count and first look.
     await act(async () => (cards[1] as HTMLButtonElement).click());
@@ -608,7 +608,7 @@ describe('the Outreach page', () => {
       ['Taylor County, TX (Abilene)Coming soon', 'true'],
     ]);
     await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
-    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(21);
+    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(23);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     clearPage();
@@ -810,7 +810,7 @@ describe('the Outreach page', () => {
     const headings = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button[aria-expanded]')).map((b) => [b.textContent, b.getAttribute('aria-expanded')]);
     expect(headings()).toEqual([
       ['Commercial and investors6 lists', 'false'],
-      ['Storage and industrial4 lists', 'false'],
+      ['Storage and industrial6 lists', 'false'],
       ['Homeowners7 lists', 'false'],
       ['People who bring work4 lists', 'false'],
     ]);
@@ -818,9 +818,9 @@ describe('the Outreach page', () => {
     expect(chips()).toEqual([]);
     await click('Commercial and investors');
     expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'New businesses moving in', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
-    // Storage and industrial, each with its owners and who has been buying.
+    // Storage and industrial, each with its owners, who has been buying, and who sold.
     await click('Storage and industrial');
-    expect(chips()).toEqual([['Storage and industrial', 'Storage facility owners', 'Storage buyers, last 5 years', 'Industrial building owners', 'Industrial buyers, last 5 years']]);
+    expect(chips()).toEqual([['Storage and industrial', 'Storage facility owners', 'Storage buyers, last 5 years', 'Industrial building owners', 'Industrial buyers, last 5 years', 'Past storage owners', 'Past industrial owners']]);
     await click('Homeowners');
     expect(chips()).toEqual([['Homeowners', 'Code violations', 'Stalled permits', 'Landlords with 3+ rental homes', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
     await click('People who bring work');
@@ -2337,6 +2337,49 @@ describe('the Outreach page', () => {
       'Before that, Propetro Services INC, who sold May 2022',
       'Before that, Black Family Partnership LTD',
     ]);
+  });
+
+  it("a past owner's sheet says what they sold, to whom and when", async () => {
+    lists = [list];
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', {
+          key: 'seller:MIDLAND LOCK STORAGE LLC',
+          name: 'Midland Lock Storage LLC',
+          kinds: ['storage_seller'],
+          properties: 2,
+          property: { parcelId: 'p1', address: '1901 W Florida Av', useCode: 'F1', valueCents: 34_800_000 },
+          why: 'Sold 2 storage properties, the newest at 1901 W Florida Av to KO Storage (Kosf II Midland LLC), Nov 2022; owns nothing in Midland County now',
+        }),
+        contact('r2', { name: 'Oak Plaza LLC' }),
+      ],
+    };
+    ownerProperties = {
+      rows: [
+        { id: 'p1:2022-11-15', address: '1901 W Florida Av', useCode: 'F1', kind: 'storage', valueCents: 34_800_000, sold: { to: 'KO Storage (Kosf II Midland LLC)', date: '2022-11-15' } },
+        { id: 'p2:', address: '1903 W Florida Av', useCode: 'F1', kind: 'storage', sold: { to: 'KO Storage (Kosf II Midland LLC)' } },
+      ],
+      total: 2,
+      more: false,
+      city: 'Midland',
+      filed: true,
+      sold: true,
+    };
+    await render('/outreach/l1');
+    const row = document.body.querySelector('[data-testid="contact-row"]') as HTMLElement;
+    // The table says what kind of row it is, and search finds a past owner by who they sold to.
+    expect(row.textContent).toContain('Sold storage');
+    await act(async () => row.click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    // The property on their row is one they sold, not one they hold.
+    expect(dialog.textContent).toContain('Sold');
+    expect(dialog.textContent).toContain('Worth $348K today · sold 2 in all');
+    const showAll = dialog.querySelector('[data-testid="all-properties"]') as HTMLButtonElement;
+    expect(showAll.textContent).toContain('Show all 2 they sold');
+    await act(async () => showAll.click());
+    await flush();
+    expect(Array.from(dialog.querySelectorAll('[data-testid="sold-to"]')).map((d) => d.textContent)).toEqual(['Sold to KO Storage (Kosf II Midland LLC), Nov 2022', 'Sold to KO Storage (Kosf II Midland LLC)']);
   });
 
   it("an owner's sheet lists everything they hold, read from the roll when asked for", async () => {

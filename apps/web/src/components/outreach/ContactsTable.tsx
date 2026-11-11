@@ -31,6 +31,8 @@ const KIND: Record<OutreachWho, string> = {
   designer: 'Architect',
   occupant: 'Tenant',
   realtor: 'Realtor',
+  storage_seller: 'Sold storage',
+  industrial_seller: 'Sold industrial',
   custom: 'Custom',
 };
 const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };
@@ -295,8 +297,15 @@ function useDrawn<T>(rows: T[]) {
   return { drawn: more ? rows.slice(0, count) : rows, tail };
 }
 
-/** "8 properties · $4.2M", or one property's value: what an owner holds, in a few words. */
-const holding = (r: OutreachContact) => (r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : '');
+/** "8 properties · $4.2M", or one property's value: what an owner holds, in a few words. A past owner holds none of it: "Sold 2". */
+const holding = (r: OutreachContact) =>
+  r.key.startsWith('seller:')
+    ? `Sold ${r.properties > 1 ? r.properties : 'one'}`
+    : r.properties > 1
+      ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}`
+      : r.property?.valueCents
+        ? shortMoney(r.property.valueCents)
+        : '';
 
 /** The name stays put while the other columns scroll under it. */
 const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
@@ -1175,6 +1184,8 @@ export const ContactSheet: React.FC<{
   const deeds = deedSearch(row.name, knownCounty(county));
   const mailing = row.mailing.address ? fullAddress(tidyCase(row.mailing.address), tidyCase(row.mailing.city), row.mailing.state, row.mailing.zip?.slice(0, 5)) : undefined;
   const realtor = row.kinds.includes('realtor');
+  // A past owner, from the deed history: the property on their row is one they sold.
+  const seller = row.key.startsWith('seller:');
   const link = 'inline-flex items-center gap-2 text-[15px] text-[#7fb0e0] min-h-[44px]';
   const label = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
   const primary = 'inline-flex items-center gap-2 px-4 min-h-[44px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';
@@ -1433,22 +1444,26 @@ export const ContactSheet: React.FC<{
                 <MapPin className="w-4 h-4 shrink-0" /> {mailing}
               </AddressLink>
             ) : (
-              <p className="text-sm text-gray-500">{realtor ? 'The state withholds addresses for license holders; reach them through the brokerage or the lookups.' : 'No mailing address on the roll.'}</p>
+              <p className="text-sm text-gray-500">{realtor
+                  ? 'The state withholds addresses for license holders; reach them through the brokerage or the lookups.'
+                  : seller
+                    ? 'They own nothing on the county roll now, so it has no address for them. The lookups work from the name.'
+                    : 'No mailing address on the roll.'}</p>
             )}
           </div>
           {row.property && property ? (
             <div className="py-3">
-              <div className={label}>Property</div>
+              <div className={label}>{seller ? 'Sold' : 'Property'}</div>
               <AddressLink address={property} className={link}>
                 <MapPin className="w-4 h-4 shrink-0" /> {tidyCase(row.property.address)}
               </AddressLink>
               <div className="text-sm text-gray-400">
-                {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}
-                {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
+                {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}${seller ? ' today' : ''}` : ''}
+                {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${seller ? `sold ${row.properties} in all` : `${row.properties} properties, ${shortMoney(row.totalValueCents)} in all`}` : ''}
               </div>
               {/* A storage or industrial owner's one property is worth opening too: the list is where its earlier owners are. */}
-              {organizationId && (row.properties > 1 || row.kinds.some((k) => k === 'storage' || k === 'industrial')) && (
-                <OwnerPropertiesList key={row.id} organizationId={organizationId} contactId={row.id} count={row.properties} />
+              {organizationId && (row.properties > 1 || (!seller && row.kinds.some((k) => k === 'storage' || k === 'industrial'))) && (
+                <OwnerPropertiesList key={row.id} organizationId={organizationId} contactId={row.id} count={row.properties} sold={seller} />
               )}
               {deeds && (
                 <a href={deeds.url} target="_blank" rel="noreferrer" className="flex w-fit items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
@@ -1544,7 +1559,7 @@ const wordForUse = (code: string) => (isCommercialUse(code) ? 'Commercial' : isM
  * Everything an owner holds, in their sheet: their row carries only the most valuable property, so the rest are read
  * from the roll when asked for. Each address opens in Maps.
  */
-const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string; count: number }> = ({ organizationId, contactId, count }) => {
+const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string; count: number; sold?: boolean }> = ({ organizationId, contactId, count, sold }) => {
   const [list, setList] = useState<OwnerProperties | null>(null);
   const [shown, setShown] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1568,7 +1583,7 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
   if (!shown) {
     return (
       <button type="button" onClick={() => void show()} className={button} data-testid="all-properties">
-        <ChevronRight className="w-4 h-4 shrink-0" /> {count > 1 ? `Show all ${count} properties` : 'Show who owned it before'}
+        <ChevronRight className="w-4 h-4 shrink-0" /> {sold ? `Show all ${count} they sold` : count > 1 ? `Show all ${count} properties` : 'Show who owned it before'}
       </button>
     );
   }
@@ -1600,6 +1615,12 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
                   {p.kind ? KIND[p.kind] : wordForUse(p.useCode)}
                   {p.owner ? ` · ${p.owner}` : ''}
                 </div>
+                {p.sold && (
+                  <div className="pt-1 text-xs text-gray-400 break-words" data-testid="sold-to">
+                    Sold to <span className="text-gray-200">{p.sold.to}</span>
+                    {p.sold.date ? `, ${monthYear(p.sold.date)}` : ''}
+                  </div>
+                )}
                 {/* Who owned it before, newest first: the first one sold it to this owner. */}
                 {p.deeds && p.deeds.length > 0 && (
                   <div className="pt-1 text-xs text-gray-400" data-testid="owners-before">
@@ -1620,7 +1641,11 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
       )}
       {list && list.filed && left > 0 && (
         <p className="text-xs text-gray-500 pt-2">
-          {list.more ? `The ${list.rows.length} most valuable are listed; ${left} more aren\u2019t shown.` : `${left} more ${left === 1 ? 'isn\u2019t' : 'aren\u2019t'} on the roll we read (land, or sold since).`}
+          {sold
+            ? `The ${list.rows.length} newest are listed; ${left} more ${left === 1 ? 'isn\u2019t' : 'aren\u2019t'} shown.`
+            : list.more
+              ? `The ${list.rows.length} most valuable are listed; ${left} more aren\u2019t shown.`
+              : `${left} more ${left === 1 ? 'isn\u2019t' : 'aren\u2019t'} on the roll we read (land, or sold since).`}
         </p>
       )}
     </div>
