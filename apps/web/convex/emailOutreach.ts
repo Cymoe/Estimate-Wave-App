@@ -203,34 +203,47 @@ export const setDailyCap = mutation({
 
 type Pick = { contact: Doc<"outreachContacts">; to: string; sample: boolean };
 
-/** Which of these owners can be emailed now, and why the others can't. */
+/** Which of these owners can be emailed now, and why the others can't: how many for each reason, and who. */
 async function sortOut(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">, contactIds: Id<"outreachContacts">[]) {
   const picks: Pick[] = [];
   const skipped: Partial<Record<NotEmailed, number>> = {};
-  const skip = (why: NotEmailed) => (skipped[why] = (skipped[why] ?? 0) + 1);
+  const who: Partial<Record<NotEmailed, LeftOut[]>> = {};
+  const skip = (why: NotEmailed, contact: Doc<"outreachContacts">, note?: string) => {
+    skipped[why] = (skipped[why] ?? 0) + 1;
+    (who[why] ??= []).push({ id: contact._id, name: contact.name, ...(note ? { note } : {}) });
+  };
   for (const id of new Set(contactIds)) {
     const contact = await ctx.db.get(id);
     if (!contact || contact.organizationId !== organizationId) continue;
     const to = addressFor(contact.emails);
     const state = contact.email?.state;
-    if (state === "opted_out") skip("opted_out");
-    else if (state === "emailed" || state === "replied") skip("emailed");
-    else if (state === "scheduled") skip("in_progress");
-    else if (!to) skip((contact.emails ?? []).length > 0 ? "bad_email" : "no_email");
-    else if (await optedOut(ctx, organizationId, to)) skip("opted_out");
+    if (state === "opted_out") skip("opted_out", contact);
+    else if (state === "emailed" || state === "replied") skip("emailed", contact, state === "replied" ? "replied" : undefined);
+    else if (state === "scheduled") skip("in_progress", contact);
+    else if (!to) {
+      const emails = contact.emails ?? [];
+      if (emails.length === 0) skip("no_email", contact);
+      else skip("bad_email", contact, emails.map((e) => `${e.email}: ${e.nameMatch === false ? "belongs to someone else" : "failed the check"}`).join(", "));
+    } else if (await optedOut(ctx, organizationId, to)) skip("opted_out", contact);
     else picks.push({ contact, to, sample: isSampleRun(contact) || Boolean(cellFor(cellsOf(contact), "email").simulated) || isSampleAddress(to) });
   }
-  return { picks, skipped };
+  return { picks, skipped, who };
 }
-const skippedText = (skipped: Partial<Record<NotEmailed, number>>) => (Object.entries(skipped) as Array<[NotEmailed, number]>).map(([why, n]) => NOT_EMAILED_TEXT[why](n));
 
-/** Before "Email these": how many of these owners can be emailed, and why the rest can't. */
+type LeftOut = { id: Id<"outreachContacts">; name: string; note?: string };
+const skippedText = (skipped: Partial<Record<NotEmailed, number>>) => (Object.entries(skipped) as Array<[NotEmailed, number]>).map(([why, n]) => NOT_EMAILED_TEXT[why](n));
+/** Each reason with the owners it covers, in the order they came up; at most LEFT_NAMES names a reason. */
+const LEFT_NAMES = 200;
+const leftOut = (skipped: Partial<Record<NotEmailed, number>>, who: Partial<Record<NotEmailed, LeftOut[]>>) =>
+  (Object.entries(skipped) as Array<[NotEmailed, number]>).map(([why, n]) => ({ why: NOT_EMAILED_TEXT[why](n), count: n, owners: (who[why] ?? []).slice(0, LEFT_NAMES) }));
+
+/** Before "Email these": how many of these owners can be emailed, and why the rest can't, naming them. */
 export const check = query({
   args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")) },
   handler: async (ctx, { organizationId, contactIds }) => {
     await requirePro(ctx, organizationId);
-    const { picks, skipped } = await sortOut(ctx, organizationId, contactIds.slice(0, 1000));
-    return { count: picks.length, sample: picks.filter((p) => p.sample).length, skipped: skippedText(skipped) };
+    const { picks, skipped, who } = await sortOut(ctx, organizationId, contactIds.slice(0, 1000));
+    return { count: picks.length, sample: picks.filter((p) => p.sample).length, skipped: skippedText(skipped), left: leftOut(skipped, who) };
   },
 });
 

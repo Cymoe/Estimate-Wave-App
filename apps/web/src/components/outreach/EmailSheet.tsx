@@ -2,14 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Mail, X } from 'lucide-react';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { useConfirm } from '../common/ConfirmDialog';
-import { emailAPI, type CampaignEmail, type EmailCampaign, type MailboxInfo } from '../../lib/api';
+import { emailAPI, type CampaignEmail, type EmailCampaign, type EmailLeftOut, type MailboxInfo } from '../../lib/api';
 import { connectGmail } from '../../lib/gmailConnect';
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : "That didn't work");
 /** "Tue 2:10 PM" in Central time, as the sender plans it. */
 const when = (ms: number) => new Date(ms).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' });
 
-type Checked = { count: number; sample: number; skipped: string[] };
+type Checked = { count: number; sample: number; skipped: string[]; left?: EmailLeftOut[] };
 
 /**
  * "Email these": the owners on the page who can be emailed, a short first
@@ -122,12 +122,20 @@ export const EmailSheet: React.FC<{
               <p className="text-lg font-semibold text-white">
                 {checked.count === 0 ? 'Nobody here can be emailed yet' : `${checked.count} ${checked.count === 1 ? 'owner' : 'owners'} can be emailed`}
               </p>
-              {checked.skipped.length > 0 && (
-                <ul className="text-sm text-gray-400 list-disc pl-5">
-                  {checked.skipped.map((s) => (
-                    <li key={s}>{s}</li>
+              {checked.left && checked.left.length > 0 ? (
+                <ul className="text-sm text-gray-400 space-y-1" data-testid="left-out">
+                  {checked.left.map((g) => (
+                    <LeftOutGroup key={g.why} group={g} />
                   ))}
                 </ul>
+              ) : (
+                checked.skipped.length > 0 && (
+                  <ul className="text-sm text-gray-400 list-disc pl-5">
+                    {checked.skipped.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                )
               )}
               {checked.sample > 0 && <p className="text-sm text-gray-500">{checked.sample} have sample addresses: their emails go through the steps but aren&apos;t really sent.</p>}
               {checked.count > 0 && (
@@ -255,5 +263,35 @@ const Field: React.FC<{ email: CampaignEmail; part: 'subject' | 'body'; label?: 
         <textarea value={value} disabled={!editable} onChange={(e) => setValue(e.target.value)} onBlur={save} aria-label={label ?? 'Email'} rows={Math.min(18, Math.max(4, value.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 58)), 0) + 1))} className={`${look} py-2 text-base md:text-sm leading-relaxed`} />
       )}
     </label>
+  );
+};
+
+/** One reason owners were left out ("2 asked not to be emailed"), and a tap shows who. */
+const LeftOutGroup: React.FC<{ group: EmailLeftOut }> = ({ group }) => {
+  const [open, setOpen] = useState(false);
+  const shown = group.owners.length;
+  return (
+    <li data-testid="left-out-group">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span>{group.why}</span>
+        {shown > 0 && (
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="inline-flex items-center gap-1 text-[#7fb0e0] hover:text-white">
+            {open ? 'Hide' : 'Show who'}
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+          </button>
+        )}
+      </div>
+      {open && (
+        <ul className="mt-1.5 mb-2 border-l border-[#333333] pl-3 space-y-1" data-testid="left-out-owners">
+          {group.owners.map((o) => (
+            <li key={o.id} className="min-w-0">
+              <span className="text-gray-200">{o.name}</span>
+              {o.note && <span className="block text-xs text-gray-500 break-all">{o.note}</span>}
+            </li>
+          ))}
+          {group.count > shown && <li className="text-xs text-gray-500">and {(group.count - shown).toLocaleString('en-US')} more</li>}
+        </ul>
+      )}
+    </li>
   );
 };

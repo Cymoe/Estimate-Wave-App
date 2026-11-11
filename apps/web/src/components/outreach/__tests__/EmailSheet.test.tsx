@@ -71,6 +71,37 @@ afterEach(() => {
 });
 
 describe('emailing owners', () => {
+  it('says who was left out and why, a tap away under each reason', async () => {
+    mailbox = connected;
+    api.check.mockResolvedValueOnce({
+      count: 1,
+      sample: 0,
+      skipped: ['1 has no email yet: find phones & emails first', '2 have only an address that failed the check or belongs to someone else'],
+      left: [
+        { why: '1 has no email yet: find phones & emails first', count: 1, owners: [{ id: 'r2', name: 'City Of Midland' }] },
+        {
+          why: '2 have only an address that failed the check or belongs to someone else',
+          count: 3,
+          owners: [
+            { id: 'r3', name: 'Garcia Maria', note: 'maria@x.com: belongs to someone else' },
+            { id: 'r4', name: 'Oak Plaza LLC', note: 'info@oak.com: failed the check' },
+          ],
+        },
+      ],
+    } as never);
+    await show(<EmailSheet open organizationId="o1" contactIds={['r1', 'r2', 'r3', 'r4']} returnTo="/outreach/l1?email=1" onClose={jest.fn()} onScheduled={jest.fn()} />);
+    const groups = Array.from(document.body.querySelectorAll('[data-testid="left-out-group"]'));
+    expect(groups.map((g) => g.firstElementChild!.firstElementChild!.textContent)).toEqual(['1 has no email yet: find phones & emails first', '2 have only an address that failed the check or belongs to someone else']);
+    // Folded until asked.
+    expect(document.body.querySelector('[data-testid="left-out-owners"]')).toBeNull();
+    const show2 = groups[1].querySelector('button')!;
+    expect(show2.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => show2.click());
+    const names = groups[1].querySelector('[data-testid="left-out-owners"]')!;
+    expect(Array.from(names.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['Garcia Mariamaria@x.com: belongs to someone else', 'Oak Plaza LLCinfo@oak.com: failed the check', 'and 1 more']);
+    expect(show2.textContent).toBe('Hide');
+  });
+
   it('counts who can be emailed, writes drafts, shows them as they land, edits, and approves with the schedule said first', async () => {
     mailbox = connected;
     const scheduled = jest.fn();

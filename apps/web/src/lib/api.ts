@@ -1232,6 +1232,8 @@ export type OutreachPhoneType = 'mobile' | 'landline' | 'voip' | 'unknown';
 export type OutreachPhoneLine = 'personal' | 'work';
 /** line: personal or work, from the source and the carrier; litigator: the subscriber is a known TCPA litigator; grade: the checker's A to F for reaching someone on the line. */
 export type OutreachPhone = { number: string; type: OutreachPhoneType; line?: OutreachPhoneLine; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string; litigator?: boolean; grade?: string };
+/** A reason some owners can't be emailed ("2 asked not to be emailed"), and who they are; note says more, like which address failed. */
+export type EmailLeftOut = { why: string; count: number; owners: Array<{ id: string; name: string; note?: string }> };
 /** nameMatch: whether the address belongs to the named person, by the contact check; grade: its A to F. */
 export type OutreachEmail = { email: string; source: string; verified?: boolean; nameMatch?: boolean; grade?: string };
 /** confirmedBy: other free sources that named the same person. */
@@ -1453,7 +1455,7 @@ export const emailAPI = {
   connect: (organizationId: string, returnTo: string): Promise<string> => run('mutation', api.emailOutreach.connectGmail, { organizationId, returnTo }),
   disconnect: (organizationId: string): Promise<null> => run('mutation', api.emailOutreach.disconnect, { organizationId }),
   setDailyCap: (organizationId: string, dailyCap: number): Promise<null> => run('mutation', api.emailOutreach.setDailyCap, { organizationId, dailyCap }),
-  check: (organizationId: string, contactIds: string[]): Promise<{ count: number; sample: number; skipped: string[] }> => run('query', api.emailOutreach.check, { organizationId, contactIds }),
+  check: (organizationId: string, contactIds: string[]): Promise<{ count: number; sample: number; skipped: string[]; left?: EmailLeftOut[] }> => run('query', api.emailOutreach.check, { organizationId, contactIds }),
   start: (organizationId: string, contactIds: string[], followUps: boolean): Promise<{ campaignId: string | null; count: number; skipped: string[]; more: number }> =>
     run('mutation', api.emailOutreach.start, { organizationId, contactIds, followUps }),
   watchCampaign: (organizationId: string, campaignId: string, onUpdate: (c: EmailCampaign) => void, onError?: (e: APIError) => void) =>
