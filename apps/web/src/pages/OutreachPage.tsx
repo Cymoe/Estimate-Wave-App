@@ -208,11 +208,11 @@ const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; on
             e.currentTarget.blur();
           }
         }}
-        placeholder={open ? 'Search name or street' : ''}
+        placeholder={open ? 'Search owner, person or street' : ''}
         aria-label="Search"
         tabIndex={open ? 0 : -1}
         className={`${alwaysOpen ? 'h-10' : 'h-9'} appearance-none rounded-none border border-[#333333] bg-[#1A1A1A] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] transition-[width] duration-200 ${
-          open ? 'w-full md:w-56 pl-8 pr-3' : 'w-9 p-0 opacity-0'
+          open ? 'w-full md:w-72 pl-8 pr-3' : 'w-9 p-0 opacity-0'
         }`}
       />
       {/* Closed, it's a button like the view switch beside it; a tap focuses the box at once, so the keyboard comes up with it. */}
@@ -410,8 +410,6 @@ const OutreachPage: React.FC = () => {
   };
   // Cards on a phone, the table on anything wider, unless they picked one; the pick is remembered on this device.
   const narrow = useMediaQuery('(max-width: 767px)');
-  /** A tablet, or a laptop window as narrow as one. */
-  const tablet = useMediaQuery('(max-width: 1279px)');
   // On a phone the two buttons share the row, so their words may wrap to a second line.
   const wrapOnPhone = narrow ? 'flex-1 min-w-0 !shrink justify-center !whitespace-normal text-center leading-tight py-2 !h-auto min-h-[44px]' : '';
   const [picked, setPicked] = useState<'cards' | 'table' | null>(() => {
@@ -1538,12 +1536,12 @@ const OutreachPage: React.FC = () => {
       {data && data.rows.length > 0 && (
         <div
           ref={filterBar}
-          className="max-md:order-first flex flex-col md:flex-row md:items-center md:gap-2 border-b border-[#333333] sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black"
+          className="max-md:order-first flex flex-col border-b border-[#333333] sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black"
           role="group"
           aria-label="Filters"
           data-testid="filter-bar"
         >
-          {/* Search and status come first, on the left where the eye starts, then the tabs. On a phone this is the line above the tabs: the list, search and a filter menu. */}
+          {/* Two lines on every screen: search and status on the first, on the left where the eye starts; the tabs have the second to themselves. On a phone the first line is the list, search and a filter menu. */}
           {narrow ? (
             <div className="flex w-full items-center gap-2 py-1.5">
               {lists && lists.length > 0 && !searching && (
@@ -1570,9 +1568,9 @@ const OutreachPage: React.FC = () => {
               </PopMenu>
             </div>
           ) : (
-          <div className="flex w-full md:w-auto shrink-0 items-center gap-1 py-1.5 md:pr-2 md:mr-1 md:border-r md:border-[#333333]">
-            {/* On a tablet an open box leaves no room for the last tabs ("Mail only"), so there it folds to its icon, as on a phone. */}
-            <SearchBox value={query} onChange={setQuery} alwaysOpen={!tablet} />
+          <div className="flex w-full shrink-0 items-center gap-1 pt-2 pb-1" data-testid="filter-controls">
+            {/* With a line of its own the box is always open, wide enough to say what it finds. */}
+            <SearchBox value={query} onChange={setQuery} alwaysOpen />
             <TextMenu label="Status" text={<>Status: {status === 'all' ? 'All' : STATUS_LABEL[status]}</>} active={status !== 'all'}>
               {(close) =>
                 (['all', ...STATUS_FILTERS, ...OLD_STATUSES.filter((x) => status === x || data.rows.some((r) => r.status === x))] as Array<OutreachRowStatus | 'all'>).map((x) => (

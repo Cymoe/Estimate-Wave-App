@@ -702,6 +702,12 @@ describe('the Outreach page', () => {
     // Search and status come first, on the left where the eye starts; the tabs follow.
     const order = Array.from(filters.querySelectorAll('input[aria-label="Search"], button[aria-label="Status"], button[aria-pressed]')).map((el) => el.getAttribute('aria-label') ?? 'tab');
     expect(order.slice(0, 3)).toEqual(['Search', 'Status', 'tab']);
+    // They have a line of their own; the tabs have the next one to themselves.
+    const controls = filters.querySelector('[data-testid="filter-controls"]')!;
+    expect(controls.querySelector('button[aria-pressed]')).toBeNull();
+    expect(controls.nextElementSibling!.querySelectorAll('button[aria-pressed]').length).toBeGreaterThan(0);
+    expect(filters.className).toContain('flex-col');
+    expect(filters.className).not.toContain('flex-row');
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -723,7 +729,7 @@ describe('the Outreach page', () => {
     await act(async () => (filters.querySelector('button[aria-pressed]') as HTMLButtonElement).click());
     // On a wide screen search is a box you can see, saying what it finds; no icon to tap first.
     const search = document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement;
-    expect(search.placeholder).toBe('Search name or street');
+    expect(search.placeholder).toBe('Search owner, person or street');
     expect(document.body.querySelector('button[aria-label="Open search"]')).toBeNull();
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'elm'));
     expect(names()).toEqual(['Vance Robert & Linda']);
