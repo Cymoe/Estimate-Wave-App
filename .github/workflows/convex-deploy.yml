@@ -140,6 +140,20 @@ jobs:
       - name: Set up Convex Auth
         run: node scripts/convex-setup-auth.mjs
 
+      - name: Make the key that seals connected Gmail accounts, once
+        # Only when it's missing: a new key would lock out every Gmail already
+        # connected. The value is made here and never printed.
+        run: |
+          names=$(npx convex env list | cut -d= -f1)
+          if ! grep -qx MAILBOX_KEY <<<"$names"; then
+            key=$(openssl rand -base64 32)
+            echo "::add-mask::$key"
+            npx convex env set MAILBOX_KEY "$key" >/dev/null
+            echo "MAILBOX_KEY made"
+          else
+            echo "MAILBOX_KEY already there"
+          fi
+
       - name: Load shared catalog
         run: npx convex run seed:catalog
 
