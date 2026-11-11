@@ -2286,6 +2286,59 @@ describe('the Outreach page', () => {
     expect(noted).toEqual(['Ortega Rentals LLC', 'Caddo Plaza LLC']);
   });
 
+  it("a storage owner's sheet shows who owned each property before, even when they hold one", async () => {
+    lists = [list];
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', { name: 'Kosf III Midland LLC', brand: 'KO Storage', kinds: ['storage'], why: 'KO Storage · Storage property worth $1.2M; bought Feb 2024 from LS Storage LLC' }),
+        contact('r2', { name: 'Oak Plaza LLC' }),
+      ],
+    };
+    getProperties.mockClear();
+    await render('/outreach/l1');
+    const owners = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"]'));
+    const dialog = () => document.body.querySelector('[role="dialog"]')!;
+    const showAll = () => dialog().querySelector('[data-testid="all-properties"]') as HTMLButtonElement | null;
+
+    // A plain commercial owner with one property has nothing more to open.
+    await act(async () => (owners()[1] as HTMLElement).click());
+    expect(showAll()).toBeNull();
+    await act(async () => (dialog().querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
+    await flush();
+
+    // The storage owner's one property opens to the owners before it, newest first.
+    ownerProperties = {
+      rows: [
+        {
+          id: 'p1',
+          address: '4500 W Wall St',
+          useCode: 'F1',
+          kind: 'storage',
+          valueCents: 120_000_000,
+          deeds: [{ seller: 'LS Storage LLC', date: '2024-02-16' }, { seller: 'Propetro Services INC', date: '2022-05-24' }, { seller: 'Black Family Partnership LTD' }],
+        },
+      ],
+      total: 1,
+      more: false,
+      city: 'Midland',
+      filed: true,
+    };
+    await act(async () => (owners()[0] as HTMLElement).click());
+    expect(showAll()!.textContent).toContain('Show who owned it before');
+    await act(async () => showAll()!.click());
+    await flush();
+    expect(getProperties).toHaveBeenLastCalledWith('o1', 'r1');
+    const item = dialog().querySelector('[data-testid="property-list"] li')!;
+    // Storage, not just "Commercial".
+    expect(item.textContent).toContain('Storage');
+    expect(Array.from(item.querySelector('[data-testid="owners-before"]')!.children).map((c) => c.textContent)).toEqual([
+      'Bought from LS Storage LLC, Feb 2024',
+      'Before that, Propetro Services INC, who sold May 2022',
+      'Before that, Black Family Partnership LTD',
+    ]);
+  });
+
   it("an owner's sheet lists everything they hold, read from the roll when asked for", async () => {
     lists = [list];
     contacts = { ...twoContacts(), rows: peopleRows(), coverage: coverage(2, 1, 4, 7) };

@@ -13,7 +13,7 @@ export const MIDLAND_PARCELS = {
 } as const;
 
 /** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
-export const PARCEL_VERSION = 6;
+export const PARCEL_VERSION = 7;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
@@ -40,6 +40,14 @@ const STORAGE_NAME = /\b(STORAGE|MINI[- ]?WAREHOUSES?)\b/;
 type Classed = { useCode: string | undefined; landUse?: string; owner: string };
 export const isStorageParcel = (p: Classed) => isCommercialUse(p.useCode) && (STORAGE_LAND.test(p.landUse ?? "") || STORAGE_NAME.test(p.owner.toUpperCase()));
 export const isIndustrialParcel = (p: Classed) => isCommercialUse(p.useCode) && !isStorageParcel(p) && (p.useCode === "F2" || INDUSTRIAL_LAND.test(p.landUse ?? ""));
+
+/**
+ * What a commercial parcel is filed as beyond "commercial": storage, industrial, or neither. A storage business with a
+ * sales-tax permit at the address makes it storage whatever the land code says (an RV and boat lot).
+ */
+export type ParcelKind = "storage" | "industrial";
+export const parcelKind = (p: Classed, storageOutlet = false): ParcelKind | undefined =>
+  !isCommercialUse(p.useCode) ? undefined : isStorageParcel(p) || storageOutlet ? "storage" : isIndustrialParcel(p) ? "industrial" : undefined;
 
 /**
  * The big storage operators hold each market in an LLC of its own, so the roll never says the name on the sign:
@@ -209,6 +217,48 @@ export function deedIso(value: unknown, now = Date.now()): string | undefined {
   const year = Number(m[3]);
   if (year < 1850 || year > new Date(now).getUTCFullYear()) return undefined;
   return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+}
+
+/**
+ * Midland's deed history: the appraisal district's public page for a property lists who conveyed it at each deed, so
+ * the roll's one owner becomes the chain of owners before. Read only for storage and industrial parcels (parcels.ts
+ * readDeedHistory), slowly.
+ */
+export const MIDLAND_DEEDS = {
+  source: "midland-deeds",
+  page: (cadId: string) => `https://iswdataclient.azurewebsites.net/webProperty.aspx?dbkey=MIDLANDCAD&id=${encodeURIComponent(cadId)}`,
+} as const;
+
+/** One deed on a property: who conveyed it (the owner before), when, and the county clerk's instrument number. */
+export type DeedRow = { seller: string; date?: string; instrument?: string };
+
+const cellText = (html: string) =>
+  html.replace(/<[^>]*>/g, "").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#0?39;|&apos;/gi, "'").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
+
+/**
+ * The "Deed History" table of the district's property page, newest first: each row names who conveyed the property
+ * and when, so the first row's seller sold to today's owner and each later row's sold to the one above. Rows said
+ * twice are kept once; a name the page cut off at "&" loses the dangling "&" (ownerOf). Undefined when the page has no such
+ * table (the page changed, or it isn't a property's), which a property with no deeds on file doesn't do: that's [].
+ */
+export function deedHistory(html: string, now = Date.now()): DeedRow[] | undefined {
+  const table = html.match(/<tbody[^>]*\bid=["']tableSale["'][^>]*>([\s\S]*?)<\/tbody>/i);
+  if (!table) return undefined;
+  const rows: DeedRow[] = [];
+  const seen = new Set<string>();
+  for (const tr of table[1].match(/<tr[\s\S]*?<\/tr>/gi) ?? []) {
+    const cells = (tr.match(/<td[\s\S]*?<\/td>/gi) ?? []).map(cellText);
+    if (cells.length < 5) continue;
+    const seller = ownerOf(cells[0]);
+    if (!seller) continue;
+    const date = deedIso(cells[3], now);
+    const instrument = cells[4] || undefined;
+    const key = `${seller}|${date ?? ""}|${instrument ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ seller, ...(date ? { date } : {}), ...(instrument ? { instrument } : {}) });
+  }
+  return rows;
 }
 
 /** The layer's features as parcel rows: homes, apartment and commercial buildings, with an id, an owner and a site address. */

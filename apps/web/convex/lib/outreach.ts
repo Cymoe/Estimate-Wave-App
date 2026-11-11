@@ -7,7 +7,7 @@
 // kind. Grouped by mailing address alone it finds the offices that get the
 // tax bills for several owners' properties: property managers, in practice.
 import { kindOfBusiness } from "./outlets";
-import { MIDLAND_PARCELS, addressKey, isCommercialUse, isCompanyOwner, isIndustrialParcel, isMultifamilyUse, isResidentialUse, isStorageParcel, ownerName, storageOperator, streetKey } from "./parcels";
+import { MIDLAND_PARCELS, addressKey, isCommercialUse, isCompanyOwner, isMultifamilyUse, isResidentialUse, ownerName, parcelKind, storageOperator, streetKey } from "./parcels";
 import { tradesForPermit } from "./permits";
 import { tradeLabel } from "./workTypes";
 
@@ -27,6 +27,8 @@ export type Condensed = {
   companyOwned: boolean;
   marketValueCents?: number;
   deedDate?: string;
+  /** Who the owner bought it from, where the deed history has been read (Midland's storage and industrial parcels). */
+  boughtFrom?: string;
 };
 
 /** A property as a row shows it; `owner` rides along only where a lookup from an address needs the deed holder (the tenant list). */
@@ -72,6 +74,9 @@ export type OwnerRow = {
   industrialValueCents?: number;
   industrialDeed?: string;
   industrialRecent?: number;
+  /** Who they bought their storage or industrial buildings from, the newest purchases first (FROM_KEEP at most), where the deed history has been read. */
+  storageFrom?: BoughtFrom[];
+  industrialFrom?: BoughtFrom[];
   /** A storage owner's name on the sign ("KO Storage" for KOSF II MIDLAND LLC), from the known operators or the sales-tax permit at the address. */
   brand?: string;
   ownerOccupied: boolean;
@@ -99,6 +104,11 @@ export type OwnerRow = {
   license?: RealtorLicense;
   brokerage?: string;
 };
+
+/** An earlier owner someone bought from, and the deed's date. */
+export type BoughtFrom = { name: string; date?: string };
+/** How many sellers a row keeps. */
+export const FROM_KEEP = 4;
 
 export type RealtorLicense = {
   number: string;
@@ -241,6 +251,9 @@ export function displayName(owner: string): string {
     .join(" ");
 }
 
+/** "A", "A and B", or with more than it names "A, B and others". */
+const listOf = (names: string[], more = false) => (more ? `${names.join(", ")} and others` : names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? ""));
+
 /** "$4.2M", "$850K", "$52,674". */
 export function shortMoney(cents: number): string {
   const dollars = cents / 100;
@@ -263,7 +276,7 @@ export const ownersSource = (county: string) => (county === "Midland" ? OWNERS_S
 /** Where the daily records pass (outreachRefresh.ts) records how it went. */
 export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 9;
+export const OWNERS_VERSION = 10;
 /** A build id for the owners table: the instant it started, then a few random characters, so ids sort by time. */
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
@@ -337,6 +350,8 @@ type Acc = {
   industrialMax?: number;
   industrialDeed?: string;
   industrialRecent?: number;
+  storageFrom?: BoughtFrom[];
+  industrialFrom?: BoughtFrom[];
   brand?: string;
   latestDeed?: string;
   /** The deed on the home they live in (the newest, when they own several). */
@@ -381,7 +396,7 @@ function fold(acc: Acc, p: Condensed, hints: Hints = {}) {
     // A storage or industrial building is a commercial one too; it's also counted as its own kind, with when it was bought.
     // A storage business with a sales-tax permit at this address makes it storage whatever the land code says, and gives its name.
     const outlet = hints.storageAt?.get(addressKey(p.siteAddress));
-    const kind = isStorageParcel(p) || outlet ? "storage" : isIndustrialParcel(p) ? "industrial" : undefined;
+    const kind = parcelKind(p, Boolean(outlet));
     if (kind === "storage" && !acc.brand) acc.brand = storageOperator(p.owner) ?? outlet;
     if (kind) {
       acc[kind] = (acc[kind] ?? 0) + 1;
@@ -390,6 +405,13 @@ function fold(acc: Acc, p: Condensed, hints: Hints = {}) {
       if (p.deedDate) {
         if (!acc[`${kind}Deed`] || p.deedDate > acc[`${kind}Deed`]!) acc[`${kind}Deed`] = p.deedDate;
         if (Date.now() - Date.parse(`${p.deedDate}T12:00:00Z`) <= RECENT_BUY_YEARS * 365.25 * DAY_MS) acc[`${kind}Recent`] = (acc[`${kind}Recent`] ?? 0) + 1;
+      }
+      // Who they bought from: each seller once, at their newest deed, the newest FROM_KEEP kept.
+      if (p.boughtFrom) {
+        const name = displayName(p.boughtFrom);
+        const from = (acc[`${kind}From`] ?? []).filter((f) => f.name !== name || (f.date ?? "") > (p.deedDate ?? ""));
+        if (!from.some((f) => f.name === name)) from.push({ name, ...(p.deedDate ? { date: p.deedDate } : {}) });
+        acc[`${kind}From`] = from.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.name.localeCompare(b.name)).slice(0, FROM_KEEP);
       }
     }
   } else if (isMultifamilyUse(p.useCode)) {
@@ -426,8 +448,8 @@ function rowFor(acc: Acc, name: string, company: boolean): OwnerRow {
     rentalValueCents: acc.rentalMax,
     commercialValueCents: acc.commercialMax,
     multifamilyValueCents: acc.multifamilyMax,
-    ...(acc.storage ? { storage: acc.storage, storageValueCents: acc.storageMax, storageDeed: acc.storageDeed, storageRecent: acc.storageRecent, ...(acc.brand ? { brand: acc.brand } : {}) } : {}),
-    ...(acc.industrial ? { industrial: acc.industrial, industrialValueCents: acc.industrialMax, industrialDeed: acc.industrialDeed, industrialRecent: acc.industrialRecent } : {}),
+    ...(acc.storage ? { storage: acc.storage, storageValueCents: acc.storageMax, storageDeed: acc.storageDeed, storageRecent: acc.storageRecent, ...(acc.storageFrom?.length ? { storageFrom: acc.storageFrom } : {}), ...(acc.brand ? { brand: acc.brand } : {}) } : {}),
+    ...(acc.industrial ? { industrial: acc.industrial, industrialValueCents: acc.industrialMax, industrialDeed: acc.industrialDeed, industrialRecent: acc.industrialRecent, ...(acc.industrialFrom?.length ? { industrialFrom: acc.industrialFrom } : {}) } : {}),
     ownerOccupied: acc.homes > 0,
     outOfState: outOfState(acc.mailing),
     latestDeed: acc.latestDeed,
@@ -1342,7 +1364,11 @@ export function why(row: OwnerRow, facet: Facet, county = "Midland"): string {
       const deed = row[`${facet}Deed`];
       const recent = row[`${facet}Recent`] ?? 0;
       // "Bought 3 in the last 5 years" is an active buyer; one is a recent buyer; else just when they last bought.
-      const bought = recent >= 2 ? `; bought ${recent} in the last ${RECENT_BUY_YEARS} years, the newest ${monthYear(deed!)}` : deed ? `; ${recent === 1 ? "bought" : "last bought"} ${monthYear(deed)}` : "";
+      // Who from, where the deed history says: the sellers of the purchases the line is about.
+      const since = new Date(Date.now() - RECENT_BUY_YEARS * 365.25 * DAY_MS).toISOString().slice(0, 10);
+      const sellers = (row[`${facet}From`] ?? []).filter((f) => (recent >= 2 ? (f.date ?? "") >= since : f.date === deed)).map((f) => f.name);
+      const from = sellers.length ? `${recent >= 2 ? "," : ""} from ${listOf(sellers.slice(0, 2), sellers.length > 2)}` : "";
+      const bought = recent >= 2 ? `; bought ${recent} in the last ${RECENT_BUY_YEARS} years, the newest ${monthYear(deed!)}${from}` : deed ? `; ${recent === 1 ? "bought" : "last bought"} ${monthYear(deed)}${from}` : "";
       const worth = shortMoney(row[`${facet}ValueCents`] ?? 0);
       // The name on the sign first, when the roll's is only the LLC behind it.
       const sign = facet === "storage" && row.brand ? `${row.brand} · ` : "";

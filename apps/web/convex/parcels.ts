@@ -6,9 +6,9 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { action, internalAction, internalMutation, type ActionCtx } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, countyParcels, ownerOf, parcelWhere, rowsToParcels, type CountyRoll } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, countyParcels, deedHistory, isCommercialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type ParcelKind } from "./lib/parcels";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
 
@@ -45,6 +45,20 @@ const KEYS = [
 /** Whose a parcel is, as Outreach groups the roll, and where its bill goes: what lists an owner's properties ("" for none). */
 const filing = (p: { owner: string; mailing: Doc<"parcels">["mailing"] }) => ({ ownerKey: OwnerGrouper.keyFor(p) ?? "", mailKey: mailKey(p.mailing) ?? "" });
 
+/**
+ * Storage, industrial or neither, as Outreach's grouping decides it (lib/outreach.ts fold): by the parcel's own codes
+ * and owner, or for a commercial parcel they don't settle, by a storage business's sales-tax permit at its address.
+ */
+async function kindOf(ctx: MutationCtx, county: string, row: { useCode: string; landUse?: string; owner: string; addressKey: string }): Promise<ParcelKind | undefined> {
+  if (!isCommercialUse(row.useCode)) return undefined;
+  if (parcelKind(row) === "storage") return "storage";
+  const here = await ctx.db
+    .query("outlets")
+    .withIndex("by_county_and_address_key", (q) => q.eq("county", county).eq("addressKey", row.addressKey))
+    .take(20);
+  return parcelKind(row, here.some(isStorageOutlet));
+}
+
 const sameParcel = (a: Doc<"parcels">, b: Record<string, unknown> & { mailing: Doc<"parcels">["mailing"] }) =>
   KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
   (["address", "city", "state", "zip"] as const).every((k) => (a.mailing[k] ?? undefined) === (b.mailing[k] ?? undefined));
@@ -56,16 +70,18 @@ export const upsert = internalMutation({
     let added = 0;
     let updated = 0;
     const now = nowIso();
+    const at = county ?? MIDLAND_PARCELS.county;
     for (const row of rows) {
       const existing = await ctx.db
         .query("parcels")
         .withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId))
         .first();
+      const kind = await kindOf(ctx, at, row);
       if (!existing) {
-        await ctx.db.insert("parcels", { county: county ?? MIDLAND_PARCELS.county, ...row, ...filing(row), importedAt: now });
+        await ctx.db.insert("parcels", { county: at, ...row, ...filing(row), ...(kind ? { kind } : {}), importedAt: now });
         added++;
-      } else if (!sameParcel(existing, row)) {
-        await ctx.db.patch(existing._id, { ...row, ...filing(row), importedAt: now });
+      } else if (!sameParcel(existing, row) || existing.kind !== kind) {
+        await ctx.db.patch(existing._id, { ...row, ...filing(row), kind, importedAt: now });
         updated++;
       }
     }
@@ -178,9 +194,11 @@ async function pullMidlandParcels(ctx: ActionCtx) {
     error = e instanceof Error ? e.message : String(e);
   }
   // Every home's motivated-seller lists, and the owners Outreach lists from, now the roll (and who's a landlord) is current.
+  // Then the deed history of the storage and industrial parcels that are new or changed hands (it rebuilds the owners again when it found any).
   if (!error) {
     await ctx.scheduler.runAfter(0, internal.signals.recomputePage, {});
     await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    await ctx.scheduler.runAfter(0, internal.parcels.readDeedHistory, {});
   }
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,
@@ -216,6 +234,172 @@ export const syncNow = action({
   handler: async (ctx) => {
     await ctx.runQuery(internal.permits.assertStaff, {});
     return await pullMidlandParcels(ctx);
+  },
+});
+
+// ---- Midland's deed history (lib/parcels.ts MIDLAND_DEEDS) ----
+
+const KINDS: ParcelKind[] = ["storage", "industrial"];
+const deedRow = v.object({ seller: v.string(), date: v.optional(v.string()), instrument: v.optional(v.string()) });
+
+/** Midland's storage and industrial parcels whose deed history hasn't been read at their current deed: `limit` of them, and how many in all. */
+export const deedsDue = internalQuery({
+  args: { limit: v.number() },
+  handler: async (ctx, { limit }) => {
+    const due: Array<{ id: Doc<"parcels">["_id"]; cadId: string; readFor: string }> = [];
+    let left = 0;
+    for (const kind of KINDS) {
+      for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) {
+        const readFor = p.deedDate ?? "";
+        if (p.deedsReadFor === readFor) continue;
+        left++;
+        if (due.length < limit) due.push({ id: p._id, cadId: p.cadId, readFor });
+      }
+    }
+    return { due, left };
+  },
+});
+
+/** Keeps what the district's page said for each parcel; no `deeds` means the page had nothing to read. */
+export const saveDeeds = internalMutation({
+  args: { rows: v.array(v.object({ id: v.id("parcels"), readFor: v.string(), deeds: v.optional(v.array(deedRow)) })) },
+  handler: async (ctx, { rows }) => {
+    for (const r of rows) if (await ctx.db.get(r.id)) await ctx.db.patch(r.id, { deeds: r.deeds, deedsReadFor: r.readFor });
+  },
+});
+
+/** How the deed history stands, for the readiness report: parcels of each kind, how many were read, and how many have an owner before. */
+export const deedCoverage = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const out: Record<string, { parcels: number; read: number; withHistory: number; sellers: number }> = {};
+    for (const kind of KINDS) {
+      const sellers = new Set<string>();
+      const c = { parcels: 0, read: 0, withHistory: 0, sellers: 0 };
+      for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) {
+        c.parcels++;
+        if (p.deedsReadFor !== undefined) c.read++;
+        if (p.deeds?.length) c.withHistory++;
+        for (const d of p.deeds ?? []) sellers.add(d.seller);
+      }
+      c.sellers = sellers.size;
+      out[kind] = c;
+    }
+    return out;
+  },
+});
+
+/** The deed history kept for an owner's storage and industrial parcels, by the start of the roll's name ("KOSF"): to check a read by hand. */
+export const deedsOf = internalQuery({
+  args: { owner: v.string() },
+  handler: async (ctx, { owner }) => {
+    const out: Array<{ owner: string; address: string; kind: string; deedDate?: string; read: boolean; deeds?: DeedRow[] }> = [];
+    for (const kind of KINDS) {
+      for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) {
+        if (p.owner.toUpperCase().startsWith(owner.toUpperCase())) out.push({ owner: p.owner, address: p.siteAddress, kind, deedDate: p.deedDate, read: p.deedsReadFor !== undefined, deeds: p.deeds });
+      }
+    }
+    return out.slice(0, 40);
+  },
+});
+
+/** How long the read waits between pages (a page a second, about), and how many it takes from the queue at a time. Tests shorten the wait. */
+export const DEED_PACE = { waitMs: 1_000, batch: 20 };
+/** This many pages in a row that can't be read and the trouble is the site's, not one parcel's. */
+const DEED_DOUBTS = 5;
+
+type DeedPage = { deeds: DeedRow[] } | { none: string } | { refused: string };
+
+/** One property's page: its deed rows; `none` when this page can't be read (missing, broken, no deed table); `refused` when the site says to stop asking. */
+async function deedPage(cadId: string): Promise<DeedPage> {
+  let response: Response;
+  try {
+    response = await fetch(MIDLAND_DEEDS.page(cadId));
+  } catch (e) {
+    return { none: e instanceof Error ? e.message : String(e) };
+  }
+  if (response.status === 401 || response.status === 403 || response.status === 429) return { refused: `HTTP ${response.status}` };
+  if (!response.ok) return { none: `HTTP ${response.status}` };
+  const deeds = deedHistory(await response.text());
+  return deeds ? { deeds } : { none: "no deed table on the page" };
+}
+
+const deedTotals = v.object({ read: v.number(), found: v.number(), blank: v.number() });
+
+/**
+ * Reads the deed history of Midland's storage and industrial parcels from the appraisal district's property pages:
+ * only the ones not read at their current deed, a page about every second, handing on to a fresh step after STEP_MS.
+ * Scheduled after each roll read, so the first pass is every such parcel (half an hour or so) and later ones only
+ * what changed hands. A page that can't be read is left blank once a later page reads fine (the trouble was that
+ * parcel's); DEED_DOUBTS in a row and the step is tried again a minute later, up to STEP_TRIES. A refusal (403, 429)
+ * stops the read where it is: nothing here works around one. When it's done it records how it went under
+ * MIDLAND_DEEDS.source and, if it read anything, rebuilds Midland's owners so the lists show it.
+ * By hand: `npx convex run parcels:readDeedHistory '{"background":true}'`.
+ */
+export const readDeedHistory = internalAction({
+  args: { background: v.optional(v.boolean()), totals: v.optional(deedTotals), failures: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<{ scheduled?: true; left?: number; read: number; found: number; blank: number; error?: string }> => {
+    const sum = { read: 0, found: 0, blank: 0, ...(args.totals ?? {}) };
+    if (args.background) {
+      await ctx.scheduler.runAfter(0, internal.parcels.readDeedHistory, {});
+      return { scheduled: true, ...sum };
+    }
+    const started = Date.now();
+    let error: string | undefined;
+    let refused = false;
+    let left = 0;
+    // Pages that couldn't be read, until a later one reads fine.
+    let doubts: Array<{ id: Doc<"parcels">["_id"]; readFor: string }> = [];
+    let why = "";
+    while (!error && Date.now() - started < STEP_MS) {
+      const queue: { due: Array<{ id: Doc<"parcels">["_id"]; cadId: string; readFor: string }>; left: number } = await ctx.runQuery(internal.parcels.deedsDue, { limit: DEED_PACE.batch });
+      // What's left once the doubted ones are set aside: they stay due until a good page clears them.
+      const due = queue.due.filter((p) => !doubts.some((d) => d.id === p.id));
+      left = queue.left;
+      if (due.length === 0) break;
+      const rows: Array<{ id: Doc<"parcels">["_id"]; readFor: string; deeds?: DeedRow[] }> = [];
+      for (const p of due) {
+        const page = await deedPage(p.cadId);
+        if ("refused" in page) {
+          refused = true;
+          error = `Midland deed history: the district's site refused the read (${page.refused})`;
+          break;
+        }
+        if ("none" in page) {
+          doubts.push({ id: p.id, readFor: p.readFor });
+          why = page.none;
+          if (doubts.length >= DEED_DOUBTS) {
+            error = `Midland deed history: ${DEED_DOUBTS} pages in a row couldn't be read (${why})`;
+            break;
+          }
+        } else {
+          rows.push({ id: p.id, readFor: p.readFor, deeds: page.deeds }, ...doubts);
+          sum.blank += doubts.length;
+          sum.read += 1 + doubts.length;
+          if (page.deeds.length) sum.found++;
+          doubts = [];
+        }
+        if (DEED_PACE.waitMs) await new Promise((r) => setTimeout(r, DEED_PACE.waitMs));
+      }
+      if (rows.length) await ctx.runMutation(internal.parcels.saveDeeds, { rows });
+      left -= rows.length;
+    }
+    const more = left > doubts.length;
+    if (!error && more) {
+      await ctx.scheduler.runAfter(0, internal.parcels.readDeedHistory, { totals: sum });
+      return { left, ...sum };
+    }
+    // The site in trouble for a moment: the same parcels again a minute later.
+    const failures = (args.failures ?? 0) + 1;
+    if (error && !refused && failures < STEP_TRIES) {
+      await ctx.scheduler.runAfter(60_000, internal.parcels.readDeedHistory, { totals: sum, failures });
+      return { left, ...sum, error };
+    }
+    // The few left unreadable with nothing after them to clear them: the same trouble as a run of them.
+    if (!error && doubts.length) error = `Midland deed history: ${doubts.length} page${doubts.length === 1 ? "" : "s"} couldn't be read (${why})`;
+    if (sum.found > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    await ctx.runMutation(internal.permits.recordSync, { source: MIDLAND_DEEDS.source, fetched: sum.read, added: sum.found, updated: sum.blank, error });
+    return { left, ...sum, error };
   },
 });
 

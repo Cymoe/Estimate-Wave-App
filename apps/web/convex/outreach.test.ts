@@ -205,17 +205,17 @@ describe("grouping the roll into owners", () => {
       parcel("s1", co("A OK SELF STORAGE INC", { landUse: "CWH03", marketValueCents: 238_000_000, deedDate: "2008-05-15" })),
       parcel("s2", co("A OK SELF STORAGE INC", { landUse: "CWH03", marketValueCents: 33_000_000, deedDate: "2026-02-03" })),
       // No land code on the building: its name says storage. The house it also owns is a house.
-      parcel("s3", co("2 LP STORAGE LLC", { marketValueCents: 62_000_000, deedDate: "2020-06-17" })),
+      parcel("s3", co("2 LP STORAGE LLC", { marketValueCents: 62_000_000, deedDate: "2020-06-17", boughtFrom: "MITCHELL ORVIL S & RUTH" })),
       parcel("s4", co("2 LP STORAGE LLC", { useCode: "A1", marketValueCents: 33_000_000, deedDate: "2026-09-08" })),
       // A storage company on industrial-priced land is storage, not industrial.
       parcel("s5", co("KELLER STORAGE PARTNERS LP", { landUse: "CID04", marketValueCents: 67_000_000, deedDate: "2025-08-18" })),
       // An operator's LLC: four small parcels bought four years ago, none worth much on its own. The name on the sign is known.
-      ...["k1", "k2", "k3", "k4"].map((id, i) => parcel(id, co("KOSF II MIDLAND LLC", { landUse: "CWH03", siteAddress: `${1901 + i * 2} W FLORIDA AV`, marketValueCents: (8 + i) * 1_000_000, deedDate: i < 2 ? "2022-11-15" : "2023-01-03", mailing: { address: "10301 WAYZATA BLVD", city: "MINNETONKA", state: "MN", zip: "55305" } }))),
+      ...["k1", "k2", "k3", "k4"].map((id, i) => parcel(id, co("KOSF II MIDLAND LLC", { landUse: "CWH03", siteAddress: `${1901 + i * 2} W FLORIDA AV`, marketValueCents: (8 + i) * 1_000_000, deedDate: i < 2 ? "2022-11-15" : "2023-01-03", boughtFrom: i < 2 ? "MIDLAND LOCK STORAGE LLC" : "MIDLAND TEXAS SELF STORAGE LLC", mailing: { address: "10301 WAYZATA BLVD", city: "MINNETONKA", state: "MN", zip: "55305" } }))),
       // Neither the land code nor the owner's name says storage: the sales-tax permit at the address does, and names it.
       parcel("r1", co("ANZO INVESTMENTS LLC", { landUse: "CSV99", siteAddress: "9913 W COUNTY RD 157", marketValueCents: 40_000_000, deedDate: "2018-04-25" })),
       // Industrial by the state's code, and a warehouse by the land code; two bought in the last five years.
-      parcel("i1", co("GGB LEASING LP", { useCode: "F2", landUse: "CWH06", marketValueCents: 131_000_000, deedDate: "2024-01-12" })),
-      parcel("i2", co("GGB LEASING LP", { landUse: "CWH04", marketValueCents: 246_000_000, deedDate: "2025-06-06" })),
+      parcel("i1", co("GGB LEASING LP", { useCode: "F2", landUse: "CWH06", marketValueCents: 131_000_000, deedDate: "2024-01-12", boughtFrom: "PROPETRO SERVICES INC" })),
+      parcel("i2", co("GGB LEASING LP", { landUse: "CWH04", marketValueCents: 246_000_000, deedDate: "2025-06-06", boughtFrom: "PROPETRO SERVICES INC" })),
       parcel("i3", co("TEAM CON LTD", { useCode: "F2", marketValueCents: 1_056_000_000, deedDate: "2018-01-25" })),
       // A house on land priced as warehouse land is a house; a shop is neither; nor is a church (the CIN codes are institutions).
       parcel("x1", { owner: "SALCIDO DAVID", landUse: "CWH06" }),
@@ -253,10 +253,16 @@ describe("grouping the roll into owners", () => {
     expect(by["A Ok Self Storage INC"].brand).toBeUndefined();
 
     // Why they're on the list: the name people know, what they hold, and what they've been buying.
-    expect(why(by["Kosf II Midland LLC"], "storage")).toBe("KO Storage · 4 storage properties, the biggest worth $110K; bought 4 in the last 5 years, the newest Jan 2023");
+    // Where the deed history has been read, who they bought from: each seller once, the newest purchase first.
+    expect(by["Kosf II Midland LLC"].storageFrom).toEqual([{ name: "Midland Texas Self Storage LLC", date: "2023-01-03" }, { name: "Midland Lock Storage LLC", date: "2022-11-15" }]);
+    expect(by["Ggb Leasing LP"].industrialFrom).toEqual([{ name: "Propetro Services INC", date: "2025-06-06" }]);
+    expect(by["A Ok Self Storage INC"].storageFrom).toBeUndefined();
+    expect(why(by["Kosf II Midland LLC"], "storage")).toBe(
+      "KO Storage · 4 storage properties, the biggest worth $110K; bought 4 in the last 5 years, the newest Jan 2023, from Midland Texas Self Storage LLC and Midland Lock Storage LLC",
+    );
     expect(why(by["A Ok Self Storage INC"], "storage")).toBe("2 storage properties, the biggest worth $2.4M; bought Feb 2026");
-    expect(why(by["2 LP Storage LLC"], "storage")).toBe("Storage property worth $620K; last bought Jun 2020");
-    expect(why(by["Ggb Leasing LP"], "industrial")).toBe("2 industrial buildings, the biggest worth $2.5M; bought 2 in the last 5 years, the newest Jun 2025");
+    expect(why(by["2 LP Storage LLC"], "storage")).toBe("Storage property worth $620K; last bought Jun 2020 from Mitchell Orvil S & Ruth");
+    expect(why(by["Ggb Leasing LP"], "industrial")).toBe("2 industrial buildings, the biggest worth $2.5M; bought 2 in the last 5 years, the newest Jun 2025, from Propetro Services INC");
     expect(why(by["Team Con LTD"], "industrial")).toBe("Industrial building worth $10.6M; last bought Jan 2018");
 
     // "Bought in the last five years" reads the storage building's deed, not the owner's newest of anything.

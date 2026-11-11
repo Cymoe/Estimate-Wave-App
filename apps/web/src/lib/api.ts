@@ -1411,7 +1411,8 @@ export type OutreachInterpreted =
 /** Outreach: a CRM of property owners from the county roll, pulled by lists asked for in plain words (Pro). */
 /** An owner's properties from the roll. `filed` is false while the roll read before this is still being sorted by owner. */
 export type OwnerProperties = {
-  rows: Array<{ id: string; address: string; useCode: string; valueCents?: number; deedDate?: string; owner?: string }>;
+  /** `deeds`: the owners before, newest first, each with when they sold it (Midland's storage and industrial buildings). */
+  rows: Array<{ id: string; address: string; useCode: string; valueCents?: number; deedDate?: string; owner?: string; kind?: 'storage' | 'industrial'; deeds?: Array<{ seller: string; date?: string }> }>;
   total: number;
   /** There are more than the list holds. */
   more: boolean;

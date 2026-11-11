@@ -984,8 +984,15 @@ export default defineSchema({
     // everything an owner holds can be listed. "" when there is none; absent until filed (parcels:fileOwners).
     ownerKey: v.optional(v.string()),
     mailKey: v.optional(v.string()),
+    // A storage or industrial building (lib/parcels.ts parcelKind): the ones whose deed history is read.
+    kind: v.optional(v.union(v.literal("storage"), v.literal("industrial"))),
+    // The owners before, newest deed first (lib/parcels.ts deedHistory): each row is who conveyed it and when, so the
+    // first sold to today's owner. deedsReadFor is the deedDate it was read at ("" for none): a new deed is read again.
+    deeds: v.optional(v.array(v.object({ seller: v.string(), date: v.optional(v.string()), instrument: v.optional(v.string()) }))),
+    deedsReadFor: v.optional(v.string()),
     importedAt: v.string(),
   })
+    .index("by_county_and_kind", ["county", "kind"])
     .index("by_county_and_owner_key", ["county", "ownerKey"])
     .index("by_county_and_mail_key", ["county", "mailKey"])
     .index("by_cad_id", ["cadId"])
@@ -1236,6 +1243,9 @@ export default defineSchema({
     industrialValueCents: v.optional(v.number()),
     industrialDeed: v.optional(v.string()),
     industrialRecent: v.optional(v.number()),
+    // Who they bought those buildings from, the newest purchases first, where the deed history has been read.
+    storageFrom: v.optional(v.array(v.object({ name: v.string(), date: v.optional(v.string()) }))),
+    industrialFrom: v.optional(v.array(v.object({ name: v.string(), date: v.optional(v.string()) }))),
     // A storage owner's name on the sign ("KO Storage"), when the roll's name is only the LLC behind it.
     brand: v.optional(v.string()),
     ownerOccupied: v.boolean(),

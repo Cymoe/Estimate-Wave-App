@@ -40,6 +40,7 @@ import {
   companyKey,
   defaultTitle,
   definitionFromArgs,
+  displayName,
   designersOn,
   occupantsOn,
   type CondensedOccupant,
@@ -100,6 +101,8 @@ export const parcelPage = internalQuery({
         companyOwned: p.companyOwned,
         marketValueCents: p.marketValueCents,
         deedDate: p.deedDate,
+        // The newest earlier owner on the deed history: who today's owner bought it from.
+        boughtFrom: p.deeds?.find((d) => d.seller !== p.owner)?.seller,
       }));
     return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
   },
@@ -253,6 +256,7 @@ export const storageOutletPage = internalQuery({
   },
 });
 
+const boughtFrom = v.object({ name: v.string(), date: v.optional(v.string()) });
 const ownerRow = v.object({
   key: v.string(),
   kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor")),
@@ -277,6 +281,8 @@ const ownerRow = v.object({
   industrialValueCents: v.optional(v.number()),
   industrialDeed: v.optional(v.string()),
   industrialRecent: v.optional(v.number()),
+  storageFrom: v.optional(v.array(boughtFrom)),
+  industrialFrom: v.optional(v.array(boughtFrom)),
   brand: v.optional(v.string()),
   ownerOccupied: v.boolean(),
   outOfState: v.boolean(),
@@ -304,7 +310,8 @@ const OWNER_KEYS = [
 ] as const;
 const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
-  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources, a.license]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources, b.license]);
+  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources, a.license, a.storageFrom, a.industrialFrom]) ===
+    JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources, b.license, b.storageFrom, b.industrialFrom]);
 
 /**
  * An owner's facet rows made to match `facets`, stamped with this build.
@@ -1480,6 +1487,8 @@ export const changes = query({
 
 /** How many of an owner's properties the sheet lists at most; past that it says how many more there are. */
 export const PROPERTIES_MAX = 300;
+/** How many earlier owners a property shows. */
+const DEEDS_SHOWN = 5;
 
 /**
  * Everything an owner holds on the roll, the most valuable first: the owner's row keeps only its top property, so the
@@ -1511,7 +1520,17 @@ export const properties = query({
     const rows = read
       .sort((a, b) => (b.marketValueCents ?? 0) - (a.marketValueCents ?? 0) || a.siteAddress.localeCompare(b.siteAddress))
       .slice(0, PROPERTIES_MAX)
-      .map((p) => ({ id: p._id, address: tidyCase(p.siteAddress) ?? p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, deedDate: p.deedDate, ...(office ? { owner: tidyCase(p.owner) ?? p.owner } : {}) }));
+      .map((p) => ({
+        id: p._id,
+        address: tidyCase(p.siteAddress) ?? p.siteAddress,
+        useCode: p.useCode,
+        valueCents: p.marketValueCents,
+        deedDate: p.deedDate,
+        ...(p.kind ? { kind: p.kind } : {}),
+        // The owners before, newest first, where the deed history has been read: each sold it on the date beside them.
+        ...(p.deeds?.length ? { deeds: p.deeds.filter((d) => d.seller !== p.owner).slice(0, DEEDS_SHOWN).map((d) => ({ seller: displayName(d.seller), date: d.date })) } : {}),
+        ...(office ? { owner: tidyCase(p.owner) ?? p.owner } : {}),
+      }));
     return {
       rows,
       /** How many the owner holds in all, as its row says; the list may be shorter (PROPERTIES_MAX, or a roll read since). */

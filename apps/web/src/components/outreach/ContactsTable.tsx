@@ -1446,7 +1446,10 @@ export const ContactSheet: React.FC<{
                 {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}
                 {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
               </div>
-              {organizationId && row.properties > 1 && <OwnerPropertiesList key={row.id} organizationId={organizationId} contactId={row.id} count={row.properties} />}
+              {/* A storage or industrial owner's one property is worth opening too: the list is where its earlier owners are. */}
+              {organizationId && (row.properties > 1 || row.kinds.some((k) => k === 'storage' || k === 'industrial')) && (
+                <OwnerPropertiesList key={row.id} organizationId={organizationId} contactId={row.id} count={row.properties} />
+              )}
               {deeds && (
                 <a href={deeds.url} target="_blank" rel="noreferrer" className="flex w-fit items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
                   <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
@@ -1565,7 +1568,7 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
   if (!shown) {
     return (
       <button type="button" onClick={() => void show()} className={button} data-testid="all-properties">
-        <ChevronRight className="w-4 h-4 shrink-0" /> Show all {count} properties
+        <ChevronRight className="w-4 h-4 shrink-0" /> {count > 1 ? `Show all ${count} properties` : 'Show who owned it before'}
       </button>
     );
   }
@@ -1588,15 +1591,27 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
       {list && list.rows.length > 0 && (
         <ul className="divide-y divide-white/5 border-y border-white/5">
           {list.rows.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 min-h-[44px] py-1.5">
+            <li key={p.id} className="flex items-start gap-3 min-h-[44px] py-1.5">
               <div className="min-w-0 flex-1">
                 <AddressLink address={fullAddress(p.address, list.city, 'TX')} className="text-[15px] text-[#7fb0e0]">
                   {p.address}
                 </AddressLink>
                 <div className="text-xs text-gray-500 truncate">
-                  {wordForUse(p.useCode)}
+                  {p.kind ? KIND[p.kind] : wordForUse(p.useCode)}
                   {p.owner ? ` · ${p.owner}` : ''}
                 </div>
+                {/* Who owned it before, newest first: the first one sold it to this owner. */}
+                {p.deeds && p.deeds.length > 0 && (
+                  <div className="pt-1 text-xs text-gray-400" data-testid="owners-before">
+                    {p.deeds.map((d, i) => (
+                      <div key={`${d.seller}-${d.date ?? i}`} className="break-words">
+                        {i === 0 ? 'Bought from ' : 'Before that, '}
+                        <span className="text-gray-200">{d.seller}</span>
+                        {d.date ? `${i === 0 ? ', ' : ', who sold '}${monthYear(d.date)}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="text-sm text-gray-300 tabular-nums shrink-0">{p.valueCents ? shortMoney(p.valueCents) : ''}</div>
             </li>
