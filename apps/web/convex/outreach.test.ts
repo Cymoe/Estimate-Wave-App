@@ -3338,6 +3338,107 @@ describe("asking in plain words", () => {
   });
 });
 
+describe("lists that keep themselves up to date", () => {
+  test("when the records change, owners who newly match join the list; it says how many are new and since when", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const later = (hours: number) => vi.setSystemTime(NOW + hours * 3600_000);
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    later(1);
+    // One list holding everyone it reaches, one that stopped short (2 of 3 investors), and one archived.
+    const commercial = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const investors = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor", limit: 2 } });
+    const wealthy = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "wealthy" } });
+    await co.as.mutation(api.outreach.organizeList, { organizationId: org, listId: wealthy.listId, archived: true });
+    expect(investors).toMatchObject({ rowCount: 2 });
+    const check = async () => {
+      const found = await t.mutation(internal.outreach.refreshLists, {});
+      // The lists found due start a quarter of a second apart: wait for the last of them (the clock is frozen, timers aren't).
+      for (let i = 0; i <= found.due; i++) {
+        await t.finishAllScheduledFunctions(() => {});
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      await t.finishAllScheduledFunctions(() => {});
+      return found;
+    };
+    const names = async (listId: Id<"outreachLists">) => (await co.as.query(api.outreach.contacts, { organizationId: org, listId })).rows.map((r) => r.name);
+    const view = async (listId: Id<"outreachLists">) => (await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.id === listId)!;
+
+    // The records haven't changed since the lists were made: nothing to do.
+    later(2);
+    expect(await check()).toEqual({ due: 0, done: true });
+
+    // The next roll has a new shopping center, owned by a company (so an investor too, ranking second), and a new $2M home.
+    later(24);
+    await addParcels(t, [
+      parcel("30", { owner: "LOOP PLAZA LP", companyOwned: true, ownerOccupied: false, useCode: "F1", siteAddress: "30 LOOP 250", street: "LOOP 250", marketValueCents: 500_000_000, mailing: { address: "9 ELM ST", city: "DALLAS", state: "TX", zip: "75201" } }),
+      parcel("31", { owner: "HALE GRACE", marketValueCents: 200_000_000 }),
+    ]);
+    await rebuild(t);
+    later(26);
+    // The two live lists are due; the archived one is left as it was.
+    expect(await check()).toEqual({ due: 2, done: true });
+    expect(await names(commercial.listId)).toEqual(["Loop Plaza LP", "Oak Plaza LLC", "City Of Midland"]);
+    // The list that stopped short covers the same stretch again: the newcomer ranks inside it and joins; nobody is taken off.
+    expect(await names(investors.listId)).toEqual(["Nuka Hiva LLC", "Loop Plaza LP", "Oak Plaza LLC"]);
+    expect(await names(wealthy.listId)).toEqual(["Vance Robert & Linda"]);
+    const since = new Date(NOW + 26 * 3600_000).toISOString();
+    expect(await view(commercial.listId)).toMatchObject({ rowCount: 3, total: 3, fresh: { since, count: 1 } });
+    // Already one of the company's owners by then (the other list took it first, or this one did): it still counts as joining.
+    expect(await view(investors.listId)).toMatchObject({ rowCount: 3, total: 4, fresh: { since, count: 1 } });
+    expect((await view(wealthy.listId)).fresh).toBeUndefined();
+    // One owner, on both lists.
+    const loop = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows.filter((r) => r.name === "Loop Plaza LP");
+    expect(loop).toHaveLength(1);
+    expect([...loop[0].listIds].sort()).toEqual([commercial.listId, investors.listId].sort());
+    // On the list's own view each owner says when it joined, so the page can show just the new ones.
+    const page = await co.as.query(api.outreach.contactsPage, { organizationId: org, listId: commercial.listId });
+    expect(page.rows.filter((r) => r.joinedAt !== undefined && r.joinedAt >= since).map((r) => r.name)).toEqual(["Loop Plaza LP"]);
+    expect(page.rows.every((r) => r.joinedAt !== undefined)).toBe(true);
+    // All owners doesn't say (an owner can be on several lists).
+    expect((await co.as.query(api.outreach.contactsPage, { organizationId: org })).rows.every((r) => r.joinedAt === undefined)).toBe(true);
+
+    // Checked: nothing more until the records change again.
+    later(27);
+    expect(await check()).toEqual({ due: 0, done: true });
+    // "Load the next" still picks up where the list left off, with nobody twice.
+    await co.as.mutation(api.outreach.extend, { organizationId: org, listId: investors.listId });
+    expect(await names(investors.listId)).toEqual(["Nuka Hiva LLC", "Loop Plaza LP", "Oak Plaza LLC", "Park Holdings LP"]);
+
+    // A list of the city's daily records is due after the morning's pass too; a list off the roll isn't.
+    const daily = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      const listId = await ctx.db.insert("outreachLists", { organizationId: org, title: "Code violations", definition: { county: "Midland", who: "violation" as const }, rowCount: 0, total: 0, done: 0, truncated: false, createdBy: user._id, createdAt: new Date().toISOString() });
+      await ctx.db.insert("permitSources", { source: "midland-owners-records", syncedAt: new Date(NOW + 30 * 3600_000).toISOString(), fetched: 0, added: 0, updated: 0 });
+      return listId;
+    });
+    later(31);
+    expect(await check()).toEqual({ due: 1, done: true });
+    expect(await t.run(async (ctx) => (await ctx.db.get(daily))?.refreshedAt)).toBe(new Date(NOW + 31 * 3600_000).toISOString());
+
+    // More join a few days on: counted with the earlier ones, from the same day.
+    later(24 * 3);
+    await addParcels(t, [parcel("32", { owner: "WADLEY CENTER LLC", companyOwned: true, ownerOccupied: false, useCode: "F1", siteAddress: "32 WADLEY AV", street: "WADLEY AV", marketValueCents: 90_000_000, mailing: { address: "2 OAK ST", city: "AUSTIN", state: "TX", zip: "78701" } })]);
+    await rebuild(t);
+    later(24 * 3 + 2);
+    await check();
+    expect(await view(commercial.listId)).toMatchObject({ rowCount: 4, fresh: { since, count: 2 } });
+    // A week after the last of them, the list stops calling them new.
+    later(24 * 11);
+    expect((await view(commercial.listId)).fresh).toBeUndefined();
+
+    // A company off the plan: its lists are left alone.
+    await addParcels(t, [parcel("33", { owner: "GARFIELD SHOPS LLC", companyOwned: true, ownerOccupied: false, useCode: "F1", siteAddress: "33 GARFIELD ST", street: "GARFIELD ST", marketValueCents: 80_000_000, mailing: { address: "3 OAK ST", city: "AUSTIN", state: "TX", zip: "78701" } })]);
+    await rebuild(t);
+    await t.run(async (ctx) => ctx.db.patch(org, { plan: undefined }));
+    later(24 * 11 + 2);
+    expect(await check()).toEqual({ due: 0, done: true });
+  });
+});
+
 describe("the owners a page at a time", () => {
   test("a list, All owners and Not on a list each read in pages: every owner once, the same rows as the whole read, the facts on the first page", async () => {
     vi.stubEnv("OUTREACH_PAGE", "2");
@@ -3368,7 +3469,8 @@ describe("the owners a page at a time", () => {
       } while (cursor);
       return { rows, sizes, facts: facts! };
     };
-    const byId = <T extends { id: string }>(rows: T[]) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+    // Sorted by id, without when each joined its list: only a list's own paged view says that.
+    const byId = <T extends { id: string; joinedAt?: string }>(rows: T[]) => [...rows].sort((a, b) => a.id.localeCompare(b.id)).map(({ joinedAt: _joinedAt, ...row }) => row);
 
     // All four owners, two a page; the same rows the whole read gives (related owners, lead stage, known matches and all).
     const all = await paged();

@@ -59,6 +59,9 @@ crons.daily(
 
 // The morning's permits and code cases onto the Outreach owners (outreachRefresh.ts), between the weekly rebuilds.
 crons.daily("refresh Outreach records", { hourUTC: 7, minuteUTC: 0 }, internal.outreachRefresh.refresh, {});
+// Then the companies' saved lists: each one whose records changed picks up the owners who newly match it (outreach.refreshList).
+// After the morning's pass above and Sunday's rebuilds; a rebuild that lands later is caught the next morning.
+crons.daily("refresh Outreach lists", { hourUTC: 9, minuteUTC: 15 }, internal.outreach.refreshLists, {});
 
 // Outreach emails whose time has come, from each company's own Gmail (emailOutreach.ts).
 crons.interval("send outreach emails", { minutes: 5 }, internal.emailOutreach.sendDue, {});

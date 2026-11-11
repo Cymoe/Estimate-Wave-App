@@ -1281,6 +1281,41 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
 
+  it('a list that picked up owners on its own says how many are new and since when; a tap shows just them, another shows all', async () => {
+    // Two owners joined on Nov 9 (one already among the company's owners since October); one was there from the start.
+    lists = [{ ...list, rowCount: 3, fresh: { since: '2026-11-09T09:15:00.000Z', count: 2 } }];
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', { joinedAt: '2026-11-05T15:00:00.000Z', createdAt: '2026-11-05T15:00:00.000Z' }),
+        contact('r2', { name: 'Loop Plaza LP', joinedAt: '2026-11-09T09:15:02.000Z', createdAt: '2026-11-09T09:15:02.000Z' }),
+        contact('r3', { name: 'Wadley Center LLC', joinedAt: '2026-11-09T09:15:03.000Z', createdAt: '2026-10-01T10:00:00.000Z' }),
+      ],
+    };
+    await render('/outreach/l1');
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).map((r) => r.querySelector('td')!.textContent);
+    expect(names()).toHaveLength(3);
+    const chip = () => document.body.querySelector('[data-testid="new-owners"]') as HTMLButtonElement;
+    expect(chip().textContent).toBe('2 new since Nov 9');
+    expect(chip().getAttribute('aria-pressed')).toBe('false');
+    await act(async () => chip().click());
+    expect(names().join('|')).toContain('Loop Plaza LP');
+    expect(names().join('|')).toContain('Wadley Center LLC');
+    expect(names()).toHaveLength(2);
+    expect(chip().textContent).toBe('Showing the 2 new since Nov 9 · show all');
+    await act(async () => chip().click());
+    expect(names()).toHaveLength(3);
+    // The picker says so too.
+    await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
+    expect(document.body.textContent).toContain('3 owners · 2 new · 0 worked');
+    // A list that picked up nobody lately has no such line.
+    clearPage();
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="new-owners"]')).toBeNull();
+  });
+
   it("a list's numbers: the page asks for a count when it opens and after owners change, and shows the numbers as they land on the list", async () => {
     jest.useFakeTimers();
     try {

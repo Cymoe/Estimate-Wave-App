@@ -1278,6 +1278,13 @@ export default defineSchema({
     results: v.optional(v.object({ sent: v.number(), estimates: v.number(), sold: v.number() })),
     countedAt: v.optional(v.string()),
     /**
+     * A list keeps itself up to date (outreach.refreshList): when the records it's built from change, owners who newly
+     * match are added. `refreshedAt` is when it was last checked; `fresh` is what recent checks added (how many, since
+     * when, and when the last of them came), for "4 new since Nov 10".
+     */
+    refreshedAt: v.optional(v.string()),
+    fresh: v.optional(v.object({ since: v.string(), at: v.string(), count: v.number() })),
+    /**
      * Deleted, with owners still being taken off it in the background (a list longer than one step of outreach.remove):
      * gone from the lists already. `alsoWorked` is how the delete was asked for.
      */

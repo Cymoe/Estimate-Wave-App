@@ -729,14 +729,22 @@ const OutreachPage: React.FC = () => {
   const countyNow = mixed && countyCounts.has(countyPick) ? countyPick : 'all';
   // Where each owner is, under its property, when the owners on the page are from more than one county.
   const placeOf = useMemo(() => (mixed ? (r: OutreachContact) => countiesOf(r).map((c) => cityOf(c)).join(', ') || undefined : undefined), [mixed, countiesOf]);
+  // The owners this list picked up on its own lately (it keeps itself up to date as the records change): told by when
+  // each joined the list, or for one that arrived while the page was open, by when it was first pulled.
+  const newSince = list?.fresh?.since;
+  const isNewHere = useCallback((r: OutreachContact) => newSince !== undefined && (r.joinedAt ?? r.createdAt) >= newSince, [newSince]);
+  const newHere = useMemo(() => (newSince ? (data?.rows ?? []).filter(isNewHere).length : 0), [data, newSince, isNewHere]);
+  const [onlyNew, setOnlyNew] = useState(false);
+  useEffect(() => setOnlyNew(false), [listId]);
+  const justNew = onlyNew && newHere > 0;
   const rows = useMemo(() => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
-    const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && (countyNow === 'all' || countiesOf(r).includes(countyNow)) && has(r) && (!q || matches(r, q)));
+    const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && (countyNow === 'all' || countiesOf(r).includes(countyNow)) && has(r) && (!justNew || isNewHere(r)) && (!q || matches(r, q)));
     if (sortNow === 'parcels') return [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name));
     if (sortNow === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
     return kept;
-  }, [data, status, show, query, sortNow, countyNow, countiesOf]);
+  }, [data, status, show, query, sortNow, countyNow, countiesOf, justNew, isNewHere]);
   /** The county filter's choices: every county, then each with its owners, most first. */
   const countyItems = (close: () => void) =>
     [['all', 'All counties', data?.rows.length ?? 0] as const, ...[...countyCounts.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => [c, countyOf(c).label.replace(/, TX/, ''), n] as const)].map(([value, label, n]) => (
@@ -1135,6 +1143,9 @@ const OutreachPage: React.FC = () => {
     return (
       <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
         <h1 className="text-2xl font-semibold text-white">Lists</h1>
+        <p className="text-sm text-gray-500" data-testid="lists-note">
+          Lists keep themselves up to date: when the county's records change, owners who newly match are added. Nobody is taken off.
+        </p>
         {lists ? (
           <ListsOverview lists={lists} onOpen={(id) => pickList(id)} onOrganize={organize} onDelete={(l) => void removeList(l)} onBack={() => setSearchParams({})} />
         ) : (
@@ -1304,6 +1315,15 @@ const OutreachPage: React.FC = () => {
             </span>
           )}
           <span className="hidden md:inline"> · made {day(list.createdAt)}</span>
+          {/* The list keeps itself up to date: who it picked up lately, a tap away. */}
+          {list.fresh && newHere > 0 && (
+            <>
+              {' · '}
+              <button type="button" onClick={() => setOnlyNew((v) => !v)} aria-pressed={justNew} className="text-[#7fb0e0] hover:text-white" data-testid="new-owners">
+                {justNew ? `Showing the ${newHere.toLocaleString('en-US')} new since ${day(list.fresh.since)} · show all` : `${newHere.toLocaleString('en-US')} new since ${day(list.fresh.since)}`}
+              </button>
+            </>
+          )}
           {list.total !== undefined && list.total > list.rowCount && !list.filling && (
             <span data-testid="list-total">
               {' '}

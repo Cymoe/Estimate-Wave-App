@@ -1259,6 +1259,8 @@ export type OutreachContact = {
   known?: { kind: 'client' | 'lead'; id: string; name: string };
   /** Where email outreach stands with them. */
   email?: { state: OwnerEmailState; at: string };
+  /** On a list's own view: when the owner joined that list (it picks up owners who newly match, on its own). */
+  joinedAt?: string;
   createdAt: string;
 };
 /** An Outreach owner behind a lead, for the lead's drawer. */
@@ -1287,6 +1289,8 @@ export type OutreachListSummary = {
   worked?: number;
   /** Still adding owners in the background, right after it was saved. */
   filling?: boolean;
+  /** Owners the list picked up on its own lately, as the records changed: how many, and since when. */
+  fresh?: { since: string; count: number };
 };
 /** "12 / 200 · 2 sources" on a column header. */
 export type OutreachCoverage = { found: number; total: number; sources: number };

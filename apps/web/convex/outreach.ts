@@ -619,6 +619,8 @@ const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = 
   deletable: stranded === 0,
   /** The worked owners only this list holds: they stay when it goes, unless asked to go too. */
   worked: stranded,
+  /** Owners the list picked up on its own lately (refreshList): how many, and since when. Gone FRESH_DAYS after the last of them. */
+  ...(l.fresh && Date.parse(l.fresh.at) > Date.now() - FRESH_DAYS * 24 * 3600_000 ? { fresh: { since: l.fresh.since, count: l.fresh.count } } : {}),
 });
 
 /** The count and a first look, before saving. `count` is what one list holds; `total` is how many owners the ask reaches. */
@@ -734,9 +736,20 @@ export const fillList = internalMutation({
 });
 
 /** Puts a list's rows in the company's contacts: a new row for an owner it hasn't pulled before, a tag on the row for one it has. Returns how many were new. */
-async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, listId: Id<"outreachLists">, who: Definition["who"], rows: ListRow[], now: string) {
+async function addRows(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  listId: Id<"outreachLists">,
+  who: Definition["who"],
+  rows: ListRow[],
+  now: string,
+  /** joined: counts every owner put on the list, new to the company or not. max: stop once this many have joined. */
+  opts: { joined?: { count: number }; max?: number } = {},
+) {
   let added = 0;
+  let joined = 0;
   for (const row of rows) {
+    if (opts.max !== undefined && joined >= opts.max) break;
     const existing = await ctx.db
       .query("outreachContacts")
       .withIndex("by_organization_and_key", (q) => q.eq("organizationId", organizationId).eq("key", row.key))
@@ -751,6 +764,7 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
         updatedAt: now,
       });
       await ctx.db.insert("outreachMembers", { organizationId, listId, contactId: existing._id });
+      joined++;
     } else {
       const { found, ...rest } = row;
       // A contractor's permits (or a realtor's license) already name who to call: those cells start found, from that record, at no charge.
@@ -783,8 +797,10 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
       });
       await ctx.db.insert("outreachMembers", { organizationId, listId, contactId });
       added++;
+      joined++;
     }
   }
+  if (opts.joined) opts.joined.count += joined;
   return added;
 }
 
@@ -807,6 +823,95 @@ export const extend = mutation({
     const rowCount = built.next;
     await ctx.db.patch(listId, { rowCount, total: built.total, truncated: built.truncated });
     return { loaded: built.rows.length, added, rowCount, total: built.total, truncated: built.truncated };
+  },
+});
+
+/** The kinds of list whose owners come from the city's daily records (code cases, permits, new tenants), not only the weekly roll. */
+const DAILY_KINDS = new Set<Definition["who"]>(["violation", "stalled", "contractor", "designer", "occupant"]);
+/** Lists found due are started this far apart, so a morning's refreshes don't all run at once. */
+const REFRESH_SPACING_MS = 250;
+/** How long a list's "N new" stays: additions within this long of each other are counted together, and shown this long after the last. */
+export const FRESH_DAYS = 7;
+
+/**
+ * Every morning (crons.ts), after the records have come in: the lists whose records changed since they were last
+ * checked are refreshed, a page of lists at a time. A list is due when its county's owners were rebuilt (the weekly
+ * roll), or, for a list of the city's daily records in the home county, when the morning's pass ran. Archived lists,
+ * and those of a company off the plan, are left as they are.
+ */
+export const refreshLists = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ due: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachLists").paginate({ cursor: cursor ?? null, numItems: 100 });
+    const stamps = new Map<string, string | undefined>();
+    const stampOf = async (source: string) => {
+      if (!stamps.has(source)) {
+        const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", source)).unique();
+        stamps.set(source, sync && !sync.error ? sync.syncedAt : undefined);
+      }
+      return stamps.get(source);
+    };
+    const onPlan = new Map<Id<"organizations">, boolean>();
+    let due = 0;
+    for (const l of page.page) {
+      if (l.archivedAt || l.filling || l.removing) continue;
+      const since = l.refreshedAt ?? l.createdAt;
+      const changed = [await stampOf(ownersSource(l.definition.county)), DAILY_KINDS.has(l.definition.who) && l.definition.county === COUNTY ? await stampOf(REFRESH_SOURCE) : undefined];
+      if (!changed.some((at) => at !== undefined && at > since)) continue;
+      if (!onPlan.has(l.organizationId)) {
+        const organization = await ctx.db.get(l.organizationId);
+        onPlan.set(l.organizationId, Boolean(organization?.plan && planIsActive(organization.plan, Date.now())));
+      }
+      if (!onPlan.get(l.organizationId)) continue;
+      await ctx.scheduler.runAfter(due * REFRESH_SPACING_MS, internal.outreach.refreshList, { listId: l._id });
+      due++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(due * REFRESH_SPACING_MS, internal.outreach.refreshLists, { cursor: page.continueCursor });
+    return { due, done: page.isDone };
+  },
+});
+
+/**
+ * Brings one list up to date: its definition is run again over the stretch the list covers (all of it when the list
+ * held everyone it reached, else as far down its order as it has loaded), and owners there who aren't on it join,
+ * new to the company or already among its owners. Nobody is taken off: an owner who no longer matches keeps the
+ * work done on it. Up to MAX_ROWS a step, in the background; the last step notes when, and how many joined.
+ */
+export const refreshList = internalMutation({
+  args: {
+    listId: v.id("outreachLists"),
+    /** Carried from step to step: where this one starts, how far the refresh goes, how many have joined, and when it began. */
+    offset: v.optional(v.number()),
+    target: v.optional(v.number()),
+    joined: v.optional(v.number()),
+    startedAt: v.optional(v.string()),
+  },
+  handler: async (ctx, a) => {
+    const list = await ctx.db.get(a.listId);
+    if (!list || list.archivedAt || list.filling || list.removing) return null;
+    const startedAt = a.startedAt ?? nowIso();
+    const offset = a.offset ?? 0;
+    const limit = Math.min(MAX_ROWS, Math.max(1, list.definition.limit ?? DEFAULT_ROWS));
+    const complete = list.total !== undefined && list.rowCount >= list.total;
+    // A list that held everyone it reached takes whoever is new, up to its own limit; one that stopped short covers the same stretch again.
+    const known = a.target ?? (complete ? undefined : list.rowCount);
+    const built = await buildRows(ctx, list.definition, offset, known === undefined ? MAX_ROWS : Math.min(MAX_ROWS, Math.max(1, known - offset)));
+    const target = known ?? Math.min(built.total, Math.max(list.rowCount, limit));
+    // Within the most a company's lists hold between them (counted as roomFor counts).
+    const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", list.organizationId)).collect();
+    const room = OWNER_CAP - lists.reduce((sum, l) => sum + l.rowCount, 0) - (a.joined ?? 0);
+    const count = { count: 0 };
+    if (room > 0) await addRows(ctx, list.organizationId, a.listId, list.definition.who, built.rows.slice(0, Math.max(0, target - offset)), startedAt, { joined: count, max: room });
+    const joined = (a.joined ?? 0) + count.count;
+    if (built.next > offset && built.next < target && count.count < room) {
+      await ctx.scheduler.runAfter(0, internal.outreach.refreshList, { listId: a.listId, offset: built.next, target, joined, startedAt });
+      return null;
+    }
+    // What recent checks added, counted together while they keep coming within FRESH_DAYS of each other.
+    const recent = new Date(Date.parse(startedAt) - FRESH_DAYS * 24 * 3600_000).toISOString();
+    const fresh = joined === 0 ? list.fresh : list.fresh && list.fresh.at > recent ? { since: list.fresh.since, at: startedAt, count: list.fresh.count + joined } : { since: startedAt, at: startedAt, count: joined };
+    await ctx.db.patch(a.listId, { rowCount: list.rowCount + joined, total: built.total, truncated: built.truncated, refreshedAt: startedAt, fresh });
+    return null;
   },
 });
 
@@ -967,7 +1072,15 @@ export const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]
  */
 const isCompany = (c: { company?: string; kinds: Doc<"outreachContacts">["kinds"] }) => c.company !== undefined && !c.kinds.includes("realtor");
 
-const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related: Array<{ id: Id<"outreachContacts">; name: string }> = [], known?: Known, leadStage?: Doc<"leads">["status"]) => ({
+const contactView = (
+  c: Doc<"outreachContacts">,
+  signals: SignalBadge[],
+  related: Array<{ id: Id<"outreachContacts">; name: string }> = [],
+  known?: Known,
+  leadStage?: Doc<"leads">["status"],
+  /** On a list's own view: when the owner joined that list. */
+  joinedAt?: string,
+) => ({
   id: c._id,
   key: c.key,
   name: c.name,
@@ -996,6 +1109,7 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
   ...(known && !c.leadId ? { known } : {}),
   /** Where email outreach stands with them (emailOutreach.ts). */
   ...(c.email ? { email: { state: c.email.state, at: c.email.at } } : {}),
+  ...(joinedAt ? { joinedAt } : {}),
   createdAt: c.createdAt,
 });
 export type ContactView = ReturnType<typeof contactView>;
@@ -1181,9 +1295,12 @@ export const contactsPage = query({
     const list = listId ? await ctx.db.get(listId) : null;
     let picked: Doc<"outreachContacts">[] = [];
     let next: string | null = null;
+    // On a list: when each owner joined it, so the ones it picked up on its own lately can be told apart.
+    const joinedAt = new Map<Id<"outreachContacts">, string>();
     if (listId) {
       if (list && list.organizationId === organizationId) {
         const read = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", listId)).paginate(paging);
+        for (const m of read.page) joinedAt.set(m.contactId, new Date(m._creationTime).toISOString());
         const owners = await Promise.all(read.page.map((m) => ctx.db.get(m.contactId)));
         picked = owners.filter((c): c is Doc<"outreachContacts"> => c !== null && c.organizationId === organizationId && c.listIds.includes(listId));
         next = read.isDone ? null : read.continueCursor;
@@ -1216,7 +1333,7 @@ export const contactsPage = query({
       // A lead deleted in Leads leaves its owner New here, ready to send again; one still there shows its stage.
       const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
       const shown = c.leadId && !lead ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
-      rows.push(contactView(shown, signals, await related(c), shown.leadId ? undefined : knownFor(shown, index), lead?.status));
+      rows.push(contactView(shown, signals, await related(c), shown.leadId ? undefined : knownFor(shown, index), lead?.status, joinedAt.get(c._id)));
     }
     if (cursor) return { rows, cursor: next };
     const onNone = await ctx.db
