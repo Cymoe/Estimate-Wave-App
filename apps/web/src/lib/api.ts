@@ -76,9 +76,25 @@ async function run<T = any>(kind: 'query' | 'mutation' | 'action', ref: Function
 }
 
 /** Calls onUpdate with a query's result now (when it's cached) and after every change on the server; returns a stop function. */
+/** A stop that can be called more than once: Convex's own throws the second time (its listeners are already gone). */
+function once(stop: () => void): () => void {
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    stop();
+  };
+}
+
+/**
+ * Listens to a query: `onUpdate` with its answer now (when it's already in hand, that is before this returns) and on
+ * every change; `onError` when it throws. Returns a stop, safe to call twice.
+ */
 function watchOn<T>(ref: FunctionReference<'query'>, args: Record<string, unknown>, onUpdate: (value: T) => void, onError?: (error: APIError) => void): () => void {
   const watch = convex.watchQuery(ref, args as never);
+  let stopped = false;
   const emit = () => {
+    if (stopped) return;
     try {
       const result = watch.localQueryResult();
       if (result !== undefined) onUpdate(withId(result) as T);
@@ -87,7 +103,11 @@ function watchOn<T>(ref: FunctionReference<'query'>, args: Record<string, unknow
     }
   };
   emit();
-  return watch.onUpdate(emit);
+  const stop = once(watch.onUpdate(emit));
+  return () => {
+    stopped = true;
+    stop();
+  };
 }
 
 /** Drops keys whose value is undefined so Convex validators accept them. */
@@ -933,7 +953,7 @@ export const leadsAPI = {
       }
     };
     emit();
-    return watch.onUpdate(emit);
+    return once(watch.onUpdate(emit));
   },
 
   async create(organizationId: string, data: any) {

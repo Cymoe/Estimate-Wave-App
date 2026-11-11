@@ -77,10 +77,18 @@ type Feed = { rows: unknown[]; balanceCents: number; freeLookups: number; remove
 let pushChanges: ((c: Feed) => void) | null = null;
 const pushContacts = (c: { rows: unknown[]; balanceCents?: number; freeLookups?: number }) =>
   pushChanges!({ rows: c.rows, balanceCents: c.balanceCents ?? 0, freeLookups: c.freeLookups ?? 0, reload: false, upTo: '2026-11-05T15:00:01.000Z' });
+// What the server already has in hand for a feed: answered the instant the feed is asked for, before the call returns
+// (as the real client does for a query it has just been listening to).
+let syncFeed: Feed | null = null;
 const watchChanges = jest.fn((_o: string, _since: string, onUpdate: (c: Feed) => void) => {
   pushChanges = onUpdate;
+  if (syncFeed) onUpdate(syncFeed);
+  let stopped = false;
   return () => {
-    pushChanges = null;
+    // As the real client: stopping a feed twice throws.
+    if (stopped) throw new Error("undefined is not an object (evaluating 'u.delete')");
+    stopped = true;
+    if (pushChanges === onUpdate) pushChanges = null;
   };
 });
 // The lists as the server has them, pushed when their numbers are counted again; and the page's ask for that count.
@@ -230,6 +238,7 @@ afterEach(() => {
   authUser = { id: 'u1', role: 'user' };
   ownersState = null;
   todaySheet = null;
+  syncFeed = null;
   narrowScreen = false;
   touchScreen = false;
   localStorage.clear();
@@ -1731,6 +1740,31 @@ describe('the Outreach page', () => {
     expect(table()).toBe(450);
     expect(more()).toBeNull();
   });
+  it('a hundred owners changed in one moment (a send of many) restarts the live feed once, not round and round, and never stops a feed twice', async () => {
+    const sixty = (over: Record<string, unknown> = {}) => Array.from({ length: 60 }, (_, i) => contact(`r${i}`, { key: `k-${i}`, name: `Owner ${String(i).padStart(2, '0')} LLC`, ...over }));
+    lists = [{ ...list, rowCount: 60 }];
+    contacts = { ...twoContacts(), rows: sixty() };
+    await render('/outreach/l1');
+    expect(watchChanges).toHaveBeenCalledTimes(1);
+    // All sixty went to Leads in the same instant. The page asks for a feed from just before that moment; the server
+    // has that answer in hand already (the same sixty, all still "the latest"), and gives it at once.
+    const sent: Feed = { rows: sixty({ status: 'lead', leadId: 'lead1' }), balanceCents: 0, freeLookups: 0, reload: false, upTo: '2026-11-05T15:05:00.000Z' };
+    syncFeed = sent;
+    await act(async () => pushChanges!(sent));
+    await flush();
+    // One new feed, from a second before the change, and no more: asking for the same feed again would never end.
+    expect(watchChanges).toHaveBeenCalledTimes(2);
+    expect((watchChanges.mock.calls[1] as unknown[])[1]).toBe('2026-11-05T15:04:59.000Z');
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="list-picker"]')).not.toBeNull();
+    // The page is still listening: the next change shows.
+    syncFeed = null;
+    await act(async () => pushChanges!({ ...sent, rows: [contact('r0', { key: 'k-0', name: 'Renamed Owner LLC', status: 'lead', leadId: 'lead1' })], upTo: '2026-11-05T15:06:00.000Z' }));
+    expect(document.body.textContent).toContain('Renamed Owner LLC');
+    // Leaving the page stops the feed it has, once.
+    expect(() => clearPage()).not.toThrow();
+  });
+
   it("a lookup's toast never stays in the way: it can be closed while the lookup runs, comes back for the next one, and the finished summary goes by itself", async () => {
     const progress = () => document.body.querySelector('[data-testid="lookup-progress"]') as HTMLElement | null;
     const running = { status: 'running', at: '2026-11-05T15:00:30Z' };

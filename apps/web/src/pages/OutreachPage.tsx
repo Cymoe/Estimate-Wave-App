@@ -649,6 +649,16 @@ const OutreachPage: React.FC = () => {
     // elsewhere), and they're put into the view the page has. Not the whole list again on every change.
     let ended = false;
     let stopChanges: (() => void) | undefined;
+    // Which feed is the current one, and the moment it listens from. A feed can answer the instant it's asked for (the
+    // answer is already in hand), before the call that started it has handed back its stop; so every answer and every
+    // stop is checked against the feed that is current, and a stop is used once.
+    let feed = 0;
+    let listeningFrom = '';
+    const stop = () => {
+      const s = stopChanges;
+      stopChanges = undefined;
+      s?.();
+    };
     const allKey = `${organizationId}:all`;
     const viewOf = (): ViewOf => {
       if (listId === UNLISTED) return { unlisted: true };
@@ -673,16 +683,33 @@ const OutreachPage: React.FC = () => {
       const all = listId ? seen.current.get(allKey) : undefined;
       if (all) seen.current.set(allKey, mergeChanged(all, p.rows, {}));
       if (p.rows.length) refreshListsSoon();
-      // A long run of changes: listen from the latest, so each answer stays small.
-      if (p.rows.length > FEED_STEP) listen(before(p.upTo, 1_000));
+      // A long run of changes: listen from the latest, so each answer stays small. Only when that is later than where
+      // this feed already listens from: many owners changed in one moment (a send of a hundred) are all still "the
+      // latest", and asking for the same feed again would go round for ever.
+      const next = p.rows.length > FEED_STEP ? before(p.upTo, 1_000) : '';
+      if (next > listeningFrom) listen(next);
     };
     function listen(since: string) {
-      stopChanges?.();
-      stopChanges = outreachAPI.watchChanges?.(organizationId!, since, onChanges, () => {
-        // The backend is a version behind for a minute during a deploy and has no feed yet: the whole view, live, as before.
-        stopChanges?.();
-        stopChanges = outreachAPI.watchContacts?.(organizationId!, listId, (c) => !ended && takeContacts(key, c));
-      });
+      stop();
+      const mine = ++feed;
+      listeningFrom = since;
+      const off = outreachAPI.watchChanges?.(
+        organizationId!,
+        since,
+        (p) => mine === feed && onChanges(p),
+        () => {
+          if (mine !== feed || ended) return;
+          // The backend is a version behind for a minute during a deploy and has no feed yet: the whole view, live, as before.
+          stop();
+          const whole = ++feed;
+          const offWhole = outreachAPI.watchContacts?.(organizationId!, listId, (c) => !ended && whole === feed && takeContacts(key, c));
+          if (whole === feed && !ended) stopChanges = offWhole;
+          else offWhole?.();
+        },
+      );
+      // Still the current feed (nothing newer was started while this one answered): keep its stop. Otherwise it's done with.
+      if (mine === feed && !ended) stopChanges = off;
+      else off?.();
     }
     void reread();
     // A lookup's narration comes on its own, small feed, so its many steps don't read every owner again.
@@ -692,7 +719,8 @@ const OutreachPage: React.FC = () => {
     });
     return () => {
       ended = true;
-      stopChanges?.();
+      feed++;
+      stop();
       stopProgress?.();
     };
     // lists is read only for the first look at a new list; a change to it must not resubscribe.
