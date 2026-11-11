@@ -52,7 +52,9 @@ export const ConfirmDialog: React.FC<ConfirmOptions & { onAnswer: (yes: boolean)
   return createPortal(
     <div role="alertdialog" aria-modal="true" aria-labelledby={titleId} className="fixed inset-0 z-[11500] flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm motion-safe:animate-fade-in-plain" onClick={() => onAnswer(false)} data-testid="confirm-backdrop" />
-      <div className="relative w-full max-w-sm rounded-lg border border-[#333333] bg-[#1E1E1E] p-6 shadow-2xl motion-safe:animate-row-in">
+      {/* A plain fade and lift: the table rows' entrance (row-in) ends on its wash's transparent frame and kept it, which left the
+          box without a background, the dimmed page showing through. */}
+      <div className="relative w-full max-w-sm rounded-lg border border-[#333333] bg-[#1E1E1E] p-6 shadow-2xl motion-safe:animate-appear" data-testid="confirm-panel">
         <h3 id={titleId} className="text-base font-semibold text-white">
           {title}
         </h3>

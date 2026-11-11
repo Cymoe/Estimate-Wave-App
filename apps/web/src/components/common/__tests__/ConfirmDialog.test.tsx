@@ -32,6 +32,11 @@ describe('useConfirm', () => {
     expect(dialog()?.textContent).toContain('Remove this?');
     expect(dialog()?.textContent).toContain('Detail line.');
     expect(dialog()?.getAttribute('aria-modal')).toBe('true');
+    // The box keeps its own background: not the table rows' entrance, whose wash ends transparent and wiped it out.
+    const panel = dialog()!.querySelector('[data-testid="confirm-panel"]')!;
+    expect(panel.className).toContain('bg-[#1E1E1E]');
+    expect(panel.className).not.toContain('animate-row-in');
+    expect(panel.className).not.toContain('animate-wash');
     expect(document.activeElement?.textContent).toBe('Cancel');
     await act(async () => button('Cancel').click());
     expect(dialog()).toBeNull();
