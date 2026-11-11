@@ -770,7 +770,7 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
         ...(signals ? { signals } : {}),
         kinds: [who],
         listIds: [listId],
-        ...filing({ ...rest, kinds: [who], listIds: [listId] }),
+        ...filing({ ...rest, person: found?.person, listIds: [listId] }),
         status: "new",
         createdAt: now,
         updatedAt: now,
@@ -1273,9 +1273,10 @@ async function sendOne(
   organizationId: Id<"organizations">,
   userId: Id<"users">,
   contact: Doc<"outreachContacts">,
-  all: Doc<"outreachContacts">[],
   now: string,
   index?: KnownIndex,
+  /** In a send of many: the owners already read, kept current as each is sent. */
+  peers?: Peers,
 ): Promise<{ leadId: Id<"leads">; made: boolean }> {
   const have = async (id?: Id<"leads">) => (id ? await ctx.db.get(id) : null);
   // Sample and simulated results are made up: they show the layout here, but a lead is called for real.
@@ -1288,7 +1289,7 @@ async function sendOne(
   let lead = await have(contact.leadId);
   let made = false;
   if (!lead) {
-    for (const other of all) {
+    for (const other of await peersOf(ctx, contact, peers)) {
       if (other._id === contact._id || !other.leadId || !sameOperator(contact, other)) continue;
       lead = await have(other.leadId);
       if (lead) break;
@@ -1342,8 +1343,7 @@ async function sendOne(
   }
   if (contact.status !== "lead" || contact.leadId !== lead._id) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", sentAt: now, updatedAt: now });
   // Later owners in the same send see this one's lead.
-  const mine = all.find((c) => c._id === contact._id);
-  if (mine) mine.leadId = lead._id;
+  if (peers) for (const rows of peers.values()) for (const o of rows) if (o._id === contact._id) o.leadId = lead._id;
   return { leadId: lead._id, made };
 }
 
@@ -1385,7 +1385,7 @@ export const sendToLeads = mutation({
     const { user } = await requirePro(ctx, organizationId);
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
-    return (await sendOne(ctx, organizationId, user._id, contact, await contactsOf(ctx, organizationId), nowIso())).leadId;
+    return (await sendOne(ctx, organizationId, user._id, contact, nowIso())).leadId;
   },
 });
 
@@ -1395,7 +1395,7 @@ export const sendToLeads = mutation({
  */
 export async function leadFromReply(ctx: MutationCtx, contact: Doc<"outreachContacts">, userId: Id<"users">, reply: string): Promise<Id<"leads">> {
   const now = nowIso();
-  const { leadId } = await sendOne(ctx, contact.organizationId, userId, contact, await contactsOf(ctx, contact.organizationId), now);
+  const { leadId } = await sendOne(ctx, contact.organizationId, userId, contact, now);
   const lead = await ctx.db.get(leadId);
   if (lead) {
     const day = new Date(now).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" });
@@ -1457,8 +1457,9 @@ export const undoSend = mutation({
       await ctx.db.delete(lead._id);
       removed++;
     }
-    for (const c of await contactsOf(ctx, organizationId)) {
-      if (c.sentAt !== at || !c.leadId) continue;
+    const sent = await ctx.db.query("outreachContacts").withIndex("by_organization_and_sent", (q) => q.eq("organizationId", organizationId).eq("sentAt", at)).collect();
+    for (const c of sent) {
+      if (!c.leadId) continue;
       const lead = await ctx.db.get(c.leadId);
       if (!lead || lead.createdAt === at) continue;
       const line = `Also owns as ${c.name}:`;
@@ -1482,18 +1483,18 @@ export const sendManyToLeads = mutation({
   handler: async (ctx, { organizationId, contactIds }) => {
     const { user } = await requirePro(ctx, organizationId);
     if (contactIds.length > SEND_MAX) fail("INVALID", `Send up to ${SEND_MAX} at a time`);
-    const all = await contactsOf(ctx, organizationId);
-    const byId = new Map(all.map((c) => [c._id, c] as const));
     const now = nowIso();
     const index = await knownOf(ctx, organizationId);
+    // The owners asked for are read one by one, and each one's kin by index: not every owner the company has.
+    const peers: Peers = new Map();
     let sent = 0;
     let made = 0;
     for (const id of new Set(contactIds)) {
-      const contact = byId.get(id);
-      if (!contact) continue;
+      const contact = await ctx.db.get(id);
+      if (!contact || contact.organizationId !== organizationId) continue;
       const before = contact.leadId && (await ctx.db.get(contact.leadId));
       if (before) continue;
-      const r = await sendOne(ctx, organizationId, user._id, contact, all, now, index);
+      const r = await sendOne(ctx, organizationId, user._id, contact, now, index, peers);
       sent++;
       if (r.made) made++;
     }
@@ -1524,7 +1525,7 @@ export const remove = mutation({
         }
       }
       const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
-      await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, kinds, listIds }), updatedAt: nowIso() });
+      await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, listIds }), updatedAt: nowIso() });
       await leaveLists(ctx, c._id, listId);
     }
     await ctx.db.delete(listId);
@@ -1559,8 +1560,39 @@ const alwaysStays = (c: Doc<"outreachContacts">, leadGone: boolean) => Boolean(c
  * lists it's on (none: "Not on a list"), its company family (sister entities) and its mailing address (the same
  * people behind two owners). Written wherever listIds is, and by backfillFiling for owners saved before.
  */
-function filing(c: Pick<Doc<"outreachContacts">, "name" | "company" | "kinds" | "mailing" | "listIds">) {
-  return { onLists: c.listIds.length, family: isCompany(c) ? familyKey(c.name) : undefined, mail: mailKey(c.mailing) };
+function filing(c: Pick<Doc<"outreachContacts">, "name" | "company" | "mailing" | "listIds" | "person">) {
+  return { onLists: c.listIds.length, family: c.company ? familyKey(c.name) : undefined, mail: mailKey(c.mailing), home: homeKey(c.person) };
+}
+/** A decision maker's own address as a key, to find the same person behind another owner. */
+const homeKey = (person?: { address?: string }) => person?.address?.trim().toUpperCase() || undefined;
+
+/** The most owners read for one family, mailing address or home when looking for the same people behind another owner. */
+const PEERS_MAX = 300;
+/** Owners already read by family, mailing address or home, kept for the length of one request (a send of many). */
+type Peers = Map<string, Doc<"outreachContacts">[]>;
+/**
+ * The owners that might be run by the same people as this one: its company family, the owners billed at its mailing
+ * address, and (given a person's home) the owners whose decision maker lives there. Read by index, not by reading
+ * every owner the company has.
+ */
+async function peersOf(ctx: QueryCtx | MutationCtx, c: Doc<"outreachContacts">, cache?: Peers, home?: string): Promise<Doc<"outreachContacts">[]> {
+  const organizationId = c.organizationId;
+  const family = c.company ? familyKey(c.name) : undefined;
+  const mail = mailKey(c.mailing);
+  const groups: Doc<"outreachContacts">[][] = [];
+  const group = async (key: string, read: () => Promise<Doc<"outreachContacts">[]>) => {
+    let rows = cache?.get(key);
+    if (!rows) {
+      rows = await read();
+      cache?.set(key, rows);
+    }
+    groups.push(rows);
+  };
+  if (family !== undefined) await group(`f:${family}`, () => ctx.db.query("outreachContacts").withIndex("by_organization_and_family", (q) => q.eq("organizationId", organizationId).eq("family", family)).take(PEERS_MAX));
+  if (mail !== undefined) await group(`m:${mail}`, () => ctx.db.query("outreachContacts").withIndex("by_organization_and_mail", (q) => q.eq("organizationId", organizationId).eq("mail", mail)).take(PEERS_MAX));
+  if (home !== undefined) await group(`h:${home}`, () => ctx.db.query("outreachContacts").withIndex("by_organization_and_home", (q) => q.eq("organizationId", organizationId).eq("home", home)).take(PEERS_MAX));
+  const seen = new Set<Id<"outreachContacts">>();
+  return groups.flat().filter((o) => !seen.has(o._id) && seen.add(o._id));
 }
 
 /** Takes an owner off a list's membership rows, or off every list's when none is named. */
@@ -1594,7 +1626,7 @@ export const backfillFiling = internalMutation({
         await ctx.db.delete(m._id);
         changed = true;
       }
-      if (c.onLists !== want.onLists || c.family !== want.family || c.mail !== want.mail) {
+      if (c.onLists !== want.onLists || c.family !== want.family || c.mail !== want.mail || c.home !== want.home) {
         await ctx.db.patch(c._id, want);
         changed = true;
       }
@@ -1628,19 +1660,50 @@ export const removeUnlisted = mutation({
   args: { organizationId: v.id("organizations"), contactIds: v.optional(v.array(v.id("outreachContacts"))) },
   handler: async (ctx, { organizationId, contactIds }) => {
     await requirePro(ctx, organizationId);
-    const only = contactIds ? new Set<Id<"outreachContacts">>(contactIds) : null;
-    let removed = 0;
-    let kept = 0;
-    for (const c of await contactsOf(ctx, organizationId)) {
-      if (c.listIds.length > 0 || (only && !only.has(c._id))) continue;
-      if (alwaysStays(c, await leadGone(ctx, c))) {
-        kept++;
-        continue;
-      }
-      await dropOwner(ctx, c._id);
-      removed++;
+    // The ones named, or those filed as on no list (by index, a page; the rest follow in the background).
+    let page: Doc<"outreachContacts">[];
+    let next: string | null = null;
+    if (contactIds) {
+      const named = await Promise.all([...new Set(contactIds)].map((id) => ctx.db.get(id)));
+      page = named.filter((c): c is Doc<"outreachContacts"> => c !== null && c.organizationId === organizationId);
+    } else {
+      const read = await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0)).paginate({ cursor: null, numItems: UNLISTED_PAGE });
+      // And any saved before owners were filed, should the backfill not have reached them yet.
+      const unfiled = await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", undefined)).take(UNLISTED_PAGE);
+      page = [...read.page, ...unfiled];
+      if (!read.isDone) next = read.continueCursor;
     }
-    return { removed, kept };
+    const counts = await removeUnlistedPage(ctx, page);
+    if (next) await ctx.scheduler.runAfter(0, internal.outreach.removeUnlistedRest, { organizationId, cursor: next });
+    return counts;
+  },
+});
+
+const UNLISTED_PAGE = 300;
+/** One page of owners on no list let go: all but those now a lead or a client, or still being looked up. */
+async function removeUnlistedPage(ctx: MutationCtx, page: Doc<"outreachContacts">[]) {
+  let removed = 0;
+  let kept = 0;
+  for (const c of page) {
+    if (c.listIds.length > 0) continue;
+    if (alwaysStays(c, await leadGone(ctx, c))) {
+      kept++;
+      continue;
+    }
+    await dropOwner(ctx, c._id);
+    removed++;
+  }
+  return { removed, kept };
+}
+
+/** removeUnlisted past its first page, a page at a time. */
+export const removeUnlistedRest = internalMutation({
+  args: { organizationId: v.id("organizations"), cursor: v.string() },
+  handler: async (ctx, { organizationId, cursor }) => {
+    const read = await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0)).paginate({ cursor, numItems: UNLISTED_PAGE });
+    const counts = await removeUnlistedPage(ctx, read.page);
+    if (!read.isDone) await ctx.scheduler.runAfter(0, internal.outreach.removeUnlistedRest, { organizationId, cursor: read.continueCursor });
+    return counts;
   },
 });
 
@@ -2084,7 +2147,7 @@ export const sharedLookup = internalQuery({
     const family = me.company ? familyKey(me.name) : undefined;
     const mail = mailKey(me.mailing);
     const home = person.address?.trim().toUpperCase();
-    for (const c of await contactsOf(ctx, me.organizationId)) {
+    for (const c of await peersOf(ctx, me, undefined, home)) {
       if (c._id === contactId || !c.person || !(c.phones?.length) || cellFor(cellsOf(c), "phone").status !== "found") continue;
       if (!samePerson(person, c.person)) continue;
       const tied =
@@ -2221,7 +2284,7 @@ export const recordEnrichment = internalMutation({
       enrichment: cells,
       ...(field === "phone" && kept ? { phones } : {}),
       ...(field === "email" && kept ? { emails } : {}),
-      ...(field === "person" && kept ? { person } : {}),
+      ...(field === "person" && kept ? { person, home: homeKey(person) } : {}),
       ...(field === "research" ? { research: kept ? research : c.research, researchQuestion: undefined } : {}),
       updatedAt: now,
     });

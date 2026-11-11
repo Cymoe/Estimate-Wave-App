@@ -1319,6 +1319,8 @@ export default defineSchema({
     onLists: v.optional(v.number()),
     family: v.optional(v.string()),
     mail: v.optional(v.string()),
+    // The decision maker's own address as a key, to find the same person behind another owner.
+    home: v.optional(v.string()),
     status: outreachRowStatus,
     note: v.optional(v.string()),
     // Earlier call tracking, no longer written (calls are worked in Leads).
@@ -1364,6 +1366,7 @@ export default defineSchema({
     .index("by_organization_and_on_lists", ["organizationId", "onLists"])
     .index("by_organization_and_family", ["organizationId", "family"])
     .index("by_organization_and_mail", ["organizationId", "mail"])
+    .index("by_organization_and_home", ["organizationId", "home"])
     .index("by_organization_and_sent", ["organizationId", "sentAt"]),
 
   // Which owners are on which list, a row each (an owner's listIds says the same): a list's owners can be read a
