@@ -285,7 +285,8 @@ const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolea
   );
 };
 /** What the main button does, in words: the person behind each owner, their phone and their email. */
-const findLabel = (n: number) => `Find phones & emails (${n.toLocaleString('en-US')})`;
+/** "Find phones & emails (36)"; with a filter on, "(12 showing)": the button covers what the page shows. */
+const findLabel = (n: number, showing = false) => `Find phones & emails (${n.toLocaleString('en-US')}${showing ? ' showing' : ''})`;
 /** Past this many owners in one answer of the live feed, the page listens from the latest change on, so answers stay small. */
 const FEED_STEP = 50;
 /** At most this many more owners are loaded in one go before finding phones & emails for a whole list (four pages). */
@@ -769,11 +770,15 @@ const OutreachPage: React.FC = () => {
     if (hitRate === undefined || phones === 0) return `up to ${dollars(most)}`;
     return `up to ${dollars(most)}, about ${dollars(Math.round(most * hitRate))} at your ${Math.round(hitRate * 100)}% hit rate so far`;
   };
-  // The header's buttons act on the whole list (or every contact): everyone a lookup would run on, and everyone with no research yet.
-  // Someone already a client or a lead isn't looked up in bulk: their number is already in the app. One can still be looked up from its sheet.
-  const listOpen = (data?.rows ?? []).filter((r) => hasLock(r) && !r.known);
+  // The header's buttons act on what the page is showing: the whole list (or every contact), or with a tab, a status, a
+  // county, a search or "new since" on, just the owners that leaves. Of those, everyone a lookup would run on, and everyone
+  // with no research yet. Someone already a client or a lead isn't looked up in bulk: their number is already in the app.
+  // One can still be looked up from its sheet.
+  const filterOn = show !== 'all' || status !== 'all' || countyNow !== 'all' || query.trim() !== '' || justNew;
+  const scope = filterOn ? rows : (data?.rows ?? []);
+  const listOpen = scope.filter((r) => hasLock(r) && !r.known);
   const listPhones = listOpen.filter(needsPhone).length;
-  const listResearch = (data?.rows ?? []).filter(needsResearch);
+  const listResearch = scope.filter(needsResearch);
   // Nobody on the page has been looked up or researched yet (every cell still locked).
   const untouched = (data?.rows ?? []).every((r) => (['phone', 'email', 'person', 'research'] as const).every((f) => (r.enrichment[f]?.status ?? 'locked') === 'locked'));
   const researchCost = listResearch.length * researchCents;
@@ -900,8 +905,9 @@ const OutreachPage: React.FC = () => {
    */
   const enrichAll = async () => {
     if (listOpen.length === 0) return;
-    let rows = data?.rows ?? [];
-    const more = list && !list.filling ? Math.max(0, (list.total ?? 0) - list.rowCount) : 0;
+    let rows = scope;
+    // With a filter on, the ask is about the owners showing: no question about the ones not loaded yet.
+    const more = list && !list.filling && !filterOn ? Math.max(0, (list.total ?? 0) - list.rowCount) : 0;
     if (list && more > 0) {
       const n = (x: number) => x.toLocaleString('en-US');
       const take = Math.min(more, LOAD_REST_MAX);
@@ -924,10 +930,14 @@ const OutreachPage: React.FC = () => {
     if (open.length === 0) return;
     const known = rows.filter((r) => hasLock(r) && r.known).length;
     const phones = open.filter(needsPhone).length;
-    const who = list ? `the ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'owner' : 'owners'} on “${list.title}”` : `all ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'contact' : 'contacts'}`;
+    const count = `${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'owner' : 'owners'}`;
+    const who = filterOn ? `the ${count} showing` : list ? `the ${count} on “${list.title}”` : `all ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'contact' : 'contacts'}`;
+    // With a filter on: who is left out, so nobody thinks the whole list was covered.
+    const total = data?.rows.length ?? 0;
+    const narrowed = filterOn ? `Only the owners the page is showing now (${rows.length.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}${list ? ' on this list' : ''}). ` : '';
     const ok = await confirm({
       title: `Find phones & emails for ${who}?`,
-      message: `${phones} ${phones === 1 ? 'phone' : 'phones'} to find: ${costOf(phones)}. Charged only for phones found; the person behind each company and emails are free.${
+      message: `${narrowed}${phones} ${phones === 1 ? 'phone' : 'phones'} to find: ${costOf(phones)}. Charged only for phones found; the person behind each company and emails are free.${
         known ? ` ${known} you already have as ${known === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
       }`,
       confirmLabel: 'Find them',
@@ -954,7 +964,7 @@ const OutreachPage: React.FC = () => {
     if (first.length === 0) return;
     const ok = await confirm({
       title: `Find ${first.length === 1 ? 'a phone' : `${first.length} phones`} free?`,
-      message: `Your first ${FREE_LOOKUPS} phone numbers are on us. The first ${first.length === 1 ? 'owner' : `${first.length} owners`} on this list ${first.length === 1 ? 'is' : 'are'} looked up now; a free one is used only when a phone is found. After those it's ${dollars(unlockCents)} a phone, only when found.`,
+      message: `Your first ${FREE_LOOKUPS} phone numbers are on us. The first ${first.length === 1 ? 'owner' : `${first.length} owners`} ${filterOn ? 'showing' : 'on this list'} ${first.length === 1 ? 'is' : 'are'} looked up now; a free one is used only when a phone is found. After those it's ${dollars(unlockCents)} a phone, only when found.`,
       confirmLabel: 'Find them',
       tone: 'default',
     });
@@ -966,8 +976,8 @@ const OutreachPage: React.FC = () => {
   const researchAll = async () => {
     if (listResearch.length === 0) return;
     const ok = await confirm({
-      title: `Research ${listResearch.length} ${listResearch.length === 1 ? 'owner' : 'owners'} with AI?`,
-      message: `AI reads the web for what each owner does and any sign of plans to build, renovate, expand or sell. ${dollars(researchCents)} an answer, ${dollars(researchCost)} at most, charged only when it finds something to say.`,
+      title: `Research ${filterOn ? 'the ' : ''}${listResearch.length} ${listResearch.length === 1 ? 'owner' : 'owners'}${filterOn ? ' showing' : ''} with AI?`,
+      message: `${filterOn ? `Only the owners the page is showing now (${rows.length.toLocaleString('en-US')} of ${(data?.rows.length ?? 0).toLocaleString('en-US')}${list ? ' on this list' : ''}). ` : ''}AI reads the web for what each owner does and any sign of plans to build, renovate, expand or sell. ${dollars(researchCents)} an answer, ${dollars(researchCost)} at most, charged only when it finds something to say.`,
       confirmLabel: 'Research them',
       // Going ahead, not removing anything: the blue button, not the red one.
       tone: 'default',
@@ -1197,9 +1207,9 @@ const OutreachPage: React.FC = () => {
                     ? `Find ${freeTry} ${freeTry === 1 ? 'phone' : 'phones'} free`
                     : short
                     ? narrow
-                      ? `Add funds to find phones (${listOpen.length.toLocaleString('en-US')})`
-                      : `Add funds to ${findLabel(listOpen.length).replace('Find', 'find')}`
-                    : findLabel(listOpen.length)}
+                      ? `Add funds to find phones (${listOpen.length.toLocaleString('en-US')}${filterOn ? ' showing' : ''})`
+                      : `Add funds to ${findLabel(listOpen.length, filterOn).replace('Find', 'find')}`
+                    : findLabel(listOpen.length, filterOn)}
               </button>
             ) : (
               toSend.length > 0 && (
@@ -1216,7 +1226,8 @@ const OutreachPage: React.FC = () => {
                 className={`${action} ${wrapOnPhone} border border-violet-400/60 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20`}
                 title={`AI reads the web for what each owner does and any plans to build or sell · ${dollars(researchCents)} an answer, charged only when it finds something`}
               >
-                Research with AI ({listResearch.length.toLocaleString('en-US')})
+                Research with AI ({listResearch.length.toLocaleString('en-US')}
+                {filterOn ? ' showing' : ''})
               </button>
             )}
             <PopMenu label="More" icon={<MoreHorizontal className="w-5 h-5" />}>

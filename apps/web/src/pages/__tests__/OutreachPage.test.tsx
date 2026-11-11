@@ -1494,6 +1494,70 @@ describe('the Outreach page', () => {
     expect(document.body.textContent).toContain('Find phones & emails for the 2 owners on “Shopping center owners”?');
   });
 
+  it('the bulk buttons cover what the page is showing: with a tab or a search on, Find phones and Research act on just those owners and say so', async () => {
+    const three = () => ({
+      ...twoContacts(),
+      rows: [...twoContacts().rows, contact('r3', { name: 'Vance Robert & Linda', company: undefined, mailing: { address: '9 ELM ST', city: 'ODESSA', state: 'TX', zip: '79761' } })],
+      balanceCents: 1000,
+    });
+    // A list with more owners than are loaded: without a filter the button would first ask about loading the rest.
+    lists = [{ ...list, rowCount: 3, total: 40 }];
+    contacts = three();
+    await render('/outreach/l1');
+    expect(button('Find phones & emails').textContent).toBe('Find phones & emails (3)');
+    expect(button('Research with AI').textContent).toBe('Research with AI (3)');
+
+    // A tab: the one owner with a signal. Both buttons count just that owner and say "showing".
+    await click('Has a signal');
+    expect(button('Find phones & emails').textContent).toBe('Find phones & emails (1 showing)');
+    expect(button('Find phones & emails').title).toBe('up to $1');
+    expect(button('Research with AI').textContent).toBe('Research with AI (1 showing)');
+    // The ask names who it covers and who it leaves out, with no question about owners not loaded yet.
+    await click('Find phones & emails (1 showing)');
+    expect(document.body.textContent).not.toContain('loaded yet');
+    expect(document.body.textContent).toContain('Find phones & emails for the 1 owner showing?');
+    expect(document.body.textContent).toContain('Only the owners the page is showing now (1 of 3 on this list). 1 phone to find');
+    await click('Find them');
+    expect(extend).not.toHaveBeenCalled();
+    expect(enrich).toHaveBeenCalledTimes(1);
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r2'], undefined, undefined);
+
+    // Research, the same way.
+    clearPage();
+    jest.clearAllMocks();
+    contacts = three();
+    await render('/outreach/l1');
+    await click('Has a signal');
+    await click('Research with AI (1 showing)');
+    expect(document.body.textContent).toContain('Research the 1 owner showing with AI?');
+    expect(document.body.textContent).toContain('Only the owners the page is showing now (1 of 3 on this list). AI reads the web');
+    expect(document.body.textContent).toContain('$0.25 at most');
+    await click('Research them');
+    expect(enrich).toHaveBeenCalledTimes(1);
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r2'], ['research'], undefined);
+
+    // A search narrows them too; clearing it puts the buttons back on the whole list, with its question about the rest.
+    clearPage();
+    jest.clearAllMocks();
+    contacts = three();
+    await render('/outreach/l1');
+    const search = () => document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement;
+    await act(async () => type(search(), 'elm'));
+    expect(button('Find phones & emails').textContent).toBe('Find phones & emails (1 showing)');
+    await click('Find phones & emails (1 showing)');
+    await click('Find them');
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r3'], undefined, undefined);
+    clearPage();
+    jest.clearAllMocks();
+    contacts = three();
+    await render('/outreach/l1');
+    await act(async () => type(search(), 'elm'));
+    await act(async () => type(search(), ''));
+    expect(button('Find phones & emails').textContent).toBe('Find phones & emails (3)');
+    await click('Find phones & emails (3)');
+    expect(document.body.textContent).toContain("37 owners on “Shopping center owners” aren't loaded yet");
+  });
+
   it('draws a long list 200 owners at a time, with Show more for the rest', async () => {
     contacts = { ...twoContacts(), rows: Array.from({ length: 450 }, (_, i) => contact(`r${i}`, { key: `k-${i}`, name: `Owner ${String(i).padStart(3, '0')} LLC` })) };
     await render('/outreach');
