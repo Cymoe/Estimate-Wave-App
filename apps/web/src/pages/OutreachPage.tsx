@@ -1084,11 +1084,18 @@ const OutreachPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => (short ? addFunds() : void enrichAll())}
-                disabled={busy}
+                disabled={busy || extending}
                 className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`}
                 title={short ? `Your balance is ${dollars(balanceCents)}; finding these costs ${estimate(listPhones)}` : estimate(listPhones)}
               >
-                {short ? `Add funds to ${findLabel(listOpen.length).replace('Find', 'find')}` : findLabel(listOpen.length)}
+                {/* On a phone the short-of-funds label is cut down, so the button is two lines at most, not three. */}
+                {extending
+                  ? 'Loading owners…'
+                  : short
+                    ? narrow
+                      ? `Add funds to find phones (${listOpen.length.toLocaleString('en-US')})`
+                      : `Add funds to ${findLabel(listOpen.length).replace('Find', 'find')}`
+                    : findLabel(listOpen.length)}
               </button>
             ) : (
               toSend.length > 0 && (

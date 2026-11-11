@@ -129,6 +129,7 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
         <li className="rounded border border-[#2A2A2A] px-3 py-2">📝 Estimates</li>
         <li className="rounded border border-[#2A2A2A] px-3 py-2">📒 Price Book</li>
         <li className="rounded border border-[#2A2A2A] px-3 py-2">🏗 Projects</li>
+        <li className="rounded border border-[#2A2A2A] px-3 py-2">📣 Outreach · owner lists, with phones and emails</li>
         <li className="rounded border border-[#2A2A2A] px-3 py-2">
           🔐 The Vault · {included} claims a month, then {money(extra)} each
         </li>

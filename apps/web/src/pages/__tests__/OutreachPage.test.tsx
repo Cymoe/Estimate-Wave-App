@@ -430,7 +430,7 @@ describe('the Outreach page', () => {
     await render('/outreach/l1');
     const header = document.body.querySelector('[data-testid="actions"]')!;
     // The two buttons (Find says to add funds while the balance is short, and adding them is its tap); the rest waits under More.
-    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Add funds to find phones & emails (1)', 'Research with AI (2)', 'More']);
+    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Add funds to find phones (1)', 'Research with AI (2)', 'More']);
     await act(async () => button('Add funds to find').click());
     expect(openFundingPage).toHaveBeenCalledWith('o1');
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
