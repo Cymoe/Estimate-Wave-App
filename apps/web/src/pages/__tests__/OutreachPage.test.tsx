@@ -820,7 +820,7 @@ describe('the Outreach page', () => {
     expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'New businesses moving in', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
     // Storage and industrial, each with its owners and who has been buying.
     await click('Storage and industrial');
-    expect(chips()).toEqual([['Storage and industrial', 'Storage facility owners', 'Storage buyers, last 3 years', 'Industrial building owners', 'Industrial buyers, last 3 years']]);
+    expect(chips()).toEqual([['Storage and industrial', 'Storage facility owners', 'Storage buyers, last 5 years', 'Industrial building owners', 'Industrial buyers, last 5 years']]);
     await click('Homeowners');
     expect(chips()).toEqual([['Homeowners', 'Code violations', 'Stalled permits', 'Landlords with 3+ rental homes', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
     await click('People who bring work');
@@ -1037,6 +1037,31 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
     expect(Array.from(document.body.querySelectorAll('[role="dialog"][aria-label="Lists"] h3')).map((h) => h.textContent)).toEqual(['Ector County (Odessa)', 'Midland County']);
     localStorage.removeItem('outreach.countyFilter');
+  });
+
+  it("a storage owner listed by its LLC shows the name on the sign under it, and search finds it by that name or by who it bought from", async () => {
+    lists = [list];
+    contacts = {
+      rows: [
+        contact('r1', { name: 'Kosf II Midland LLC', brand: 'KO Storage', why: 'KO Storage · 8 storage properties, the biggest worth $348K; bought 8 in the last 5 years, from Midland Lock Storage LLC' }),
+        contact('r2', { name: 'Kentucky Street Mini Storage LLC', why: '7 storage properties, the biggest worth $500K; last bought Jul 2020' }),
+      ],
+      coverage: coverage(0, 0, 0, 2),
+      ...money,
+    };
+    await render('/outreach/l1');
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.firstChild!.textContent);
+    expect(names()).toEqual(['Kosf II Midland LLC', 'Kentucky Street Mini Storage LLC']);
+    const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
+    expect(rows[0].querySelector('[data-testid="brand"]')!.textContent).toBe('KO Storage');
+    expect(rows[1].querySelector('[data-testid="brand"]')).toBeNull();
+    const search = document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement;
+    await act(async () => type(search, 'ko storage'));
+    expect(names()).toEqual(['Kosf II Midland LLC']);
+    await act(async () => type(search, 'midland lock'));
+    expect(names()).toEqual(['Kosf II Midland LLC']);
+    await act(async () => type(search, 'kentucky'));
+    expect(names()).toEqual(['Kentucky Street Mini Storage LLC']);
   });
 
   it('owners emailed from Outreach: the state under the name, a Replied tab, and Email these in the menu', async () => {

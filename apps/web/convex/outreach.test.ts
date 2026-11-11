@@ -205,11 +205,15 @@ describe("grouping the roll into owners", () => {
       parcel("s1", co("A OK SELF STORAGE INC", { landUse: "CWH03", marketValueCents: 238_000_000, deedDate: "2008-05-15" })),
       parcel("s2", co("A OK SELF STORAGE INC", { landUse: "CWH03", marketValueCents: 33_000_000, deedDate: "2026-02-03" })),
       // No land code on the building: its name says storage. The house it also owns is a house.
-      parcel("s3", co("2 LP STORAGE LLC", { marketValueCents: 62_000_000, deedDate: "2022-06-17" })),
+      parcel("s3", co("2 LP STORAGE LLC", { marketValueCents: 62_000_000, deedDate: "2020-06-17" })),
       parcel("s4", co("2 LP STORAGE LLC", { useCode: "A1", marketValueCents: 33_000_000, deedDate: "2026-09-08" })),
       // A storage company on industrial-priced land is storage, not industrial.
       parcel("s5", co("KELLER STORAGE PARTNERS LP", { landUse: "CID04", marketValueCents: 67_000_000, deedDate: "2025-08-18" })),
-      // Industrial by the state's code, and a warehouse by the land code; two bought in the last three years.
+      // An operator's LLC: four small parcels bought four years ago, none worth much on its own. The name on the sign is known.
+      ...["k1", "k2", "k3", "k4"].map((id, i) => parcel(id, co("KOSF II MIDLAND LLC", { landUse: "CWH03", siteAddress: `${1901 + i * 2} W FLORIDA AV`, marketValueCents: (8 + i) * 1_000_000, deedDate: i < 2 ? "2022-11-15" : "2023-01-03", mailing: { address: "10301 WAYZATA BLVD", city: "MINNETONKA", state: "MN", zip: "55305" } }))),
+      // Neither the land code nor the owner's name says storage: the sales-tax permit at the address does, and names it.
+      parcel("r1", co("ANZO INVESTMENTS LLC", { landUse: "CSV99", siteAddress: "9913 W COUNTY RD 157", marketValueCents: 40_000_000, deedDate: "2018-04-25" })),
+      // Industrial by the state's code, and a warehouse by the land code; two bought in the last five years.
       parcel("i1", co("GGB LEASING LP", { useCode: "F2", landUse: "CWH06", marketValueCents: 131_000_000, deedDate: "2024-01-12" })),
       parcel("i2", co("GGB LEASING LP", { landUse: "CWH04", marketValueCents: 246_000_000, deedDate: "2025-06-06" })),
       parcel("i3", co("TEAM CON LTD", { useCode: "F2", marketValueCents: 1_056_000_000, deedDate: "2018-01-25" })),
@@ -219,12 +223,19 @@ describe("grouping the roll into owners", () => {
       parcel("x3", co("FIRST PRESBYTERIAN", { landUse: "CIN01", marketValueCents: 628_000_000 })),
     ];
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
-    const { owners, facets } = groupOwners(roll, NOW);
+    const storageAt = new Map([[addressKey("9913 W COUNTY RD 157"), "Desert RV And Boat Storage"]]);
+    const { owners, facets } = groupOwners(roll, NOW, { storageAt });
     const by = Object.fromEntries(owners.map((o) => [o.name, o]));
     const on = (name: string) => (facets.get(by[name].key) ?? []).map((f) => f.facet).sort();
-    const listed = (facet: string) => owners.filter((o) => (facets.get(o.key) ?? []).some((f) => f.facet === facet)).map((o) => o.name).sort();
-    expect(listed("storage")).toEqual(["2 LP Storage LLC", "A Ok Self Storage INC", "Keller Storage Partners LP"]);
-    expect(listed("industrial")).toEqual(["Ggb Leasing LP", "Team Con LTD"]);
+    const ranked = (facet: string) =>
+      owners
+        .map((o) => ({ o, f: (facets.get(o.key) ?? []).find((x) => x.facet === facet) }))
+        .filter((x) => x.f)
+        .sort((a, b) => b.f!.sort - a.f!.sort)
+        .map((x) => x.o.name);
+    // Whoever holds the most first: the operator's four small parcels outrank everyone's single big one.
+    expect(ranked("storage")).toEqual(["Kosf II Midland LLC", "A Ok Self Storage INC", "Keller Storage Partners LP", "2 LP Storage LLC", "Anzo Investments LLC"]);
+    expect(ranked("industrial")).toEqual(["Ggb Leasing LP", "Team Con LTD"]);
     // Still commercial owners too; the house, the shop and the church are on neither new list.
     expect(on("A Ok Self Storage INC")).toEqual(expect.arrayContaining(["commercial", "storage"]));
     expect(on("Oak Plaza LLC")).not.toEqual(expect.arrayContaining(["storage"]));
@@ -233,22 +244,32 @@ describe("grouping the roll into owners", () => {
 
     expect(by["A Ok Self Storage INC"]).toMatchObject({ storage: 2, storageValueCents: 238_000_000, storageDeed: "2026-02-03", storageRecent: 1 });
     // The house bought in September isn't a storage purchase: the storage deed is the building's.
-    expect(by["2 LP Storage LLC"]).toMatchObject({ storage: 1, storageDeed: "2022-06-17", latestDeed: "2026-09-08" });
+    expect(by["2 LP Storage LLC"]).toMatchObject({ storage: 1, storageDeed: "2020-06-17", latestDeed: "2026-09-08" });
     expect(by["2 LP Storage LLC"].storageRecent).toBeUndefined();
     expect(by["Ggb Leasing LP"]).toMatchObject({ industrial: 2, industrialValueCents: 246_000_000, industrialDeed: "2025-06-06", industrialRecent: 2 });
+    // The name on the sign: from the operators known, or the sales-tax permit at the address. An owner whose own name says it needs none.
+    expect(by["Kosf II Midland LLC"]).toMatchObject({ storage: 4, storageRecent: 4, brand: "KO Storage" });
+    expect(by["Anzo Investments LLC"]).toMatchObject({ storage: 1, brand: "Desert RV And Boat Storage" });
+    expect(by["A Ok Self Storage INC"].brand).toBeUndefined();
 
-    // Why they're on the list: what they hold, and what they've been buying.
+    // Why they're on the list: the name people know, what they hold, and what they've been buying.
+    expect(why(by["Kosf II Midland LLC"], "storage")).toBe("KO Storage · 4 storage properties, the biggest worth $110K; bought 4 in the last 5 years, the newest Jan 2023");
     expect(why(by["A Ok Self Storage INC"], "storage")).toBe("2 storage properties, the biggest worth $2.4M; bought Feb 2026");
-    expect(why(by["2 LP Storage LLC"], "storage")).toBe("Storage property worth $620K; last bought Jun 2022");
-    expect(why(by["Ggb Leasing LP"], "industrial")).toBe("2 industrial buildings, the biggest worth $2.5M; bought 2 in the last 3 years, the newest Jun 2025");
+    expect(why(by["2 LP Storage LLC"], "storage")).toBe("Storage property worth $620K; last bought Jun 2020");
+    expect(why(by["Ggb Leasing LP"], "industrial")).toBe("2 industrial buildings, the biggest worth $2.5M; bought 2 in the last 5 years, the newest Jun 2025");
     expect(why(by["Team Con LTD"], "industrial")).toBe("Industrial building worth $10.6M; last bought Jan 2018");
 
-    // "Bought in the last three years" reads the storage building's deed, not the owner's newest of anything.
-    const buyers = { county: "Midland", who: "storage" as const, deedWithinDays: 1095 };
-    expect(owners.filter((o) => on(o.name).includes("storage") && matches(o, buyers, "storage", NOW)).map((o) => o.name).sort()).toEqual(["A Ok Self Storage INC", "Keller Storage Partners LP"]);
-    // "Two or more" counts storage properties, not everything they own.
-    expect(owners.filter((o) => on(o.name).includes("storage") && matches(o, { county: "Midland", who: "storage", minParcels: 2 }, "storage", NOW)).map((o) => o.name)).toEqual(["A Ok Self Storage INC"]);
-    expect(listOrder({ county: "Midland", who: "industrial" }).label).toBe("highest value first");
+    // "Bought in the last five years" reads the storage building's deed, not the owner's newest of anything.
+    const buyers = { county: "Midland", who: "storage" as const, deedWithinDays: 1826 };
+    expect(owners.filter((o) => on(o.name).includes("storage") && matches(o, buyers, "storage", NOW)).map((o) => o.name).sort()).toEqual(["A Ok Self Storage INC", "Keller Storage Partners LP", "Kosf II Midland LLC"]);
+    // "Two or more" counts storage properties, not everything they own; once under it, the read can stop. A value floor never stops it (the order isn't by value).
+    const two = { county: "Midland", who: "storage" as const, minParcels: 2 };
+    expect(owners.filter((o) => on(o.name).includes("storage") && matches(o, two, "storage", NOW)).map((o) => o.name).sort()).toEqual(["A Ok Self Storage INC", "Kosf II Midland LLC"]);
+    expect(underFloor(by["Keller Storage Partners LP"], two, "storage")).toBe(true);
+    expect(underFloor(by["Kosf II Midland LLC"], { county: "Midland", who: "storage", minValueCents: 100_000_000 }, "storage")).toBe(false);
+    expect(matches(by["Kosf II Midland LLC"], { county: "Midland", who: "storage", minValueCents: 100_000_000 }, "storage", NOW)).toBe(false);
+    expect(listOrder({ county: "Midland", who: "storage" }).label).toBe("most properties first");
+    expect(listOrder({ county: "Midland", who: "industrial" }).label).toBe("most properties first");
   });
 
   test("the words alone pick a list while the assistant is away; a stretch is no guess at all", () => {

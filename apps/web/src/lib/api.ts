@@ -1261,6 +1261,8 @@ export type OutreachContact = {
   properties: number;
   totalValueCents: number;
   why: string;
+  /** A storage owner's name on the sign ("KO Storage"), when the roll's name is only the LLC behind it. */
+  brand?: string;
   kinds: OutreachWho[];
   listIds: string[];
   status: OutreachRowStatus;

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { setup, signUp } from "./test.setup";
-import { addressKey, deedIso, isCompanyOwner, ownerName, ownerOccupied, rowsToParcels, siteAddress, streetKey } from "./lib/parcels";
+import { addressKey, deedIso, isCompanyOwner, isStorageOutlet, outletBrand, ownerName, ownerOccupied, rowsToParcels, siteAddress, storageOperator, streetKey } from "./lib/parcels";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -61,6 +61,24 @@ describe("Midland owners (the appraisal roll)", () => {
     expect(deedIso("9/2/9202")).toBeUndefined();
     expect(deedIso("1/5/1066")).toBeUndefined();
     expect(ownerName("LOZANO ZUNIGA CESAR E")).toBe("Lozano Zuniga Cesar E");
+  });
+
+  test("the name on a storage property's sign: the big operators by their LLCs, the local ones by their sales-tax permit", () => {
+    expect(storageOperator("KOSF II MIDLAND LLC")).toBe("KO Storage");
+    expect(storageOperator("kosf iii midland llc")).toBe("KO Storage");
+    expect(storageOperator("SROA 1010 N LOOP 250 TEXAS LLC")).toBe("Storage Rentals of America");
+    expect(storageOperator("AVAD-ETUDE 1103 LLC")).toBe("Avid Storage");
+    expect(storageOperator("AVAD CAPITAL LLC")).toBe("Avid Storage");
+    // A name that only starts alike isn't one of them.
+    expect(storageOperator("KOSFELD RANCH LTD")).toBeUndefined();
+    expect(storageOperator("A OK SELF STORAGE INC")).toBeUndefined();
+    // The storage business by the state's industry code, or by its name; a branch's name without the branch.
+    expect(isStorageOutlet({ naics: "531130", name: "TURNKEY - MIDLAND DRIVE" })).toBe(true);
+    expect(isStorageOutlet({ naics: "493110", name: "AMERICAN RV & BOAT STORAGE" })).toBe(true);
+    expect(isStorageOutlet({ naics: "722511", name: "WALL STREET GRILL" })).toBe(false);
+    expect(outletBrand("AVID STORAGE - CALDERA")).toBe("Avid Storage");
+    expect(outletBrand("SMART RV AND BOAT STORAGE LLC")).toBe("Smart RV And Boat Storage");
+    expect(outletBrand("AMERICA'S STORAGE CENTER, INC.")).toBe("America's Storage Center");
   });
 
   test("keeps homes, apartment and commercial buildings with an owner and an address, and reads the money in cents", () => {

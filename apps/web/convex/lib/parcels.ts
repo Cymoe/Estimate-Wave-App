@@ -41,6 +41,26 @@ type Classed = { useCode: string | undefined; landUse?: string; owner: string };
 export const isStorageParcel = (p: Classed) => isCommercialUse(p.useCode) && (STORAGE_LAND.test(p.landUse ?? "") || STORAGE_NAME.test(p.owner.toUpperCase()));
 export const isIndustrialParcel = (p: Classed) => isCommercialUse(p.useCode) && !isStorageParcel(p) && (p.useCode === "F2" || INDUSTRIAL_LAND.test(p.landUse ?? ""));
 
+/**
+ * The big storage operators hold each market in an LLC of its own, so the roll never says the name on the sign:
+ * KO Storage's Midland properties are "KOSF II MIDLAND LLC". Each entry here was checked against the operator's own
+ * filings or its sales-tax permits (KOSF: Texas TDLR projects at KO Storage's Minnetonka office; AVAD: "Avid Storage"
+ * permits under AVAD-ETUDE LLCs). A short list on purpose: local names come from the sales-tax permit at the address.
+ */
+const STORAGE_OPERATORS: Array<[RegExp, string]> = [
+  [/^KOSF\b/, "KO Storage"],
+  [/^SROA\b/, "Storage Rentals of America"],
+  [/^AVAD\b/, "Avid Storage"],
+];
+/** The name on the sign for an owner the roll lists by its LLC, when it's one of the operators known here. */
+export const storageOperator = (owner: string): string | undefined => STORAGE_OPERATORS.find(([re]) => re.test(owner.toUpperCase().trim()))?.[1];
+
+/** A sales-tax permit in the storage business: the state's industry code for mini-warehouses, or a name that says so. */
+export const isStorageOutlet = (o: { naics?: string; name: string }) => o.naics === "531130" || STORAGE_NAME.test(o.name.toUpperCase());
+/** "AVID STORAGE - CALDERA" → "Avid Storage": the business's name without the branch it's at. */
+export const outletBrand = (name: string): string =>
+  ownerName(name.replace(/\s+-\s+.*$/, "").replace(/,?\s+(L\.?L\.?C\.?|INC\.?|LP|LTD)\.?$/i, "").trim()).replace(/\b(Rv|Llc)\b/g, (m) => m.toUpperCase()).replace(/'S\b/g, "'s");
+
 /** A parcel the roll read keeps: a home, an apartment building or a commercial building. Land, minerals and exempt parcels aren't. */
 export const keepsUse = (code: string | undefined) => isResidentialUse(code) || isMultifamilyUse(code) || isCommercialUse(code);
 

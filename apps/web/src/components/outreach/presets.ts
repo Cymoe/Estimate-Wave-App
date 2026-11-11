@@ -47,10 +47,10 @@ export const GROUPS: Array<{ heading: string; presets: Preset[] }> = [
   {
     heading: 'Storage and industrial',
     presets: [
-      { label: 'Storage facility owners', blurb: 'Self-storage, mini-storage and RV storage owners', definition: { county: COUNTY, who: 'storage' }, explanation: `Owners of self-storage properties (mini-storage, RV and boat storage), most valuable first, each with when they last bought one. ${NO_PHONES}` },
-      { label: 'Storage buyers, last 3 years', blurb: 'Who has been buying storage properties lately', definition: { county: COUNTY, who: 'storage', deedWithinDays: 1095 }, explanation: `Owners who took the deed to a storage property in the last three years: the buyers. Texas keeps sale prices private, so how they paid isn't on record. ${NO_PHONES}` },
-      { label: 'Industrial building owners', blurb: 'Warehouses, shops, yards and industrial sites', definition: { county: COUNTY, who: 'industrial' }, explanation: `Owners of industrial buildings and warehouses, most valuable first, each with when they last bought one. ${NO_PHONES}` },
-      { label: 'Industrial buyers, last 3 years', blurb: 'Who has been buying industrial buildings lately', definition: { county: COUNTY, who: 'industrial', deedWithinDays: 1095 }, explanation: `Owners who took the deed to an industrial building or warehouse in the last three years: the buyers. Texas keeps sale prices private, so how they paid isn't on record. ${NO_PHONES}` },
+      { label: 'Storage facility owners', blurb: 'Self-storage, mini-storage and RV storage owners', definition: { county: COUNTY, who: 'storage' }, explanation: `Owners of self-storage properties (mini-storage, RV and boat storage), whoever holds the most first, with the name on the sign where the owner is an LLC and when they last bought one. ${NO_PHONES}` },
+      { label: 'Storage buyers, last 5 years', blurb: 'Who has been buying storage properties lately', definition: { county: COUNTY, who: 'storage', deedWithinDays: 1826 }, explanation: `Owners who took the deed to a storage property in the last five years: the buyers, whoever holds the most first. Texas keeps sale prices private, so how they paid isn't on record. ${NO_PHONES}` },
+      { label: 'Industrial building owners', blurb: 'Warehouses, shops, yards and industrial sites', definition: { county: COUNTY, who: 'industrial' }, explanation: `Owners of industrial buildings and warehouses, whoever holds the most first, each with when they last bought one. ${NO_PHONES}` },
+      { label: 'Industrial buyers, last 5 years', blurb: 'Who has been buying industrial buildings lately', definition: { county: COUNTY, who: 'industrial', deedWithinDays: 1826 }, explanation: `Owners who took the deed to an industrial building or warehouse in the last five years: the buyers, whoever holds the most first. Texas keeps sale prices private, so how they paid isn't on record. ${NO_PHONES}` },
     ],
   },
   {

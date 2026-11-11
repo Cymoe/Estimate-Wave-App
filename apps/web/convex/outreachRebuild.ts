@@ -54,7 +54,10 @@ async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.co
   try {
     const counter = new AddressCounter();
     await readRoll(ctx, county, counter);
-    const grouper = new OwnerGrouper(counter.candidates());
+    // The storage businesses with a sales-tax permit, by address: they name a storage property, and catch one the land code misses.
+    const storageAt = new Map<string, string>();
+    await readAll<{ addressKey: string; brand: string }>((cursor) => ctx.runQuery(internal.outreach.storageOutletPage, { cursor, county }), { addAll: (rows) => rows.forEach((r) => storageAt.set(r.addressKey, r.brand)) });
+    const grouper = new OwnerGrouper(counter.candidates(), { storageAt });
     fetched = await readRoll(ctx, county, grouper);
     // The city's records, onto the owners of the parcels they're about.
     await readAll<SignalRow>((cursor) => ctx.runQuery(internal.outreach.signalPage, { cursor, county }), { addAll: (rows) => grouper.addSignals(rows) });

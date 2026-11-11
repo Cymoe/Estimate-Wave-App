@@ -444,6 +444,12 @@ export const ContactsTable: React.FC<{
       <tr key={r.id} onClick={() => onOpen(r)} className="group cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row" data-nested={nested || undefined} data-quiet={quiet || undefined}>
         <td className={`${pinned} left-0 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${nested ? 'pl-8 shadow-[inset_2px_0_0_rgba(51,102,153,0.7)]' : ''} ${r.status === 'skip' ? 'text-gray-500' : quiet ? 'text-gray-400' : 'text-white'}`}>
           <span className={r.status === 'skip' ? 'line-through' : undefined}>{r.name}</span>
+          {/* The name on the sign, when the roll's name is only the LLC behind it ("KO Storage" for Kosf II Midland LLC). */}
+          {r.brand && (
+            <span className="block text-xs text-[#7fb0e0] truncate" data-testid="brand">
+              {r.brand}
+            </span>
+          )}
           {/* What the owner holds, as on the cards: the list is ordered by it, so it shows by the name. */}
           {holding(r) && (
             <span className="block text-[11px] text-gray-500 tabular-nums" data-testid="holding">
@@ -805,6 +811,11 @@ export const ContactCards: React.FC<{
         )}
         <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
           <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : quiet ? 'text-gray-300' : 'text-white'}`}>{r.name}</span>
+          {r.brand && (
+            <span className="block text-xs text-[#7fb0e0]" data-testid="brand">
+              {r.brand}
+            </span>
+          )}
           <span className="block text-xs text-gray-500">
             {holding(r) || (tidyCase(r.property?.address) ?? r.company ?? '')}
             {placeOf?.(r) ? ` · ${placeOf(r)}` : ''}

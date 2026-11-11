@@ -7,7 +7,7 @@
 // kind. Grouped by mailing address alone it finds the offices that get the
 // tax bills for several owners' properties: property managers, in practice.
 import { kindOfBusiness } from "./outlets";
-import { MIDLAND_PARCELS, addressKey, isCommercialUse, isCompanyOwner, isIndustrialParcel, isMultifamilyUse, isResidentialUse, isStorageParcel, ownerName, streetKey } from "./parcels";
+import { MIDLAND_PARCELS, addressKey, isCommercialUse, isCompanyOwner, isIndustrialParcel, isMultifamilyUse, isResidentialUse, isStorageParcel, ownerName, storageOperator, streetKey } from "./parcels";
 import { tradesForPermit } from "./permits";
 import { tradeLabel } from "./workTypes";
 
@@ -72,6 +72,8 @@ export type OwnerRow = {
   industrialValueCents?: number;
   industrialDeed?: string;
   industrialRecent?: number;
+  /** A storage owner's name on the sign ("KO Storage" for KOSF II MIDLAND LLC), from the known operators or the sales-tax permit at the address. */
+  brand?: string;
   ownerOccupied: boolean;
   outOfState: boolean;
   latestDeed?: string;
@@ -164,7 +166,7 @@ export const permitsSince = (now = Date.now()) => new Date(now - CONTRACTOR_DAYS
 /** This many commercial buildings make a portfolio owner: the landlord with the storefronts, whose roofs and systems come up in turn. */
 export const PORTFOLIO_BUILDINGS = 2;
 /** A storage or industrial building bought within this many years marks its owner a recent buyer; two or more, an active one. */
-export const RECENT_BUY_YEARS = 3;
+export const RECENT_BUY_YEARS = 5;
 /** How many signals an owner row keeps, newest first. */
 export const SIGNAL_KEEP = 6;
 /** How many permit contacts a contractor row keeps. */
@@ -261,7 +263,7 @@ export const ownersSource = (county: string) => (county === "Midland" ? OWNERS_S
 /** Where the daily records pass (outreachRefresh.ts) records how it went. */
 export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 8;
+export const OWNERS_VERSION = 9;
 /** A build id for the owners table: the instant it started, then a few random characters, so ids sort by time. */
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
@@ -335,6 +337,7 @@ type Acc = {
   industrialMax?: number;
   industrialDeed?: string;
   industrialRecent?: number;
+  brand?: string;
   latestDeed?: string;
   /** The deed on the home they live in (the newest, when they own several). */
   homeDeed?: string;
@@ -347,7 +350,10 @@ type Acc = {
   signals?: OwnerSignal[];
 };
 
-function fold(acc: Acc, p: Condensed) {
+/** What the grouping knows beyond the roll: the storage businesses with a sales-tax permit, by the address they sell from. */
+export type Hints = { storageAt?: Map<string, string> };
+
+function fold(acc: Acc, p: Condensed, hints: Hints = {}) {
   const v = value(p);
   const top = (k: string) => {
     const t = acc.tops[k];
@@ -373,7 +379,10 @@ function fold(acc: Acc, p: Condensed) {
     acc.commercialMax = Math.max(acc.commercialMax ?? 0, v);
     top("commercial");
     // A storage or industrial building is a commercial one too; it's also counted as its own kind, with when it was bought.
-    const kind = isStorageParcel(p) ? "storage" : isIndustrialParcel(p) ? "industrial" : undefined;
+    // A storage business with a sales-tax permit at this address makes it storage whatever the land code says, and gives its name.
+    const outlet = hints.storageAt?.get(addressKey(p.siteAddress));
+    const kind = isStorageParcel(p) || outlet ? "storage" : isIndustrialParcel(p) ? "industrial" : undefined;
+    if (kind === "storage" && !acc.brand) acc.brand = storageOperator(p.owner) ?? outlet;
     if (kind) {
       acc[kind] = (acc[kind] ?? 0) + 1;
       acc[`${kind}Max`] = Math.max(acc[`${kind}Max`] ?? 0, v);
@@ -417,7 +426,7 @@ function rowFor(acc: Acc, name: string, company: boolean): OwnerRow {
     rentalValueCents: acc.rentalMax,
     commercialValueCents: acc.commercialMax,
     multifamilyValueCents: acc.multifamilyMax,
-    ...(acc.storage ? { storage: acc.storage, storageValueCents: acc.storageMax, storageDeed: acc.storageDeed, storageRecent: acc.storageRecent } : {}),
+    ...(acc.storage ? { storage: acc.storage, storageValueCents: acc.storageMax, storageDeed: acc.storageDeed, storageRecent: acc.storageRecent, ...(acc.brand ? { brand: acc.brand } : {}) } : {}),
     ...(acc.industrial ? { industrial: acc.industrial, industrialValueCents: acc.industrialMax, industrialDeed: acc.industrialDeed, industrialRecent: acc.industrialRecent } : {}),
     ownerOccupied: acc.homes > 0,
     outOfState: outOfState(acc.mailing),
@@ -467,9 +476,10 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
     // Several commercial buildings in private hands (the city and the districts bid their work): the most first, then by what they're worth.
     if (row.commercial >= PORTFOLIO_BUILDINGS && !NOT_INVESTOR.test(upper)) out.push({ facet: "portfolio", sort: row.commercial * 1e9 + Math.min(row.commercialValueCents ?? 0, 1e9 - 1) });
     if (row.multifamily > 0) out.push({ facet: "multifamily", sort: row.multifamilyValueCents ?? 0 });
-    // Self-storage and industrial buildings, each its own list: the most valuable first.
-    if (row.storage) out.push({ facet: "storage", sort: row.storageValueCents ?? 0 });
-    if (row.industrial) out.push({ facet: "industrial", sort: row.industrialValueCents ?? 0 });
+    // Self-storage and industrial buildings, each its own list: whoever holds the most first (an operator's many small
+    // parcels outrank one big one), then by what the biggest is worth.
+    if (row.storage) out.push({ facet: "storage", sort: row.storage * 1e9 + Math.min(row.storageValueCents ?? 0, 1e9 - 1) });
+    if (row.industrial) out.push({ facet: "industrial", sort: row.industrial * 1e9 + Math.min(row.industrialValueCents ?? 0, 1e9 - 1) });
     if (row.homeValueCents !== undefined && !row.company) out.push({ facet: "homeowner", sort: row.homeValueCents });
     if (row.rentalValueCents !== undefined && !row.company) {
       out.push({ facet: "absentee", sort: row.rentalValueCents });
@@ -500,7 +510,7 @@ export class OwnerGrouper {
   private parcelOwner = new Map<string, string>();
   seen = 0;
 
-  constructor(private offices: Set<string>) {}
+  constructor(private offices: Set<string>, private hints: Hints = {}) {}
 
   add(p: Condensed) {
     const ok = ownerKey(p.owner);
@@ -514,7 +524,7 @@ export class OwnerGrouper {
       this.byOwner.set(key, g);
     }
     this.parcelOwner.set(p.id, key);
-    fold(g, p);
+    fold(g, p, this.hints);
     if (mk && this.offices.has(mk)) {
       let o = this.byMail.get(mk);
       if (!o) {
@@ -597,8 +607,8 @@ export class OwnerGrouper {
 }
 
 /** The whole roll at once (both passes), for tests and small reads. */
-export const groupOwners = (rows: Condensed[], now = Date.now()): Grouped =>
-  new OwnerGrouper(new AddressCounter().addAll(rows).candidates()).addAll(rows).finish(now);
+export const groupOwners = (rows: Condensed[], now = Date.now(), hints: Hints = {}): Grouped =>
+  new OwnerGrouper(new AddressCounter().addAll(rows).candidates(), hints).addAll(rows).finish(now);
 
 // ---- What the records call for ----
 
@@ -1226,7 +1236,7 @@ export function recordDate(row: OwnerRow, facet: Facet): string | undefined {
  * for the rest. Buyers are sorted by deed date, which has no floor here.
  */
 export function underFloor(row: OwnerRow, def: Definition, facet: Facet): boolean {
-  if (facet === "investor" || facet === "builder" || facet === "office" || facet === "contractor" || facet === "designer" || facet === "portfolio") return def.minParcels !== undefined && holdings(row, facet) < def.minParcels;
+  if (facet === "investor" || facet === "builder" || facet === "office" || facet === "contractor" || facet === "designer" || facet === "portfolio" || facet === "storage" || facet === "industrial") return def.minParcels !== undefined && holdings(row, facet) < def.minParcels;
   if (facet === "buyer" || facet === "realtor") return false;
   // Longest owned first: once a home was bought after the cutoff, every one after it was too.
   if (facet === "long_owned") return def.ownedForDays !== undefined && Boolean(row.homeDeed) && Date.parse(`${row.homeDeed}T12:00:00Z`) > Date.now() - def.ownedForDays * DAY_MS;
@@ -1296,6 +1306,7 @@ export function listOrder(def: Definition): { label: string; key: (row: { proper
   if (facet === "contractor" || facet === "designer") return { label: "most permits first", key: (r) => r.properties * 1e9 + Math.min(r.totalValueCents, 1e9 - 1) };
   if (facet === "office") return { label: "most properties first", key: (r) => r.properties };
   if (facet === "portfolio") return { label: "most buildings first", key: () => 0 };
+  if (facet === "storage" || facet === "industrial") return { label: "most properties first", key: () => 0 };
   if (facet === "buyer") return { label: "newest deed first", key: () => 0 };
   if (facet === "long_owned") return { label: "longest owned first", key: () => 0 };
   if (facet === "violation" || facet === "stalled") return { label: "newest record first", key: () => 0 };
@@ -1330,10 +1341,12 @@ export function why(row: OwnerRow, facet: Facet, county = "Midland"): string {
       const many = facet === "storage" ? "storage properties" : "industrial buildings";
       const deed = row[`${facet}Deed`];
       const recent = row[`${facet}Recent`] ?? 0;
-      // "Bought 3 in the last 3 years" is an active buyer; one is a recent buyer; else just when they last bought.
+      // "Bought 3 in the last 5 years" is an active buyer; one is a recent buyer; else just when they last bought.
       const bought = recent >= 2 ? `; bought ${recent} in the last ${RECENT_BUY_YEARS} years, the newest ${monthYear(deed!)}` : deed ? `; ${recent === 1 ? "bought" : "last bought"} ${monthYear(deed)}` : "";
       const worth = shortMoney(row[`${facet}ValueCents`] ?? 0);
-      return `${n === 1 ? `${what.replace(/^./, (c) => c.toUpperCase())} worth ${worth}` : `${plural(n, what, many)}, the biggest worth ${worth}`}${bought}`;
+      // The name on the sign first, when the roll's is only the LLC behind it.
+      const sign = facet === "storage" && row.brand ? `${row.brand} · ` : "";
+      return `${sign}${n === 1 ? `${what.replace(/^./, (c) => c.toUpperCase())} worth ${worth}` : `${plural(n, what, many)}, the biggest worth ${worth}`}${bought}`;
     }
     case "homeowner":
       return `Home worth ${shortMoney(row.homeValueCents ?? 0)}, owner-occupied`;
@@ -1400,8 +1413,8 @@ export const WHO_GUIDE = `Pick exactly one who:
 - commercial: owns a commercial (F1: shops, offices, shopping centers, restaurants' buildings) or industrial (F2: warehouses, yards) building. "Shopping center owners", "strip malls", "commercial property owners", "building owners".
 - portfolio: owns ${PORTFOLIO_BUILDINGS} or more commercial buildings (storefronts, shops, offices), most buildings first: the landlord whose roofs and systems come due in turn; min_parcels is how many buildings. "Retail owners", "shop owners", "storefront owners", "owners of several buildings", "commercial portfolios", "one owner with many stores".
 - multifamily: owns an apartment building or duplex (B codes). "Apartment owners", "complexes".
-- storage: owns a self-storage property (mini-storage, self-storage, RV and boat storage), most valuable first; min_parcels is how many storage properties. "Storage unit owners", "self storage", "mini storage", "storage facilities". For who has been buying them, set deed_within_days (e.g. 1095 for the last 3 years).
-- industrial: owns an industrial building or warehouse (the state's F2, and the appraisal district's industrial and warehouse land codes), most valuable first; min_parcels is how many. "Industrial buildings", "warehouses", "shops and yards", "industrial parks". For who has been buying them, set deed_within_days.
+- storage: owns a self-storage property (mini-storage, self-storage, RV and boat storage), whoever holds the most first; min_parcels is how many storage properties. "Storage unit owners", "self storage", "mini storage", "storage facilities". For who has been buying them, set deed_within_days (e.g. 1826 for the last 5 years).
+- industrial: owns an industrial building or warehouse (the state's F2, and the appraisal district's industrial and warehouse land codes), whoever holds the most first; min_parcels is how many. "Industrial buildings", "warehouses", "shops and yards", "industrial parks". For who has been buying them, set deed_within_days.
 - wealthy: owner-occupied homes worth at least min_value (default $1,000,000). "Wealthy", "rich", "luxury", "high-end homes", "homes worth over $X".
 - recent_buyer: deed within deed_within_days (default 90). "Just bought", "new homeowners", "recently moved".
 - absentee: a home whose owner's mail goes elsewhere; out of state unless out_of_state is false. "Absentee owners", "out-of-town owners".

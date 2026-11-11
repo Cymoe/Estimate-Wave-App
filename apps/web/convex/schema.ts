@@ -1236,6 +1236,8 @@ export default defineSchema({
     industrialValueCents: v.optional(v.number()),
     industrialDeed: v.optional(v.string()),
     industrialRecent: v.optional(v.number()),
+    // A storage owner's name on the sign ("KO Storage"), when the roll's name is only the LLC behind it.
+    brand: v.optional(v.string()),
     ownerOccupied: v.boolean(),
     outOfState: v.boolean(),
     latestDeed: v.optional(v.string()),
@@ -1350,6 +1352,8 @@ export default defineSchema({
     key: v.string(),
     name: v.string(),
     company: v.optional(v.string()),
+    // A storage owner's name on the sign ("KO Storage" for KOSF II MIDLAND LLC), shown under the name and found by search.
+    brand: v.optional(v.string()),
     mailing: v.object({
       address: v.optional(v.string()),
       city: v.optional(v.string()),

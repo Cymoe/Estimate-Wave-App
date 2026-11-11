@@ -62,7 +62,8 @@ const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => bo
 ];
 /** Owner, company, person or either street, any case. */
 const matches = (r: OutreachContact, q: string) => {
-  const hay = [r.name, r.company, r.person?.name, r.mailing.address, r.property?.address].filter(Boolean).join('\n').toLowerCase();
+  // The name on the sign too ("KO" finds Kosf II Midland LLC), and the line that says why they're listed (who they bought from).
+  const hay = [r.name, r.brand, r.company, r.person?.name, r.mailing.address, r.property?.address, r.why].filter(Boolean).join('\n').toLowerCase();
   return hay.includes(q);
 };
 

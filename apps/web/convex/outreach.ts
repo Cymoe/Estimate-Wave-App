@@ -62,7 +62,7 @@ import {
   type OwnerContact,
   type OwnerRow, COUNTY_PLACES, cityOf, knownCounty } from "./lib/outreach";
 import { tidyCase } from "./lib/addressCase";
-import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
+import { MIDLAND_PARCELS, addressKey, isStorageOutlet, outletBrand } from "./lib/parcels";
 import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
@@ -240,6 +240,19 @@ export const outletPage = internalQuery({
   },
 });
 
+/** One page of the sales-tax permits in the storage business, by the address they sell from: what names a storage property. */
+export const storageOutletPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("outlets")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", county))
+      .paginate({ cursor: cursor ?? null, numItems: 1000 });
+    const rows = page.page.filter((o) => o.addressKey && isStorageOutlet(o)).map((o) => ({ addressKey: o.addressKey, brand: outletBrand(o.name) }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
 const ownerRow = v.object({
   key: v.string(),
   kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor")),
@@ -264,6 +277,7 @@ const ownerRow = v.object({
   industrialValueCents: v.optional(v.number()),
   industrialDeed: v.optional(v.string()),
   industrialRecent: v.optional(v.number()),
+  brand: v.optional(v.string()),
   ownerOccupied: v.boolean(),
   outOfState: v.boolean(),
   latestDeed: v.optional(v.string()),
@@ -286,7 +300,7 @@ const facetRow = v.object({ facet: v.string(), sort: v.number() });
 
 const OWNER_KEYS = [
   "kind", "name", "company", "parcels", "residential", "multifamily", "commercial", "totalValueCents", "maxValueCents",
-  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "storage", "storageValueCents", "storageDeed", "storageRecent", "industrial", "industrialValueCents", "industrialDeed", "industrialRecent", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer", "brokerage",
+  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "storage", "storageValueCents", "storageDeed", "storageRecent", "industrial", "industrialValueCents", "industrialDeed", "industrialRecent", "brand", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer", "brokerage",
 ] as const;
 const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
@@ -478,6 +492,8 @@ export type ListRow = {
   properties: number;
   totalValueCents: number;
   why: string;
+  /** A storage owner's name on the sign, when the roll's is only the LLC behind it. */
+  brand?: string;
   /** A contractor, designer or occupant: the person, phone and email its permits already name, free. A realtor: the person, from their license. */
   found?: { person?: Doc<"outreachContacts">["person"]; phones: NonNullable<Doc<"outreachContacts">["phones"]>; emails: NonNullable<Doc<"outreachContacts">["emails"]>; source?: string };
 };
@@ -514,6 +530,7 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
     properties: o.parcels,
     totalValueCents: o.totalValueCents,
     why: why(row, facet, o.county),
+    ...(o.brand ? { brand: o.brand } : {}),
     ...(o.kind === "contractor" || o.kind === "designer" || o.kind === "occupant" ? { found: foundOnPermits(o.contacts) } : {}),
     ...(o.kind === "realtor" ? { found: foundOnLicense(row) } : {}),
   };
@@ -774,6 +791,7 @@ async function addRows(
       await ctx.db.patch(existing._id, {
         listIds,
         kinds: existing.kinds.includes(who) ? existing.kinds : [...existing.kinds, who],
+        ...(row.brand && !existing.brand ? { brand: row.brand } : {}),
         ...filing({ ...existing, listIds }),
         // On a list again: what a delete decided for it once its lookup landed no longer applies.
         afterLookup: undefined,
@@ -1119,6 +1137,7 @@ const contactView = (
   properties: c.properties,
   totalValueCents: c.totalValueCents,
   why: c.why,
+  brand: c.brand,
   kinds: c.kinds,
   listIds: c.listIds,
   status: c.status,
