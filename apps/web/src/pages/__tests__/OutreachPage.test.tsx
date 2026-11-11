@@ -623,13 +623,16 @@ describe('the Outreach page', () => {
     // says nothing) and no Research column while nobody has any, so the mailing address is the fifth column, in reach on a tablet.
     // The mailing address is one column: street, then city, state and zip under it, in normal capitals.
     // The name carries what the owner holds, as the cards do.
-    expect(cells(0)).toEqual(['Oak Plaza LLC$3M', '—', '—', '—', '1 Main StDallas, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
+    // Research is a column of its own, straight after Email, locked until asked.
+    const columnNames = ['Name', 'Decision maker', 'Phone', 'Email', 'Research', 'Mailing address', 'Property', 'Value', 'Type', 'Signals'];
+    expect(Array.from(document.body.querySelectorAll('thead th')).map((h, i) => h.textContent!.startsWith(columnNames[i]))).toEqual(columnNames.map(() => true));
+    expect(cells(0)).toEqual(['Oak Plaza LLC$3M', '—', '—', '—', '—', '1 Main StDallas, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
     expect(rows[0].querySelector('[data-testid="badges"]')).toBeNull();
     // How many more properties, in words.
-    expect(cells(1)[5]).toBe('12 Midkiff Rd +3 more');
+    expect(cells(1)[6]).toBe('12 Midkiff Rd +3 more');
     // An owner with several properties shows what they hold in all, the number the list is sorted on.
-    expect(cells(1)[6]).toBe('$1.2M');
-    expect(cells(1)[8]).toBe('Code violation Sep 2026');
+    expect(cells(1)[7]).toBe('$1.2M');
+    expect(cells(1)[9]).toBe('Code violation Sep 2026');
     expect(rows[0].querySelectorAll('td')[0].className).toContain('sticky');
     expect(rows[0].querySelectorAll('td')[1].className).not.toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
@@ -650,7 +653,7 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
     expect(localStorage.getItem('outreach.sort')).toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['NameNewest first', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['NameNewest first', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
     // Open the picker and pick the list.
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
     await click('Shopping center owners');
@@ -1210,8 +1213,9 @@ describe('the Outreach page', () => {
     // A running cell says what it's doing, and the last thing it found.
     // One not picked up yet, asked a while ago, says it's waiting its turn rather than "Starting" forever.
     expect(cells(1).slice(1, 4)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Waiting its turn…']);
-    // Nobody here has research, so it takes no column.
-    expect(cells(0)).toHaveLength(9);
+    // Research has its column whether or not anyone has been researched: a lock until asked.
+    expect(cells(0)).toHaveLength(10);
+    expect(cells(0)[4]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     // Nothing left to look up on the list: the top-right button is gone.
     expect(button('Find phones & emails')).toBeUndefined();
@@ -1254,11 +1258,19 @@ describe('the Outreach page', () => {
     };
     await render();
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
-    // Research is a badge on the owner that has some, and with any in the view it gets a column again, last, to read down.
-    expect(rows[1].querySelector('[data-testid="research-badge"]')!.textContent).toBe('Research');
-    expect(rows[0].querySelector('[data-testid="research-badge"]')).toBeNull();
-    expect(Array.from(document.body.querySelectorAll('thead th')).at(-1)!.textContent).toContain('Research');
-    expect(Array.from(rows[1].querySelectorAll('td')).at(-1)!.textContent).toBe('The City of Midland owns the lot; a parks bond passed in 2026.');
+    // Research is a column straight after Email, there for every owner: the answer to read (no tag to hover, which a
+    // tablet can't), a lock on the owner nobody has asked about, and how many have answers in its header.
+    const heads = Array.from(document.body.querySelectorAll('thead th'));
+    expect(heads[4].textContent).toContain('Research');
+    expect(heads[4].textContent).toContain('/ 2');
+    expect(heads[3].textContent).toContain('Email');
+    const researchCell = (i: number) => rows[i].querySelector('[data-testid="research-cell"]')!;
+    expect(researchCell(1)).toBe(rows[1].querySelectorAll('td')[4]);
+    expect(researchCell(1).textContent).toBe('The City of Midland owns the lot; a parks bond passed in 2026.');
+    expect(researchCell(1).querySelector('span')!.className).toContain('line-clamp-2');
+    expect(researchCell(0).textContent!.trim()).toBe('—');
+    expect(researchCell(0).querySelector('svg')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="research-badge"]')).toBeNull();
     await act(async () => (rows[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     const box = sheet.querySelector('textarea[aria-label="Research question"]') as HTMLTextAreaElement;
@@ -2172,15 +2184,15 @@ describe('the Outreach page', () => {
     expect(people()[1].querySelector('[data-testid="operator-basis"]')!.textContent).toBe('Same phone numberManager');
     const cells = (row: Element) => Array.from(row.querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
     expect(cells(people()[1]).slice(2, 4)).toEqual(['(432) 555-7104+1 moremobile · verified', 'luis@ortega.example']);
-    expect(cells(people()[0]).slice(4, 7)).toEqual(['3 mailing addresses', '128 properties', '$41.2M']);
+    expect(cells(people()[0]).slice(4, 8)).toEqual(['—', '3 mailing addresses', '128 properties', '$41.2M']);
     expect(document.body.querySelector('[data-testid="operators-line"]')!.textContent).toBe(
       '5 of these 7 owners are run by 2 people, each shown once with their companies under them. Biggest: Karen Holt, 3 entities · 128 properties · $41.2M.',
     );
     // Looked up, and nobody to call or write to: the row goes quiet, each miss a dash, the mailing address what it has.
     const quiet = owners()[1];
     expect(quiet.getAttribute('data-quiet')).toBe('true');
-    expect(cells(quiet).slice(1, 5)).toEqual(['—', '—', '—', '600 Illinois AveMidland, TX 79701']);
-    expect(quiet.querySelectorAll('td')[4].className).toContain('text-gray-100');
+    expect(cells(quiet).slice(1, 6)).toEqual(['—', '—', '—', '—', '600 Illinois AveMidland, TX 79701']);
+    expect(quiet.querySelectorAll('td')[5].className).toContain('text-gray-100');
     // Not looked up is not the same as nothing found: it keeps its padlock.
     expect(owners()[0].getAttribute('data-quiet')).toBeNull();
     expect(owners()[0].querySelectorAll('td')[2].querySelector('svg')).not.toBeNull();

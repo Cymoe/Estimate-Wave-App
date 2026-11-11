@@ -50,26 +50,11 @@ const StatusBadge: React.FC<{ row: OutreachContact }> = ({ row }) =>
     </span>
   );
 
-/** Research as a badge, only on an owner that has some: an answer (its words a hover away, and in the sheet), one being read, or one that failed. */
-const ResearchBadge: React.FC<{ row: OutreachContact }> = ({ row }) => {
-  const state = row.enrichment.research?.status;
-  if (row.research)
-    return (
-      <span className={`${badge} text-violet-200 border-violet-400/40`} title={row.research.answer} data-testid="research-badge">
-        Research
-      </span>
-    );
-  if (state === 'running') return <span className={`${badge} text-violet-200 border-violet-400/40`} data-testid="research-badge">Researching…</span>;
-  if (state === 'failed') return <span className={`${badge} text-amber-300 border-amber-400/40`} data-testid="research-badge">Research failed</span>;
-  return null;
-};
-
-/** An owner's badges on one line, or nothing when there are none. */
+/** An owner's badge under the name, or nothing when it's New. (Research has its column: an answer is for reading, not for a tag.) */
 const Badges: React.FC<{ row: OutreachContact }> = ({ row }) =>
-  row.status === 'new' && !row.research && row.enrichment.research?.status !== 'running' && row.enrichment.research?.status !== 'failed' ? null : (
+  row.status === 'new' ? null : (
     <span className="mt-0.5 flex flex-wrap gap-1" data-testid="badges">
       <StatusBadge row={row} />
-      <ResearchBadge row={row} />
     </span>
   );
 
@@ -233,14 +218,14 @@ const th = thBase;
 const head = 'sticky bg-[#121212]';
 const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis';
 /**
- * The table's columns after the name, in order: who to reach and how, where to write, then the roll's. Status and
- * Research are not among them. Nearly every owner is New and most have no research, so as columns they would push
- * the mailing address off a tablet's screen to say nothing; each is a badge under the name, there only when it has
- * something to say. Research has a column at the far end once a view has any, for reading down the answers.
- * Name through Mailing address is 68.5rem (1,096px), inside an iPad's 1,180 on its side.
+ * The table's columns after the name, in order: who to reach and how, what research found, where to write, then the
+ * roll's. Research is always there, straight after Email: it is something asked and paid for like a phone, so where
+ * its answers land (and who has none yet) shows without scrolling to the far end or hovering a tag, which a tablet
+ * can't do. Status is not a column: nearly every owner is New, so it's a badge under the name when it's anything else.
+ * Name through Research is 70.5rem (1,128px), inside an iPad's 1,180 on its side; the mailing address starts there.
  */
-const COLUMN_KEYS = ['person', 'phone', 'email', 'mailing', 'property', 'value', 'type', 'signals'] as const;
-type ColumnKey = (typeof COLUMN_KEYS)[number] | 'research';
+const COLUMN_KEYS = ['person', 'phone', 'email', 'research', 'mailing', 'property', 'value', 'type', 'signals'] as const;
+type ColumnKey = (typeof COLUMN_KEYS)[number];
 /**
  * Each column's width, in rem, fixed so the table never shifts as answers
  * arrive (a lookup's narration, a phone landing): what doesn't fit is cut
@@ -256,7 +241,7 @@ const WIDTH: Record<'name' | ColumnKey, number> = {
   value: 6,
   type: 9,
   signals: 14,
-  research: 18,
+  research: 16,
 };
 /** How many owners are drawn at first, and how many more each time the end comes into view. */
 export const DRAW_STEP = 200;
@@ -402,9 +387,7 @@ export const ContactsTable: React.FC<{
   /** Owners whose other numbers are showing under the first. */
   const [morePhones, setMorePhones] = useState<Set<string>>(() => new Set());
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
-  // Research has a column only once the view has some to read down.
-  const researched = rows.some((r) => r.research || (r.enrichment.research && r.enrichment.research.status !== 'locked'));
-  const columns: ColumnKey[] = researched ? [...COLUMN_KEYS, 'research'] : [...COLUMN_KEYS];
+  const columns: ColumnKey[] = [...COLUMN_KEYS];
   const tableWidth = WIDTH.name + columns.reduce((sum, k) => sum + WIDTH[k], 0);
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
@@ -527,6 +510,14 @@ export const ContactsTable: React.FC<{
             <Empty cell={r.enrichment.email} onRetry={() => onRetry(r, 'email')} />
           )}
         </td>
+        {/* What research found, two lines of it (the whole answer and its sources are in the owner's sheet, a tap away); a lock when nobody has asked. */}
+        <td className={`${td}${glow(r.id, 'research')}`} data-testid="research-cell">
+          {r.research ? (
+            <span className="line-clamp-2 whitespace-normal text-gray-200">{r.research.answer}</span>
+          ) : (
+            <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />
+          )}
+        </td>
         {/* With nobody to call or write to, the mailing address is how this owner is reached: it stays bright as the rest of the row goes quiet. */}
         <td className={`${td} max-w-[16rem] truncate ${quiet ? 'text-gray-100' : 'text-gray-300'}`}>
           {tidyCase(r.mailing.address) ?? ''}
@@ -552,11 +543,6 @@ export const ContactsTable: React.FC<{
                 </span>
               ))}
         </td>
-        {researched && (
-          <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
-            {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
-          </td>
-        )}
       </tr>
     );
   };
@@ -635,6 +621,7 @@ export const ContactsTable: React.FC<{
             dash
           )}
         </td>
+        <td className={`${td} text-gray-400`}>{answers > 0 ? `${answers} researched` : dash}</td>
         <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
           {mailings.length === 1 ? (
             <>
@@ -653,7 +640,6 @@ export const ContactsTable: React.FC<{
         <td className={`${td} text-right tabular-nums text-white`}>{op.totalValueCents > 0 ? shortMoney(op.totalValueCents) : ''}</td>
         <td className={`${td} text-gray-400`}>{kindsText([...new Set(op.members.flatMap((m) => m.kinds))])}</td>
         <td className={`${td} text-amber-300`}>{signals > 0 ? `${signals} ${signals === 1 ? 'signal' : 'signals'}` : dash}</td>
-        {researched && <td className={`${td} text-gray-400`}>{answers > 0 ? `${answers} researched` : dash}</td>}
       </tr>
     );
   };
@@ -696,17 +682,15 @@ export const ContactsTable: React.FC<{
                 Email
                 <Coverage c={coverage.email} />
               </th>
+              <th className={th}>
+                Research
+                <Coverage c={coverage.research} />
+              </th>
               <th className={th}>Mailing address</th>
               <th className={th}>Property</th>
               <th className={`${th} text-right`}>Value</th>
               <th className={th}>Type</th>
               <th className={th}>Signals</th>
-              {researched && (
-                <th className={th}>
-                  Research
-                  <Coverage c={coverage.research} />
-                </th>
-              )}
             </tr>
           </thead>
         </table>
