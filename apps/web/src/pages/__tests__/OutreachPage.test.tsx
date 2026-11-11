@@ -170,9 +170,16 @@ import { localDay } from '../../components/outreach/TodaySheet';
 let narrowScreen = false;
 // A finger rather than a mouse (an iPad): asked about on its own, whatever the width.
 let touchScreen = false;
+// A tablet held upright: wider than a phone (so the table, not cards), narrower than one on its side.
+let uprightTablet = false;
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: (query: string) => ({ matches: query.includes('pointer: coarse') ? touchScreen : narrowScreen, media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+  value: (query: string) => ({
+    matches: query.includes('pointer: coarse') ? touchScreen : query.includes('1099px') ? uprightTablet || narrowScreen : narrowScreen,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }),
 });
 
 const flush = () => act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); });
@@ -2394,5 +2401,29 @@ describe('the Outreach page', () => {
     await act(async () => showAll()!.click());
     await flush();
     expect(getProperties).toHaveBeenCalledTimes(before + 1);
+  });
+
+  it('on a tablet held upright the first columns are narrower, so Name through Research fit without a swipe', async () => {
+    lists = [list];
+    contacts = twoContacts();
+    const widths = () => Array.from(document.body.querySelectorAll('[data-testid="contacts-table"] colgroup')[0].querySelectorAll('col')).map((c) => parseFloat((c as HTMLElement).style.width));
+    const upTo = (n: number) => widths().slice(0, n).reduce((a, b) => a + b, 0);
+    // On its side (and on a laptop): the full widths, Name through Research inside an iPad's 1,180.
+    await render('/outreach/l1');
+    expect(widths().slice(0, 5)).toEqual([16, 12, 12.5, 14, 16]);
+    expect(upTo(5) * 16).toBeLessThanOrEqual(1180 - 48);
+    clearPage();
+    // Upright: 1,024 across, 976 inside the page's margins. Five columns fit; the phone column keeps its width, and the rest of the table is as it was.
+    uprightTablet = true;
+    try {
+      await render('/outreach/l1');
+      expect(widths().slice(0, 5)).toEqual([13, 10.5, 12.5, 11.5, 13.5]);
+      expect(upTo(5) * 16).toBeLessThanOrEqual(1024 - 48);
+      expect(widths().slice(5)).toEqual([14, 13, 6, 9, 14]);
+      // It is still the table, not the phone's cards.
+      expect(document.body.querySelector('[data-testid="contact-cards"]')).toBeNull();
+    } finally {
+      uprightTablet = false;
+    }
   });
 });

@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronRight, Circle, FileText, Lock, Mail
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { tidyCase } from '../../../convex/lib/addressCase';
 import { emailAPI, outreachAPI, type OwnerProperties, type OutreachCell, type OutreachContact, type OutreachContacts, type OutreachCoverage, type OutreachField, type OutreachPhone, type OutreachRowStatus, type OutreachSignal, type OutreachTry, type OutreachWho, type OwnerEmails } from '../../lib/api';
 import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
@@ -244,6 +245,13 @@ const WIDTH: Record<'name' | ColumnKey, number> = {
   signals: 14,
   research: 16,
 };
+/**
+ * A tablet held upright (1,024px across, 976 inside the page's margins): the first columns a little narrower, so Name
+ * through Research is 61rem (976px) and fits without a swipe; the mailing address starts there. Names and emails are
+ * cut with dots a little sooner for it. On its side, and on anything wider, the full widths above.
+ */
+export const UPRIGHT = '(max-width: 1099px)';
+const UPRIGHT_WIDTH: typeof WIDTH = { ...WIDTH, name: 13, person: 10.5, email: 11.5, research: 13.5 };
 /** How many owners are drawn at first, and how many more each time the end comes into view. */
 export const DRAW_STEP = 200;
 
@@ -389,7 +397,8 @@ export const ContactsTable: React.FC<{
   const [morePhones, setMorePhones] = useState<Set<string>>(() => new Set());
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
   const columns: ColumnKey[] = [...COLUMN_KEYS];
-  const tableWidth = WIDTH.name + columns.reduce((sum, k) => sum + WIDTH[k], 0);
+  const widths = useMediaQuery(UPRIGHT) ? UPRIGHT_WIDTH : WIDTH;
+  const tableWidth = widths.name + columns.reduce((sum, k) => sum + widths[k], 0);
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
   // The header follows the rows sideways.
@@ -401,9 +410,9 @@ export const ContactsTable: React.FC<{
   const tableStyle = { width: `${tableWidth}rem`, minWidth: '100%' };
   const cols = (
     <colgroup>
-      <col style={{ width: `${WIDTH.name}rem` }} />
+      <col style={{ width: `${widths.name}rem` }} />
       {columns.map((k) => (
-        <col key={k} style={{ width: `${WIDTH[k]}rem` }} />
+        <col key={k} style={{ width: `${widths[k]}rem` }} />
       ))}
     </colgroup>
   );
