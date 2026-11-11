@@ -773,6 +773,11 @@ describe('the Outreach page', () => {
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     const lines = Array.from(sheet.querySelectorAll('[data-testid="contact-details"] li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
     expect(lines.slice(0, 2)).toEqual(['(432) 555-0100mobile · personal · verifiedline in the name of REYES DANA', '(432) 555-0199landline · work · verifiedline in the name of OAK PLAZA LLC']);
+    // A long email breaks onto another line inside the sheet instead of running off its edge.
+    for (const li of Array.from(sheet.querySelectorAll('[data-testid="sheet-email"]'))) {
+      expect(li.querySelector('a')!.className).toContain('break-all');
+      expect(li.querySelector('a')!.className).toContain('max-w-full');
+    }
     // A number is never broken over two lines: it keeps its width, and what's said about it wraps beside it.
     for (const li of Array.from(sheet.querySelectorAll('[data-testid="sheet-phone"]'))) {
       expect(li.firstElementChild!.className).toContain('whitespace-nowrap');
@@ -1288,7 +1293,17 @@ describe('the Outreach page', () => {
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     const box = sheet.querySelector('textarea[aria-label="Research question"]') as HTMLTextAreaElement;
     expect(box.value).toBe(money.researchQuestion);
-    await act(async () => type(box, 'Any renovation planned?'));
+    // The box is as tall as its question, so a long one is never cut off inside two lines: it grows as the text does.
+    const tall = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'scrollHeight');
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', { configurable: true, get: () => 90 });
+    try {
+      await act(async () => type(box, 'Any renovation planned?'));
+      expect(box.style.height).toBe('92px');
+      expect((sheet.querySelector('#outreach-note') as HTMLTextAreaElement).className).toContain('overflow-hidden');
+    } finally {
+      if (tall) Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', tall);
+      else delete (HTMLTextAreaElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    }
     await click('Research · $0.25');
     expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['research'], 'Any renovation planned?');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement | null)?.click());
@@ -2217,6 +2232,14 @@ describe('the Outreach page', () => {
     await act(async () => (owners()[1] as HTMLElement).click());
     const sheet = () => document.body.querySelector('[data-testid="operator-sheet"]')!;
     expect(sheet().textContent).toContain('Karen Holt · 3 entities · 128 properties · $41.2M');
+    // In the app's own type, and each piece ("128 properties", "$41.2M") kept whole: none is split or left as a stray word.
+    expect(sheet().innerHTML).not.toContain('font-mono');
+    expect(Array.from(sheet().querySelectorAll('[data-testid="operator-holding"] > span')).map((x) => [x.textContent!.trim(), x.className])).toEqual([
+      ['· 3 entities', 'whitespace-nowrap'],
+      ['· 128 properties', 'whitespace-nowrap'],
+      ['· $41.2M', 'whitespace-nowrap'],
+    ]);
+    expect(sheet().querySelector('[data-testid="operator-sibling"] span')!.className).toContain('whitespace-nowrap');
     expect(sheet().textContent).toContain('Same decision maker. One person to call: sent to Leads, these become one lead.');
     expect(Array.from(sheet().querySelectorAll('[data-testid="operator-sibling"]')).map((b) => b.textContent)).toEqual(['Bluebonnet Holdings LLC · 60 properties', 'Wall Street Lofts LLC · 28 properties']);
     await act(async () => (sheet().querySelector('[data-testid="operator-sibling"]') as HTMLButtonElement).click());

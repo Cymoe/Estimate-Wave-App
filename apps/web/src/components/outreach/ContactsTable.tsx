@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronRight, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, User, ArrowRight, ArrowUpDown } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
@@ -1163,7 +1163,16 @@ export const ContactSheet: React.FC<{
           <div className="border-l-2 border-[#336699] pl-3 text-sm" data-testid="operator-sheet">
             <div className="text-white">
               {operator.label}
-              <span className="text-gray-400 font-mono text-[13px]"> · {operatorHolding(operator)}</span>
+              <span className="text-gray-400 text-[13px]" data-testid="operator-holding">
+                {operatorHolding(operator)
+                  .split(' · ')
+                  .map((part) => (
+                    <span key={part} className="whitespace-nowrap">
+                      {' '}
+                      · {part}
+                    </span>
+                  ))}
+              </span>
             </div>
             <div className="text-xs text-gray-500">
               {operatorBasis(operator)}. {oneLead ? 'One person to call: sent to Leads, these become one lead.' : 'Tied by a simulated lookup, so each still goes to Leads on its own.'}
@@ -1175,7 +1184,7 @@ export const ContactSheet: React.FC<{
                   <li key={m.id}>
                     <button type="button" onClick={() => onOpenOwner?.(m)} className="min-h-[36px] text-left text-[#7fb0e0] hover:text-white" data-testid="operator-sibling">
                       {m.name}
-                      <span className="text-gray-500 font-mono text-xs">
+                      <span className="text-gray-500 text-xs whitespace-nowrap">
                         {' '}
                         · {m.properties} {m.properties === 1 ? 'property' : 'properties'}
                         {m.leadId ? ' · in Leads' : m.status === 'skip' ? ' · skipped' : ''}
@@ -1251,8 +1260,9 @@ export const ContactSheet: React.FC<{
                   </li>
                 ))}
                 {row.emails.map((e) => (
-                  <li key={e.email}>
-                    <a href={`mailto:${e.email}`} className={link}>
+                  <li key={e.email} data-testid="sheet-email">
+                    {/* A long address breaks onto a second line rather than running off the sheet. */}
+                    <a href={`mailto:${e.email}`} className={`${link} max-w-full break-all`}>
                       {e.email}
                     </a>
                     {e.verified && <span className="text-[11px] text-gray-500"> verified</span>}
@@ -1296,7 +1306,7 @@ export const ContactSheet: React.FC<{
               <p className="text-sm text-gray-400">Looking up the phone and email… this takes a few seconds.</p>
             ) : phone.status === 'none' ? (
               <div className="space-y-2">
-                <p className="text-sm text-gray-500">No phone or email found for this owner. Nothing was charged. The mailing address above still reaches them.</p>
+                <p className="text-sm text-gray-500">No phone or email found for this owner. Nothing was charged. The mailing address below still reaches them.</p>
                 <TryAgain cell={phone} onClick={() => enrich(['phone', 'email'])} disabled={busy || !canPay} note={free ? 'free' : `${dollars(unlockCents)} only if a phone is found`} className={quiet} />
               </div>
             ) : (
@@ -1350,7 +1360,7 @@ export const ContactSheet: React.FC<{
               <div className="space-y-2 pt-1">
                 {research.status === 'none' && <p className="text-sm text-gray-500">The web had nothing specific on this owner. Nothing was charged.</p>}
                 {research.status === 'failed' && <p className="text-sm text-amber-300">{research.error ?? "The research didn't go through."} Nothing was charged.</p>}
-                <textarea
+                <GrowingTextarea
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   rows={2}
@@ -1417,7 +1427,7 @@ export const ContactSheet: React.FC<{
           <label className={`block ${label}`} htmlFor="outreach-note">
             Note
           </label>
-          <textarea
+          <GrowingTextarea
             id="outreach-note"
             value={note}
             onChange={(e) => {
@@ -1463,6 +1473,27 @@ export const ContactSheet: React.FC<{
       </div>
     </SlideOutDrawer>
   );
+};
+
+/**
+ * A text box as tall as what's in it: the whole question or note shows, however long, instead of scrolling inside two
+ * lines. Measured again when the text or the width changes (an iPad turned on its side).
+ */
+const GrowingTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = ({ className = '', ...rest }) => {
+  const box = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const el = box.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      // Not laid out (or a test's fake page): the rows decide.
+      if (el.scrollHeight > 0) el.style.height = `${el.scrollHeight + 2}px`;
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [rest.value]);
+  return <textarea ref={box} {...rest} className={`${className} overflow-hidden`} />;
 };
 
 /** What a property is, in a word, from the appraisal district's use code. */
