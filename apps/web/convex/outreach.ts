@@ -93,6 +93,7 @@ export const parcelPage = internalQuery({
         siteAddress: p.siteAddress,
         street: p.street,
         useCode: p.useCode,
+        landUse: p.landUse,
         owner: p.owner,
         mailing: p.mailing,
         ownerOccupied: p.ownerOccupied,
@@ -255,6 +256,14 @@ const ownerRow = v.object({
   rentalValueCents: v.optional(v.number()),
   commercialValueCents: v.optional(v.number()),
   multifamilyValueCents: v.optional(v.number()),
+  storage: v.optional(v.number()),
+  storageValueCents: v.optional(v.number()),
+  storageDeed: v.optional(v.string()),
+  storageRecent: v.optional(v.number()),
+  industrial: v.optional(v.number()),
+  industrialValueCents: v.optional(v.number()),
+  industrialDeed: v.optional(v.string()),
+  industrialRecent: v.optional(v.number()),
   ownerOccupied: v.boolean(),
   outOfState: v.boolean(),
   latestDeed: v.optional(v.string()),
@@ -277,7 +286,7 @@ const facetRow = v.object({ facet: v.string(), sort: v.number() });
 
 const OWNER_KEYS = [
   "kind", "name", "company", "parcels", "residential", "multifamily", "commercial", "totalValueCents", "maxValueCents",
-  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer", "brokerage",
+  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "storage", "storageValueCents", "storageDeed", "storageRecent", "industrial", "industrialValueCents", "industrialDeed", "industrialRecent", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer", "brokerage",
 ] as const;
 const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
@@ -3235,7 +3244,7 @@ What it does NOT hold: phone numbers, emails, occupations, income, age, religion
 
 ${WHO_GUIDE.replaceAll("Midland", county)}
 
-Answer with kind "list" and a definition when the ask maps to one who, even loosely ("rich people" → wealthy; "apartment complexes" → multifamily; "strip malls" → commercial; "landlords" → investor). Use min_value only when a dollar amount is asked for or implied ("over $2M", "luxury" → 1500000); use streets or zips only when a street or zip is named; set use_codes ["F2"] for warehouses or industrial. Give a title of 50 characters or fewer, like "Shopping center owners, ${county}" or "Homes over $2M, ${county}". The explanation is one sentence on what the list is and what it leaves out (no phones; LLC names rather than people where a company owns it).
+Answer with kind "list" and a definition when the ask maps to one who, even loosely ("rich people" → wealthy; "apartment complexes" → multifamily; "strip malls" → commercial; "storage units" → storage; "warehouses" → industrial; "landlords" → investor). Use min_value only when a dollar amount is asked for or implied ("over $2M", "luxury" → 1500000); use streets or zips only when a street or zip is named; set use_codes ["F2"] for warehouses or industrial. Give a title of 50 characters or fewer, like "Shopping center owners, ${county}" or "Homes over $2M, ${county}". The explanation is one sentence on what the list is and what it leaves out (no phones; LLC names rather than people where a company owns it).
 
 Answer with kind "cannot" when the ask needs what the roll doesn't hold (a job, an income, an age, a business's customers, another county, a person by name) or isn't about property owners at all. Say in one sentence why, and give closest: the nearest list that can be made (usually wealthy homeowners by value, or commercial owners) with its own title.`;
 

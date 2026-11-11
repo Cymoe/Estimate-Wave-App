@@ -19,6 +19,8 @@ const KIND: Record<OutreachWho, string> = {
   commercial: 'Commercial',
   portfolio: 'Portfolio',
   multifamily: 'Apartments',
+  storage: 'Storage',
+  industrial: 'Industrial',
   wealthy: 'Wealthy',
   recent_buyer: 'Buyer',
   absentee: 'Absentee',

@@ -559,7 +559,7 @@ describe('the Outreach page', () => {
     await render();
     const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
     const cards = Array.from(empty.querySelectorAll('[data-testid="starter-list"]'));
-    expect(cards).toHaveLength(17);
+    expect(cards).toHaveLength(21);
     expect(cards[1].textContent).toBe('Shopping center ownersOwners of commercial buildings, biggest holdings first');
     // A card opens the sheet straight to that list's count and first look.
     await act(async () => (cards[1] as HTMLButtonElement).click());
@@ -608,7 +608,7 @@ describe('the Outreach page', () => {
       ['Taylor County, TX (Abilene)Coming soon', 'true'],
     ]);
     await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
-    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(17);
+    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(21);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     clearPage();
@@ -806,10 +806,11 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach');
     const dialog = document.body.querySelector('[role="dialog"][aria-label="New list"]')!;
     expect(dialog).not.toBeNull();
-    // Three closed rows, not one pile of chips; a row opens to its lists, one row at a time.
+    // Four closed rows, not one pile of chips; a row opens to its lists, one row at a time.
     const headings = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button[aria-expanded]')).map((b) => [b.textContent, b.getAttribute('aria-expanded')]);
     expect(headings()).toEqual([
       ['Commercial and investors6 lists', 'false'],
+      ['Storage and industrial4 lists', 'false'],
       ['Homeowners7 lists', 'false'],
       ['People who bring work4 lists', 'false'],
     ]);
@@ -817,6 +818,9 @@ describe('the Outreach page', () => {
     expect(chips()).toEqual([]);
     await click('Commercial and investors');
     expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'New businesses moving in', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
+    // Storage and industrial, each with its owners and who has been buying.
+    await click('Storage and industrial');
+    expect(chips()).toEqual([['Storage and industrial', 'Storage facility owners', 'Storage buyers, last 3 years', 'Industrial building owners', 'Industrial buyers, last 3 years']]);
     await click('Homeowners');
     expect(chips()).toEqual([['Homeowners', 'Code violations', 'Stalled permits', 'Landlords with 3+ rental homes', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
     await click('People who bring work');

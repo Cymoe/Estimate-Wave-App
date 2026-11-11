@@ -13,7 +13,7 @@ export const MIDLAND_PARCELS = {
 } as const;
 
 /** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
-export const PARCEL_VERSION = 5;
+export const PARCEL_VERSION = 6;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
@@ -25,6 +25,22 @@ export const COMMERCIAL_USE = ["F1", "F2"] as const;
 export const isResidentialUse = (code: string | undefined) => (RESIDENTIAL_USE as readonly string[]).includes(code ?? "");
 export const isMultifamilyUse = (code: string | undefined) => /^B\d?$/.test(code ?? "");
 export const isCommercialUse = (code: string | undefined) => (COMMERCIAL_USE as readonly string[]).includes(code ?? "");
+/**
+ * Self-storage and industrial buildings, told apart from the rest of commercial. The state's codes don't separate
+ * them (a mini-warehouse is F1 like a shop), so where the roll has the district's own land code, that decides:
+ * Midland's CWH03 is mini-storage (self-storage, RV and boat storage); CID.. and CI0.. are industrial sites and
+ * CWH04 to CWH99 warehouses. A land code alone isn't enough (it prices the land, so a house or an empty lot can
+ * carry one): the parcel must also be a commercial or industrial building by the state's code. A storage company
+ * whose building has another land code, or none, is caught by its name. Where a roll has no land code (the other
+ * counties so far), storage is by name and industrial is the state's F2.
+ */
+const STORAGE_LAND = /^CWH03$/;
+const INDUSTRIAL_LAND = /^(CID\d|CI0\d|CWH(0[4-9]|99|O4)$)/;
+const STORAGE_NAME = /\b(STORAGE|MINI[- ]?WAREHOUSES?)\b/;
+type Classed = { useCode: string | undefined; landUse?: string; owner: string };
+export const isStorageParcel = (p: Classed) => isCommercialUse(p.useCode) && (STORAGE_LAND.test(p.landUse ?? "") || STORAGE_NAME.test(p.owner.toUpperCase()));
+export const isIndustrialParcel = (p: Classed) => isCommercialUse(p.useCode) && !isStorageParcel(p) && (p.useCode === "F2" || INDUSTRIAL_LAND.test(p.landUse ?? ""));
+
 /** A parcel the roll read keeps: a home, an apartment building or a commercial building. Land, minerals and exempt parcels aren't. */
 export const keepsUse = (code: string | undefined) => isResidentialUse(code) || isMultifamilyUse(code) || isCommercialUse(code);
 
@@ -36,6 +52,7 @@ export const PARCEL_FIELDS = [
   "SU_NUM",
   "PIN_1",
   "GOV_USE_CO",
+  "LAND_USE",
   "SITE_NO",
   "STREET_DIR",
   "STREET",
@@ -54,6 +71,8 @@ export type ParcelRow = {
   cadId: string;
   pin?: string;
   useCode: string;
+  /** The district's own land code ("CWH03"), where the roll has one: what tells storage and industrial apart. */
+  landUse?: string;
   siteAddress: string;
   addressKey: string;
   looseKey: string;
@@ -132,6 +151,16 @@ export function siteAddress(a: Record<string, unknown>): string | undefined {
 }
 
 /**
+ * A commercial building the roll gives no street number (a yard on the interstate, a storage lot on the highway):
+ * its street alone ("HWY 80"), so the building and its owner aren't lost. Homes are never kept this way.
+ */
+export function streetAlone(a: Record<string, unknown>): string | undefined {
+  const street = text(a.STREET)?.replace(/\b0+(\d)/g, "$1");
+  if (!street || street.toUpperCase() === "NULL") return undefined;
+  return squash([text(a.STREET_DIR), street].filter(Boolean).join(" "));
+}
+
+/**
  * Owned by a business, church or government rather than a person. A family
  * or living trust is a person's home, so it isn't one: whether they live
  * there is ownerOccupied's call.
@@ -170,7 +199,8 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
     const cadId = text(a.SU_NUM);
     const owner = ownerOf(a.OWNER);
     const useCode = text(a.GOV_USE_CO);
-    const site = siteAddress(a);
+    const numbered = siteAddress(a);
+    const site = numbered ?? (isCommercialUse(useCode) ? streetAlone(a) : undefined);
     if (!cadId || !owner || !useCode || !site) continue;
     if (!keepsUse(useCode)) continue;
     const mailing = text(a.ADDRESS_1);
@@ -178,6 +208,7 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
       cadId,
       pin: text(a.PIN_1),
       useCode,
+      landUse: text(a.LAND_USE)?.toUpperCase(),
       siteAddress: site,
       addressKey: addressKey(site),
       looseKey: looseKey(site),
@@ -185,7 +216,7 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
       owner,
       owner2: text(a.OWNER2),
       mailing: { address: mailing, city: text(a.CITY_1), state: text(a.STATE_1), zip: text(a.ZIP) },
-      ownerOccupied: ownerOccupied(site, mailing),
+      ownerOccupied: numbered ? ownerOccupied(site, mailing) : false,
       companyOwned: isCompanyOwner(owner),
       marketValueCents: cents(a.MKT_VALUE),
       buildingValueCents: cents(a.BLDG_VALUE),

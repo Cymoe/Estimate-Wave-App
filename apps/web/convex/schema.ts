@@ -450,6 +450,8 @@ export const outreachWho = v.union(
   v.literal("commercial"),
   v.literal("portfolio"),
   v.literal("multifamily"),
+  v.literal("storage"),
+  v.literal("industrial"),
   v.literal("wealthy"),
   v.literal("recent_buyer"),
   v.literal("absentee"),
@@ -953,6 +955,8 @@ export default defineSchema({
     cadId: v.string(),
     pin: v.optional(v.string()),
     useCode: v.string(),
+    // The district's own land code ("CWH03" is mini-storage in Midland), where the roll has one.
+    landUse: v.optional(v.string()),
     siteAddress: v.string(),
     // lib/parcels.ts addressKey: the same house on a permit has the same key.
     addressKey: v.string(),
@@ -1222,6 +1226,16 @@ export default defineSchema({
     rentalValueCents: v.optional(v.number()),
     commercialValueCents: v.optional(v.number()),
     multifamilyValueCents: v.optional(v.number()),
+    // Self-storage and industrial buildings (lib/parcels.ts isStorageParcel, isIndustrialParcel): how many, the most
+    // valuable, the newest deed among them, and how many were bought within RECENT_BUY_YEARS as of the last rebuild.
+    storage: v.optional(v.number()),
+    storageValueCents: v.optional(v.number()),
+    storageDeed: v.optional(v.string()),
+    storageRecent: v.optional(v.number()),
+    industrial: v.optional(v.number()),
+    industrialValueCents: v.optional(v.number()),
+    industrialDeed: v.optional(v.string()),
+    industrialRecent: v.optional(v.number()),
     ownerOccupied: v.boolean(),
     outOfState: v.boolean(),
     latestDeed: v.optional(v.string()),

@@ -198,12 +198,71 @@ describe("grouping the roll into owners", () => {
     expect(defaultTitle({ county: "Midland", who: "commercial", companyOwned: true, minValueCents: 500_000_000 })).toBe("Commercial property owners (companies) over $5M, Midland");
   });
 
+  test("storage and industrial owners are lists of their own, told apart by the land code and the state's code, with who has been buying", () => {
+    const co = (owner: string, over: Partial<Condensed>) => ({ owner, companyOwned: true, ownerOccupied: false, useCode: "F1", mailing: { address: `${owner} OFFICE`, city: "MIDLAND", state: "TX", zip: "79701" }, ...over });
+    const roll: Condensed[] = [
+      // Mini-storage by the district's land code: two parcels, one bought this year.
+      parcel("s1", co("A OK SELF STORAGE INC", { landUse: "CWH03", marketValueCents: 238_000_000, deedDate: "2008-05-15" })),
+      parcel("s2", co("A OK SELF STORAGE INC", { landUse: "CWH03", marketValueCents: 33_000_000, deedDate: "2026-02-03" })),
+      // No land code on the building: its name says storage. The house it also owns is a house.
+      parcel("s3", co("2 LP STORAGE LLC", { marketValueCents: 62_000_000, deedDate: "2022-06-17" })),
+      parcel("s4", co("2 LP STORAGE LLC", { useCode: "A1", marketValueCents: 33_000_000, deedDate: "2026-09-08" })),
+      // A storage company on industrial-priced land is storage, not industrial.
+      parcel("s5", co("KELLER STORAGE PARTNERS LP", { landUse: "CID04", marketValueCents: 67_000_000, deedDate: "2025-08-18" })),
+      // Industrial by the state's code, and a warehouse by the land code; two bought in the last three years.
+      parcel("i1", co("GGB LEASING LP", { useCode: "F2", landUse: "CWH06", marketValueCents: 131_000_000, deedDate: "2024-01-12" })),
+      parcel("i2", co("GGB LEASING LP", { landUse: "CWH04", marketValueCents: 246_000_000, deedDate: "2025-06-06" })),
+      parcel("i3", co("TEAM CON LTD", { useCode: "F2", marketValueCents: 1_056_000_000, deedDate: "2018-01-25" })),
+      // A house on land priced as warehouse land is a house; a shop is neither; nor is a church (the CIN codes are institutions).
+      parcel("x1", { owner: "SALCIDO DAVID", landUse: "CWH06" }),
+      parcel("x2", co("OAK PLAZA LLC", { landUse: "CRT08", marketValueCents: 300_000_000 })),
+      parcel("x3", co("FIRST PRESBYTERIAN", { landUse: "CIN01", marketValueCents: 628_000_000 })),
+    ];
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const { owners, facets } = groupOwners(roll, NOW);
+    const by = Object.fromEntries(owners.map((o) => [o.name, o]));
+    const on = (name: string) => (facets.get(by[name].key) ?? []).map((f) => f.facet).sort();
+    const listed = (facet: string) => owners.filter((o) => (facets.get(o.key) ?? []).some((f) => f.facet === facet)).map((o) => o.name).sort();
+    expect(listed("storage")).toEqual(["2 LP Storage LLC", "A Ok Self Storage INC", "Keller Storage Partners LP"]);
+    expect(listed("industrial")).toEqual(["Ggb Leasing LP", "Team Con LTD"]);
+    // Still commercial owners too; the house, the shop and the church are on neither new list.
+    expect(on("A Ok Self Storage INC")).toEqual(expect.arrayContaining(["commercial", "storage"]));
+    expect(on("Oak Plaza LLC")).not.toEqual(expect.arrayContaining(["storage"]));
+    expect(on("First Presbyterian")).not.toEqual(expect.arrayContaining(["industrial"]));
+    expect(by["Salcido David"]).not.toHaveProperty("industrial");
+
+    expect(by["A Ok Self Storage INC"]).toMatchObject({ storage: 2, storageValueCents: 238_000_000, storageDeed: "2026-02-03", storageRecent: 1 });
+    // The house bought in September isn't a storage purchase: the storage deed is the building's.
+    expect(by["2 LP Storage LLC"]).toMatchObject({ storage: 1, storageDeed: "2022-06-17", latestDeed: "2026-09-08" });
+    expect(by["2 LP Storage LLC"].storageRecent).toBeUndefined();
+    expect(by["Ggb Leasing LP"]).toMatchObject({ industrial: 2, industrialValueCents: 246_000_000, industrialDeed: "2025-06-06", industrialRecent: 2 });
+
+    // Why they're on the list: what they hold, and what they've been buying.
+    expect(why(by["A Ok Self Storage INC"], "storage")).toBe("2 storage properties, the biggest worth $2.4M; bought Feb 2026");
+    expect(why(by["2 LP Storage LLC"], "storage")).toBe("Storage property worth $620K; last bought Jun 2022");
+    expect(why(by["Ggb Leasing LP"], "industrial")).toBe("2 industrial buildings, the biggest worth $2.5M; bought 2 in the last 3 years, the newest Jun 2025");
+    expect(why(by["Team Con LTD"], "industrial")).toBe("Industrial building worth $10.6M; last bought Jan 2018");
+
+    // "Bought in the last three years" reads the storage building's deed, not the owner's newest of anything.
+    const buyers = { county: "Midland", who: "storage" as const, deedWithinDays: 1095 };
+    expect(owners.filter((o) => on(o.name).includes("storage") && matches(o, buyers, "storage", NOW)).map((o) => o.name).sort()).toEqual(["A Ok Self Storage INC", "Keller Storage Partners LP"]);
+    // "Two or more" counts storage properties, not everything they own.
+    expect(owners.filter((o) => on(o.name).includes("storage") && matches(o, { county: "Midland", who: "storage", minParcels: 2 }, "storage", NOW)).map((o) => o.name)).toEqual(["A Ok Self Storage INC"]);
+    expect(listOrder({ county: "Midland", who: "industrial" }).label).toBe("highest value first");
+  });
+
   test("the words alone pick a list while the assistant is away; a stretch is no guess at all", () => {
     const who = (ask: string) => guessDefinition(ask)?.definition;
     expect(who("Property managers")).toEqual({ county: "Midland", who: "manager" });
     expect(who("shopping center owners in Midland")).toEqual({ county: "Midland", who: "commercial" });
     expect(who("strip malls")).toEqual({ county: "Midland", who: "commercial" });
-    expect(who("warehouses")).toEqual({ county: "Midland", who: "commercial", useCodes: ["F2"] });
+    // Storage and industrial are lists of their own; "mini warehouse" is storage, not a warehouse.
+    expect(who("warehouses")).toEqual({ county: "Midland", who: "industrial" });
+    expect(who("industrial building owners")).toEqual({ county: "Midland", who: "industrial" });
+    expect(who("storage unit owners")).toEqual({ county: "Midland", who: "storage" });
+    expect(who("self-storage")).toEqual({ county: "Midland", who: "storage" });
+    expect(who("mini warehouses")).toEqual({ county: "Midland", who: "storage" });
+    expect(guessDefinition("storage units")?.title).toBe("Storage facility owners, Midland");
     expect(who("apartment complexes")).toEqual({ county: "Midland", who: "multifamily" });
     expect(who("landlords")).toEqual({ county: "Midland", who: "investor" });
     expect(who("home builders in Midland")).toEqual({ county: "Midland", who: "builder" });

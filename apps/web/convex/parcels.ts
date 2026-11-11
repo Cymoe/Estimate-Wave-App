@@ -18,6 +18,7 @@ export const parcelRow = v.object({
   cadId: v.string(),
   pin: v.optional(v.string()),
   useCode: v.string(),
+  landUse: v.optional(v.string()),
   siteAddress: v.string(),
   addressKey: v.string(),
   looseKey: v.string(),
@@ -38,7 +39,7 @@ export const parcelRow = v.object({
 });
 
 const KEYS = [
-  "pin", "useCode", "siteAddress", "addressKey", "looseKey", "street", "owner", "owner2", "ownerOccupied",
+  "pin", "useCode", "landUse", "siteAddress", "addressKey", "looseKey", "street", "owner", "owner2", "ownerOccupied",
   "companyOwned", "marketValueCents", "buildingValueCents", "deedDate",
 ] as const;
 /** Whose a parcel is, as Outreach groups the roll, and where its bill goes: what lists an owner's properties ("" for none). */

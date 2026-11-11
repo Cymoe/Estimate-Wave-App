@@ -67,15 +67,22 @@ describe("Midland owners (the appraisal roll)", () => {
     const rows = rowsToParcels([
       roll(),
       roll({ SU_NUM: "R2", OWNER: "MATHES JOE &", ADDRESS_1: "6305 E COUNTY RD 62", SITE_NO: 410, STREET_DIR: " ", STREET: "ELM ST" }),
-      roll({ SU_NUM: "R3", GOV_USE_CO: "F1" }),
+      roll({ SU_NUM: "R3", GOV_USE_CO: "F1", LAND_USE: "cwh03" }),
       roll({ SU_NUM: "R4", SITE_NO: 0 }),
       roll({ SU_NUM: "R5", OWNER: " " }),
       // Vacant land, minerals and exempt parcels aren't kept; any B code (apartments) is.
       roll({ SU_NUM: "R6", GOV_USE_CO: "C1" }),
       roll({ SU_NUM: "R7", GOV_USE_CO: "X" }),
       roll({ SU_NUM: "R8", GOV_USE_CO: "B" }),
+      // A commercial building with no street number is kept by its street; one with no street at all isn't.
+      roll({ SU_NUM: "R9", GOV_USE_CO: "F1", SITE_NO: 0, STREET_DIR: " ", STREET: "HWY 00080" }),
+      roll({ SU_NUM: "R10", GOV_USE_CO: "F2", SITE_NO: 0, STREET_DIR: " ", STREET: "NULL" }),
     ]);
+    expect(rows[4]).toMatchObject({ cadId: "R9", siteAddress: "HWY 80", addressKey: "HWY 80", street: "HWY 80", ownerOccupied: false });
+    rows.length = 4;
     expect(rows.map((r) => [r.cadId, r.useCode])).toEqual([["R000029279", "A1"], ["R2", "A1"], ["R3", "F1"], ["R8", "B"]]);
+    // The district's land code comes along where there is one: it tells a mini-storage from a shop.
+    expect(rows.map((r) => r.landUse)).toEqual([undefined, undefined, "CWH03", undefined]);
     expect(rows[0]).toMatchObject({
       cadId: "R000029279",
       siteAddress: "112 W SPRUCE AV",
