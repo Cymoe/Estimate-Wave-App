@@ -31,6 +31,7 @@ export async function syncContactSignals(ctx: MutationCtx, parcelIds: Iterable<I
       .collect();
     if (!contacts.length) continue;
     const signals = await signalsAt(ctx, parcelId);
-    for (const c of contacts) await ctx.db.patch(c._id, { signals });
+    // Stamped like every change to an owner, so an open Outreach page hears of it (outreach.changes).
+    for (const c of contacts) await ctx.db.patch(c._id, { signals, updatedAt: new Date().toISOString() });
   }
 }

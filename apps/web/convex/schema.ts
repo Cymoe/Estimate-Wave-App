@@ -735,6 +735,8 @@ export default defineSchema({
     outreachCounty: v.optional(v.string()),
     // How many of the company's free Outreach phone lookups (lib/outreach.ts FREE_LOOKUPS) it has used.
     outreachFreeUsed: v.optional(v.number()),
+    // When owners were last removed from the company's Outreach (a list deleted, leftovers cleared): an open page reads its view again.
+    outreachRemovedAt: v.optional(v.string()),
     // The monthly plan (Estimates, Price Book, Projects, Older leads).
     plan: v.optional(planFields),
     // Demo company added from the Lead Market; removable in one click.
@@ -1349,7 +1351,9 @@ export default defineSchema({
     .index("by_organization_and_key", ["organizationId", "key"])
     .index("by_lead", ["leadId"])
     .index("by_key", ["key"])
-    .index("by_parcel", ["property.parcelId"]),
+    .index("by_parcel", ["property.parcelId"])
+    // What changed since a moment, for the page's live feed (outreach.changes): every write stamps updatedAt.
+    .index("by_organization_and_updated", ["organizationId", "updatedAt"]),
 
   // Email outreach (emailOutreach.ts). A company's own Gmail, connected
   // once with Google's send-only permission; the refresh token is sealed

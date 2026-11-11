@@ -760,7 +760,7 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
           }
         : {};
       const signals = rest.property ? await signalsAt(ctx, rest.property.parcelId) : undefined;
-      await ctx.db.insert("outreachContacts", { organizationId, ...rest, ...given, ...(signals ? { signals } : {}), kinds: [who], listIds: [listId], status: "new", createdAt: now });
+      await ctx.db.insert("outreachContacts", { organizationId, ...rest, ...given, ...(signals ? { signals } : {}), kinds: [who], listIds: [listId], status: "new", createdAt: now, updatedAt: now });
       added++;
     }
   }
@@ -919,7 +919,7 @@ export const backfillContactSignals = internalMutation({
     let filled = 0;
     for (const c of page.page) {
       if (c.signals || !c.property) continue;
-      await ctx.db.patch(c._id, { signals: await signalsAt(ctx, c.property.parcelId) });
+      await ctx.db.patch(c._id, { signals: await signalsAt(ctx, c.property.parcelId), updatedAt: nowIso() });
       filled++;
     }
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.backfillContactSignals, { cursor: page.continueCursor });
@@ -1037,7 +1037,44 @@ export const contacts = query({
       simulating: simulating(),
       /** The counties besides Midland whose owners are built: the switches offer them once they are. */
       readyCounties: await readyCounties(ctx),
+      /** The server's clock at this read and the last removal of owners: where the page's live feed (changes) picks up. */
+      asOf: nowIso(),
+      removedAt: organization.outreachRemovedAt,
     };
+  },
+});
+
+/** The most owners one answer of the live feed carries; past it the page reads its view again instead. */
+export const CHANGES_MAX = 300;
+
+/**
+ * The page's live feed: the company's owners changed since a moment, not all
+ * of them again. The page reads its view once (contacts) and then listens
+ * here, so an answer landing sends that one owner rather than the whole list.
+ * Owners removed don't show here; `removedAt` moving tells the page to read
+ * again. A changed owner comes without its related owners or its match to a
+ * client or lead: the page keeps the ones it has.
+ */
+export const changes = query({
+  args: { organizationId: v.id("organizations"), since: v.string() },
+  handler: async (ctx, { organizationId, since }) => {
+    const { organization } = await requirePro(ctx, organizationId);
+    const facts = { balanceCents: organization.walletBalanceCents ?? 0, freeLookups: freeLookupsLeft(organization), removedAt: organization.outreachRemovedAt };
+    const changed = await ctx.db
+      .query("outreachContacts")
+      .withIndex("by_organization_and_updated", (q) => q.eq("organizationId", organizationId).gt("updatedAt", since))
+      .take(CHANGES_MAX + 1);
+    if (changed.length > CHANGES_MAX) return { ...facts, reload: true as const, rows: [], upTo: since };
+    const fresh = await freshSince(ctx);
+    const rows = [];
+    for (const c of changed) {
+      const signals = c.signals ? badgesOf(c.signals, fresh) : c.property ? await signalsFor(ctx, c.property.parcelId, fresh) : [];
+      // A lead deleted in Leads leaves its owner New here, as the full read shows it.
+      const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
+      const shown = c.leadId && !lead ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
+      rows.push(contactView(shown, signals, undefined, undefined, lead?.status));
+    }
+    return { ...facts, reload: false as const, rows, upTo: changed.reduce((latest, c) => (c.updatedAt && c.updatedAt > latest ? c.updatedAt : latest), since) };
   },
 });
 
@@ -1471,7 +1508,14 @@ const alwaysStays = (c: Doc<"outreachContacts">, leadGone: boolean) => Boolean(c
 /** An owner removed for good, with any lookup narration it left. */
 async function dropOwner(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
   await clearProgress(ctx, contactId, ["phone", "email", "person", "research"]);
+  const c = await ctx.db.get(contactId);
   await ctx.db.delete(contactId);
+  if (c) await ownersRemoved(ctx, c.organizationId);
+}
+
+/** Owners were removed: stamped on the company, so an open page (which only hears of owners that changed) reads its view again. */
+async function ownersRemoved(ctx: MutationCtx, organizationId: Id<"organizations">) {
+  await ctx.db.patch(organizationId, { outreachRemovedAt: nowIso() });
 }
 
 /**
@@ -1547,6 +1591,7 @@ export const clearLeftovers = internalMutation({
     for (const c of page.page) {
       if (c.listIds.length > 0 || worthKeeping(c, await leadGone(ctx, c))) continue;
       await ctx.db.delete(c._id);
+      await ownersRemoved(ctx, c.organizationId);
       removed++;
     }
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.clearLeftovers, { cursor: page.continueCursor });
@@ -1621,7 +1666,7 @@ export const migrateRows = internalMutation({
             status: r.status,
             note: r.note,
             createdAt: list.createdAt,
-            updatedAt: r.updatedAt,
+            updatedAt: r.updatedAt ?? nowIso(),
           });
         }
         moved++;
@@ -2168,6 +2213,7 @@ export const migrateUnlocks = internalMutation({
         enrichment: cellsOf(c),
         phones: (c.phones ?? []).map((p) => ({ ...p, type: p.type ?? "unknown" })),
         unlock: undefined,
+        updatedAt: nowIso(),
       });
     }
     return { moved: rows.length };
@@ -2544,6 +2590,7 @@ export const clearOwnersOf = internalMutation({
   handler: async (ctx, { organizationId }) => {
     const page = await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(1000);
     for (const c of page) await ctx.db.delete(c._id);
+    if (page.length) await ownersRemoved(ctx, organizationId);
     if (page.length === 1000) await ctx.scheduler.runAfter(0, internal.outreach.clearOwnersOf, { organizationId });
     return { removed: page.length };
   },

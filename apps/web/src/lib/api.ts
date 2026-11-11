@@ -1309,6 +1309,21 @@ export type OutreachContacts = {
   county?: string;
   /** The counties besides Midland whose owners are in, so lists can be built there. */
   readyCounties?: string[];
+  /** The server's clock at this read: where the live feed (watchChanges) picks up. */
+  asOf?: string;
+  /** When owners were last removed from the company's Outreach; the feed says when it moves. */
+  removedAt?: string;
+};
+/** The live feed's answer: the owners changed since a moment (without their related owners or client/lead match), or word to read the view again. */
+export type OutreachChanges = {
+  rows: OutreachContact[];
+  balanceCents: number;
+  freeLookups: number;
+  removedAt?: string;
+  /** More changed than one answer carries: read the view again. */
+  reload: boolean;
+  /** The latest change in this answer: a later listen can start from here. */
+  upTo: string;
 };
 const contactsArgs = (organizationId: string, listId?: string) => (listId === UNLISTED ? { organizationId, unlisted: true } : defined({ organizationId, listId }));
 /** A source in the stack, as staff see it: connected or not, and how it has done for this company. */
@@ -1385,6 +1400,9 @@ export const outreachAPI = {
   /** The contacts, now and on every change: a lookup's progress, a status set elsewhere. Returns a stop function. */
   watchContacts: (organizationId: string, listId: string | undefined, onUpdate: (c: OutreachContacts) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.contacts, contactsArgs(organizationId, listId), onUpdate, onError),
+  /** The owners changed since a moment, now and on every change: the page reads its view once, then listens here. Returns a stop function. */
+  watchChanges: (organizationId: string, since: string, onUpdate: (c: OutreachChanges) => void, onError?: (e: APIError) => void): (() => void) =>
+    watchOn(api.outreach.changes, { organizationId, since }, onUpdate, onError),
   /** The company's running lookups as they go (the source asked now, the turns so far), now and on every change. Returns a stop function. */
   watchProgress: (organizationId: string, onUpdate: (p: OutreachProgress[]) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.progress, { organizationId }, onUpdate, onError),

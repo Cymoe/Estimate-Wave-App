@@ -9,7 +9,7 @@ import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
-import { GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
+import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1784,6 +1784,63 @@ describe("a company's lists", () => {
     // With room again, a list is made as before.
     await t.run(async (ctx) => ctx.db.patch(made.listId as Id<"outreachLists">, { rowCount: 2 }));
     await expect(co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } })).resolves.toMatchObject({ rowCount: 2 });
+  });
+
+  test("the page's live feed: only the owners changed since a moment, the balance with them, a removal stamped on the company, and a reload when too much changed", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 300 }));
+    const made = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const first = await co.as.query(api.outreach.contacts, { organizationId: org });
+    expect(first.asOf).toBe(new Date(NOW).toISOString());
+    expect(first.removedAt).toBeUndefined();
+    const oak = first.rows.find((r) => r.name === "Oak Plaza LLC")!;
+    const feed = async (since = first.asOf) => await co.as.query(api.outreach.changes, { organizationId: org, since });
+    // Nothing since the read.
+    expect(await feed()).toEqual({ balanceCents: 300, freeLookups: 0, removedAt: undefined, reload: false, rows: [], upTo: first.asOf });
+
+    // A status set: that owner alone, as the page shows an owner.
+    vi.setSystemTime(NOW + 60_000);
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: oak.id, status: "skip", note: "Not now" });
+    const one = await feed();
+    expect(one.rows.map((r) => [r.name, r.status, r.note])).toEqual([["Oak Plaza LLC", "skip", "Not now"]]);
+    expect(one.upTo).toBe(new Date(NOW + 60_000).toISOString());
+    // From there on, nothing again.
+    expect((await feed(one.upTo)).rows).toEqual([]);
+
+    // A lookup asked for and landing: the owner comes each time, and the balance follows.
+    vi.setSystemTime(NOW + 120_000);
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] });
+    expect((await feed(one.upTo)).rows.map((r) => r.enrichment.phone.status)).toEqual(["running"]);
+    vi.setSystemTime(NOW + 180_000);
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550100", type: "mobile", source: "batchdata" }] });
+    const landed = await feed(one.upTo);
+    expect(landed.rows.map((r) => [r.enrichment.phone.status, r.phones.length])).toEqual([["found", 1]]);
+    expect(landed.balanceCents).toBe(200);
+    // Email outreach's own stamps come through too.
+    vi.setSystemTime(NOW + 240_000);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(oak.id as Id<"outreachContacts">, { email: { state: "emailed", at: new Date().toISOString() }, updatedAt: new Date().toISOString() });
+    });
+    expect((await feed(landed.upTo)).rows.map((r) => r.email?.state)).toEqual(["emailed"]);
+
+    const copy = (await t.run(async (ctx) => ctx.db.get(oak.id as Id<"outreachContacts">)))!;
+    // A list deleted takes its untouched owner with it: not in the feed, but the company's removal stamp moves.
+    vi.setSystemTime(NOW + 300_000);
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: made.listId as Id<"outreachLists">, alsoWorked: true });
+    expect((await feed(landed.upTo)).removedAt).toBe(new Date(NOW + 300_000).toISOString());
+
+    // More changed than one answer carries: the page is told to read again.
+    await t.run(async (ctx) => {
+      const { _id, _creationTime, ...owner } = copy;
+      void _id, _creationTime;
+      for (let i = 0; i <= CHANGES_MAX; i++) await ctx.db.insert("outreachContacts", { ...owner, key: `bulk:${i}`, name: `Bulk ${i}`, listIds: [], updatedAt: new Date(NOW + 360_000).toISOString() });
+    });
+    expect(await feed(landed.upTo)).toMatchObject({ reload: true, rows: [] });
   });
 
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {

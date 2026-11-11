@@ -261,7 +261,7 @@ export const start = mutation({
         status: "draft",
         replyToken: randomToken(18),
       });
-      await ctx.db.patch(p.contact._id, { email: { state: "drafted", at: now } });
+      await ctx.db.patch(p.contact._id, { email: { state: "drafted", at: now }, updatedAt: now });
     }
     await ctx.scheduler.runAfter(0, internal.emailOutreach.writeDrafts, { campaignId });
     return { campaignId, count: picks.length, skipped: skippedText(skipped), more: all.length - picks.length };
@@ -452,7 +452,7 @@ async function dropFromCampaign(ctx: MutationCtx, campaignId: Id<"emailCampaigns
     else if (e.status !== "cancelled" && e.status !== "failed") await ctx.db.patch(e._id, { status: "cancelled" });
   }
   const c = await ctx.db.get(contactId);
-  if (c && !sent && (c.email?.state === "drafted" || c.email?.state === "scheduled")) await ctx.db.patch(contactId, { email: undefined });
+  if (c && !sent && (c.email?.state === "drafted" || c.email?.state === "scheduled")) await ctx.db.patch(contactId, { email: undefined, updatedAt: nowIso() });
 }
 
 /** Closes the drawer without sending: the drafts go, and the owners can be emailed later. */
@@ -488,7 +488,7 @@ export const approve = mutation({
     const now = nowIso();
     for (const [i, e] of firsts.entries()) {
       await ctx.db.patch(e._id, { status: "scheduled", sendAt: times[i] });
-      await ctx.db.patch(e.contactId, { email: { state: "scheduled", at: now } });
+      await ctx.db.patch(e.contactId, { email: { state: "scheduled", at: now }, updatedAt: now });
     }
     for (const e of emails) if (e.step > 0) await ctx.db.patch(e._id, { status: "waiting" });
     await ctx.db.patch(campaignId, { status: "sending", approvedAt: now });
@@ -557,7 +557,7 @@ export const claim = internalMutation({
 async function sent(ctx: MutationCtx, e: Doc<"outreachEmails">, ids: { gmailId?: string; threadId?: string; messageId?: string }) {
   const now = nowIso();
   await ctx.db.patch(e._id, { status: "sent", sentAt: now, error: undefined, ...ids });
-  await ctx.db.patch(e.contactId, { email: { state: "emailed", at: now } });
+  await ctx.db.patch(e.contactId, { email: { state: "emailed", at: now }, updatedAt: now });
   if (e.step !== 0) return;
   const campaign = await ctx.db.get(e.campaignId);
   const days = campaign?.followUps ?? [];
@@ -666,7 +666,7 @@ export const optOut = internalMutation({
     if (!(await optedOut(ctx, e.organizationId, e.to))) await ctx.db.insert("emailOptOuts", { organizationId: e.organizationId, email: e.to.toLowerCase(), at: nowIso(), how });
     await stopFor(ctx, e.contactId);
     const c = await ctx.db.get(e.contactId);
-    if (c && c.email?.state !== "replied") await ctx.db.patch(e.contactId, { email: { state: "opted_out", at: nowIso() } });
+    if (c && c.email?.state !== "replied") await ctx.db.patch(e.contactId, { email: { state: "opted_out", at: nowIso() }, updatedAt: nowIso() });
     return { company: org?.name ?? "the sender" };
   },
 });
@@ -698,7 +698,7 @@ export const recordReply = internalMutation({
     const now = nowIso();
     await stopFor(ctx, contact._id);
     if (STOP_WORDS.test(words) && !(await optedOut(ctx, e.organizationId, e.to))) await ctx.db.insert("emailOptOuts", { organizationId: e.organizationId, email: e.to.toLowerCase(), at: now, how: "reply" });
-    await ctx.db.patch(contact._id, { email: { state: "replied", at: now, replyText: words } });
+    await ctx.db.patch(contact._id, { email: { state: "replied", at: now, replyText: words }, updatedAt: now });
     const campaign = await ctx.db.get(e.campaignId);
     const leadId = await leadFromReply(ctx, (await ctx.db.get(contact._id))!, campaign!.createdBy, words);
     const mailbox = await lastMailbox(ctx, e.organizationId);

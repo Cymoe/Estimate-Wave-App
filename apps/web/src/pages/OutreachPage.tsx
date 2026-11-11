@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Check, ChevronDown, Download, LayoutList, Mail, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
+import { outreachAPI, type OutreachChanges, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { countyOf, setReadyCounties } from '../components/outreach/county';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
 import { ListPicker } from '../components/outreach/ListPicker';
 import { rememberList, UNLISTED } from '../components/outreach/listsStore';
+import { mergeChanged, type ViewOf } from '../components/outreach/liveMerge';
 import { ListsOverview } from '../components/outreach/ListsOverview';
 import { EmailSheet } from '../components/outreach/EmailSheet';
 import { GMAIL_RESULT } from '../lib/gmailConnect';
@@ -286,6 +287,8 @@ const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolea
 };
 /** What the main button does, in words: the person behind each owner, their phone and their email. */
 const findLabel = (n: number) => `Find phones & emails (${n.toLocaleString('en-US')})`;
+/** Past this many owners in one answer of the live feed, the page listens from the latest change on, so answers stay small. */
+const FEED_STEP = 50;
 /** At most this many more owners are loaded in one go before finding phones & emails for a whole list (four pages). */
 const LOAD_REST_MAX = 2000;
 
@@ -497,6 +500,9 @@ const OutreachPage: React.FC = () => {
   const currentKey = useRef(viewKey);
   currentKey.current = viewKey;
   const narration = useRef<Narration>(new Map());
+  // The lists as they are now, for the live feed's handler (set up once per view) to order a list's new owners by.
+  const listsNow = useRef(lists);
+  listsNow.current = lists;
   const takeContacts = useCallback((key: string, read: OutreachContacts) => {
     const c = pruneGone(read, gone.current);
     seen.current.set(key, c);
@@ -524,7 +530,7 @@ const OutreachPage: React.FC = () => {
     },
     [],
   );
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<OutreachContacts | undefined> => {
     if (!organizationId) return;
     const key = `${organizationId}:${listId ?? 'all'}`;
     try {
@@ -532,6 +538,7 @@ const OutreachPage: React.FC = () => {
       if (!live.current) return;
       setLists(keep(l));
       takeContacts(key, c);
+      return c;
     } catch (err) {
       if (live.current) setError(err instanceof Error ? err.message : "The contacts couldn't be loaded");
     }
@@ -572,21 +579,54 @@ const OutreachPage: React.FC = () => {
       const order = listOrder(def);
       setData({ ...all, rows: all.rows.filter((r) => r.listIds.includes(listId)).sort((a, b) => order.key(b) - order.key(a) || a.name.localeCompare(b.name)) });
     }
-    void load();
-    // Then live: the server sends every change the moment it happens (an answer landing, a status set elsewhere), with no re-asking.
-    let first = true;
-    const stopContacts = outreachAPI.watchContacts?.(organizationId, listId, (c) => {
-      takeContacts(key, c);
-      if (!first) refreshListsSoon();
-      first = false;
-    });
+    // The view is read once; after that the server sends only the owners that change (an answer landing, a status set
+    // elsewhere), and they're put into the view the page has. Not the whole list again on every change.
+    let ended = false;
+    let stopChanges: (() => void) | undefined;
+    const allKey = `${organizationId}:all`;
+    const viewOf = (): ViewOf => {
+      if (listId === UNLISTED) return { unlisted: true };
+      const d = listId ? listsNow.current?.find((l) => l.id === listId)?.definition : undefined;
+      return { listId, order: d ? listOrder(d) : undefined };
+    };
+    // A little before the moment given, so nothing between the read and the listening is missed (merging twice is harmless).
+    const before = (at: string, ms: number) => new Date(Date.parse(at) - ms).toISOString();
+    const reread = async () => {
+      const c = await load();
+      if (c?.asOf && !ended) listen(before(c.asOf, 10_000));
+    };
+    const onChanges = (p: OutreachChanges) => {
+      if (ended) return;
+      const base = seen.current.get(key);
+      // Too much changed for one answer, or owners were removed (the feed only carries owners that still exist): read again.
+      if (p.reload || (base && (p.removedAt ?? '') !== (base.removedAt ?? ''))) return void reread();
+      if (!base) return;
+      if (p.rows.length === 0 && p.balanceCents === base.balanceCents && (p.freeLookups ?? 0) === (base.freeLookups ?? 0)) return;
+      takeContacts(key, mergeChanged({ ...base, balanceCents: p.balanceCents, freeLookups: p.freeLookups }, p.rows, viewOf()));
+      // All owners, kept for the first look at the next list opened, follows too.
+      const all = listId ? seen.current.get(allKey) : undefined;
+      if (all) seen.current.set(allKey, mergeChanged(all, p.rows, {}));
+      if (p.rows.length) refreshListsSoon();
+      // A long run of changes: listen from the latest, so each answer stays small.
+      if (p.rows.length > FEED_STEP) listen(before(p.upTo, 1_000));
+    };
+    function listen(since: string) {
+      stopChanges?.();
+      stopChanges = outreachAPI.watchChanges?.(organizationId!, since, onChanges, () => {
+        // The backend is a version behind for a minute during a deploy and has no feed yet: the whole view, live, as before.
+        stopChanges?.();
+        stopChanges = outreachAPI.watchContacts?.(organizationId!, listId, (c) => !ended && takeContacts(key, c));
+      });
+    }
+    void reread();
     // A lookup's narration comes on its own, small feed, so its many steps don't read every owner again.
     const stopProgress = outreachAPI.watchProgress?.(organizationId, (p) => {
       narration.current = new Map(p.map((x) => [`${x.contactId}:${x.field}`, x]));
       if (live.current) setData((d) => d && withProgress(d, narration.current));
     });
     return () => {
-      stopContacts?.();
+      ended = true;
+      stopChanges?.();
       stopProgress?.();
     };
     // lists is read only for the first look at a new list; a change to it must not resubscribe.
@@ -628,6 +668,14 @@ const OutreachPage: React.FC = () => {
   }, [backFromGmail, reopenEmail, setSearchParams]);
 
   const list = lists?.find((l) => l.id === listId);
+  // A new list's owners arrive through the live feed as it fills; once it's full the view is read whole, for what the feed
+  // doesn't carry (each owner's related owners, and whether they're already a client or a lead).
+  const wasFilling = useRef(false);
+  useEffect(() => {
+    const filling = Boolean(list?.filling);
+    if (wasFilling.current && !filling) void load();
+    wasFilling.current = filling;
+  }, [list?.filling, load]);
   /** The owners on no list, kept from deleted lists because they were worked: a view of their own, like a list's. */
   const onUnlisted = listId === UNLISTED;
   const unlistedCount = data?.unlisted ?? 0;

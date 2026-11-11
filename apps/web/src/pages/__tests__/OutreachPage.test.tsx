@@ -30,7 +30,7 @@ const coverage = (phone = 0, email = 0, person = 0, total = 2) => ({
   person: { found: person, total, sources: person ? 1 : 0 },
   research: { found: 0, total, sources: 0 },
 });
-const money = { balanceCents: 0, unlockCents: 100, researchCents: 25, researchQuestion: 'Who is this owner, what do they do, and is there any sign of planned construction?' };
+const money = { asOf: '2026-11-05T15:00:00.000Z', balanceCents: 0, unlockCents: 100, researchCents: 25, researchQuestion: 'Who is this owner, what do they do, and is there any sign of planned construction?' };
 const list = {
   id: 'l1',
   title: 'Shopping center owners',
@@ -71,12 +71,16 @@ const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, t
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
 const sources = jest.fn(async () => []);
 const getContacts = jest.fn(async () => contacts);
-// The live feed: a test can push what the server would send.
-let pushContacts: ((c: unknown) => void) | null = null;
-const watchContacts = jest.fn((_o: string, _l: string | undefined, onUpdate: (c: unknown) => void) => {
-  pushContacts = onUpdate;
+// The live feed: a test can push what the server would send. The page reads its view once, then hears only of owners
+// that changed; pushContacts takes a whole view (as the tests have them) and sends its owners and balance down that feed.
+type Feed = { rows: unknown[]; balanceCents: number; freeLookups: number; removedAt?: string; reload: boolean; upTo: string };
+let pushChanges: ((c: Feed) => void) | null = null;
+const pushContacts = (c: { rows: unknown[]; balanceCents?: number; freeLookups?: number }) =>
+  pushChanges!({ rows: c.rows, balanceCents: c.balanceCents ?? 0, freeLookups: c.freeLookups ?? 0, reload: false, upTo: '2026-11-05T15:00:01.000Z' });
+const watchChanges = jest.fn((_o: string, _since: string, onUpdate: (c: Feed) => void) => {
+  pushChanges = onUpdate;
   return () => {
-    pushContacts = null;
+    pushChanges = null;
   };
 });
 // The lookups' narration feed, apart from the owners.
@@ -109,7 +113,7 @@ jest.mock('../../lib/api', () => ({
     organizeList: (...args: unknown[]) => organizeList(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
-    watchContacts: (...args: unknown[]) => watchContacts(...(args as [string, string | undefined, (c: unknown) => void])),
+    watchChanges: (...args: unknown[]) => watchChanges(...(args as [string, string, (c: Feed) => void])),
     watchLists: () => () => {},
     watchProgress: (...args: unknown[]) => watchProgress(...(args as [string, (p: unknown) => void])),
     sources: (...args: unknown[]) => sources(...(args as [])),
@@ -211,10 +215,11 @@ describe('the Outreach page', () => {
     lists = [list];
     contacts = twoContacts();
     await render('/outreach/l1');
-    expect(watchContacts).toHaveBeenLastCalledWith('o1', 'l1', expect.any(Function));
+    // Listening starts a little before the moment of the read, so nothing in between is missed.
+    expect(watchChanges).toHaveBeenLastCalledWith('o1', '2026-11-05T14:59:50.000Z', expect.any(Function), expect.any(Function));
     const reads = getContacts.mock.calls.length;
     // The server's push: City Of Midland's person found elsewhere, shown with no new read.
-    await act(async () => pushContacts!({ ...twoContacts(), rows: [contact('r1'), contact('r2', { name: 'City Of Midland', person: { name: 'Sam Ortiz', source: 'tx-comptroller' } })] }));
+    await act(async () => pushContacts({ ...twoContacts(), rows: [contact('r1'), contact('r2', { name: 'City Of Midland', person: { name: 'Sam Ortiz', source: 'tx-comptroller' } })] }));
     expect(document.body.textContent).toContain('Sam Ortiz');
     expect(getContacts.mock.calls.length).toBe(reads);
 
@@ -222,7 +227,7 @@ describe('the Outreach page', () => {
     let accept: (v: unknown) => void = () => {};
     enrich.mockImplementationOnce(() => new Promise((resolve) => (accept = resolve)) as never);
     contacts = { ...twoContacts(), balanceCents: 500 };
-    await act(async () => pushContacts!(contacts));
+    await act(async () => pushContacts(contacts));
     await click('Find phones & emails (2)');
     await click('Find them');
     const first = document.body.querySelectorAll('[data-testid="contact-row"]')[0];
@@ -254,10 +259,10 @@ describe('the Outreach page', () => {
     await act(async () => pushProgress!([{ contactId: 'r1', field: 'phone', asking: 'batchdata', tries: [{ source: 'permits', outcome: 'skipped' }] }]));
     expect(live()).toContain('Asking BatchData…');
     // An update to the owners (another field, a status) keeps the narration on the cell still running.
-    await act(async () => pushContacts!({ ...contacts, rows: [contact('r1', { note: 'Call after 5', enrichment: cells({ status: 'running', at: '2026-11-05T15:00:00Z' }) })] }));
+    await act(async () => pushContacts({ ...contacts, rows: [contact('r1', { note: 'Call after 5', enrichment: cells({ status: 'running', at: '2026-11-05T15:00:00Z' }) })] }));
     expect(live()).toContain('Asking BatchData…');
     // Landed: the answer, and the narration (still on its feed a moment) doesn't cling to a finished cell.
-    await act(async () => pushContacts!({ ...contacts, rows: [contact('r1', { phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }], enrichment: cells({ status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' }) })] }));
+    await act(async () => pushContacts({ ...contacts, rows: [contact('r1', { phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }], enrichment: cells({ status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' }) })] }));
     expect(document.body.querySelector('[data-testid="contact-row"] [data-testid="live"]')).toBeNull();
   });
 
@@ -277,7 +282,7 @@ describe('the Outreach page', () => {
     };
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Researching 2 owners · 1 done1 answer · $0.25 so far');
-    await act(async () => pushContacts!({ ...contacts, rows: [(contacts.rows as unknown[])[0], contact('r2', { name: 'City Of Midland', enrichment: { ...before, research: { status: 'none', at } } })] }));
+    await act(async () => pushContacts({ ...contacts, rows: [(contacts.rows as unknown[])[0], contact('r2', { name: 'City Of Midland', enrichment: { ...before, research: { status: 'none', at } } })] }));
     expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Done: 2 owners researched1 answer · $0.25 charged');
   });
 
@@ -491,7 +496,7 @@ describe('the Outreach page', () => {
 
   it('owners kept from deleted lists still show, with a word on why and a way to make a list', async () => {
     lists = [];
-    contacts = twoContacts();
+    contacts = { ...twoContacts(), unlisted: 2 };
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')!.textContent).toBe(
@@ -499,8 +504,6 @@ describe('the Outreach page', () => {
     );
     expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
     // Done with them: Remove them, after a warning that what they hold goes too.
-    contacts = { ...contacts, unlisted: 2 };
-    await act(async () => pushContacts!(contacts));
     await click('Remove them');
     expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Remove the 2 owners not on a list?');
     expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Owners you sent to Leads or made clients, and any still being looked up, stay.');
@@ -1268,6 +1271,34 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
 
+  it('the live feed: owners removed elsewhere, or more changed than one answer carries, and the page reads its view again and listens from there', async () => {
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    const reads = getContacts.mock.calls.length;
+    const listens = watchChanges.mock.calls.length;
+    // An ordinary change: put in place, no read.
+    await act(async () => pushChanges!({ rows: [contact('r1', { note: 'Gate code 4411' })], balanceCents: 0, freeLookups: 0, reload: false, upTo: '2026-11-05T15:00:05.000Z' }));
+    expect(getContacts.mock.calls.length).toBe(reads);
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
+    // A list deleted on another device took an owner: the feed only says owners were removed, so the view is read again.
+    contacts = { ...twoContacts(), rows: [contact('r1')], asOf: '2026-11-05T15:10:00.000Z', removedAt: '2026-11-05T15:09:00.000Z' };
+    await act(async () => pushChanges!({ rows: [], balanceCents: 0, freeLookups: 0, removedAt: '2026-11-05T15:09:00.000Z', reload: false, upTo: '2026-11-05T15:00:05.000Z' }));
+    await flush();
+    expect(getContacts.mock.calls.length).toBe(reads + 1);
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(1);
+    expect(watchChanges).toHaveBeenLastCalledWith('o1', '2026-11-05T15:09:50.000Z', expect.any(Function), expect.any(Function));
+    // The same stamp again changes nothing.
+    await act(async () => pushChanges!({ rows: [], balanceCents: 0, freeLookups: 0, removedAt: '2026-11-05T15:09:00.000Z', reload: false, upTo: '2026-11-05T15:10:00.000Z' }));
+    await flush();
+    expect(getContacts.mock.calls.length).toBe(reads + 1);
+    // Too much changed for one answer: read again.
+    await act(async () => pushChanges!({ rows: [], balanceCents: 0, freeLookups: 0, removedAt: '2026-11-05T15:09:00.000Z', reload: true, upTo: '2026-11-05T15:10:00.000Z' }));
+    await flush();
+    expect(getContacts.mock.calls.length).toBe(reads + 2);
+    expect(watchChanges.mock.calls.length).toBe(listens + 2);
+  });
+
   it("a new company's first phones are free: the fresh list says what is there and what phones cost, and with no balance the button finds the free ones", async () => {
     lists = [{ ...list, rowCount: 2, total: 2 }];
     contacts = { ...twoContacts(), balanceCents: 0, freeLookups: 5 };
@@ -1409,13 +1440,13 @@ describe('the Outreach page', () => {
     expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(0);
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).not.toBeNull();
     // A live update from before the delete landed changes nothing either.
-    await act(async () => pushContacts!(contacts));
+    await act(async () => pushContacts(contacts));
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')).toBeNull();
     // Done: the server's lists no longer have it, and its owners' update arrives live.
     lists = [];
     contacts = { ...contacts, rows: [] };
     await act(async () => done());
-    await act(async () => pushContacts!(contacts));
+    await act(async () => pushContacts(contacts));
     await flush();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).not.toBeNull();
   });
