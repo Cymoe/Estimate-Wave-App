@@ -213,6 +213,10 @@ jobs:
         # Membership rows and indexed fields, so a list (and a company's sister entities) can be read without reading
         # every owner. Owners saved before get theirs; finishes in the background. Safe to re-run.
         run: npx convex run outreach:backfillFiling
+      - name: Count the Outreach lists saved before their numbers were kept on them
+        # Owners worked and results in Leads, stored on each list so the lists read without reading every owner.
+        # In the background; safe to re-run: a list already counted is left alone.
+        run: npx convex run outreach:recountAll
       - name: Key permits by address for Outreach
         # Permits imported before the key existed get theirs; finishes in the background. Safe to re-run.
         run: npx convex run permits:backfillAddressKeys

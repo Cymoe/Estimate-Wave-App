@@ -1406,6 +1406,8 @@ export const outreachAPI = {
   /** The company's running lookups as they go (the source asked now, the turns so far), now and on every change. Returns a stop function. */
   watchProgress: (organizationId: string, onUpdate: (p: OutreachProgress[]) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.progress, { organizationId }, onUpdate, onError),
+  /** Asks for the lists' numbers (worked, sent, sold) to be counted again where owners changed; they arrive on the lists (watchLists). */
+  tally: (organizationId: string): Promise<{ counting: number }> => run('mutation', api.outreach.tally, { organizationId }),
   /** The lists, now and on every change. Returns a stop function. */
   watchLists: (organizationId: string, onUpdate: (l: OutreachListSummary[]) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.lists, { organizationId }, onUpdate, onError),

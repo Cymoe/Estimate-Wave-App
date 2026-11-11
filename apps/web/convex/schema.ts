@@ -1269,6 +1269,14 @@ export default defineSchema({
     archivedAt: v.optional(v.string()),
     /** A new list still adding owners after the first, in the background (outreach.fillList). */
     filling: v.optional(v.boolean()),
+    /**
+     * The list's numbers besides `done` (its worked owners): the worked owners only this list holds, and what it has
+     * turned into in Leads. Counted from the list's own owners by outreach.recount, a page at a time, when the page
+     * asks (outreach.tally); `countedAt` is the moment that count began.
+     */
+    kept: v.optional(v.number()),
+    results: v.optional(v.object({ sent: v.number(), estimates: v.number(), sold: v.number() })),
+    countedAt: v.optional(v.string()),
   }).index("by_organization", ["organizationId"]),
 
   // The lists' rows before contacts (outreach:migrateRows moves them over on deploy; drop the table once it has run clean).

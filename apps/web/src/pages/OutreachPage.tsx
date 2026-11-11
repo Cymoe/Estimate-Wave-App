@@ -512,16 +512,25 @@ const OutreachPage: React.FC = () => {
     }
   }, []);
   /**
-   * The lists' numbers (done, sent, sold) follow the owners, read again a few seconds after they change rather than on
-   * every change: a lookup or a filling list changes owners many times a second, and each read covers every owner.
+   * The lists' numbers (done, sent, sold) are kept on each list and counted in the background when asked. The page asks
+   * a few seconds after owners change rather than on every change (a lookup or a filling list changes owners many times
+   * a second), and when it opens; the new numbers arrive on the lists themselves, which it listens to.
    */
   const listsSoon = useRef<number | null>(null);
   const refreshListsSoon = useCallback(() => {
     if (!organizationId || listsSoon.current !== null) return;
     listsSoon.current = window.setTimeout(() => {
       listsSoon.current = null;
+      outreachAPI.tally?.(organizationId).catch(() => {});
       outreachAPI.lists(organizationId).then((l) => live.current && setLists(keep(l)), () => {});
     }, 4000);
+  }, [organizationId]);
+  useEffect(() => {
+    if (!organizationId) return;
+    outreachAPI.tally?.(organizationId).catch(() => {});
+    return outreachAPI.watchLists?.(organizationId, (l) => live.current && setLists(keep(l)));
+    // keep reads a ref: the lists are listened to once per company.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId]);
   useEffect(
     () => () => {

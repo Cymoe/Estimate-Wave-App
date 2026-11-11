@@ -83,6 +83,15 @@ const watchChanges = jest.fn((_o: string, _since: string, onUpdate: (c: Feed) =>
     pushChanges = null;
   };
 });
+// The lists as the server has them, pushed when their numbers are counted again; and the page's ask for that count.
+let pushLists: ((l: unknown[]) => void) | null = null;
+const watchLists = jest.fn((_o: string, onUpdate: (l: unknown[]) => void) => {
+  pushLists = onUpdate;
+  return () => {
+    pushLists = null;
+  };
+});
+const tally = jest.fn(async () => ({ counting: 0 }));
 // The lookups' narration feed, apart from the owners.
 let pushProgress: ((p: unknown) => void) | null = null;
 const watchProgress = jest.fn((_o: string, onUpdate: (p: unknown) => void) => {
@@ -114,7 +123,8 @@ jest.mock('../../lib/api', () => ({
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
     watchChanges: (...args: unknown[]) => watchChanges(...(args as [string, string, (c: Feed) => void])),
-    watchLists: () => () => {},
+    watchLists: (...args: unknown[]) => watchLists(...(args as [string, (l: unknown[]) => void])),
+    tally: (...args: unknown[]) => tally(...(args as [])),
     watchProgress: (...args: unknown[]) => watchProgress(...(args as [string, (p: unknown) => void])),
     sources: (...args: unknown[]) => sources(...(args as [])),
     status: async () => ownersState,
@@ -1269,6 +1279,31 @@ describe('the Outreach page', () => {
     lists = [{ ...list, rowCount: 2, total: 2 }];
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
+  });
+
+  it("a list's numbers: the page asks for a count when it opens and after owners change, and shows the numbers as they land on the list", async () => {
+    jest.useFakeTimers();
+    try {
+      lists = [list];
+      contacts = twoContacts();
+      tally.mockClear();
+      await render('/outreach/l1');
+      expect(tally).toHaveBeenCalledTimes(1);
+      expect(tally).toHaveBeenCalledWith('o1');
+      expect(document.body.textContent).toContain('0 done');
+      // An owner changed (skipped on another device): a few seconds on, the page asks for the count again.
+      await act(async () => pushChanges!({ rows: [contact('r1', { status: 'skip' })], balanceCents: 0, freeLookups: 0, reload: false, upTo: '2026-11-05T15:00:05.000Z' }));
+      expect(tally).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      expect(tally).toHaveBeenCalledTimes(2);
+      // The count lands on the list, and the page shows it.
+      await act(async () => pushLists!([{ ...list, done: 1 }]));
+      expect(document.body.textContent).toContain('1 done');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('the live feed: owners removed elsewhere, or more changed than one answer carries, and the page reads its view again and listens from there', async () => {

@@ -16,6 +16,7 @@ jest.mock('../../components/settings/ClientRemindersSettings', () => ({ ClientRe
 jest.mock('../../components/settings/SalesModeSetting', () => ({ SalesModeSetting: stub('sales-mode') }));
 jest.mock('../../components/settings/ClientPerksSetting', () => ({ ClientPerksSetting: stub('perks') }));
 jest.mock('../../components/settings/OfficeLineSetting', () => ({ OfficeLineSetting: stub('office-line') }));
+jest.mock('../../components/settings/EmailSetting', () => ({ EmailSetting: stub('email') }));
 jest.mock('../../components/layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
   return { OrganizationContext: createContext({ selectedOrg: { id: 'org1', name: 'Miller Roofing' }, setSelectedOrg: () => {} }) };

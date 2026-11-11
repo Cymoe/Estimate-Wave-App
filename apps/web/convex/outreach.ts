@@ -804,40 +804,135 @@ export const extend = mutation({
   },
 });
 
+/**
+ * A company's lists with their numbers (owners worked, results in Leads). The numbers are kept on each list and
+ * counted from its own owners in the background (tally, recount), so this reads the lists and nothing else: not
+ * every owner the company has.
+ */
 export const listsDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     await requirePro(ctx, organizationId);
     const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
-    const contacts = await contactsOf(ctx, organizationId);
-    const done = new Map<Id<"outreachLists">, number>();
-    for (const c of contacts) if (isWorked(c.status)) for (const id of c.listIds) done.set(id, (done.get(id) ?? 0) + 1);
-    // Worked owners only this list holds: deleting it would leave them on no list.
-    const stranded = new Map<Id<"outreachLists">, number>();
-    const leads = new Map((await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).map((l) => [l._id, l] as const));
-    for (const c of contacts) if (c.listIds.length === 1 && worthKeeping(c, c.leadId !== undefined && !leads.has(c.leadId))) stranded.set(c.listIds[0], (stranded.get(c.listIds[0]) ?? 0) + 1);
-    // Each lead counted once per list, however many of the list's owners joined it.
-    const seen = new Map<Id<"outreachLists">, Set<string>>();
-    const results = new Map<Id<"outreachLists">, ListResults>();
-    for (const c of contacts) {
-      const lead = c.leadId && leads.get(c.leadId);
-      if (!lead) continue;
-      for (const id of c.listIds) {
-        const s = seen.get(id) ?? new Set<string>();
-        seen.set(id, s);
-        if (s.has(lead._id)) continue;
-        s.add(lead._id);
-        const r = results.get(id) ?? { sent: 0, estimates: 0, sold: 0 };
-        r.sent++;
-        if (lead.estimateId || lead.status === "quoted" || lead.status === "won") r.estimates++;
-        if (lead.status === "won") r.sold++;
-        results.set(id, r);
-      }
-    }
-    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, done.get(l._id) ?? 0, results.get(l._id), stranded.get(l._id) ?? 0));
+    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, l.done, l.results, l.kept ?? 0));
   },
 });
 export const lists = query(listsDef);
+
+/** How many of a list's owners one step of a count reads. */
+const RECOUNT_PAGE = 300;
+/** The most changed owners tally looks at to tell which lists they're on; past it every list is counted. */
+const TALLY_MAX = 300;
+/**
+ * Numbers this old are counted again when the page asks, whatever changed: a job sold in Leads (or a lead deleted
+ * there) moves a list's results without touching its owners.
+ */
+const COUNT_FRESH_MS = 15 * 60 * 1000;
+
+/**
+ * Counts one list's numbers from its own owners (its membership rows), a page at a time, and keeps them on the list:
+ * owners worked, worked owners only this list holds (they'd be on no list were it deleted), and what it has turned
+ * into in Leads (each lead once, however many of the list's owners joined it). Counted from the rows every time, so
+ * the numbers can't drift.
+ */
+export const recount = internalMutation({
+  args: {
+    listId: v.id("outreachLists"),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    /** Carried from page to page: when the count began, the numbers so far, and the leads already counted. */
+    startedAt: v.optional(v.string()),
+    done: v.optional(v.number()),
+    kept: v.optional(v.number()),
+    results: v.optional(v.object({ sent: v.number(), estimates: v.number(), sold: v.number() })),
+    leads: v.optional(v.array(v.id("leads"))),
+    /** Owners a page; the tests count in small pages. */
+    page: v.optional(v.number()),
+  },
+  handler: async (ctx, a) => {
+    const list = await ctx.db.get(a.listId);
+    if (!list) return null;
+    const startedAt = a.startedAt ?? nowIso();
+    const read = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", a.listId)).paginate({ cursor: a.cursor ?? null, numItems: a.page ?? RECOUNT_PAGE });
+    let done = a.done ?? 0;
+    let kept = a.kept ?? 0;
+    const results: ListResults = { ...(a.results ?? { sent: 0, estimates: 0, sold: 0 }) };
+    const leads = new Set(a.leads ?? []);
+    for (const m of read.page) {
+      const c = await ctx.db.get(m.contactId);
+      if (!c || !c.listIds.includes(a.listId)) continue;
+      if (isWorked(c.status)) done++;
+      const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
+      if (c.listIds.length === 1 && worthKeeping(c, c.leadId !== undefined && !lead)) kept++;
+      if (!lead || leads.has(lead._id)) continue;
+      leads.add(lead._id);
+      results.sent++;
+      if (lead.estimateId || lead.status === "quoted" || lead.status === "won") results.estimates++;
+      if (lead.status === "won") results.sold++;
+    }
+    if (!read.isDone) {
+      await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: a.listId, cursor: read.continueCursor, startedAt, done, kept, results, leads: [...leads], page: a.page });
+      return null;
+    }
+    // A count begun later has already landed: its numbers are the newer ones.
+    if (list.countedAt && list.countedAt > startedAt) return null;
+    await ctx.db.patch(a.listId, { done, kept, results, countedAt: startedAt });
+    return null;
+  },
+});
+
+/**
+ * Asked by the page when it opens and a few seconds after owners change: counts again the lists whose numbers may
+ * have moved. Those are the lists an owner changed since their last count is on (read through the same index the
+ * live feed uses, so no change is missed), every list when owners were removed or too many changed to tell, a list
+ * never counted, and one whose count is old (COUNT_FRESH_MS). Says how many it set counting.
+ */
+export const tally = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { organization } = await requirePro(ctx, organizationId);
+    const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+    const old = new Date(Date.now() - COUNT_FRESH_MS).toISOString();
+    const removedAt = organization.outreachRemovedAt ?? "";
+    const stale = new Set(lists.filter((l) => !l.countedAt || l.countedAt < old || removedAt >= l.countedAt).map((l) => l._id));
+    const fresh = lists.filter((l) => !stale.has(l._id));
+    if (fresh.length) {
+      const countedAt = new Map(fresh.map((l) => [l._id, l.countedAt as string] as const));
+      const oldest = fresh.reduce((min, l) => ((l.countedAt as string) < min ? (l.countedAt as string) : min), fresh[0].countedAt as string);
+      const changed = await ctx.db
+        .query("outreachContacts")
+        .withIndex("by_organization_and_updated", (q) => q.eq("organizationId", organizationId).gte("updatedAt", oldest))
+        .take(TALLY_MAX + 1);
+      if (changed.length > TALLY_MAX) for (const l of fresh) stale.add(l._id);
+      else
+        for (const c of changed)
+          for (const id of c.listIds) {
+            const at = countedAt.get(id);
+            if (at !== undefined && c.updatedAt !== undefined && c.updatedAt >= at) stale.add(id);
+          }
+    }
+    for (const id of stale) await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: id });
+    return { counting: stale.size };
+  },
+});
+
+/**
+ * Run on deploy: the lists saved before their numbers were kept on them get counted, a page of lists at a time.
+ * Safe to re-run: a list already counted is left alone.
+ */
+export const recountAll = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ counting: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachLists").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let counting = 0;
+    for (const l of page.page) {
+      if (l.countedAt) continue;
+      await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: l._id });
+      counting++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.recountAll, { cursor: page.continueCursor });
+    return { counting, done: page.isDone };
+  },
+});
 
 type Cell = NonNullable<Doc<"outreachContacts">["enrichment"]>["phone"];
 const LOCKED: Cell = { status: "locked" };
