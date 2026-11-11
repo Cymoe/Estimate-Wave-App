@@ -214,6 +214,14 @@ describe("emailing owners from the company's Gmail", () => {
       sample: 0,
       skipped: ["1 has no email yet: find phones & emails first", "1 asked not to be emailed"],
     });
+    // An owner whose only address is someone else's, or failed the check, has an email but isn't sent one; it says so rather than "no email yet".
+    const theirs = await owner(t, org, "d", { emails: [{ email: "d@x.com", source: "batchdata", nameMatch: false }] });
+    const failed = await owner(t, org, "e", { emails: [{ email: "e@x.com", source: "batchdata", grade: "F" }] });
+    expect(await co.as.query(api.emailOutreach.check, { organizationId: org, contactIds: [a, theirs, failed] })).toEqual({
+      count: 1,
+      sample: 0,
+      skipped: ["2 have only an address that failed the check or belongs to someone else"],
+    });
 
     const started = await co.as.mutation(api.emailOutreach.start, { organizationId: org, contactIds: [a, none, gone] });
     expect(started).toMatchObject({ count: 1, more: 0 });

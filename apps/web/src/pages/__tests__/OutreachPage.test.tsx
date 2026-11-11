@@ -1033,15 +1033,18 @@ describe('the Outreach page', () => {
         contact('r1', { emails: [{ email: 'a@oakplaza.com', source: 'batchdata', verified: true }], email: { state: 'replied', at: '2026-11-10T18:00:00Z' } }),
         contact('r2', { name: 'City Of Midland', emails: [{ email: 'b@x.com', source: 'batchdata', verified: true }], email: { state: 'emailed', at: '2026-11-10T18:00:00Z' } }),
         contact('r3', { name: 'Garcia Maria', emails: [{ email: 'c@x.com', source: 'batchdata', verified: true }] }),
+        // An address graded F isn't sent to, so it isn't counted on the button, though the owner is under Has email.
+        contact('r4', { name: 'Vance Robert & Linda', emails: [{ email: 'd@x.com', source: 'batchdata', grade: 'F' }] }),
       ],
-      coverage: coverage(0, 3, 0, 3),
+      coverage: coverage(0, 4, 0, 4),
       ...money,
     };
     await render('/outreach/l1');
     expect(Array.from(document.body.querySelectorAll('[data-testid="email-state"]')).map((e) => e.textContent)).toEqual(['Replied Nov 10', 'Emailed Nov 10']);
     expect(button('Replied')!.textContent).toBe('Replied 1');
+    expect(button('Has email')!.textContent).toBe('Has email 4');
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
-    // One of the three can still be emailed.
+    // One of the four can still be emailed: two already were, and one has only an address that failed the check.
     expect(document.body.querySelector('[data-testid="email-these"]')!.textContent?.trim()).toBe('Email 1 owner');
   });
 

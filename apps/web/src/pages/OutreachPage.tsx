@@ -2,6 +2,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Check, ChevronDown, Download, LayoutList, Mail, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { addressFor } from '../../convex/lib/emailOutreach';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachChanges, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { countyOf, setReadyCounties } from '../components/outreach/county';
@@ -1072,8 +1073,8 @@ const OutreachPage: React.FC = () => {
   const sendBasis = [sendCall ? `${sendCall} with a number` : '', sendEmail ? `${sendEmail} email only` : '', sendClient ? `${sendClient} already ${sendClient === 1 ? 'a client' : 'clients'}` : ''].filter(Boolean).join(' · ');
   // How many leads they make: companies one person runs share a lead.
   const sendLeads = new Set(toSend.map((r) => sureOperators.get(r.id)?.key ?? r.id)).size;
-  // Who an email could go to now: an address of the person's, and not emailed or unsubscribed already.
-  const emailable = rows.filter((r) => r.emails.some((e) => e.nameMatch !== false && e.verified !== false) && !['scheduled', 'emailed', 'replied', 'opted_out'].includes(r.email?.state ?? '')).length;
+  // Who an email could go to now: an address of the person's that passed the check (the same rule the sending uses), and not emailed or unsubscribed already.
+  const emailable = rows.filter((r) => addressFor(r.emails) && !['scheduled', 'emailed', 'replied', 'opted_out'].includes(r.email?.state ?? '')).length;
   const unreachable = waiting.length - waiting.filter(reachable).length;
   // Some results simulated and some real (a phone source was connected part-way): then each simulated row says so.
   const mixedResults = rows.some(isSimulated) && rows.some((r) => Object.values(r.enrichment).some((c) => c && !c.simulated && (c.status === 'found' || c.status === 'none')));

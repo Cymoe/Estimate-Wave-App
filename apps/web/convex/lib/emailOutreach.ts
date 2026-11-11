@@ -81,9 +81,10 @@ export function addressFor(emails: EmailLike[] | undefined): string | undefined 
   return (ok.find((e) => e.verified) ?? ok[0])?.email.trim().toLowerCase();
 }
 
-export type NotEmailed = "no_email" | "opted_out" | "emailed" | "in_progress";
+export type NotEmailed = "no_email" | "bad_email" | "opted_out" | "emailed" | "in_progress";
 export const NOT_EMAILED_TEXT: Record<NotEmailed, (n: number) => string> = {
   no_email: (n) => `${n} ${n === 1 ? "has" : "have"} no email yet: find phones & emails first`,
+  bad_email: (n) => `${n} ${n === 1 ? "has" : "have"} only an address that failed the check or belongs to someone else`,
   opted_out: (n) => `${n} asked not to be emailed`,
   emailed: (n) => `${n} already emailed`,
   in_progress: (n) => `${n} already in an email being written or sent`,

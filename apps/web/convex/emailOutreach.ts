@@ -216,7 +216,7 @@ async function sortOut(ctx: QueryCtx | MutationCtx, organizationId: Id<"organiza
     if (state === "opted_out") skip("opted_out");
     else if (state === "emailed" || state === "replied") skip("emailed");
     else if (state === "scheduled") skip("in_progress");
-    else if (!to) skip("no_email");
+    else if (!to) skip((contact.emails ?? []).length > 0 ? "bad_email" : "no_email");
     else if (await optedOut(ctx, organizationId, to)) skip("opted_out");
     else picks.push({ contact, to, sample: isSampleRun(contact) || Boolean(cellFor(cellsOf(contact), "email").simulated) || isSampleAddress(to) });
   }
