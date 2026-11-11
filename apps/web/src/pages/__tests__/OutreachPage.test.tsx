@@ -408,6 +408,11 @@ describe('the Outreach page', () => {
     expect(cards).toHaveLength(2);
     const oak = cards[0].textContent!;
     expect(oak).toContain('Oak Plaza LLC');
+    // The number's line is one line always: the number and "+1 more" keep their width, and the notes between give way.
+    const numberLine = Array.from(cards[0].querySelector('[data-testid="card-phone"]')!.children);
+    expect(numberLine[0].className).toContain('shrink-0 whitespace-nowrap');
+    expect(numberLine[1].className).toContain('min-w-0 truncate');
+    for (const more of numberLine.slice(2)) expect(more.className).toContain('shrink-0 whitespace-nowrap');
     expect(oak).toContain('+1 related');
     expect(oak).toContain('Dana Reyes · Manager');
     // The best number to call is the one not on the Do Not Call list.
@@ -825,7 +830,7 @@ describe('the Outreach page', () => {
     expect(built.querySelector('[data-testid="built-county"]')!.textContent).toBe('in Midland County');
     expect(built.textContent).toContain('Owners of commercial buildings on the roll; no phone numbers.');
     expect(built.querySelectorAll('[aria-label="Preview"] li')).toHaveLength(2);
-    expect(built.textContent).toContain('1 Main St, Dallas, TX, 75201');
+    expect(built.textContent).toContain('1 Main St, Dallas, TX 75201');
     // Each row shows the owner's holdings, what the list is sorted on: one building's value, or how many properties and their total.
     const previewRows = Array.from(built.querySelectorAll('[aria-label="Preview"] li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
     expect(previewRows[0]).toContain('Oak Plaza LLC$3M');
@@ -2286,7 +2291,7 @@ describe('the Outreach page', () => {
     // Looked up and nothing found: one line and the mailing address, in place of a line per miss.
     const quiet = card('Tall City Towers');
     expect(quiet.getAttribute('data-quiet')).toBe('true');
-    expect(quiet.querySelector('[data-testid="nobody-to-reach"]')!.textContent).toBe('No number or email foundMail to 600 Illinois Ave, Midland, TX, 79701');
+    expect(quiet.querySelector('[data-testid="nobody-to-reach"]')!.textContent).toBe('No number or email foundMail to 600 Illinois Ave, Midland, TX 79701');
     expect(quiet.textContent).not.toContain('none found');
   });
 

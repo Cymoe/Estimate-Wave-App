@@ -7,7 +7,7 @@ import { tidyCase } from '../../../convex/lib/addressCase';
 import { emailAPI, outreachAPI, type OwnerProperties, type OutreachCell, type OutreachContact, type OutreachContacts, type OutreachCoverage, type OutreachField, type OutreachPhone, type OutreachRowStatus, type OutreachSignal, type OutreachTry, type OutreachWho, type OwnerEmails } from '../../lib/api';
 import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
 import { isCommercialUse, isMultifamilyUse } from '../../../convex/lib/parcels';
-import { askingText, callOk, deedSearch, emailStateText, dueAgain, isSimulated, LEAD_STAGE, mailingLine, nobodyToReach, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
+import { askingText, callOk, deedSearch, emailStateText, dueAgain, isSimulated, LEAD_STAGE, mailingLine, oneLineAddress, nobodyToReach, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
 import { operatorBasis, operatorEmails, operatorHolding, operatorPhones, operatorWaiting, ownerItems, type Operator, type Operators } from './operators';
 
 /** The column's short name for the kind of owner. */
@@ -826,10 +826,14 @@ export const ContactCards: React.FC<{
               )}
               <span className="block mt-1 text-sm">
                 {r.phones[0] ? (
-                  <>
-                    <span className={callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? r.phones[0]).number)}</span> <PhoneBadges p={call ?? r.phones[0]} />
-                    {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1} more</span> : null}
-                  </>
+                  // One line always: the number and "+1 more" keep their width, and what's said about the line gives way (cut with dots) on a narrow phone.
+                  <span className="flex items-baseline gap-1.5" data-testid="card-phone">
+                    <span className={`shrink-0 whitespace-nowrap ${callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}`}>{phoneText((call ?? r.phones[0]).number)}</span>
+                    <span className="min-w-0 truncate">
+                      <PhoneBadges p={call ?? r.phones[0]} />
+                    </span>
+                    {r.phones.length > 1 ? <span className="shrink-0 whitespace-nowrap text-[11px] text-gray-500">· +{r.phones.length - 1} more</span> : null}
+                  </span>
                 ) : r.enrichment.phone.status === 'failed' ? null : r.enrichment.phone.status === 'running' ? (
                   <Live cell={r.enrichment.phone} />
                 ) : (
@@ -1212,7 +1216,7 @@ export const ContactSheet: React.FC<{
                       {row.person.name}
                       {row.person.title ? <span className="text-gray-400"> · {row.person.title}</span> : null}
                     </div>
-                    {row.person.address && <div className="text-sm text-gray-400">{tidyCase(row.person.address)}</div>}
+                    {row.person.address && <div className="text-sm text-gray-400">{oneLineAddress(row.person.address)}</div>}
                     <div className="text-xs text-gray-500">
                       From {sourceName(row.person.source)}
                       {row.person.confirmedBy?.length ? <span className="text-[#7fb0e0]"> · also named by {sourceList(row.person.confirmedBy)}</span> : null}
