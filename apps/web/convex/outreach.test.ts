@@ -749,7 +749,7 @@ describe("a company's lists", () => {
     expect(await names()).toEqual(["Called LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
   });
 
-  test("while no phone source is connected, simulated lookups count as work: their owners stay when the list goes, until a real source is connected", async () => {
+  test("a simulated lookup is never the company's work: its owner goes with the list, whether or not a real source is connected yet", async () => {
     vi.stubEnv("OUTREACH_SIMULATE", "");
     for (const k of ["TX_COMPTROLLER_API_KEY", "COBALT_API_KEY", "BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME", "HUNTER_API_KEY", "LEADMAGIC_API_KEY", "TRESTLE_API_KEY", "TWILIO_ACCOUNT_SID", "ZEROBOUNCE_API_KEY"]) vi.stubEnv(k, "");
     const t = setup();
@@ -766,14 +766,18 @@ describe("a company's lists", () => {
       return listId;
     });
     expect((await co.as.query(api.outreach.contacts, { organizationId: org, listId })).simulating).toBe(true);
-    expect((await listsNow(t, co))[0]).toMatchObject({ deletable: false, worked: 1 });
+    // Nothing here is the company's own: the list can go in one tap, and takes both owners with it.
+    expect((await listsNow(t, co))[0]).toMatchObject({ deletable: true, worked: 0 });
+    // One left on no list from before this rule: the sweep on deploy clears it, with no real source connected.
+    await t.run(async (ctx) => {
+      const [c] = await ctx.db.query("outreachContacts").collect();
+      const { _id, _creationTime, ...rest } = c;
+      await ctx.db.insert("outreachContacts", { ...rest, key: "left", name: "Left Behind LLC", listIds: [] });
+    });
+    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 1, done: true });
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId });
     const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name);
-    expect(await names()).toEqual(["Looked Up LLC"]);
-    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 0, done: true });
-    // A real phone source connected: what was simulated keeps nothing now, and the sweep clears it.
-    vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
-    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 1, done: true });
+    expect(await names()).toEqual([]);
     vi.unstubAllEnvs();
   });
 
