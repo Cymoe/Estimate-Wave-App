@@ -654,9 +654,14 @@ export const assertPro = internalQuery({
 /** Dealt with: sent to Leads or skipped (or an earlier settled status); not new or still being tried. */
 const isWorked = (s: Doc<"outreachContacts">["status"]) => !["new", "sent", "no_answer", "callback"].includes(s);
 
-/** Every contact a company has, newest first. */
+/** The most owners one read takes: what fits in a single read with room to spare (outreach:sizes measures it). */
+const OWNERS_READ_MAX = 4000;
+/**
+ * A company's contacts in one read, up to OWNERS_READ_MAX of them. Only for the tools staff run by hand and for a page
+ * loaded before the paged read existed (contacts); everything else reads by list, by index or a page at a time.
+ */
 async function contactsOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
-  return await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+  return await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(OWNERS_READ_MAX);
 }
 
 /**
@@ -693,12 +698,12 @@ export const createDef = mutationDef({
 export const create = mutation(createDef);
 
 /**
- * The most owners a company's lists hold between them, for now: every
- * Outreach read still loads all of a company's owners, and past a few
- * thousand that read stops fitting. Refusing here, with the reason, beats a
- * page that won't load. Goes once the reads are paged.
+ * The most owners a company's lists hold between them. Nothing on the backend reads every owner any more (lists, the
+ * page and deletes go by list, by index or a page at a time), so this is no longer what one read can hold: it's what
+ * a device holds comfortably, since All owners keeps every owner in the page (tried at 20,000 on a tablet-size
+ * screen). Refusing here, with the reason, beats a page that crawls.
  */
-export const OWNER_CAP = 4000;
+export const OWNER_CAP = 20_000;
 export const OWNER_CAP_ERROR = `This company has ${OWNER_CAP.toLocaleString("en-US")} owners loaded, the most Outreach holds right now. Delete a list you're done with to load more.`;
 async function roomFor(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">, adding: number) {
   // Counted from the lists' own sizes (an owner on two lists counts twice): no read of the owners themselves.

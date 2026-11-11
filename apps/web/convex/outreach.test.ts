@@ -1791,7 +1791,7 @@ describe("a company's lists", () => {
     // The lists already hold all but one of what's allowed.
     await t.run(async (ctx) => ctx.db.patch(made.listId as Id<"outreachLists">, { rowCount: OWNER_CAP - 1 }));
     await expect(co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } })).rejects.toThrow(OWNER_CAP_ERROR);
-    expect(OWNER_CAP_ERROR).toBe("This company has 4,000 owners loaded, the most Outreach holds right now. Delete a list you're done with to load more.");
+    expect(OWNER_CAP_ERROR).toBe("This company has 20,000 owners loaded, the most Outreach holds right now. Delete a list you're done with to load more.");
     // With room again, a list is made as before.
     await t.run(async (ctx) => ctx.db.patch(made.listId as Id<"outreachLists">, { rowCount: 2 }));
     await expect(co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } })).resolves.toMatchObject({ rowCount: 2 });
