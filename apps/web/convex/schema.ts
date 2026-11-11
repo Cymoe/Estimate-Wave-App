@@ -521,6 +521,12 @@ export const ownerContact = v.object({
  * happen), or skipped. The rest are earlier statuses, kept for the rows that
  * still have them.
  */
+/**
+ * What a list has turned into in Leads: owners sent, leads with an estimate and jobs sold, and in money, the
+ * estimates' totals and the totals of the ones sold (missing on lists counted before money was).
+ */
+export const listResults = v.object({ sent: v.number(), estimates: v.number(), sold: v.number(), estimateCents: v.optional(v.number()), soldCents: v.optional(v.number()) });
+
 export const outreachRowStatus = v.union(
   v.literal("new"),
   v.literal("lead"),
@@ -1275,7 +1281,9 @@ export default defineSchema({
      * asks (outreach.tally); `countedAt` is the moment that count began.
      */
     kept: v.optional(v.number()),
-    results: v.optional(v.object({ sent: v.number(), estimates: v.number(), sold: v.number() })),
+    results: v.optional(listResults),
+    /** What the company has paid to look up this list's owners (phones found, research answered), counted with the rest. */
+    spentCents: v.optional(v.number()),
     countedAt: v.optional(v.string()),
     /**
      * A list keeps itself up to date (outreach.refreshList): when the records it's built from change, owners who newly

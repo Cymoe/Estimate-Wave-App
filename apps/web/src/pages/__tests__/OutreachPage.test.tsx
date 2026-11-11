@@ -1682,18 +1682,21 @@ describe('the Outreach page', () => {
     localStorage.clear();
     lists = [
       { ...list, id: 'l1', title: 'Shopping center owners', createdAt: '2026-11-05T15:00:00Z' },
-      { ...list, id: 'l2', title: 'Real estate investors, Midland', who: 'investor', definition: { county: 'Midland', who: 'investor' }, rowCount: 1000, done: 40, results: { sent: 3, estimates: 1, sold: 1 }, createdAt: '2026-11-06T15:00:00Z' },
+      // One estimate out for $12,400, and it sold; looking the list's owners up has cost $112 so far.
+      { ...list, id: 'l2', title: 'Real estate investors, Midland', who: 'investor', definition: { county: 'Midland', who: 'investor' }, rowCount: 1000, done: 40, results: { sent: 3, estimates: 1, sold: 1, estimateCents: 1_240_000, soldCents: 1_240_000 }, spentCents: 11_200, createdAt: '2026-11-06T15:00:00Z' },
     ];
     contacts = twoContacts();
     await render('/outreach/l2');
     const picker = () => document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement;
     expect(picker().textContent).toBe('Real estate investors, Midland1,000');
+    // The list's own line says it in dollars too.
+    expect(document.body.querySelector('[data-testid="list-results"]')!.textContent).toBe(' · 3 sent · 1 estimate ($12,400) · 1 sold ($12,400)');
     await act(async () => picker().click());
     const panel = () => document.body.querySelector('[role="dialog"][aria-label="Lists"]')!;
     const headings = () => Array.from(panel().querySelectorAll('h3')).map((h) => h.textContent);
     // A handful of lists: grouped by who they're of (Recent only shows once there are many).
     expect(headings()).toEqual(['Commercial owners', 'Investors']);
-    expect(panel().textContent).toContain('1,000 owners · 40 worked · 3 sent · 1 sold');
+    expect(panel().textContent).toContain('1,000 owners · 40 worked · 3 sent · 1 sold ($12,400)');
     // Search narrows the lists.
     await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, 'shopping'));
     expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 0 worked']);
@@ -1709,7 +1712,10 @@ describe('the Outreach page', () => {
     const cards = () => Array.from(document.body.querySelectorAll('[data-testid="list-card"]'));
     expect(cards().map((c) => c.querySelector('span')!.textContent)).toEqual(['Shopping center owners', 'Real estate investors, Midland']);
     expect(cards()[1].textContent).toContain('40 of 1,000 worked');
-    expect(cards()[1].textContent).toContain('3 sent to Leads · 1 estimate · 1 sold');
+    expect(cards()[1].textContent).toContain('3 sent to Leads · 1 estimate ($12,400) · 1 sold ($12,400)');
+    // What it sold beside what its lookups cost; a list with nothing spent says nothing about cost.
+    expect(cards()[1].querySelector('[data-testid="list-cost"]')!.textContent).toBe('$12,400 sold for $112 in lookups');
+    expect(cards()[0].querySelector('[data-testid="list-cost"]')).toBeNull();
     // Rename, then delete.
     await act(async () => (cards()[1].querySelector('button[aria-label="Rename Real estate investors, Midland"]') as HTMLButtonElement).click());
     await act(async () => type(document.body.querySelector('input[aria-label="List name"]') as HTMLInputElement, 'Midland investors'));

@@ -1276,8 +1276,10 @@ export type OutreachListSummary = {
   truncated: boolean;
   /** How many owners the list's ask reaches (a floor when truncated); missing on lists saved before it was counted. */
   total?: number;
-  /** What the list has turned into in Leads: owners sent, leads with an estimate, jobs sold. */
-  results?: { sent: number; estimates: number; sold: number };
+  /** What the list has turned into in Leads: owners sent, leads with an estimate, jobs sold; and in money, the estimates' totals and the sold jobs'. */
+  results?: { sent: number; estimates: number; sold: number; estimateCents?: number; soldCents?: number };
+  /** What looking up this list's owners has cost so far (phones found, research answered). */
+  spentCents?: number;
   createdAt: string;
   /** Kept at the top of the picker. */
   pinned?: boolean;

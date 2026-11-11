@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Pencil, Pin, PinOff, Search, Trash2 } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
-import { ownerTotal } from './listsStore';
+import { inMoney, ownerTotal } from './listsStore';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 const small = 'inline-flex items-center gap-1.5 px-3 h-9 text-sm border border-[#333333] text-gray-300 hover:text-white hover:bg-[#2A2A2A] disabled:opacity-50';
 
 /**
@@ -109,12 +110,22 @@ export function ListsOverview({
               <p className="text-sm text-gray-300">
                 {l.results && l.results.sent > 0 ? (
                   <>
-                    {l.results.sent} sent to Leads · {l.results.estimates} {l.results.estimates === 1 ? 'estimate' : 'estimates'} · <span className={l.results.sold ? 'text-emerald-300' : ''}>{l.results.sold} sold</span>
+                    {l.results.sent} sent to Leads · {l.results.estimates} {l.results.estimates === 1 ? 'estimate' : 'estimates'}
+                    {inMoney(l.results.estimateCents)} ·{' '}
+                    <span className={l.results.sold ? 'text-emerald-300' : ''}>
+                      {l.results.sold} sold{inMoney(l.results.soldCents)}
+                    </span>
                   </>
                 ) : (
                   <span className="text-gray-500">Nothing sent to Leads yet</span>
                 )}
               </p>
+              {/* What the list cost to look up, beside what it sold: the two numbers that say whether it paid. */}
+              {(l.spentCents ?? 0) > 0 && (
+                <p className="text-xs text-gray-500" data-testid="list-cost">
+                  {l.results?.soldCents ? `${dollars(l.results.soldCents)} sold for ${dollars(l.spentCents ?? 0)} in lookups` : `${dollars(l.spentCents ?? 0)} spent on lookups`}
+                </p>
+              )}
               <div className="flex flex-wrap gap-2 mt-auto">
                 <button type="button" onClick={() => onOpen(l.id)} className={`${small} border-[#336699] text-white`}>
                   Open

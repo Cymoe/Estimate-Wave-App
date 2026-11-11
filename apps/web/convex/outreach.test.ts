@@ -2493,13 +2493,27 @@ describe("a company's lists", () => {
     // The list says what it has turned into, and the owner shows the lead's stage as it moves.
     const heldList = async () => (await listsNow(t, co)).find((l) => l.id === held.listId)!;
     const haleNow = async () => (await co.as.query(api.outreach.contacts, { organizationId: org, listId: held.listId })).rows[0];
-    expect((await heldList()).results).toEqual({ sent: 1, estimates: 0, sold: 0 });
+    expect((await heldList()).results).toEqual({ sent: 1, estimates: 0, sold: 0, estimateCents: 0, soldCents: 0 });
     expect((await haleNow()).leadStage).toBe("new");
     await co.as.mutation(api.leads.update, { id: haleLead, data: { status: "quoted" } });
-    expect((await heldList()).results).toEqual({ sent: 1, estimates: 1, sold: 0 });
+    // Quoted with no estimate attached: counted, with no money to show for it yet.
+    expect((await heldList()).results).toEqual({ sent: 1, estimates: 1, sold: 0, estimateCents: 0, soldCents: 0 });
+    // The estimate itself: $4,500 of work, on the lead. The list says what's out in estimates.
+    const quote = (await co.as.mutation(api.estimates.create, { organizationId: org, data: { title: "Roof repair", items: [{ description: "Repair", quantity: 1, unitPrice: 4500 }] } }))!;
+    await co.as.mutation(api.leads.update, { id: haleLead, data: { estimateId: quote._id } });
+    expect((await heldList()).results).toEqual({ sent: 1, estimates: 1, sold: 0, estimateCents: 450_000, soldCents: 0 });
+    // Won: the same money is now sold.
     await co.as.mutation(api.leads.update, { id: haleLead, data: { status: "won" } });
-    expect((await heldList()).results).toEqual({ sent: 1, estimates: 1, sold: 1 });
+    expect((await heldList()).results).toEqual({ sent: 1, estimates: 1, sold: 1, estimateCents: 450_000, soldCents: 450_000 });
     expect((await haleNow()).leadStage).toBe("won");
+    // And what looking the list's owners up has cost: nothing yet, then a phone that was charged for.
+    expect((await heldList()).spentCents).toBe(0);
+    await t.run(async (ctx) => {
+      const owner = (await ctx.db.query("outreachContacts").collect()).find((c) => c.listIds.includes(held.listId as Id<"outreachLists">))!;
+      const locked = { status: "locked" as const };
+      await ctx.db.patch(owner._id, { enrichment: { email: locked, person: locked, ...owner.enrichment, phone: { status: "found", source: "batchdata", chargedCents: 100 } } });
+    });
+    expect((await heldList()).spentCents).toBe(100);
 
     // On the lists: the new case leads, newest first; the plumber is there to call; the preview's total is exact.
     const since = await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "violation" }) });

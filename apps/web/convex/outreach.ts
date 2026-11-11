@@ -16,7 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus, ownerContact, ownerSignal, realtorLicense } from "./schema";
+import { listResults, outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus, ownerContact, ownerSignal, realtorLicense } from "./schema";
 import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
@@ -597,8 +597,8 @@ export async function requirePro(ctx: QueryCtx | MutationCtx, organizationId: Id
   return member;
 }
 
-/** What a list has turned into in Leads: owners sent, leads with an estimate, jobs sold. */
-type ListResults = { sent: number; estimates: number; sold: number };
+/** What a list has turned into in Leads: owners sent, leads with an estimate, jobs sold; and the estimates' and the sold jobs' totals. */
+type ListResults = { sent: number; estimates: number; sold: number; estimateCents?: number; soldCents?: number };
 const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = { sent: 0, estimates: 0, sold: 0 }, stranded = 0) => ({
   id: l._id,
   title: l.title,
@@ -610,6 +610,8 @@ const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = 
   /** How many owners the definition reaches (a floor when truncated); missing on lists saved before it was counted. */
   total: l.total,
   results,
+  /** What looking up this list's owners has cost so far; with the results, what the list earned for what it cost. */
+  spentCents: l.spentCents ?? 0,
   createdAt: l.createdAt,
   pinned: l.pinned === true,
   archived: Boolean(l.archivedAt),
@@ -955,7 +957,8 @@ export const recount = internalMutation({
     startedAt: v.optional(v.string()),
     done: v.optional(v.number()),
     kept: v.optional(v.number()),
-    results: v.optional(v.object({ sent: v.number(), estimates: v.number(), sold: v.number() })),
+    results: v.optional(listResults),
+    spent: v.optional(v.number()),
     leads: v.optional(v.array(v.id("leads"))),
     /** Owners a page; the tests count in small pages. */
     page: v.optional(v.number()),
@@ -967,12 +970,17 @@ export const recount = internalMutation({
     const read = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", a.listId)).paginate({ cursor: a.cursor ?? null, numItems: a.page ?? RECOUNT_PAGE });
     let done = a.done ?? 0;
     let kept = a.kept ?? 0;
-    const results: ListResults = { ...(a.results ?? { sent: 0, estimates: 0, sold: 0 }) };
+    const results: ListResults = { sent: 0, estimates: 0, sold: 0, ...a.results };
+    let estimateCents = results.estimateCents ?? 0;
+    let soldCents = results.soldCents ?? 0;
+    let spent = a.spent ?? 0;
     const leads = new Set(a.leads ?? []);
     for (const m of read.page) {
       const c = await ctx.db.get(m.contactId);
       if (!c || !c.listIds.includes(a.listId)) continue;
       if (isWorked(c.status)) done++;
+      // What its lookups were charged: a phone found, a research answer.
+      for (const cell of Object.values(cellsOf(c))) if (cell?.status === "found") spent += cell.chargedCents ?? 0;
       const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
       if (c.listIds.length === 1 && worthKeeping(c, c.leadId !== undefined && !lead)) kept++;
       if (!lead || leads.has(lead._id)) continue;
@@ -980,14 +988,21 @@ export const recount = internalMutation({
       results.sent++;
       if (lead.estimateId || lead.status === "quoted" || lead.status === "won") results.estimates++;
       if (lead.status === "won") results.sold++;
+      // In money: the lead's estimate as it stands, and again under sold once the job is won.
+      const estimate = lead.estimateId ? await ctx.db.get(lead.estimateId) : null;
+      const cents = estimate ? Math.round(estimate.totalAmount * 100) : 0;
+      estimateCents += cents;
+      if (lead.status === "won") soldCents += cents;
     }
+    results.estimateCents = estimateCents;
+    results.soldCents = soldCents;
     if (!read.isDone) {
-      await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: a.listId, cursor: read.continueCursor, startedAt, done, kept, results, leads: [...leads], page: a.page });
+      await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: a.listId, cursor: read.continueCursor, startedAt, done, kept, results, spent, leads: [...leads], page: a.page });
       return null;
     }
     // A count begun later has already landed: its numbers are the newer ones.
     if (list.countedAt && list.countedAt > startedAt) return null;
-    await ctx.db.patch(a.listId, { done, kept, results, countedAt: startedAt });
+    await ctx.db.patch(a.listId, { done, kept, results, spentCents: spent, countedAt: startedAt });
     return null;
   },
 });

@@ -8,7 +8,7 @@ import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
 import { ListPicker } from '../components/outreach/ListPicker';
-import { rememberList, UNLISTED } from '../components/outreach/listsStore';
+import { inMoney, rememberList, UNLISTED } from '../components/outreach/listsStore';
 import { mergeChanged, type ViewOf } from '../components/outreach/liveMerge';
 import { ListsOverview } from '../components/outreach/ListsOverview';
 import { EmailSheet } from '../components/outreach/EmailSheet';
@@ -1311,7 +1311,8 @@ const OutreachPage: React.FC = () => {
           {list.results && list.results.sent > 0 && (
             <span data-testid="list-results">
               {' '}
-              · {list.results.sent} sent · {list.results.estimates} {list.results.estimates === 1 ? 'estimate' : 'estimates'} · {list.results.sold} sold
+              · {list.results.sent} sent · {list.results.estimates} {list.results.estimates === 1 ? 'estimate' : 'estimates'}
+              {inMoney(list.results.estimateCents)} · <span className={list.results.soldCents ? 'text-emerald-300' : ''}>{list.results.sold} sold{inMoney(list.results.soldCents)}</span>
             </span>
           )}
           <span className="hidden md:inline"> · made {day(list.createdAt)}</span>
