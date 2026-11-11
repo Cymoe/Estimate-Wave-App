@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { DEFAULT_ROWS, FREE_LOOKUPS, MAX_ROWS, cityOf, listOrder } from '../../convex/lib/outreach';
 import { callOk, isSimulated, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
+import { operatorHolding, operatorList, operatorsOf, operatorWaiting, sortByOperator, type Operator } from '../components/outreach/operators';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-10 h-10 md:w-11 md:h-11 shrink-0 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
@@ -389,6 +390,8 @@ const OutreachPage: React.FC = () => {
   };
   // Cards on a phone, the table on anything wider, unless they picked one; the pick is remembered on this device.
   const narrow = useMediaQuery('(max-width: 767px)');
+  /** A tablet, or a laptop window as narrow as one. */
+  const tablet = useMediaQuery('(max-width: 1279px)');
   // On a phone the two buttons share the row, so their words may wrap to a second line.
   const wrapOnPhone = narrow ? 'flex-1 min-w-0 !shrink justify-center !whitespace-normal text-center leading-tight py-2 !h-auto min-h-[44px]' : '';
   const [picked, setPicked] = useState<'cards' | 'table' | null>(() => {
@@ -737,14 +740,26 @@ const OutreachPage: React.FC = () => {
   const [onlyNew, setOnlyNew] = useState(false);
   useEffect(() => setOnlyNew(false), [listId]);
   const justNew = onlyNew && newHere > 0;
+  // The person behind the owners: companies that name the same decision maker, share a number or an email, or are one
+  // family are one line on the page, over everyone in the view (so a filter doesn't change who a person is said to hold).
+  const viewRows = data?.rows;
+  const operators = useMemo(() => operatorsOf(viewRows ?? []), [viewRows]);
+  // What a send to Leads goes by: the same groups, never resting on a simulated result (the server leaves those out too).
+  const sureOperators = useMemo(() => ((viewRows ?? []).some(isSimulated) ? operatorsOf(viewRows ?? [], { realOnly: true }) : operators), [viewRows, operators]);
+  const people = useMemo(() => operatorList(operators), [operators]);
+  // Some of the people shown are tied only by simulated results (a real source wouldn't say so, and a send keeps them apart).
+  const madeUpTies = useMemo(() => sureOperators !== operators && people.some((op) => op.members.some((m) => sureOperators.get(m.id)?.members.length !== op.members.length)), [people, operators, sureOperators]);
   const rows = useMemo(() => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
     const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && (countyNow === 'all' || countiesOf(r).includes(countyNow)) && has(r) && (!justNew || isNewHere(r)) && (!q || matches(r, q)));
+    // With people on the page, a person is ordered as one: by all they hold, or by the name they go by. (In the list's
+    // own order they stand where the first of their companies does.)
+    if (operators.size > 0 && (sortNow === 'parcels' || sortNow === 'name')) return sortByOperator(kept, operators, sortNow);
     if (sortNow === 'parcels') return [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name));
     if (sortNow === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
     return kept;
-  }, [data, status, show, query, sortNow, countyNow, countiesOf, justNew, isNewHere]);
+  }, [data, status, show, query, sortNow, countyNow, countiesOf, justNew, isNewHere, operators]);
   /** The county filter's choices: every county, then each with its owners, most first. */
   const countyItems = (close: () => void) =>
     [['all', 'All counties', data?.rows.length ?? 0] as const, ...[...countyCounts.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => [c, countyOf(c).label.replace(/, TX/, ''), n] as const)].map(([value, label, n]) => (
@@ -817,7 +832,9 @@ const OutreachPage: React.FC = () => {
     if (row.leadId) return navigate(`/leads?lead=${row.leadId}`);
     setError(null);
     try {
-      const leadId = await outreachAPI.sendToLeads(organizationId, row.id);
+      // One of a person's companies joins the lead another of them already made, rather than starting a second.
+      const alongside = (sureOperators.get(row.id)?.members ?? []).filter((m) => m.leadId && m.id !== row.id).map((m) => m.id);
+      const leadId = alongside.length ? await outreachAPI.sendToLeads(organizationId, row.id, alongside) : await outreachAPI.sendToLeads(organizationId, row.id);
       setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: 'lead', leadId } : r)) });
       setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, 'lead') } : x)));
     } catch (err) {
@@ -982,9 +999,19 @@ const OutreachPage: React.FC = () => {
   // One that matches a lead you already have is in Leads already: nothing to send (its card says so, and can still link it).
   const waiting = rows.filter((r) => !r.leadId && r.status !== 'skip' && r.known?.kind !== 'lead');
   const toSend = waiting.filter(reachable).slice(0, 500);
+  // What that number is made of, said on the button: it's neither the list's size nor "Ready to call", since an owner
+  // with only an email goes too, and ones already in Leads or skipped don't.
+  const sendCall = toSend.filter((r) => r.phones.some(callOk)).length;
+  const sendEmail = toSend.filter((r) => !r.phones.some(callOk) && r.emails.length > 0).length;
+  const sendClient = toSend.length - sendCall - sendEmail;
+  const sendBasis = [sendCall ? `${sendCall} with a number` : '', sendEmail ? `${sendEmail} email only` : '', sendClient ? `${sendClient} already ${sendClient === 1 ? 'a client' : 'clients'}` : ''].filter(Boolean).join(' · ');
+  // How many leads they make: companies one person runs share a lead.
+  const sendLeads = new Set(toSend.map((r) => sureOperators.get(r.id)?.key ?? r.id)).size;
   // Who an email could go to now: an address of the person's, and not emailed or unsubscribed already.
   const emailable = rows.filter((r) => r.emails.some((e) => e.nameMatch !== false && e.verified !== false) && !['scheduled', 'emailed', 'replied', 'opted_out'].includes(r.email?.state ?? '')).length;
   const unreachable = waiting.length - waiting.filter(reachable).length;
+  // Some results simulated and some real (a phone source was connected part-way): then each simulated row says so.
+  const mixedResults = rows.some(isSimulated) && rows.some((r) => Object.values(r.enrichment).some((c) => c && !c.simulated && (c.status === 'found' || c.status === 'none')));
   const [sentNote, setSentNote] = useState<string | null>(null);
   const [undoNote, setUndoNote] = useState<string | null>(null);
   // The latest send of many, offered for Undo for a day, until dismissed on this device.
@@ -1035,9 +1062,11 @@ const OutreachPage: React.FC = () => {
     const n = toSend.length;
     const ok = await confirm({
       title: `Send ${n} ${n === 1 ? 'owner' : 'owners'} to Leads?`,
-      message: `The owners showing with a number or email go to Leads as New, where you call and follow up. Companies run by the same people become one lead.${
-        unreachable ? ` ${unreachable} with no number or email yet stay here; look them up first, or send one from its card.` : ''
-      }`,
+      message: `Of the owners showing, ${[sendCall ? `${sendCall} ${sendCall === 1 ? 'has' : 'have'} a number to call` : '', sendEmail ? `${sendEmail} ${sendEmail === 1 ? 'has' : 'have'} an email only` : '', sendClient ? `${sendClient} ${sendClient === 1 ? 'is' : 'are'} already your ${sendClient === 1 ? 'client' : 'clients'}` : '']
+        .filter(Boolean)
+        .join(', ')}. They go to Leads as New, where you call and follow up. ${
+        sendLeads < n ? `Companies run by the same person share a lead, so these make about ${sendLeads} ${sendLeads === 1 ? 'lead' : 'leads'}.` : 'Companies run by the same people become one lead.'
+      }${unreachable ? ` ${unreachable} with no number or email yet stay here; look them up first, or send one from its card.` : ''}`,
       confirmLabel: 'Send to Leads',
       // Going ahead, not removing anything: the blue button, not the red one.
       tone: 'default',
@@ -1046,7 +1075,9 @@ const OutreachPage: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      const r = await outreachAPI.sendManyToLeads(organizationId, toSend.map((x) => x.id));
+      const ids = toSend.map((x) => x.id);
+      const alongside = alreadySent(toSend);
+      const r = alongside.length ? await outreachAPI.sendManyToLeads(organizationId, ids, alongside) : await outreachAPI.sendManyToLeads(organizationId, ids);
       setUndoNote(null);
       setSentNote(`${r.leads} new ${r.leads === 1 ? 'lead' : 'leads'} in Leads${r.joined ? `; ${r.joined} joined a related company's lead` : ''}.`);
       void load();
@@ -1055,6 +1086,59 @@ const OutreachPage: React.FC = () => {
     } finally {
       setBusy(false);
     }
+  };
+  /** The owners already in Leads run by the same people as these: sent with them, so each joins that lead rather than making another. */
+  const alreadySent = (sending: OutreachContact[]) => {
+    const going = new Set(sending.map((r) => r.id));
+    return [...new Set(sending.flatMap((r) => sureOperators.get(r.id)?.members ?? []))].filter((m) => m.leadId && !going.has(m.id)).map((m) => m.id);
+  };
+  /** A person's entities to Leads from their own line, after a word on what they become; all there already, it opens the lead. */
+  const leadOperator = async (op: Operator) => {
+    if (!organizationId) return;
+    const going = operatorWaiting(op);
+    const there = op.members.find((m) => m.leadId);
+    if (going.length === 0) return void (there?.leadId && navigate(`/leads?lead=${there.leadId}`));
+    // One lead only when something real ties them: a simulated name or number is made up, and the server won't join on it.
+    const sure = sureOperators.get(going[0].id);
+    const one = Boolean(sure) && going.every((r) => sureOperators.get(r.id) === sure);
+    const n = going.length;
+    const ok = await confirm({
+      title: `Send ${op.label}’s ${n === 1 ? 'entity' : `${n} entities`} to Leads?`,
+      message: one
+        ? `${n === 1 ? 'It joins' : 'They become'} one lead${there ? ', the one already in Leads' : ''}: one person to call, with each company and what it owns on the lead's notes.`
+        : n === 1
+          ? 'It goes to Leads as New, where you call and follow up.'
+          : 'What ties them is from a simulated lookup, so each goes to Leads as its own lead with the made-up details left out. With a real phone source connected, they become one lead.',
+      confirmLabel: 'Send to Leads',
+      tone: 'default',
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const ids = going.map((r) => r.id);
+      const alongside = alreadySent(going);
+      const r = alongside.length ? await outreachAPI.sendManyToLeads(organizationId, ids, alongside) : await outreachAPI.sendManyToLeads(organizationId, ids);
+      setUndoNote(null);
+      setSentNote(r.leads === 0 ? `${op.label}: ${r.sent} ${r.sent === 1 ? 'entity' : 'entities'} added to the lead already in Leads.` : `${op.label}: ${r.sent} ${r.sent === 1 ? 'entity' : 'entities'} sent as ${r.leads} ${r.leads === 1 ? 'lead' : 'leads'}.`);
+      void load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send them to Leads");
+    } finally {
+      setBusy(false);
+    }
+  };
+  /** Skip everyone a person runs in one tap, since it's one decision; again puts them back. Ones already in Leads stay as they are. */
+  const skipOperator = async (op: Operator) => {
+    const open = op.members.filter((m) => !m.leadId);
+    const undo = open.length > 0 && open.every((m) => m.status === 'skip');
+    setError(null);
+    try {
+      for (const m of open) if (undo || m.status !== 'skip') await setContactStatus(m, undo ? 'new' : 'skip', m.note ?? '');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save that");
+    }
+    refreshListsSoon();
   };
 
   // Any list can be deleted: owners you've worked (a status, a note, a lookup, a lead) stay under All owners; the rest go with it.
@@ -1204,7 +1288,13 @@ const OutreachPage: React.FC = () => {
             ) : (
               toSend.length > 0 && (
                 <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} data-testid="send-all">
-                  Send {toSend.length} to Leads
+                  <span className={`leading-tight ${narrow ? '' : 'text-left'}`}>
+                    Send {toSend.length} to Leads
+                    {/* What the number is: who has a number, who only an email. */}
+                    <span className="block text-[11px] font-normal text-white/75" data-testid="send-basis">
+                      {sendBasis}
+                    </span>
+                  </span>
                 </button>
               )
             )}
@@ -1224,7 +1314,13 @@ const OutreachPage: React.FC = () => {
                 <>
                   {listOpen.length > 0 && toSend.length > 0 && (
                     <button type="button" role="menuitem" className={menuItem} disabled={busy} onClick={() => (close(), void sendAll())} data-testid="send-all">
-                      <Send className="w-4 h-4" /> Send {toSend.length} to Leads
+                      <Send className="w-4 h-4 shrink-0" />
+                      <span className="text-left leading-tight">
+                        Send {toSend.length} to Leads
+                        <span className="block text-xs text-gray-500" data-testid="send-basis">
+                          {sendBasis}
+                        </span>
+                      </span>
                     </button>
                   )}
                   {rows.length > 0 && (
@@ -1414,14 +1510,25 @@ const OutreachPage: React.FC = () => {
                 {(close) => countyItems(close)}
               </TextMenu>
             )}
-            <SearchBox value={query} onChange={setQuery} alwaysOpen />
+            {/* On a tablet an open box leaves no room for the last tabs ("Mail only"), so there it folds to its icon, as on a phone. */}
+            <SearchBox value={query} onChange={setQuery} alwaysOpen={!tablet} />
           </div>
           )}
         </div>
       )}
-      {view === 'cards' && rows.some(isSimulated) && (
+      {/* Said once here rather than on every row: while no phone source is connected, every result on the page is simulated. */}
+      {rows.some(isSimulated) && (
         <p className="text-xs text-gray-500" data-testid="sample-note">
-          Sample results: no phone source is connected yet.
+          Sample results: no phone source is connected yet, so the people, numbers and emails here are made up and nothing was charged. Expect real sources to find fewer.
+        </p>
+      )}
+      {/* What a row per company can't say: how many of these owners come down to a few people, and who holds the most. */}
+      {people.length > 0 && data && rows.length > 0 && (
+        <p className="text-xs text-gray-500" data-testid="operators-line">
+          {operators.size.toLocaleString('en-US')} of these {data.rows.length.toLocaleString('en-US')} owners are run by {people.length.toLocaleString('en-US')} {people.length === 1 ? 'person' : 'people'}, each shown once with their companies under them. Biggest:{' '}
+          <span className="text-gray-300">{people[0].label}</span>, {operatorHolding(people[0])}.
+          {/* The simulated chain reuses a handful of made-up people and numbers, so it ties owners no real source would. */}
+          {madeUpTies && ' Simulated lookups reuse a few made-up people, so these groups are bigger than real ones will be.'}
         </p>
       )}
       {lists && lists.length === 0 && data && data.rows.length > 0 && (
@@ -1484,6 +1591,10 @@ const OutreachPage: React.FC = () => {
       ) : view === 'cards' ? (
         <ContactCards
           rows={rows}
+          operators={operators}
+          openAll={query.trim().length > 0}
+          onLeadAll={(op) => void leadOperator(op)}
+          onSkipAll={(op) => void skipOperator(op)}
           placeOf={placeOf}
           onOpen={setOpen}
           onStatus={(row, next) => setContactStatus(row, next, row.note ?? '')}
@@ -1493,6 +1604,11 @@ const OutreachPage: React.FC = () => {
       ) : (
         <ContactsTable
           rows={rows}
+          operators={operators}
+          openAll={query.trim().length > 0}
+          onLeadAll={(op) => void leadOperator(op)}
+          onSkipAll={(op) => void skipOperator(op)}
+          markSimulated={mixedResults}
           placeOf={placeOf}
           coverage={data.coverage}
           sort={sortNow}
@@ -1505,6 +1621,9 @@ const OutreachPage: React.FC = () => {
       )}
       <ContactSheet
         row={open}
+        operator={open ? operators.get(open.id) : undefined}
+        oneLead={Boolean(open && sureOperators.get(open.id))}
+        onOpenOwner={setOpen}
         county={open ? (lists?.find((l) => open.listIds.includes(l.id))?.definition.county ?? data?.county) : undefined}
         unlockCents={unlockCents}
         researchCents={researchCents}

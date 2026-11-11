@@ -47,6 +47,18 @@ export const openToLook = (c: { status: string; at?: string }) => c.status === '
 export const mailOnly = (r: { phones: Array<{ dnc?: boolean; litigator?: boolean }>; enrichment: { phone: { status: string } } }) =>
   r.enrichment.phone.status === 'none' || (r.enrichment.phone.status === 'found' && r.phones.length > 0 && !r.phones.some(callOk));
 
+/**
+ * Looked up, and nothing to call or write to: no number worth calling and no email. With real sources this is a
+ * large share of any list, so it has a look of its own (quiet, the mailing address doing the talking) rather than a
+ * row of misses. One not looked up yet isn't this: it still has a lookup to run.
+ */
+export const nobodyToReach = (r: { phones: Array<{ dnc?: boolean; litigator?: boolean }>; emails: unknown[]; enrichment: { phone: { status: string } } }) => mailOnly(r) && r.emails.length === 0;
+
+/** How an owner can be reached now: a number to call, else an email, else (looked up, nothing found) the mail; not looked up yet is none of these. */
+export type Reach = 'call' | 'email' | 'mail' | 'open';
+export const reachOf = (r: { phones: Array<{ dnc?: boolean; litigator?: boolean }>; emails: unknown[]; enrichment: { phone: { status: string } } }): Reach =>
+  r.phones.some(callOk) ? 'call' : r.emails.length > 0 ? 'email' : mailOnly(r) ? 'mail' : 'open';
+
 /** "the appraisal roll and city permits", for a person two or more sources agree on. */
 export const sourceList = (sources: string[]) => {
   const names = sources.map(sourceName);
