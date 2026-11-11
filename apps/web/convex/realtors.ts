@@ -9,7 +9,7 @@ import { TREC_REALTORS, realtorsQuery, rowsToRealtors } from "./lib/realtors";
 
 /** Where a county's read records how it went: Midland's keeps its first name. */
 const sourceOf = (county: string) => (county === TREC_REALTORS.county ? TREC_REALTORS.source : `${TREC_REALTORS.source}-${county.toLowerCase()}`);
-const countyArg = v.optional(v.union(v.literal("Midland"), v.literal("Ector"), v.literal("Lubbock")));
+const countyArg = v.optional(v.union(v.literal("Midland"), v.literal("Ector"), v.literal("Lubbock"), v.literal("Taylor")));
 
 const realtorType = v.union(v.literal("agent"), v.literal("broker"), v.literal("brokerage"));
 const realtorRow = v.object({

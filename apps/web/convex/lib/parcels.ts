@@ -206,10 +206,13 @@ export const ownerName = (owner: string) => owner.toLowerCase().replace(/\b([a-z
 // City of Lubbock's parcel layer (the appraisal district's roll: owners,
 // use, values, homestead) with its address points, matched the same way.
 // Neither gives a parcel's address itself, so a parcel with no address
-// point is left off, as Midland's are.
+// point is left off, as Midland's are. Taylor County (Abilene): the City of
+// Abilene's parcel layer, the appraisal district's roll already joined to the
+// city's address points (owners, use, values and the street address on each
+// row; a parcel with several addresses is there once for each).
 
 export type CountyRoll = {
-  county: "Ector" | "Lubbock";
+  county: "Ector" | "Lubbock" | "Taylor";
   /** The sync's name on the permit feed's status table. */
   source: string;
   /** The parcel layer. */
@@ -276,7 +279,24 @@ export const LUBBOCK_ROLL: CountyRoll = {
   addresses: [{ layer: "https://pubgis.ci.lubbock.tx.us/server/rest/services/Layers/ParcelMap/MapServer/0", pin: "PIN", address: "FULL_ADDRESS", where: "Master='MAIN'" }],
 };
 
-export const COUNTY_ROLLS: Record<CountyRoll["county"], CountyRoll> = { Ector: ECTOR_ROLL, Lubbock: LUBBOCK_ROLL };
+const TAYLOR_USE = ["A1", "A2", "B1", "B2", "F1", "F2"] as const;
+
+export const TAYLOR_ROLL: CountyRoll = {
+  county: "Taylor",
+  source: "taylor-parcels",
+  // The city's current join of the district's roll to its addresses. (Its older "CourierParcels" has the same fields, a tax year behind.)
+  layer: "https://services6.arcgis.com/iBFmWI3dYPQqS1KF/arcgis/rest/services/Courier_Parcels_Beta/FeatureServer/0",
+  pageSize: 2000,
+  orderBy: "OBJECTID",
+  fields: ["PROP_ID", "OWNER", "ADD1", "ADD2", "ADD3", "CITY", "STATE", "ZIP", "SITUS", "STATE_CD", "TOTALVALUE", "CURRTOTAL", "IMPVALUE"],
+  // Abilene runs a little into Jones County: only Taylor's parcels are kept.
+  where: `COUNTY LIKE 'Taylor%' AND STATE_CD IN (${quoted(TAYLOR_USE)})`,
+  pinField: "PROP_ID",
+  // The street address is on each row.
+  addresses: [],
+};
+
+export const COUNTY_ROLLS: Record<CountyRoll["county"], CountyRoll> = { Ector: ECTOR_ROLL, Lubbock: LUBBOCK_ROLL, Taylor: TAYLOR_ROLL };
 
 const zip5 = (value: unknown) => text(value)?.match(/^\d{5}/)?.[0];
 
@@ -404,6 +424,41 @@ export function lubbockParcels(features: Array<{ attributes?: Record<string, unk
   return rows;
 }
 
+/**
+ * Taylor's parcel features as rows. A parcel with several address points (a center's suites, an apartment office) is
+ * there once for each: it's kept once, at its shortest street address (the building's own). The mailing street is the
+ * second line; the first is a care-of or attention line, used only when it's all there is. The layer gives no deed date.
+ */
+export function taylorParcels(features: Array<{ attributes?: Record<string, unknown> }>): ParcelRow[] {
+  const byId = new Map<string, ParcelRow>();
+  for (const f of features) {
+    const a = f.attributes ?? {};
+    const id = typeof a.PROP_ID === "number" ? String(a.PROP_ID) : text(a.PROP_ID);
+    const owner = ownerOf(a.OWNER);
+    const useCode = text(a.STATE_CD);
+    const site = text(a.SITUS)?.toUpperCase();
+    if (!id || !owner || !useCode || !site || !/^\d/.test(site) || !(TAYLOR_USE as readonly string[]).includes(useCode)) continue;
+    const had = byId.get(id);
+    if (had && had.siteAddress.length <= site.length) continue;
+    byId.set(
+      id,
+      parcelOf("Taylor", id, site, owner, {
+        pin: id,
+        useCode,
+        mailing: {
+          address: text([text(a.ADD2), text(a.ADD3)].filter(Boolean).join(" ")) ?? text(a.ADD1),
+          city: text(a.CITY),
+          state: text(a.STATE),
+          zip: zip5(a.ZIP),
+        },
+        marketValueCents: cents(a.TOTALVALUE) ?? cents(a.CURRTOTAL),
+        buildingValueCents: cents(a.IMPVALUE),
+      }),
+    );
+  }
+  return [...byId.values()];
+}
+
 /** A county roll's features as rows. */
 export const countyParcels = (roll: CountyRoll, features: Array<{ attributes?: Record<string, unknown> }>, addresses: Map<string, string>) =>
-  roll.county === "Ector" ? ectorParcels(features, addresses) : lubbockParcels(features, addresses);
+  roll.county === "Ector" ? ectorParcels(features, addresses) : roll.county === "Lubbock" ? lubbockParcels(features, addresses) : taylorParcels(features);

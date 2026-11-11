@@ -55,7 +55,7 @@ export const sourceList = (sources: string[]) => {
 
 /**
  * The county clerk's deed records for an owner, where the deed of trust names who signed for the company.
- * Midland's opens on the owner's name; Ector's and Lubbock's clerks open on their own search page (it asks
+ * Midland's opens on the owner's name; Ector's, Lubbock's and Taylor's clerks open on their own search page (it asks
  * you to accept its terms first), so the name is typed there: `named` says which.
  */
 export const deedSearch = (owner: string, county = 'Midland'): { url: string; named: boolean } | undefined =>
@@ -65,7 +65,9 @@ export const deedSearch = (owner: string, county = 'Midland'): { url: string; na
       ? { url: 'https://ectorcountytx-web.tylerhost.net/web/', named: false }
       : county === 'Lubbock'
         ? { url: 'https://erecord.lubbockcounty.gov/recorder/web/', named: false }
-        : undefined;
+        : county === 'Taylor'
+          ? { url: 'https://taylorcountytx-web.tylerhost.net/web/', named: false }
+          : undefined;
 /** The deed search's address, for Midland's links that open on the name. */
 export const deedSearchUrl = (owner: string, county = 'Midland') => deedSearch(owner, county)?.url;
 

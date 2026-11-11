@@ -574,6 +574,7 @@ describe('the Outreach page', () => {
       ['Midland County, TX', 'false'],
       ['Ector County, TX (Odessa)Coming soon', 'true'],
       ['Lubbock County, TXComing soon', 'true'],
+      ['Taylor County, TX (Abilene)Coming soon', 'true'],
     ]);
     await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
     expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(17);
@@ -871,6 +872,7 @@ describe('the Outreach page', () => {
       ['Midland County, TX', 'true', false],
       ['Ector County, TX (Odessa)Coming soon', 'false', true],
       ['Lubbock County, TXComing soon', 'false', true],
+      ['Taylor County, TX (Abilene)Coming soon', 'false', true],
     ]);
     await act(async () => (menu.querySelector('[role="option"]') as HTMLButtonElement).click());
     expect(document.body.querySelector('[role="listbox"][aria-label="County"]')).toBeNull();

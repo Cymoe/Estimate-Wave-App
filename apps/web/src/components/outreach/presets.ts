@@ -24,6 +24,7 @@ export const COUNTIES: Array<{ name: string; label: string; ready: boolean; reco
   { name: 'Midland', label: 'Midland County, TX', ready: true, records: true },
   { name: 'Ector', label: 'Ector County, TX (Odessa)', ready: false, records: false },
   { name: 'Lubbock', label: 'Lubbock County, TX', ready: false, records: false },
+  { name: 'Taylor', label: 'Taylor County, TX (Abilene)', ready: false, records: false },
 ];
 
 /** A ready-made list's filter, for the county picked. */

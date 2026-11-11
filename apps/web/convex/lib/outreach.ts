@@ -1486,6 +1486,7 @@ export const COUNTY_PLACES: Record<string, { label: string; city: string }> = {
   Midland: { label: "Midland County", city: "Midland" },
   Ector: { label: "Ector County", city: "Odessa" },
   Lubbock: { label: "Lubbock County", city: "Lubbock" },
+  Taylor: { label: "Taylor County", city: "Abilene" },
 };
 /** A county the page knows, or Midland. */
 export const knownCounty = (county: string | undefined) => (county && COUNTY_PLACES[county] ? county : "Midland");

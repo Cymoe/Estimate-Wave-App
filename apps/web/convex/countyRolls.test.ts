@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { setup, signUp } from "./test.setup";
-import { ECTOR_ROLL, LUBBOCK_ROLL, ectorParcels, lubbockParcels, splitMailing } from "./lib/parcels";
+import { ECTOR_ROLL, LUBBOCK_ROLL, TAYLOR_ROLL, ectorParcels, lubbockParcels, splitMailing, taylorParcels } from "./lib/parcels";
 import { QUERY_WAITS } from "./parcels";
 
 const ECTOR_PAGE = ECTOR_ROLL.pageSize;
@@ -85,6 +85,27 @@ describe("Odessa's and Lubbock's rolls, read", () => {
     expect(rows.map((r) => [r.cadId, r.owner, r.siteAddress, r.useCode, r.mailing, r.ownerOccupied, r.companyOwned, r.marketValueCents, r.deedDate])).toEqual([
       ["Lubbock:R87275", "DIRKS DIRT LLC", "1636 13TH ST", "F1", { address: "1204 BROADWAY STE 103", city: "LUBBOCK", state: "TX", zip: "79401" }, false, true, 30694300, undefined],
       ["Lubbock:R92539", "WOOD LEONARD W", "2802 YORK AVE", "A1", { address: "PO BOX 9", city: "LUBBOCK", state: "TX", zip: "79407" }, true, false, 8791000, undefined],
+    ]);
+  });
+
+  test("Taylor's parcels: the address is on the row, a parcel with several addresses is kept once at the building's own, and the care-of line isn't the mailing street", () => {
+    const rows = taylorParcels([
+      // An apartment complex, listed at its office and at the building: one parcel, the shorter address.
+      feature({ PROP_ID: 63166, OWNER: "SMV STONEGATE LP", ADD1: "% SELDIN COMPANY", ADD2: "12149 W CENTER RD", CITY: "OMAHA", STATE: "NE", ZIP: "68144-3955", SITUS: "5125 FAIRMONT ST OFC", STATE_CD: "B1", TOTALVALUE: 8081000, IMPVALUE: 7944831 }),
+      feature({ PROP_ID: 63166, OWNER: "SMV STONEGATE LP", ADD1: "% SELDIN COMPANY", ADD2: "12149 W CENTER RD", CITY: "OMAHA", STATE: "NE", ZIP: "68144-3955", SITUS: "5125 FAIRMONT ST", STATE_CD: "B1", TOTALVALUE: 8081000, IMPVALUE: 7944831 }),
+      // A home its owner lives in: the mailing street is the house.
+      feature({ PROP_ID: 59441, OWNER: "NIEVES ABNER", ADD2: "942 ROSS AVE", CITY: "ABILENE", STATE: "TX", ZIP: "79605-3239", SITUS: "942 Ross Av", STATE_CD: "A1", TOTALVALUE: 350618, IMPVALUE: 324612 }),
+      // Only a first line: it's the mailing address. No total this year: the current one stands in.
+      feature({ PROP_ID: 10884, OWNER: "HENDRICK OFFICES LLC", ADD1: "PO BOX 1", CITY: "ABILENE", STATE: "TX", ZIP: "79601", SITUS: "3101 S 27TH ST", STATE_CD: "F1", CURRTOTAL: 1332000 }),
+      // Left off: vacant land, a parcel with no street number, one with no owner.
+      feature({ PROP_ID: 1, OWNER: "LOT HOLDER", SITUS: "1 FIELD RD", STATE_CD: "C1R", TOTALVALUE: 5000 }),
+      feature({ PROP_ID: 2, OWNER: "NO NUMBER", SITUS: "FM 89", STATE_CD: "A1", TOTALVALUE: 5000 }),
+      feature({ PROP_ID: 3, SITUS: "3 OAK ST", STATE_CD: "A1", TOTALVALUE: 5000 }),
+    ]);
+    expect(rows.map((r) => [r.cadId, r.pin, r.owner, r.siteAddress, r.useCode, r.mailing, r.ownerOccupied, r.companyOwned, r.marketValueCents, r.buildingValueCents, r.deedDate])).toEqual([
+      ["Taylor:63166", "63166", "SMV STONEGATE LP", "5125 FAIRMONT ST", "B1", { address: "12149 W CENTER RD", city: "OMAHA", state: "NE", zip: "68144" }, false, true, 808100000, 794483100, undefined],
+      ["Taylor:59441", "59441", "NIEVES ABNER", "942 ROSS AV", "A1", { address: "942 ROSS AVE", city: "ABILENE", state: "TX", zip: "79605" }, true, false, 35061800, 32461200, undefined],
+      ["Taylor:10884", "10884", "HENDRICK OFFICES LLC", "3101 S 27TH ST", "F1", { address: "PO BOX 1", city: "ABILENE", state: "TX", zip: "79601" }, false, true, 133200000, undefined, undefined],
     ]);
   });
 });
@@ -212,5 +233,56 @@ describe("Odessa and Lubbock, synced and listed", () => {
       expect(await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "lubbock-parcels")).unique()).toMatchObject({ error: "Lubbock owners: HTTP 503" });
     });
     QUERY_WAITS.splice(0, QUERY_WAITS.length, 0, 2_000, 6_000);
+  });
+
+  test("Abilene: Taylor's roll is read from the one layer (no address points to ask), its owners built, and lists made there", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    TAYLOR_ROLL.pageSize = 3;
+    const taylor = (id: number, over: Record<string, unknown> = {}) => ({ PROP_ID: id, OWNER: `OWNER ${id}`, ADD2: `${id} PINE ST`, CITY: "ABILENE", STATE: "TX", ZIP: "79601", SITUS: `${id} PINE ST`, STATE_CD: "A1", TOTALVALUE: 180000, IMPVALUE: 150000, ...over });
+    const roll = [
+      // A landlord with three Abilene homes.
+      ...[11, 12, 13].map((id) => taylor(id, { OWNER: "KEY CITY RENTALS LLC", ADD2: "PO BOX 7" })),
+      // A shopping center, there twice: at the building and at a suite.
+      taylor(20, { OWNER: "BUFFALO GAP PLAZA LTD", ADD1: "% A MANAGER", ADD2: "1 MAIN ST", CITY: "DALLAS", ZIP: "75201", SITUS: "4100 BUFFALO GAP RD", STATE_CD: "F1", TOTALVALUE: 4000000 }),
+      taylor(20, { OWNER: "BUFFALO GAP PLAZA LTD", ADD1: "% A MANAGER", ADD2: "1 MAIN ST", CITY: "DALLAS", ZIP: "75201", SITUS: "4100 BUFFALO GAP RD STE 2", STATE_CD: "F1", TOTALVALUE: 4000000 }),
+      taylor(30),
+      taylor(31),
+    ];
+    const asked = fakeLayers({ [TAYLOR_ROLL.layer]: roll }, {});
+    expect(await t.action(internal.parcels.syncCounty, { county: "Taylor", ifStale: true, background: true })).toEqual({ scheduled: true });
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    // Only the parcel layer is asked, in pages, for Taylor's homes, apartments and commercial buildings.
+    expect(asked.every((a) => a.layer === TAYLOR_ROLL.layer)).toBe(true);
+    expect(asked.map((a) => a.params.get("resultOffset"))).toEqual(["0", "3", "6", "9"].slice(0, asked.length));
+    expect(asked[0].params.get("where")).toBe("COUNTY LIKE 'Taylor%' AND STATE_CD IN ('A1','A2','B1','B2','F1','F2')");
+    await t.run(async (ctx) => {
+      const parcels = await ctx.db.query("parcels").collect();
+      expect(parcels.map((p) => p.cadId).sort()).toEqual(["Taylor:11", "Taylor:12", "Taylor:13", "Taylor:20", "Taylor:30", "Taylor:31"]);
+      expect(parcels.every((p) => p.county === "Taylor")).toBe(true);
+      expect(parcels.find((p) => p.cadId === "Taylor:20")).toMatchObject({ siteAddress: "4100 BUFFALO GAP RD", useCode: "F1", mailing: { address: "1 MAIN ST", city: "DALLAS", state: "TX", zip: "75201" } });
+      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "taylor-parcels")).unique())!.error).toBeUndefined();
+      // The finished read built Taylor's owners.
+      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "taylor-owners")).unique())!.error).toBeUndefined();
+    });
+    const co = await signUp(t, "owner@roof.example");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(co.organizationId, {
+        plan: { monthlyCents: 9900, claimsIncluded: 10, extraClaimCents: 1500, status: "active", periodStart: "2026-10-01T00:00:00.000Z", nextChargeAt: "2026-12-01T00:00:00.000Z", claimsThisPeriod: 0 },
+      });
+    });
+    const org = co.organizationId;
+    const investors = await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Taylor", who: "investor" } });
+    expect(investors.rows.map((r) => [r.name, r.why])).toEqual([
+      ["Key City Rentals LLC", "Owns 3 Taylor properties, $540K on the roll"],
+      ["Buffalo Gap Plaza LTD", "Owns 1 Taylor property (1 commercial building), $4M on the roll"],
+    ]);
+    const commercial = await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Taylor", who: "commercial" } });
+    expect(commercial.rows[0]).toMatchObject({ name: "Buffalo Gap Plaza LTD", property: { address: "4100 Buffalo Gap Rd", useCode: "F1" } });
+    // The page offers Taylor now its owners are in, and the working county can be set to it.
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).readyCounties).toEqual(["Taylor"]);
+    await co.as.mutation(api.outreach.setCounty, { organizationId: org, county: "Taylor" });
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).county).toBe("Taylor");
+    TAYLOR_ROLL.pageSize = 2000;
   });
 });

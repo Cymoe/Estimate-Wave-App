@@ -119,7 +119,7 @@ async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.co
  * `npx convex run outreachRebuild:rebuild '{"ifStale":true,"background":true}'`.
  */
 export const rebuild = internalAction({
-  args: { ifStale: v.optional(v.boolean()), background: v.optional(v.boolean()), county: v.optional(v.union(v.literal("Midland"), v.literal("Ector"), v.literal("Lubbock"))) },
+  args: { ifStale: v.optional(v.boolean()), background: v.optional(v.boolean()), county: v.optional(v.union(v.literal("Midland"), v.literal("Ector"), v.literal("Lubbock"), v.literal("Taylor"))) },
   handler: async (ctx, { ifStale, background, county = "Midland" }): Promise<{ skipped?: true; scheduled?: true; fetched?: number; added?: number; updated?: number; error?: string }> => {
     if (ifStale) {
       const [owners, roll] = await Promise.all([

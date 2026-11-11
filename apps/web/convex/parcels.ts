@@ -264,7 +264,7 @@ const UPSERT_ROWS = 300;
 const STEP_TRIES = 5;
 
 /**
- * Reads a county's roll (Ector or Lubbock) a page at a time from `offset`,
+ * Reads a county's roll (Ector, Lubbock or Taylor) a page at a time from `offset`,
  * each page's parcels at their address points, into the parcels table; hands
  * on to a fresh step after STEP_MS, so a big roll never meets the action
  * limit. When the roll is read it records how it went under the roll's
@@ -274,7 +274,7 @@ const STEP_TRIES = 5;
  */
 export const syncCounty = internalAction({
   args: {
-    county: v.union(v.literal("Ector"), v.literal("Lubbock")),
+    county: v.union(v.literal("Ector"), v.literal("Lubbock"), v.literal("Taylor")),
     ifStale: v.optional(v.boolean()),
     /** Schedules the read and returns at once: the deploy shouldn't wait minutes for it. */
     background: v.optional(v.boolean()),

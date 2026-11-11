@@ -48,6 +48,9 @@ crons.weekly("sync Ector realtors", { dayOfWeek: "sunday", hourUTC: 7, minuteUTC
 crons.weekly("sync Lubbock realtors", { dayOfWeek: "sunday", hourUTC: 7, minuteUTC: 37 }, internal.realtors.syncCounty, { county: "Lubbock" });
 crons.weekly("sync Ector owners", { dayOfWeek: "sunday", hourUTC: 7, minuteUTC: 40 }, internal.parcels.syncCounty, { county: "Ector" });
 crons.weekly("sync Lubbock owners", { dayOfWeek: "sunday", hourUTC: 8, minuteUTC: 10 }, internal.parcels.syncCounty, { county: "Lubbock" });
+// Abilene's (Taylor County), the same way.
+crons.weekly("sync Taylor realtors", { dayOfWeek: "sunday", hourUTC: 7, minuteUTC: 39 }, internal.realtors.syncCounty, { county: "Taylor" });
+crons.weekly("sync Taylor owners", { dayOfWeek: "sunday", hourUTC: 8, minuteUTC: 35 }, internal.parcels.syncCounty, { county: "Taylor" });
 
 // Code violations, dilapidated buildings, demolition orders and stalled permits, restacked per home (lib/signals.ts).
 crons.daily(
