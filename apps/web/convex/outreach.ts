@@ -61,6 +61,7 @@ import {
   type OwnerRow, COUNTY_PLACES, cityOf, knownCounty } from "./lib/outreach";
 import { tidyCase } from "./lib/addressCase";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
+import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
 import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
@@ -1597,6 +1598,8 @@ async function sendOne(
   index?: KnownIndex,
   /** In a send of many: the owners already read, kept current as each is sent. */
   peers?: Peers,
+  /** The lead of another owner the same person runs (operatorsAmong): joined before anything else is looked for. */
+  join?: Id<"leads">,
 ): Promise<{ leadId: Id<"leads">; made: boolean }> {
   const have = async (id?: Id<"leads">) => (id ? await ctx.db.get(id) : null);
   // Sample and simulated results are made up: they show the layout here, but a lead is called for real.
@@ -1609,7 +1612,8 @@ async function sendOne(
   let lead = await have(contact.leadId);
   let made = false;
   if (!lead) {
-    for (const other of await peersOf(ctx, contact, peers)) {
+    lead = await have(join);
+    for (const other of lead ? [] : await peersOf(ctx, contact, peers)) {
       if (other._id === contact._id || !other.leadId || !sameOperator(contact, other)) continue;
       lead = await have(other.leadId);
       if (lead) break;
@@ -1698,14 +1702,55 @@ export const fillLeadCompanies = internalMutation({
   },
 });
 
+/** What the grouping by person reads off an owner. What a sample or simulated lookup made up ties nobody: a lead is called for real. */
+function asOperatorOwner(c: Doc<"outreachContacts">): OperatorOwner {
+  const cells = cellsOf(c);
+  const real = (field: "phone" | "email" | "person") => !isSampleRun(c) && !cellFor(cells, field).simulated;
+  return {
+    id: c._id,
+    name: c.name,
+    company: isCompany(c),
+    person: real("person") ? operatorName(c.person) : undefined,
+    phones: real("phone") ? (c.phones ?? []).map((p) => p.number) : [],
+    emails: real("email") ? (c.emails ?? []).filter((e) => e.nameMatch !== false).map((e) => e.email) : [],
+    mailing: mailKey(c.mailing),
+  };
+}
+
+/**
+ * The people behind the owners of a send (lib/operators.ts, as the page shows
+ * them): for each owner, the key of the person's group, and for each group the
+ * lead one of its owners already made. `alongside` are owners the page says
+ * the same people run and that are in Leads already; they are checked here
+ * like the rest, so naming one that isn't related joins nothing.
+ */
+async function operatorsAmong(ctx: MutationCtx, organizationId: Id<"organizations">, sending: Doc<"outreachContacts">[], alongside: Id<"outreachContacts">[] = []) {
+  const all = new Map(sending.map((c) => [c._id as string, c] as const));
+  for (const id of new Set(alongside.slice(0, SEND_MAX))) {
+    if (all.has(id)) continue;
+    const c = await ctx.db.get(id);
+    if (c && c.organizationId === organizationId) all.set(id, c);
+  }
+  const groups = operatorGroups([...all.values()].map(asOperatorOwner));
+  const leadOf = new Map<string, Id<"leads">>();
+  for (const [id, group] of groups) {
+    const leadId = all.get(id)!.leadId;
+    if (leadId && !leadOf.has(group.key) && (await ctx.db.get(leadId))) leadOf.set(group.key, leadId);
+  }
+  return { keyOf: (id: Id<"outreachContacts">) => groups.get(id)?.key, leadOf };
+}
+
 /** One owner to Leads (see sendOne). Sent once; after that the same lead comes back. */
 export const sendToLeads = mutation({
-  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
-  handler: async (ctx, { organizationId, contactId }) => {
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts"), alongside: v.optional(v.array(v.id("outreachContacts"))) },
+  handler: async (ctx, { organizationId, contactId, alongside }) => {
     const { user } = await requirePro(ctx, organizationId);
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
-    return (await sendOne(ctx, organizationId, user._id, contact, nowIso())).leadId;
+    // Another company of the same person already in Leads: this one joins that lead.
+    const people = alongside?.length ? await operatorsAmong(ctx, organizationId, [contact], alongside) : undefined;
+    const key = people?.keyOf(contactId);
+    return (await sendOne(ctx, organizationId, user._id, contact, nowIso(), undefined, undefined, key ? people?.leadOf.get(key) : undefined)).leadId;
   },
 });
 
@@ -1794,27 +1839,36 @@ export const undoSend = mutation({
 export const SEND_MAX = 500;
 
 /**
- * Many owners to Leads at once (the ones showing on the page). Owners run by
- * the same people share one lead. Says how many owners went, how many leads
- * that made, and how many joined a lead of the same operator.
+ * Many owners to Leads at once (the ones showing on the page, or one person's
+ * companies). Owners run by the same people share one lead: the companies
+ * naming one decision maker, the owners with one phone or email, a family of
+ * LLCs. Says how many owners went, how many leads that made, and how many
+ * joined a lead of the same operator.
  */
 export const sendManyToLeads = mutation({
-  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")) },
-  handler: async (ctx, { organizationId, contactIds }) => {
+  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")), alongside: v.optional(v.array(v.id("outreachContacts"))) },
+  handler: async (ctx, { organizationId, contactIds, alongside }) => {
     const { user } = await requirePro(ctx, organizationId);
     if (contactIds.length > SEND_MAX) fail("INVALID", `Send up to ${SEND_MAX} at a time`);
     const now = nowIso();
     const index = await knownOf(ctx, organizationId);
     // The owners asked for are read one by one, and each one's kin by index: not every owner the company has.
     const peers: Peers = new Map();
-    let sent = 0;
-    let made = 0;
+    const sending: Doc<"outreachContacts">[] = [];
     for (const id of new Set(contactIds)) {
       const contact = await ctx.db.get(id);
-      if (!contact || contact.organizationId !== organizationId) continue;
+      if (contact && contact.organizationId === organizationId) sending.push(contact);
+    }
+    const people = await operatorsAmong(ctx, organizationId, sending, alongside);
+    let sent = 0;
+    let made = 0;
+    for (const contact of sending) {
       const before = contact.leadId && (await ctx.db.get(contact.leadId));
       if (before) continue;
-      const r = await sendOne(ctx, organizationId, user._id, contact, now, index, peers);
+      const key = people.keyOf(contact._id);
+      const r = await sendOne(ctx, organizationId, user._id, contact, now, index, peers, key ? people.leadOf.get(key) : undefined);
+      // The rest of this person's companies in the send join the same lead.
+      if (key && !people.leadOf.has(key)) people.leadOf.set(key, r.leadId);
       sent++;
       if (r.made) made++;
     }
