@@ -11,6 +11,8 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
 import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
+import { districtOwnerNow, sameOwnerName } from "./lib/district";
+import { displayName } from "./lib/outreach";
 import { sampleFor, sampleIndex, sampleStack } from "./lib/outreachSample";
 
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
@@ -38,6 +40,22 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const input = await ctx.runQuery(internal.outreach.contactForTrace, { contactId });
   if (!input) return;
   const wanted = fields.filter((f): f is Field => input.fields.includes(f));
+  // First, and free: does this owner still own the property? The roll's source runs about a year behind, so about one
+  // house in nine has sold since. A sold one stops here, saying who owns it now, before anything is paid for. Where the
+  // owner is the same, the lookup goes out with where the district sends their bill today.
+  if (input.stillOwns && !input.sample && wanted.length > 0) {
+    await ctx.runMutation(internal.outreach.noteProgress, { contactId, field: wanted[0], asking: "district", tries: [] }).catch(() => {});
+    const now = await districtOwnerNow(input.stillOwns.cadId);
+    if (now && !sameOwnerName(input.stillOwns, now.owner)) {
+      const when = now.boughtOn ? ` ${new Date(`${now.boughtOn}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" })}` : "";
+      const error = `Sold${when}: the appraisal district now lists ${displayName(now.owner)} as the owner. Nothing was looked up and nothing charged.`;
+      for (const field of wanted) {
+        await ctx.runMutation(internal.outreach.recordEnrichment, { contactId, field, error, tries: [{ source: "district", outcome: "miss", note: `Owner today: ${displayName(now.owner)}` }] });
+      }
+      return;
+    }
+    if (now?.mailing.address) input.mailing = { ...now.mailing, ...(now.mailing.zip ? { zip: now.mailing.zip.slice(0, 5) } : {}) };
+  }
   // Until a phone source is connected, every lookup walks the simulated chain instead of stopping at "not connected", so the page can be seen working; it's marked simulated and never charged.
   // OUTREACH_SIMULATE=off turns it off (the tests of the real path do).
   const simulate = process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => standsAlone(s, "phone"));

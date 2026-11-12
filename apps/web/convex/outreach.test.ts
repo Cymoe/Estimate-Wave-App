@@ -1265,6 +1265,73 @@ describe("a company's lists", () => {
     expect((await read()).rows.map((r) => [r.name, r.kinds, r.phones.length])).toEqual([["Oak Plaza LLC", [], 3]]);
   });
 
+  test("before anything is paid for, the appraisal district is asked whether the owner still owns the house", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const ids = await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    for (const who of ["wealthy", "recent_buyer", "absentee"] as const) await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const rows = (await read()).rows;
+    const [vance, reyes, ortiz] = ["Vance Robert & Linda", "Reyes Samuel", "Ortiz Maria"].map((name) => rows.find((r) => r.name === name)!);
+    // Each one's house under the district's own numbering, as the real roll has it.
+    const cad: Record<string, string> = {};
+    await t.run(async (ctx) => {
+      for (const [i, c] of [vance, reyes, ortiz].entries()) {
+        const contact = await ctx.db.get(c.id as Id<"outreachContacts">);
+        cad[c.name] = `R00000010${i}`;
+        await ctx.db.patch(contact!.property!.parcelId, { cadId: cad[c.name] });
+      }
+    });
+    expect(Object.keys(ids).length).toBeGreaterThan(0);
+    vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
+    const page = (owner: string, mail: string, deeds: string) =>
+      `<html><body><table><tr><td id="webprop_name">${owner}</td></tr><tr><td id="webprop_mailaddress">${mail}</td></tr></table><table><tbody id="tableBld"><tr><td>101</td><td>RES</td><td>RESIDENCE</td></tr></tbody></table><table><tbody id="tableSale">${deeds}</tbody></table></body></html>`;
+    const deed = (who: string, date: string) => `<tr><td align='left'>${who}</td><td></td><td></td><td align='right'>${date}</td><td>2026-1</td></tr>`;
+    const asked: Array<{ url: string; body?: { requests: Array<{ mailingAddress?: { street: string; city: string; zip?: string } }> } }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        asked.push({ url, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
+        const id = new URL(url).searchParams.get("id");
+        // The Vances sold in September; Reyes still owns his, with his bill going to a box now; for Ortiz the site says no.
+        if (id === cad[vance.name]) return new Response(page("NEW BUYER JANE", "1 ELM ST<br/>MIDLAND, TX 79705", deed("VANCE ROBERT & LINDA", "9/16/2026")), { status: 200 });
+        if (id === cad[reyes.name]) return new Response(page("REYES SAMUEL", "PO BOX 77<br/>ODESSA, TX 79760-1234", deed("SELLER BEFORE", "8/1/2026")), { status: 200 });
+        if (id === cad[ortiz.name]) return new Response("no", { status: 403 });
+        return new Response(JSON.stringify({ results: { persons: [{ phoneNumbers: [{ number: "4325550300", type: "Mobile" }] }] } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+
+    // Sold: the lookup stops at the district, says who owns it now, and nothing is asked of a paid source or charged.
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [vance.id], fields: ["phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    let now = (await read()).rows.find((r) => r.id === vance.id)!;
+    expect(now.enrichment.phone).toMatchObject({ status: "failed", tries: [{ source: "district", outcome: "miss", note: expect.stringContaining("Owner today: ") }] });
+    expect(now.enrichment.phone.error).toMatch(/^Sold Sep 2026: the appraisal district now lists .+ as the owner\. Nothing was looked up and nothing charged\.$/);
+    expect(asked.map((a) => new URL(a.url).hostname)).toEqual(["iswdataclient.azurewebsites.net"]);
+    expect((await read()).balanceCents).toBe(500);
+
+    // Still the owner: the lookup goes on, with where the district sends the bill today.
+    asked.length = 0;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [reyes.id], fields: ["phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    now = (await read()).rows.find((r) => r.id === reyes.id)!;
+    expect(now.enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 100 });
+    expect(asked.map((a) => new URL(a.url).hostname)).toEqual(["iswdataclient.azurewebsites.net", "api.batchdata.com"]);
+    expect(asked[1].body!.requests[0].mailingAddress).toEqual({ street: "PO BOX 77", city: "ODESSA", state: "TX", zip: "79760" });
+
+    // The district's site says no: asked once, and the lookup carries on with what the app has.
+    asked.length = 0;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [ortiz.id], fields: ["phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    now = (await read()).rows.find((r) => r.id === ortiz.id)!;
+    expect(now.enrichment.phone).toMatchObject({ status: "found", source: "batchdata" });
+    expect(asked.map((a) => new URL(a.url).hostname)).toEqual(["iswdataclient.azurewebsites.net", "api.batchdata.com"]);
+  });
+
   test("what BatchData misses falls through to Tracerfy; a vendor error is skipped free", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();

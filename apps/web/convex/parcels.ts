@@ -9,6 +9,7 @@ import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
 import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
+import { districtGet, sameOwnerName } from "./lib/district";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
 
@@ -316,20 +317,8 @@ export const DEED_PACE = { waitMs: 1_000, batch: 20 };
 /** This many pages in a row that can't be read and the trouble is the site's, not one parcel's. */
 const DEED_DOUBTS = 5;
 
-type Got = { html: string } | { none: string } | { refused: string };
 
 /** One page of the district's site: `none` when it can't be read (missing, broken); `refused` when the site says to stop asking. */
-async function districtGet(url: string): Promise<Got> {
-  let response: Response;
-  try {
-    response = await fetch(url);
-  } catch (e) {
-    return { none: e instanceof Error ? e.message : String(e) };
-  }
-  if (response.status === 401 || response.status === 403 || response.status === 429) return { refused: `HTTP ${response.status}` };
-  if (!response.ok) return { none: `HTTP ${response.status}` };
-  return { html: await response.text() };
-}
 
 type DeedPage = { deeds: DeedRow[] } | { none: string } | { refused: string };
 
@@ -1082,11 +1071,6 @@ export const syncCounty = internalAction({
 
 type Mailing = Doc<"parcels">["mailing"];
 const mailLine = (m: Mailing) => [m.address, m.city, m.state, m.zip?.slice(0, 5)].filter(Boolean).join(", ");
-/** The same owner, however the roll splits two owners across its two fields or shortens the second. */
-function sameOwnerName(app: { owner: string; owner2?: string }, district: string): boolean {
-  const [a, b, both] = [nameKey(app.owner), nameKey(district), nameKey(`${app.owner} ${app.owner2 ?? ""}`)];
-  return a === b || both === b || (a.length >= 5 && b.startsWith(a)) || (b.length >= 5 && a.startsWith(b));
-}
 /** The tax bill goes to the same place: the same street line (or box), and the same zip where both give one. */
 function sameMailing(app: Mailing, district: Mailing): boolean {
   const zips = [app.zip?.slice(0, 5), district.zip?.slice(0, 5)];

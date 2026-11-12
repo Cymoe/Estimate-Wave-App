@@ -65,6 +65,7 @@ import {
   type OwnerRow, COUNTY_PLACES, cityOf, knownCounty } from "./lib/outreach";
 import { tidyCase } from "./lib/addressCase";
 import { MIDLAND_PARCELS, addressKey, isStorageOutlet, outletBrand } from "./lib/parcels";
+import { hasDistrictPage } from "./lib/district";
 import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
@@ -2793,7 +2794,11 @@ export const contactForTrace = internalQuery({
     const cells = cellsOf(c);
     const fields = FIELDS.filter((f) => cellFor(cells, f).status === "running");
     if (fields.length === 0) return null;
+    // An owner of one property the appraisal district keeps a page for: before anything is paid for, the lookup asks
+    // the district whether they still own it (skipTrace.ts). An owner of several is still an owner if one has sold.
+    const parcel = c.property && c.properties === 1 && !/^(office|contractor|designer|occupant|realtor|seller):/.test(c.key) ? await ctx.db.get(c.property.parcelId) : null;
     return {
+      ...(parcel && hasDistrictPage(parcel) && parcel.source !== "batchdata" ? { stillOwns: { cadId: parcel.cadId, owner: parcel.owner, ...(parcel.owner2 ? { owner2: parcel.owner2 } : {}) } } : {}),
       name: c.name,
       company: c.company,
       person: c.person,

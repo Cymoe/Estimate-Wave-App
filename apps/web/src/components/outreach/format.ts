@@ -20,6 +20,7 @@ export const phoneKind = (p: { type: string; line?: string }) => [PHONE_TYPE[p.t
 export const sourceName = (s: string) =>
   ({
     roll: 'the appraisal roll',
+    district: 'the appraisal district',
     permits: 'city permits',
     batchdata: 'BatchData',
     tracerfy: 'Tracerfy',
@@ -96,6 +97,7 @@ export const askingText = (s?: string, since?: string) =>
   s
     ? ({
         roll: 'Reading the appraisal roll',
+        district: 'Checking who owns it today',
         permits: 'Reading city permits',
         'tx-comptroller': 'Asking the Texas Comptroller',
         cobalt: 'Asking the state registry',
