@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { internal } from "./_generated/api";
 import { setup } from "./test.setup";
-import { MIDLAND_GAPS, atAddress, districtParcel, districtProperty, districtSearchRows, isStorageParcel, storageOperator, useFromBuildings } from "./lib/parcels";
+import { MIDLAND_GAPS, atAddress, districtParcel, districtProperty, districtSearchRows, districtStreet, isStorageParcel, nameKey, nameSearch, storageOperator, codeFromBuildings } from "./lib/parcels";
 import { DEED_PACE } from "./parcels";
 
 const pace = { ...DEED_PACE };
@@ -67,6 +67,11 @@ function district(searches: Record<string, () => Response>, pages: Record<string
     "fetch",
     vi.fn(async (url: string) => {
       const u = new URL(url);
+      if (u.pathname.endsWith("webSearchName.aspx")) {
+        const name = u.searchParams.get("sdata")!;
+        asked.push(`name ${name}`);
+        return (searches[`name:${name}`] ?? (() => new Response(searchPage([], 0), { status: 200 })))();
+      }
       if (u.pathname.endsWith("webSearchAddress.aspx")) {
         const street = u.searchParams.get("sdata")!.split("|")[0];
         asked.push(`search ${street}`);
@@ -109,10 +114,10 @@ describe("Midland's blank parcels, looked up at the appraisal district", () => {
     expect(page.deeds.map((d) => [d.seller, d.date])).toEqual([["PROPERTY RENEGADES LLC", "2023-06-01"], ["HEJL BETTY TR", "2022-03-31"], ["HEJL JEROME C", "2010-04-08"]]);
     expect(districtProperty("<html><body>Property not found</body></html>")).toBeUndefined();
     // What's built says what it is: a commercial building, a house, or land alone (which isn't kept).
-    expect(useFromBuildings(["COMM", "PKLT"])).toBe("F1");
-    expect(useFromBuildings(["RES", "GAR"])).toBe("A1");
-    expect(useFromBuildings(["PKLT"])).toBeUndefined();
-    expect(useFromBuildings([])).toBeUndefined();
+    expect(codeFromBuildings(["COMM", "PKLT"])).toBe("F1");
+    expect(codeFromBuildings(["RES", "GAR"])).toBe("A1");
+    expect(codeFromBuildings(["PKLT"])).toBeUndefined();
+    expect(codeFromBuildings([])).toBeUndefined();
 
     // Two half-interest accounts are one property, valued once.
     const accounts = districtSearchRows(NORMAN)!.slice(0, 2);
@@ -211,6 +216,57 @@ describe("Midland's blank parcels, looked up at the appraisal district", () => {
       const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-gaps")).unique();
       expect(sync!.error).toContain("refused");
     });
+  });
+
+  test("an owner looked up by name: what else the district shows them holding, however the address is written", async () => {
+    // A numbered road as the district writes it, from the city's address point.
+    expect(districtStreet("307", "8910 F M 307")).toBe("FM RD 00307");
+    expect(districtStreet("116", "4400 W C R 116")).toBe("COUNTY RD 116");
+    expect(districtStreet("0080", "9707 E HWY 80")).toBe("HWY 80");
+    expect(districtStreet("Marlin", "1120 MARLIN AV")).toBe("MARLIN");
+    const fm = { id: "R000231272", owner: "KOSF II-MIDLAND LLC", street: "FM RD 00307", number: "8910" };
+    expect(atAddress(fm, "8910", "FM RD 307")).toBe(true);
+    expect(atAddress(fm, "8910", "FM RD 00307")).toBe(true);
+    expect(atAddress(fm, "8910", "FM RD 3070")).toBe(false);
+    // The district's spelling of a name and the roll's are one owner; the search goes by the first words.
+    expect(nameKey("KOSF II-MIDLAND LLC")).toBe(nameKey("KOSF II MIDLAND LLC"));
+    expect(nameSearch("KOSF II MIDLAND LLC")).toBe("KOSF II");
+    expect(nameSearch("MIDLAND LOCK STORAGE LLC")).toBe("MIDLAND LOCK STORAGE");
+    expect(MIDLAND_GAPS.byName("KOSF II")).toBe("https://iswdataclient.azurewebsites.net/webSearchName.aspx?dbkey=MIDLANDCAD&stype=name&sdata=KOSF%20II");
+
+    const t = setup();
+    await t.run(async (ctx) => {
+      // What the app has of KO's: one storage parcel. And an industrial owner with nothing more at the district.
+      await ctx.db.insert("parcels", { county: "Midland", cadId: "R000046605", useCode: "F1", landUse: "CWH03", kind: "storage", siteAddress: "1001 S L ST", addressKey: "1001 S L ST", owner: "KOSF II MIDLAND LLC", mailing: {}, ownerOccupied: false, companyOwned: true, importedAt: "2026-11-01" });
+      await ctx.db.insert("parcels", { county: "Midland", cadId: "R9", useCode: "F2", kind: "industrial", siteAddress: "5 PIPE RD", addressKey: "5 PIPE RD", owner: "PERMIAN PIPE LLC", mailing: {}, ownerOccupied: false, companyOwned: true, importedAt: "2026-11-01" });
+    });
+    const KO_NAMES = searchPage([
+      result("R000046605", "KOSF II MIDLAND LLC", "L ST   1001   S", "$343,200"),
+      // Missing from the app: the city's layer has it blank, and writes the address "8910 F M 307".
+      result("R000231272", "KOSF II-MIDLAND LLC", "FM RD 00307   8910  ", "$2,206,550"),
+      // A lot with no street number can't be told from the next one: left for the address fill.
+      result("R000004273", "KOSF II MIDLAND LLC", "INDUSTRIAL AV   0   W", "$237,930"),
+      // Another company whose name starts the same.
+      result("R000004545", "KOSF III MIDLAND LLC", "INDUSTRIAL LOOP   60  ", "$395,110"),
+      result("P000000121", "KOSF II MIDLAND LLC", "INDUSTRIAL AV   3013   W", "$9,800"),
+    ]);
+    const FM307 = propertyPage({ owner: "KOSF II-MIDLAND LLC", mail: "10301 WAYZATA BLVD<br/>MINNETONKA, MN 55305", built: [["COMM", "COMM BLDG"]], improvements: "$1,900,000", deeds: [["RIGHT LIGHT SERVICES LLC", "9/12/2025", "2025-1"]] });
+    const asked = district({ "name:KOSF II": ok(KO_NAMES) }, { R000231272: ok(FM307) });
+    expect(await t.action(internal.parcels.fillOwners, {})).toEqual({ owners: 2, asked: 2, added: 1, skipped: 0, addedTo: ["KOSF II MIDLAND LLC"] });
+    // One search an owner, and a page only for what's missing.
+    expect(asked).toEqual(["name KOSF II", "page R000231272", "name PERMIAN PIPE LLC"]);
+    await t.run(async (ctx) => {
+      const p = (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", "R000231272")).unique())!;
+      expect(p).toMatchObject({ source: "district", owner: "KOSF II-MIDLAND LLC", siteAddress: "8910 FM RD 00307", useCode: "F1", kind: "storage", marketValueCents: 220_655_000, deedDate: "2025-09-12" });
+      expect(p.deeds?.[0].seller).toBe("RIGHT LIGHT SERVICES LLC");
+      expect(await ctx.db.query("parcels").collect()).toHaveLength(3);
+      const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owner-check")).unique();
+      expect(sync).toMatchObject({ fetched: 2, added: 1 });
+    });
+    // Asked again, there is nothing new; one owner can be asked about by name.
+    asked.length = 0;
+    expect(await t.action(internal.parcels.fillOwners, { names: ["KOSF II MIDLAND LLC"] })).toMatchObject({ owners: 1, asked: 1, added: 0 });
+    expect(asked).toEqual(["name KOSF II"]);
   });
 
   test("the listing: blank shapes on the city's layer, the addresses inside them, and the gaps the city has since filled", async () => {

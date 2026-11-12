@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, isCommercialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, isCommercialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
 
@@ -441,8 +441,10 @@ export const noteGaps = internalMutation({
         await ctx.db.insert("parcelGaps", { county: MIDLAND_PARCELS.county, ...row, state: "waiting", seenAt });
         added++;
       } else {
-        const again = have.state === "none" && (!have.lookedUpAt || Date.parse(seenAt) - Date.parse(have.lookedUpAt) > GAP_RETRY_MS);
-        await ctx.db.patch(have._id, { seenAt, ...(again ? { state: "waiting" as const } : {}) });
+        // Asked again after a while, or at once when the street is now named as the district names it.
+        const renamed = have.street !== row.street;
+        const again = have.state === "none" && (renamed || !have.lookedUpAt || Date.parse(seenAt) - Date.parse(have.lookedUpAt) > GAP_RETRY_MS);
+        await ctx.db.patch(have._id, { seenAt, ...(renamed ? { street: row.street } : {}), ...(again ? { state: "waiting" as const, why: undefined } : {}) });
       }
     }
     return { added };
@@ -534,11 +536,13 @@ export const findGaps = internalAction({
           const { x, y } = f.geometry ?? {};
           const a = f.attributes ?? {};
           const number = typeof a.ADDR_HN === "string" ? a.ADDR_HN.trim() : "";
-          const street = typeof a.ADDR_SN === "string" ? a.ADDR_SN.trim().toUpperCase() : "";
+          const full = typeof a.ADDRESS === "string" ? a.ADDRESS : "";
+          // The street as the district will list it: a numbered road gets its kind ("307" on "8910 F M 307" is "FM RD 00307").
+          const street = typeof a.ADDR_SN === "string" && a.ADDR_SN.trim() ? districtStreet(a.ADDR_SN, full) : "";
           if (x === undefined || y === undefined || !/^\d+$/.test(number) || !street) continue;
           const shape = (grid.get(cellOf(x, y)) ?? []).map((i) => shapes[i]).find((sh) => x >= sh.box[0] && x <= sh.box[2] && y >= sh.box[1] && y <= sh.box[3] && inRing(x, y, sh.rings[0]));
           if (!shape || shape.found >= GAP_ADDRESSES) continue;
-          const key = addressKey(typeof a.ADDRESS === "string" ? a.ADDRESS : `${number} ${street}`);
+          const key = addressKey(full || `${number} ${street}`);
           if (!key || rows.has(key)) continue;
           shape.found++;
           const dir = typeof a.ADDR_PD === "string" && a.ADDR_PD.trim() ? a.ADDR_PD.trim().toUpperCase() : undefined;
@@ -750,6 +754,130 @@ export const fillAddress = internalAction({
     const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps: [] });
     if (looked.parcels.length) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
     return { added: saved.added, found: looked.found.get(0) ?? [] };
+  },
+});
+
+// ---- The same owners, by name: what else the district shows them holding ----
+
+/** The owners of Midland's storage and industrial parcels, each name once, in order: who the name check asks about. */
+export const kindOwners = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const names = new Set<string>();
+    for (const kind of KINDS) {
+      for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) names.add(p.owner);
+    }
+    return [...names].sort();
+  },
+});
+
+/** Which of these property ids are in the parcels table at all. */
+export const haveParcels = internalQuery({
+  args: { cadIds: v.array(v.string()) },
+  handler: async (ctx, { cadIds }) => {
+    const out: string[] = [];
+    for (const cadId of cadIds) if (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", cadId)).first()) out.push(cadId);
+    return out;
+  },
+});
+
+/** How many properties one owner may have missing before it's left for a person to look at (a name shared by many). */
+const OWNER_MISSING_MAX = 25;
+
+/**
+ * One owner at the district, by name: every property under that name the parcels table doesn't have, each read from
+ * its page and kept when there's a building on it. Catches what an address can't: a property the city's layer has
+ * blank and addresses differently (KO Storage's 8910 FM 307).
+ */
+async function lookUpOwner(ctx: ActionCtx, owner: string): Promise<{ parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; refused?: string; unreadable?: string; skipped?: true }> {
+  const out: { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }> } = { parcels: [] };
+  const term = nameSearch(owner);
+  let search = await districtGet(MIDLAND_GAPS.byName(term));
+  await pause();
+  if ("html" in search && !districtSearchRows(search.html)) {
+    search = await districtGet(MIDLAND_GAPS.byName(term));
+    await pause();
+  }
+  if ("refused" in search) return { ...out, refused: search.refused };
+  const rows = "html" in search ? districtSearchRows(search.html) : undefined;
+  if (!rows) return { ...out, unreadable: "none" in search ? search.none : "the name search had no results list" };
+  const theirs = rows.filter((r) => nameKey(r.owner) === nameKey(owner) && r.number !== "0");
+  const have = new Set<string>(theirs.length ? await ctx.runQuery(internal.parcels.haveParcels, { cadIds: theirs.map((r) => r.id) }) : []);
+  // One property per address: accounts at one address are one (undivided interests), and one we hold any account of is held.
+  const byAddress = new Map<string, DistrictRow[]>();
+  for (const r of theirs) {
+    const key = `${r.number}|${r.dir ?? ""}|${r.street}`;
+    byAddress.set(key, [...(byAddress.get(key) ?? []), r]);
+  }
+  const missing = [...byAddress.values()].filter((accounts) => !accounts.some((a) => have.has(a.id)));
+  if (missing.length > OWNER_MISSING_MAX) return { ...out, skipped: true };
+  for (const accounts of missing) {
+    const page = await districtGet(MIDLAND_DEEDS.page(accounts[0].id));
+    await pause();
+    if ("refused" in page) return { ...out, refused: page.refused };
+    const read = "html" in page ? districtProperty(page.html) : undefined;
+    const row = read ? districtParcel(accounts, read) : undefined;
+    if (read && row) out.parcels.push({ row, deeds: read.deeds });
+  }
+  return out;
+}
+
+const ownerTotals = v.object({ asked: v.number(), added: v.number(), skipped: v.number() });
+
+/**
+ * The name check: each storage and industrial owner looked up at the district by name, from `from` on, a request
+ * about every second, handing on to a fresh step after STEP_MS. `names` asks about just those. A refusal stops it;
+ * unreadable searches in a row are tried again later, then recorded. Records how it went under "midland-owner-check"
+ * and rebuilds Midland's owners when it added any. By hand: `npx convex run parcels:fillOwners '{"names":["KOSF II MIDLAND LLC"]}'`.
+ */
+export const fillOwners = internalAction({
+  args: { names: v.optional(v.array(v.string())), from: v.optional(v.number()), totals: v.optional(ownerTotals), failures: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<{ owners: number; asked: number; added: number; skipped: number; addedTo: string[]; error?: string }> => {
+    const names: string[] = args.names ?? (await ctx.runQuery(internal.parcels.kindOwners, {}));
+    const sum = { asked: 0, added: 0, skipped: 0, ...(args.totals ?? {}) };
+    const addedTo: string[] = [];
+    const started = Date.now();
+    let at = args.from ?? 0;
+    let error: string | undefined;
+    let refused = false;
+    let doubts = 0;
+    for (; at < names.length && !error && Date.now() - started < STEP_MS; at++) {
+      const looked = await lookUpOwner(ctx, names[at]);
+      if (looked.refused) {
+        refused = true;
+        error = `Midland owner check: the district's site refused the read (${looked.refused})`;
+        break;
+      }
+      if (looked.unreadable) {
+        if (++doubts >= DEED_DOUBTS) {
+          error = `Midland owner check: ${DEED_DOUBTS} searches in a row couldn't be read (${looked.unreadable})`;
+          at -= doubts - 1;
+          break;
+        }
+        continue;
+      }
+      doubts = 0;
+      sum.asked++;
+      if (looked.skipped) sum.skipped++;
+      if (looked.parcels.length) {
+        const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps: [] });
+        sum.added += saved.added;
+        if (saved.added) addedTo.push(names[at]);
+      }
+    }
+    const rest = args.names ? { names: args.names } : {};
+    if (!error && at < names.length) {
+      await ctx.scheduler.runAfter(0, internal.parcels.fillOwners, { ...rest, from: at, totals: sum });
+      return { owners: names.length, ...sum, addedTo };
+    }
+    const failures = (args.failures ?? 0) + 1;
+    if (error && !refused && failures < STEP_TRIES) {
+      await ctx.scheduler.runAfter(60_000, internal.parcels.fillOwners, { ...rest, from: Math.max(0, at), totals: sum, failures });
+      return { owners: names.length, ...sum, addedTo, error };
+    }
+    if (sum.added > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    await ctx.runMutation(internal.permits.recordSync, { source: "midland-owner-check", fetched: sum.asked, added: sum.added, updated: sum.skipped, error });
+    return { owners: names.length, ...sum, addedTo, error };
   },
 });
 
