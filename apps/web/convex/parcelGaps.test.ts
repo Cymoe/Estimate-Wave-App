@@ -180,9 +180,20 @@ describe("Midland's blank parcels, looked up at the appraisal district", () => {
 
   test("one address can be looked up at once; a refusal stops everything where it is", async () => {
     const t = setup();
-    let asked = district({ NORMAN: ok(NORMAN) }, { R000004331: ok(ATLAS) });
+    // The site's first answer is sometimes its front page: the search is asked once more.
+    let first = true;
+    const frontPageOnce = () => {
+      const html = first ? "<html><head><title>Midland CAD</title></head><body>Welcome</body></html>" : NORMAN;
+      first = false;
+      return new Response(html, { status: 200 });
+    };
+    let asked = district({ NORMAN: frontPageOnce }, { R000004331: ok(ATLAS) });
     expect(await t.action(internal.parcels.fillAddress, { number: "200", street: "norman" })).toEqual({ added: 1, found: ["R000004331"] });
-    expect(asked).toEqual(["search NORMAN", "page R000004331"]);
+    expect(asked).toEqual(["search NORMAN", "search NORMAN", "page R000004331"]);
+    // The front page twice is no answer, and says what came back.
+    asked = district({ NORMAN: ok("<html><head><title>Midland CAD</title></head><body>Welcome</body></html>") }, {});
+    expect(await t.action(internal.parcels.fillAddress, { number: "200", street: "NORMAN" })).toMatchObject({ added: 0, error: expect.stringContaining('titled "Midland CAD"') });
+    asked = district({ NORMAN: ok(NORMAN) }, { R000004331: ok(ATLAS) });
     expect(await t.action(internal.parcels.fillAddress, { number: "5", street: "NORMAN" })).toEqual({ added: 0, found: [] });
 
     await t.run(async (ctx) => {

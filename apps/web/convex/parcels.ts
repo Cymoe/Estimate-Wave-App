@@ -628,8 +628,13 @@ type Looked = { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; found: Map
  */
 async function lookUpStreet(ctx: ActionCtx, street: string, wanted: Array<{ number: string; dir?: string }>): Promise<Looked> {
   const out: Looked = { parcels: [], found: new Map() };
-  const search = await districtGet(MIDLAND_GAPS.search(street, wanted[0].number));
+  // The district's site sometimes answers a first search with its front page; asked once more, it gives the results.
+  let search = await districtGet(MIDLAND_GAPS.search(street, wanted[0].number));
   await pause();
+  if ("html" in search && !districtSearchRows(search.html)) {
+    search = await districtGet(MIDLAND_GAPS.search(street, wanted[0].number));
+    await pause();
+  }
   if ("refused" in search) return { ...out, refused: search.refused };
   const rows = "html" in search ? districtSearchRows(search.html) : undefined;
   if (!rows) {
