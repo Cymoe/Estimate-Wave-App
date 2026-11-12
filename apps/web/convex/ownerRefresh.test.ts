@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { setup } from "./test.setup";
 import { DEED_PACE, MIDLAND_OWNERS_SOURCE } from "./parcels";
 import { rowsToParcels } from "./lib/parcels";
+import { OWNERS_SOURCE, REFRESH_SOURCE, ownersSource } from "./lib/outreach";
 
 const pace = { ...DEED_PACE };
 beforeEach(() => {
@@ -46,6 +47,13 @@ const parcels = (t: ReturnType<typeof setup>) => t.run(async (ctx) => Object.fro
 const state = (t: ReturnType<typeof setup>) => t.query(internal.permits.sourceState, { source: MIDLAND_OWNERS_SOURCE });
 
 describe("who owns each Midland parcel today, from the appraisal district", () => {
+  test("the refresh keeps its record under a name nothing else writes", () => {
+    // Outreach's owners build is "midland-owners": the lists read their totals from that record.
+    const taken = [OWNERS_SOURCE, REFRESH_SOURCE, ...["Midland", "Ector", "Lubbock", "Taylor"].map(ownersSource), "midland-parcels", "midland-deeds", "midland-gaps", "midland-owner-check"];
+    expect(taken).not.toContain(MIDLAND_OWNERS_SOURCE);
+  });
+
+
   test("a sold house takes its new owner; the same owner takes a new mailing address; the rest are only marked read", async () => {
     const t = setup();
     await t.run(async (ctx) => {

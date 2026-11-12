@@ -1212,8 +1212,12 @@ export const checkCoverage = internalAction({
 // and nobody who bought this year is on it. The district's page for a property is current. Every parcel's page is
 // read in turn, a request a second (the first pass is most of a day), and again once it is OWNERS_MAX_AGE_MS old.
 
-/** Where the refresh records how it stands (permitSources): fetched is the pages read, added the parcels with a new owner, updated those with a new mailing address or deed date. */
-export const MIDLAND_OWNERS_SOURCE = "midland-owners";
+/**
+ * Where the refresh records how it stands (permitSources): fetched is the pages read, added the parcels with a new
+ * owner, updated those with a new mailing address or deed date. A name of its own: "midland-owners" is Outreach's
+ * record of its owners build (lib/outreach.ts OWNERS_SOURCE), which the lists read their totals from.
+ */
+export const MIDLAND_OWNERS_SOURCE = "midland-district-owners";
 /** A parcel's page is read again once its last read is this old. */
 const OWNERS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 /** Outreach's owners are rebuilt each time this many more pages have been read, and when a pass ends. */
