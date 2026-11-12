@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
+import { notify } from '../components/common/appDialogs';
 
 export const EditEstimatePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -26,7 +27,7 @@ export const EditEstimatePage: React.FC = () => {
       setEstimate(data);
     } catch (error) {
       console.error('Error loading estimate:', error);
-      alert('Failed to load estimate');
+      notify("Couldn't load this estimate.");
       navigate('/estimates');
     } finally {
       setLoading(false);
@@ -36,7 +37,7 @@ export const EditEstimatePage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#F9D71C]"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#336699]"></div>
       </div>
     );
   }
@@ -77,6 +78,8 @@ export const EditEstimatePage: React.FC = () => {
               description: item.description || item.product_name || '',
               quantity: item.quantity,
               unit_price: item.price,
+              red_line_price: item.red_line_price,
+              cap_price: item.cap_price,
               total_price: item.price * item.quantity,
               display_order: index
             }))
@@ -86,7 +89,7 @@ export const EditEstimatePage: React.FC = () => {
           navigate(`/estimates/${id}`);
         } catch (error) {
           console.error('Error updating estimate:', error);
-          alert('Failed to update estimate. Please try again.');
+          notify("Couldn't save the estimate. Try again.");
         }
       }}
     />

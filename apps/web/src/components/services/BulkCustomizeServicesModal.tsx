@@ -132,7 +132,7 @@ export const BulkCustomizeServicesModal: React.FC<BulkCustomizeServicesModalProp
       }, 1500);
     } catch (err) {
       console.error('Error bulk copying services:', err);
-      setError('Failed to customize services. Please try again.');
+      setError("Couldn't customize those services. Try again.");
     } finally {
       setIsLoading(false);
     }
@@ -145,7 +145,7 @@ export const BulkCustomizeServicesModal: React.FC<BulkCustomizeServicesModalProp
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         {/* Background overlay */}
         <div 
-          className="fixed inset-0 transition-opacity bg-black bg-opacity-75"
+          className="fixed inset-0 transition-opacity" style={{ backgroundColor: 'rgba(0,0,0,0.75)' }}
           onClick={onClose}
         />
 

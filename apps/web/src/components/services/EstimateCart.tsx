@@ -229,7 +229,7 @@ export const EstimateCart: React.FC<EstimateCartProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-gray-400">Discount</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 value={discountPercent}
                 onChange={(e) => setDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
                 className="w-12 px-1 py-0.5 bg-[#252525] border border-[#333333] rounded text-white text-xs text-center"
@@ -252,7 +252,7 @@ export const EstimateCart: React.FC<EstimateCartProps> = ({
               />
               <span className="text-gray-400">Tax</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 value={taxRate}
                 onChange={(e) => setTaxRate(Math.max(0, parseFloat(e.target.value) || 0))}
                 disabled={!includeTax}

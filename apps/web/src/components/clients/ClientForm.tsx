@@ -41,7 +41,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({
       setError(null);
       await onSubmit(formData);
     } catch (err) {
-      setError('Failed to submit form');
+      setError("Couldn't save the client. Try again.");
       setLoading(false);
     }
   };
@@ -134,7 +134,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({
             </label>
             <div className="relative">
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 value={formData.discount_percentage || 0}
                 onChange={(e) => {
                   const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
@@ -168,7 +168,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({
           <button
             type="submit"
             form="client-form"
-            className="w-full px-4 py-3 bg-[#F9D71C] text-[#121212] rounded-[4px] hover:bg-[#F9D71C]/90 disabled:opacity-50 font-['Roboto'] uppercase font-medium tracking-wider"
+            className="w-full px-4 py-3 bg-[#336699] text-white rounded-[4px] hover:bg-[#336699]/90 disabled:opacity-50 font-['Roboto'] uppercase font-medium tracking-wider"
             disabled={loading}
           >
             {loading ? 'CREATING...' : submitLabel.toUpperCase()}

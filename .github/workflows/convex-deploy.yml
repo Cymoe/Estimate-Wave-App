@@ -1,0 +1,248 @@
+name: Deploy Convex backend
+
+# Pushes apps/web/convex to the deployment named by the CONVEX_DEPLOY_KEY
+# secret, sets up Convex Auth keys if missing, loads the shared catalog,
+# then runs an end-to-end smoke test against the live deployment.
+
+on:
+  push:
+    branches: [main, fieldquote-convex]
+    paths:
+      - 'apps/web/convex/**'
+      - 'apps/web/scripts/convex-*.mjs'
+      - 'apps/web/package.json'
+      - 'package-lock.json'
+      - '.github/workflows/convex-deploy.yml'
+  workflow_dispatch:
+    # Started by hand from the Actions tab, with an optional one-off
+    # function to run right after the push, for the internal functions
+    # the deploy doesn't run on its own (a sample fill, a clear-out).
+    inputs:
+      function:
+        description: 'Also run this function, e.g. outreach:seedSample'
+        required: false
+        default: ''
+        type: string
+      args:
+        description: 'Its arguments as JSON'
+        required: false
+        default: '{}'
+        type: string
+      logs:
+        description: 'Only print the recent function logs of the deployment (no deploy)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: convex-deploy
+  cancel-in-progress: false
+
+jobs:
+  # Started by hand with "logs" ticked: the live deployment's most recent function logs, every run, to see what went wrong.
+  logs:
+    if: github.event_name == 'workflow_dispatch' && inputs.logs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Check deploy key
+        working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          [ -n "$key" ] || { echo "::error::Add a CONVEX_DEPLOY_KEY repository secret."; exit 1; }
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          echo "CONVEX_DEPLOY_KEY=$key" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      - name: Recent logs
+        # The command streams after the history; stop it once the history is out.
+        run: timeout 45 npx convex logs --history 1000 --success || true
+
+  deploy:
+    if: github.event_name != 'workflow_dispatch' || !inputs.logs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The site users sign in from, and where alert links and assistant
+      # sign-in point. Set the SITE_URL repository variable for production;
+      # until then it's this branch's Vercel preview (never localhost, which
+      # would break every link sent from the live deployment).
+      SITE_URL: ${{ vars.SITE_URL || 'https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app' }}
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Check deploy key
+        # Runs before checkout, so apps/web doesn't exist yet.
+        working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          # Accept a key pasted with its "|" URL-encoded as %7C.
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          if [ -z "$key" ]; then
+            echo "::error::Add a CONVEX_DEPLOY_KEY repository secret (Convex dashboard > Settings > Deploy keys)."
+            exit 1
+          fi
+          # Mask every form of the key before anything else can print it.
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          if ! [[ "$key" =~ ^(dev|prod|preview):([a-z0-9-]+)\|.+$ ]]; then
+            echo "::error::CONVEX_DEPLOY_KEY isn't a Convex deploy key (expected dev:<deployment>|<key>). Copy it again from the Convex dashboard."
+            exit 1
+          fi
+          name="${BASH_REMATCH[2]}"
+          {
+            echo "CONVEX_DEPLOY_KEY=$key"
+            echo "CONVEX_URL=https://${name}.convex.cloud"
+          } >> "$GITHUB_ENV"
+          echo "Deploying to ${name}"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+
+      - name: Run backend tests
+        run: npm run test:convex
+
+      - name: Push functions and schema
+        run: npx convex deploy --yes
+
+      - name: Run the function asked for
+        if: github.event_name == 'workflow_dispatch' && inputs.function != ''
+        env:
+          FUNCTION: ${{ inputs.function }}
+          ARGS: ${{ inputs.args }}
+        run: npx convex run "$FUNCTION" "$ARGS"
+
+      - name: Set up Convex Auth
+        run: node scripts/convex-setup-auth.mjs
+
+      - name: Make the key that seals connected Gmail accounts, once
+        # Only when it's missing: a new key would lock out every Gmail already
+        # connected. The value is made here and never printed.
+        run: |
+          names=$(npx convex env list | cut -d= -f1)
+          if ! grep -qx MAILBOX_KEY <<<"$names"; then
+            key=$(openssl rand -base64 32)
+            echo "::add-mask::$key"
+            npx convex env set MAILBOX_KEY "$key" >/dev/null
+            echo "MAILBOX_KEY made"
+          else
+            echo "MAILBOX_KEY already there"
+          fi
+
+      - name: Load shared catalog
+        run: npx convex run seed:catalog
+
+      - name: Fold old Price Book trade picks into each company's trades
+        # One list of trades per company (organizations.leadTrades). Safe to
+        # re-run: once the old rows are gone it does nothing.
+        run: npx convex run industries:mergeChosenTrades
+      - name: Remove bids placed outside a company's trades
+        # Bids are only for listed trades. Safe to re-run: with none outside
+        # the lists it does nothing.
+        run: npx convex run bids:removeBidsOutsideTrades
+      - name: Keep password accounts made before email codes
+        # They got their invites when they signed up; mark them proven so they
+        # aren't asked for a code. Safe to re-run: marked accounts are skipped.
+        run: npx convex run users:keepEarlierPasswordAccounts
+      - name: Rename projects still called "Estimate 0…"
+        # Projects started from an estimate nobody named took its placeholder
+        # title; name them after the client instead. Safe to re-run: renamed
+        # ones no longer match.
+        run: npx convex run projects:renamePlaceholderProjects
+      - name: Clear "Estimate 0…" titles on estimates nobody named
+        # Screens show the estimate number and client instead. Safe to re-run.
+        run: npx convex run estimates:clearPlaceholderTitles
+      - name: Pull Midland's permits
+        # The Webb Report's permits. Incremental after the first run.
+        run: npx convex run permits:syncMidland
+      - name: Pull Midland's home owners
+        # The appraisal roll callers work from. Skipped when a clean pass ran
+        # in the last week; the weekly job keeps it current.
+        run: npx convex run parcels:syncMidland '{"ifStale":true}'
+      - name: Pull Odessa's, Lubbock's and Abilene's agents and brokers
+        # TREC's active license holders, for those counties' realtor lists. A
+        # page or two each; the weekly job keeps them current.
+        run: |
+          npx convex run realtors:syncCounty '{"county":"Ector"}'
+          npx convex run realtors:syncCounty '{"county":"Lubbock"}'
+          npx convex run realtors:syncCounty '{"county":"Taylor"}'
+      - name: Pull Odessa's, Lubbock's and Abilene's property owners
+        # Each county's appraisal roll, read in the background a page at a
+        # time; when a read finishes it builds that county's Outreach owners.
+        # Skipped when a clean read ran in the last week.
+        run: |
+          npx convex run parcels:syncCounty '{"county":"Ector","ifStale":true,"background":true}'
+          npx convex run parcels:syncCounty '{"county":"Lubbock","ifStale":true,"background":true}'
+          npx convex run parcels:syncCounty '{"county":"Taylor","ifStale":true,"background":true}'
+      - name: Move Outreach's old list rows into contacts
+        run: npx convex run outreach:migrateRows
+      - name: Give contacts unlocked before per-field cells their cells
+        run: npx convex run outreach:migrateUnlocks
+      - name: Remove sample-only owners left from deleted lists
+        # Owners on no list with only sample or simulated results (no paid lookup, never sent to Leads).
+        # Safe to re-run: once they're gone it does nothing.
+        run: npx convex run outreach:clearLeftovers
+      - name: Keep each Outreach owner's public records on the owner
+        # So the owners page reads them with the owners, not one lookup each.
+        # Owners saved before get theirs; finishes in the background. Safe to re-run.
+        run: npx convex run outreach:backfillContactSignals
+      - name: File each Outreach owner under its lists, company family and mailing address
+        # Membership rows and indexed fields, so a list (and a company's sister entities) can be read without reading
+        # every owner. Owners saved before get theirs; finishes in the background. Safe to re-run.
+        run: npx convex run outreach:backfillFiling
+      - name: File each parcel under its owner, so an owner's sheet can list everything they hold
+        # The parcels read before this kept no owner key. A county at a time, in the background; only the unfiled are
+        # read, so a re-run costs a lookup per county.
+        run: npx convex run parcels:fileOwners '{}'
+      - name: Count the Outreach lists saved before their numbers were kept on them
+        # Owners worked and results in Leads, stored on each list so the lists read without reading every owner.
+        # In the background; safe to re-run: a list already counted is left alone.
+        run: npx convex run outreach:recountAll
+      - name: Key permits by address for Outreach
+        # Permits imported before the key existed get theirs; finishes in the background. Safe to re-run.
+        run: npx convex run permits:backfillAddressKeys
+
+      - name: Group the roll into owners for Outreach
+        # One row per owner and per office that gets several owners' tax
+        # bills (lib/outreach.ts). Skipped when a clean build is newer than
+        # the roll read above.
+        run: npx convex run outreachRebuild:rebuild '{"ifStale":true,"background":true}'
+      - name: Pull Midland's distress signals
+        # Code violations, dilapidated buildings, demolition orders and stalled
+        # permits for the Sellers lists. All of them the first time; skipped
+        # when a clean run happened in the last day.
+        run: npx convex run signals:syncMidland '{"ifStale":true}'
+
+      - name: Smoke test the live deployment
+        run: node scripts/convex-smoke-test.mjs
+
+      - name: Remove smoke-test data
+        # The smoke test makes throwaway @fieldquote.test accounts (one with a
+        # company); delete them so test companies don't pile up.
+        if: always()
+        run: npx convex run seed:removeSmokeTests

@@ -14,7 +14,7 @@ export const NewButton: React.FC<NewButtonProps> = ({
   className = '',
 }) => {
   const colorStyles = {
-    yellow: 'bg-[#F9D71C] hover:bg-opacity-90 text-[#121212]',
+    yellow: 'bg-[#336699] hover:bg-opacity-90 text-white',
     blue: 'bg-[#336699] hover:bg-opacity-80 text-white',
     danger: 'bg-[#D32F2F] hover:bg-opacity-80 text-white',
     ghost:

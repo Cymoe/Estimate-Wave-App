@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { supabase } from '../../lib/supabase';
+import { createPortal } from 'react-dom';
+import { clientsAPI } from '../../lib/api';
+import { EstimateService, toLegacyClient } from '../../services/EstimateService';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
-import { formatCurrency } from '../../utils/format';
-import { Search, Plus, Minus, X, Save, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { formatCurrency, formatDate } from '../../utils/format';
+import { priceRange } from '../../utils/priceRange';
+import { Search, Plus, Minus, X, Save, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { EstimateTableView } from './EstimateTableView';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { ClientSelector } from './ClientSelector';
 import { NewClientModal } from '../clients/NewClientModal';
 // import { ServiceCatalogService } from '../../services/ServiceCatalogService'; // Removed - using line items only
-import { LineItemService } from '../../services/LineItemService';
+import { MongoLineItemService as LineItemService } from '../../services/MongoLineItemService';
+import { askConfirm, notify } from '../common/appDialogs';
 
 interface EstimateItem {
   product_id: string;
@@ -22,6 +26,14 @@ interface EstimateItem {
   service_items?: any[];
   line_item_count?: number;
   service_data?: any;
+  /** Price-book floor and ceiling; the item starts at cap. */
+  red_line_price?: number;
+  cap_price?: number;
+  /** Kept from the saved line when editing, so the edit doesn't drop them. */
+  id?: string;
+  category?: string;
+  category_chosen?: boolean;
+  allowance?: { pickBy?: string; amount?: number } | null;
 }
 
 interface Template {
@@ -35,9 +47,11 @@ interface Template {
     total_amount?: number;
   };
   items?: Array<{
-    product_id: string;
+    product_id?: string;
+    name?: string;
     quantity: number;
     price: number;
+    unit?: string;
     description?: string;
     product?: any;
   }>;
@@ -53,6 +67,8 @@ interface Product {
   type: string;
   category?: string;
   is_base_product: boolean;
+  red_line_price?: number;
+  cap_price?: number;
   items?: any[];
   trade_id?: string;
   cost_code?: {
@@ -173,9 +189,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   // Load estimate data when editing - but only after data is loaded
   useEffect(() => {
     if (isOpen && editingEstimate) {
-      console.log('Setting form data from editing estimate:', {
-        estimateId: editingEstimate.id
-      });
       
       // Set form data from existing estimate
       setSelectedClient(editingEstimate.client_id || '');
@@ -211,7 +224,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   // Handle preloaded items from cart
   useEffect(() => {
     if (isOpen && preloadedItems && preloadedItems.length > 0 && !editingEstimate) {
-      console.log('Loading preloaded items:', preloadedItems);
       // Process preloaded items - services removed, all are line items now
       const processedItems = preloadedItems;
       setSelectedItems(processedItems);
@@ -290,20 +302,21 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     if (!editingEstimate || !user) return;
     
     try {
-      const { data: items, error } = await supabase
-        .from('estimate_items')
-        .select('*, product:products(*)')
-        .eq('estimate_id', editingEstimate.id);
-        
-      if (error) throw error;
-      
-      const estimateItems: EstimateItem[] = (items || []).map(item => ({
-        product_id: item.product_id,
-        product_name: item.product?.name || 'Unknown Item',
+      const estimate = editingEstimate.items ? editingEstimate : await EstimateService.getById(editingEstimate.id);
+      const estimateItems: EstimateItem[] = (estimate?.items || []).map((item: any, index: number) => ({
+        product_id: item.product_id || item.id || `item-${index}`,
+        product_name: item.description || 'Item',
         quantity: item.quantity,
-        price: item.price || item.unit_price || item.product?.price || 0,
-        unit: item.product?.unit || 'ea',
-        description: item.description || item.product?.description
+        price: item.unit_price ?? item.price ?? 0,
+        unit: item.unit || 'ea',
+        description: item.description,
+        red_line_price: item.red_line_price,
+        cap_price: item.cap_price,
+        // The line's id and type of work ride through the edit unchanged.
+        id: item.id,
+        category: item.category,
+        category_chosen: item.category_chosen,
+        allowance: item.allowance,
       }));
       
       setSelectedItems(estimateItems);
@@ -317,15 +330,8 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     if (!projectContext?.projectId) return;
     
     try {
-      const { data: project, error } = await supabase
-        .from('projects')
-        .select('category_id')
-        .eq('id', projectContext.projectId)
-        .single();
-        
-      if (error) throw error;
-      
-      setProjectCategory(project?.category_id || null);
+      // Projects don't have categories in Convex yet.
+      setProjectCategory(null);
     } catch (error) {
       console.error('Error loading project category:', error);
     }
@@ -340,7 +346,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       let orgId = selectedOrg.id;
       if (!orgId || selectedOrg.name === 'Loading...') {
         orgId = localStorage.getItem('selectedOrgId') || '';
-        console.log('Using fallback organization ID from localStorage:', orgId);
       }
       
       if (!orgId) {
@@ -349,60 +354,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         return;
       }
       
-      // Build base queries array
-      const queries = [
-        supabase.from('clients').select('*').eq('organization_id', orgId)
-      ];
-
-      // Load organization's selected industries first
-      const { data: orgIndustries, error: indError } = await supabase
-        .from('organization_industries')
-        .select('industry_id, industries(id, name)')
-        .eq('organization_id', orgId);
-      
-      if (indError) {
-        console.error('Error loading organization industries:', indError);
-      }
-      
-      // Get industry IDs for filtering
-      const industryIds = orgIndustries?.map(oi => oi.industry_id) || [];
-      
-      // Note: We'll use invoice templates for now until estimate templates are created
-      console.log('Loading templates for org:', orgId, 'with industries:', industryIds);
-      
-      let templateQuery = supabase.from('invoice_templates')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      // Filter templates by organization's selected industries
-      if (industryIds.length > 0) {
-        templateQuery = templateQuery.in('industry_id', industryIds);
-      }
-      
-      console.log('Template query built with industry filtering');
-      
-      // If we have a project category, filter templates by it
-      if (projectCategory) {
-        templateQuery = templateQuery.eq('category_id', projectCategory);
-      }
-      
-      // Execute all queries including the template query
-      const [clientsRes, templatesRes] = await Promise.all([
-        ...queries,
-        templateQuery
-      ]);
-      console.log('Template query executed, result:', templatesRes);
-
-      if (clientsRes.error) throw clientsRes.error;
-      if (templatesRes.error) {
-        console.error('Templates error:', templatesRes.error);
-        console.error('Full templatesRes:', templatesRes);
-      }
-      
-      console.log('Templates query result data:', templatesRes.data);
-      console.log('Organization industries:', orgIndustries?.map(oi => (oi as any).industries?.name));
-      console.log('Filtered templates count:', templatesRes.data?.length || 0);
-      console.log('Templates query result count:', templatesRes.data?.length);
+      const clientRows = await clientsAPI.list(orgId);
       
       // Load line items for organization
       let lineItemsData: any[] = [];
@@ -412,75 +364,31 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         console.error('Error loading line items:', error);
       }
       
-      // Load service templates using ServiceCatalogService
-      let servicesData: any[] = [];
-      try {
-        // Get bundle items from line_items instead
-        const { data } = await supabase
-          .from('line_items')
-          .select('*')
-          .eq('is_bundle', true)
-          .order('name');
-        servicesData = data || [];
-        console.log('Loaded services:', servicesData.length);
-      } catch (error) {
-        console.error('Error loading services:', error);
-      }
-      
       // Process line items - convert to Product format for compatibility
-      const allLineItems = lineItemsData.map((item: any) => ({
+      // Estimates start each item at its cap price.
+      const allLineItems = lineItemsData.map((item: any) => {
+        const range = priceRange(item);
+        return {
         ...item,
-        // Price is already resolved based on project context
+        red_line_price: range.redLine,
+        cap_price: range.cap,
+        price: range.cap,
         unit: item.unit || 'ea',
         trade_id: item.trade_id || null,
         // Add category from cost code
         type: item.cost_code?.category || 'material'
-      }));
+        };
+      });
       
-      // Process templates and fetch their items separately
-      let processedTemplates: Template[] = [];
-      if (templatesRes.data && templatesRes.data.length > 0) {
-        console.log('Processing templates, fetching items for:', templatesRes.data.map(t => t.id));
-        // Fetch items for all templates - these don't have line_item references
-        const { data: allTemplateItems, error: itemsError } = await supabase
-          .from('invoice_template_items')
-          .select('*')
-          .in('template_id', templatesRes.data.map(t => t.id));
-          
-        console.log('Template items result:', allTemplateItems);
-        if (itemsError) {
-          console.error('Template items error:', itemsError);
-        }
-        
-        processedTemplates = templatesRes.data.map(template => {
-          // Find items for this template
-          const templateItems = allTemplateItems?.filter(item => item.template_id === template.id) || [];
-          
-          // Calculate total from items if not in content
-          const itemsTotal = templateItems.reduce((sum: number, item: any) => 
-            sum + (item.price * item.quantity), 0) || 0;
-          
-          return {
-            ...template,
-            description: template.content?.description || '',
-            total_amount: template.content?.total_amount || itemsTotal,
-            items: templateItems
-          };
-        });
-      }
+      // Templates aren't part of the app yet.
+      const processedTemplates: Template[] = [];
       
-      setClients(clientsRes.data || []);
+      setClients(clientRows.map(toLegacyClient));
       // Services removed - bundles are in line_items now
       setLineItems(allLineItems as Product[]);
       setTemplates(processedTemplates);
       
       // Debug logging
-      console.log('CreateEstimateDrawer - Data loaded:', {
-        organizationId: orgId,
-        clients: clientsRes.data?.length || 0,
-        lineItems: allLineItems.length,
-        templates: processedTemplates.length
-      });
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -489,23 +397,17 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   };
 
   const handleTemplateSelect = (template: Template) => {
-    console.log('Template selected:', template);
-    console.log('Template items:', template.items);
     
     // Add template items to existing items
     if (template.items && template.items.length > 0) {
-      const newItems: EstimateItem[] = template.items.map((item, index) => {
-        // Template items don't have line_item references, just price and quantity
-        return {
-          product_id: `template-item-${template.id}-${index}`,
-          product_name: `Template Item ${index + 1}`,
-          quantity: item.quantity,
-          price: typeof item.price === 'number' ? item.price : parseFloat(String(item.price || 0)),
-          unit: 'ea',
-          description: `From template: ${template.name}`
-        };
-      });
-      console.log('Adding items to estimate:', newItems);
+      const newItems: EstimateItem[] = template.items.map((item, index) => ({
+        product_id: item.product_id || `template-item-${template.id}-${index}-${Date.now()}`,
+        product_name: item.name || item.description || `Item ${index + 1}`,
+        quantity: item.quantity,
+        price: typeof item.price === 'number' ? item.price : parseFloat(String(item.price || 0)),
+        unit: item.unit || 'ea',
+        description: item.name || item.description
+      }));
       // Add to existing items
       setSelectedItems([...selectedItems, ...newItems]);
       
@@ -513,7 +415,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       setAddedTemplateId(template.id);
       setTimeout(() => setAddedTemplateId(null), 2000);
     } else {
-      console.log('No items in template to add');
       // Still show feedback even if no items
       setAddedTemplateId(template.id);
       setTimeout(() => setAddedTemplateId(null), 2000);
@@ -528,19 +429,26 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       quantity: 1,
       price: item.price,
       unit: item.unit,
-      description: item.description
+      description: item.description,
+      red_line_price: item.red_line_price,
+      cap_price: item.cap_price
     }]);
   };
 
   const handleAddItemsFromSelector = (items: any[]) => {
-    const newItems: EstimateItem[] = items.map(item => ({
-      product_id: item.lineItemId,
-      product_name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      unit: item.unit,
-      description: item.description
-    }));
+    const newItems: EstimateItem[] = items.map(item => {
+      const source = lineItems.find(lineItem => lineItem.id === item.lineItemId);
+      return {
+        product_id: item.lineItemId,
+        product_name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        unit: item.unit,
+        description: item.description,
+        red_line_price: source?.red_line_price,
+        cap_price: source?.cap_price
+      };
+    });
     setSelectedItems([...selectedItems, ...newItems]);
     setShowPricingSelector(false);
   };
@@ -606,27 +514,19 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   };
 
   const handleSave = async () => {
-    console.log('🚀 HANDLE SAVE CALLED!');
-    console.log('🔍 Selected items:', selectedItems);
-    console.log('📊 Selected items length:', selectedItems.length);
-    console.log('👤 Selected client:', selectedClient);
-    console.log('📝 Estimate title:', estimateTitle);
-    console.log('📅 Issue date:', issueDate);
     
     // Only require items for initial creation - everything else can be filled later
     if (selectedItems.length === 0) {
-      console.log('❌ No items selected - showing alert');
-      alert('Please add at least one item to the estimate.');
+      notify('Please add at least one item to the estimate.');
       return;
     }
     
-    console.log('✅ Items validation passed, proceeding with save...');
 
     const formData: EstimateFormData = {
       client_id: selectedClient || '', // Allow empty - can be filled later
       items: selectedItems,
       total_amount: calculateTotal(),
-      title: estimateTitle || `Estimate ${Date.now().toString().slice(-6)}`, // Auto-generate if empty
+      title: estimateTitle.trim(), // Unnamed estimates go by their number and client
       description: estimateDescription,
       valid_until: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 30 days
       status: 'draft',
@@ -654,12 +554,11 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
     setIsSaving(true);
     try {
-      console.log('Saving enhanced estimate:', enhancedFormData);
       await onSave(enhancedFormData);
       handleClose();
     } catch (error) {
       console.error('Error saving estimate:', error);
-      alert('Failed to save estimate. Please try again.');
+      notify(error instanceof Error && error.message ? `Couldn't save the estimate: ${error.message}` : "Couldn't save the estimate. Try again.");
     } finally {
       setIsSaving(false);
     }
@@ -667,16 +566,18 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
   const handleNewClientSave = async (clientData: any) => {
     try {
-      const { data: newClient, error } = await supabase
-        .from('clients')
-        .insert([{
-          ...clientData,
-          organization_id: selectedOrg?.id
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
+      const created = await clientsAPI.create({
+        organization_id: selectedOrg?.id,
+        name: clientData.name,
+        email: clientData.email,
+        phone: clientData.phone,
+        address: clientData.address,
+        city: clientData.city,
+        state: clientData.state,
+        zip: clientData.zip,
+        companyName: clientData.company_name
+      });
+      const newClient = toLegacyClient(created);
 
       // Add to clients list and select the new client
       setClients(prev => [...prev, newClient]);
@@ -684,8 +585,26 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       setShowNewClientModal(false);
     } catch (error) {
       console.error('Error creating client:', error);
-      alert('Failed to create client. Please try again.');
+      notify("Couldn't add the client. Try again.");
     }
+  };
+
+  /**
+   * Closing by tapping outside or the X: a new estimate with lines already
+   * picked asks first, so a stray tap on the iPad doesn't throw the work away.
+   */
+  const requestClose = async () => {
+    if (!editingEstimate && selectedItems.length > 0) {
+      const count = selectedItems.length;
+      const discard = await askConfirm({
+        title: 'Discard this estimate?',
+        message: `The ${count} line${count === 1 ? '' : 's'} you added won't be saved.`,
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+      });
+      if (!discard) return;
+    }
+    handleClose();
   };
 
   const handleClose = () => {
@@ -780,28 +699,28 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
   // If clean view mode, show the clean table view
   if (viewMode === 'clean' && sourceType === 'scratch') {
-    return (
+    return createPortal(
       <>
         {/* Backdrop with blur effect */}
         <div
           className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${
             isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
-          onClick={handleClose}
+          onClick={requestClose}
         />
 
         {/* Clean View Drawer */}
         <div
-          className={`fixed right-0 top-0 h-full w-[90%] max-w-[1400px] bg-[#1D1F25] shadow-xl transform transition-transform z-[10001] ${
+          className={`fixed right-0 top-0 h-[100dvh] flex flex-col w-[90%] max-w-[1400px] bg-[#1D1F25] shadow-xl transform transition-transform z-[10001] ${
             isOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
           {/* Header */}
-          <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4">
+          <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={handleClose}
+                  onClick={requestClose}
                   className="text-gray-400 hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -837,7 +756,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
           </div>
 
           {/* Main Content */}
-          <div className="flex flex-col h-[calc(100%-80px)] overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Client & Project Info Bar */}
             <div className="px-6 py-4 bg-[#22272d] border-b border-[#333333]">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
@@ -982,6 +901,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
         {/* Contextual Pricing Selector */}
         <ContextualPricingSelector
+          salesMode={selectedOrg?.sales_mode === true}
           isOpen={showPricingSelector}
           onClose={() => setShowPricingSelector(false)}
           onAddItems={handleAddItemsFromSelector}
@@ -996,7 +916,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
         {/* New Client Modal */}
         {showNewClientModal && (() => {
-          console.log('Rendering NewClientModal, showNewClientModal:', showNewClientModal);
           return (
             <NewClientModal
               onClose={() => setShowNewClientModal(false)}
@@ -1004,103 +923,45 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
             />
           );
         })()}
-      </>
+      </>,
+      document.body,
     );
   }
 
   // Original sidebar view
-  return (
+  return createPortal(
     <>
       {/* Backdrop with blur effect */}
       <div
         className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
-        onClick={handleClose}
+        onClick={requestClose}
       />
 
       {/* Drawer */}
       <div
-        className={`fixed right-0 top-0 h-full w-[80%] max-w-[1200px] bg-[#121212] shadow-xl transform transition-transform z-[10001] ${
+        className={`fixed right-0 top-0 h-[100dvh] flex flex-col w-[80%] max-w-[1200px] bg-[#121212] shadow-xl transform transition-transform z-[10001] ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {/* Compact Header */}
-        <div className="bg-[#1E1E1E] border-b border-[#333333] px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        {/* Main Content */}
+        <div className="flex flex-1 min-h-0">
+          {/* Left Column - Items Selection (40% width) */}
+          <div className="w-[40%] border-r border-[#333333] flex flex-col">
+            {/* No title bar: close sits here so the items start at the very top */}
+            <div className="flex items-center gap-2 px-4 pt-3 flex-shrink-0">
               <button
-                onClick={handleClose}
-                className="text-gray-400 hover:text-white transition-colors"
+                onClick={requestClose}
+                className="w-10 h-10 -ml-2 flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
-              <h1 className="text-lg font-semibold">{editingEstimate ? 'Edit Estimate' : 'Create Estimate'}</h1>
+              <span className="text-xs uppercase tracking-wide text-gray-500">
+                {editingEstimate ? 'Edit estimate' : 'New estimate'}
+              </span>
             </div>
-            <button
-              onClick={handleSave}
-              disabled={selectedItems.length === 0 || isSaving}
-              className="px-4 py-1.5 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2"
-            >
-              <Save className="w-3 h-3" />
-              {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
-            </button>
-          </div>
-        </div>
-
-        {/* Client Selection Bar - Always Visible */}
-        <div className="px-4 py-3 border-b border-[#333333] bg-[#1A1A1A] flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-white mb-2">
-                Client for this Estimate
-              </label>
-              <ClientSelector
-                clients={clients.map(client => ({
-                  id: client.id,
-                  name: client.name,
-                  company_name: client.company_name || client.name,
-                  email: client.email,
-                  phone: client.phone,
-                  address: client.address,
-                  discount_percentage: client.discount_percentage
-                }))}
-                value={selectedClient}
-                onChange={setSelectedClient}
-                onAddNewClient={() => setShowNewClientModal(true)}
-                onClientCreated={(newClient) => {
-                  setClients(prev => [...prev, newClient]);
-                }}
-                placeholder="Select a client..."
-              />
-            </div>
-            
-            {/* Client Preview - Inline */}
-            {selectedClient && (() => {
-              const client = clients.find(c => c.id === selectedClient);
-              return client ? (
-                <div className="flex items-center gap-2 px-3 py-2 bg-[#1E1E1E] border border-[#333333] rounded-lg">
-                  <div className="w-6 h-6 bg-[#336699] rounded-full flex items-center justify-center flex-shrink-0">
-                    <CheckCircle className="w-3 h-3 text-white" />
-                  </div>
-                  <div className="text-sm text-white font-medium">
-                    {client.company_name || client.name}
-                  </div>
-                  {client.discount_percentage && client.discount_percentage > 0 && (
-                    <span className="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded text-xs font-medium">
-                      {client.discount_percentage}%
-                    </span>
-                  )}
-                </div>
-              ) : null;
-            })()}
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex h-[calc(100%-120px)]">
-          {/* Left Column - Items Selection (40% width) */}
-          <div className="w-[40%] border-r border-[#333333] flex flex-col">
             {/* Source Type Selection */}
             {!sourceType && !editingEstimate && (
               <div className="p-4 border-b border-[#333333]">
@@ -1128,13 +989,13 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <Package className="w-5 h-5 text-gray-400 group-hover:text-[#F9D71C]" />
+                        <Package className="w-5 h-5 text-gray-400 group-hover:text-[#5b8fc7]" />
                         <div>
                           <div className="text-sm font-medium text-white">Use a Template</div>
                           <div className="text-xs text-gray-400">Start with saved templates</div>
                         </div>
                       </div>
-                      <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-[#F9D71C]" />
+                      <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-[#5b8fc7]" />
                     </div>
                   </button>
                 </div>
@@ -1160,8 +1021,8 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                 {/* No tabs needed - only line items now */}
 
                 {/* Search and Filters - iPad optimized */}
-                <div className="p-4 space-y-3">
-                  <div className="relative">
+                <div className="p-4 flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
                     <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                     <input
                       type="text"
@@ -1171,29 +1032,16 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                       className="w-full pl-12 pr-4 py-3 bg-[#333333] border border-[#555555] rounded-lg text-base text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] focus:ring-2 focus:ring-[#336699]/20"
                     />
                   </div>
-                  
-                  {/* Expand All / Collapse All Button */}
+
+                  {/* Expand / collapse all categories */}
                   <button
+                    type="button"
                     onClick={toggleAllCategories}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#2A2A2A] hover:bg-[#333333] border border-[#555555] rounded-lg text-sm text-gray-300 hover:text-white transition-all duration-200 active:bg-[#3A3A3A]"
+                    aria-label={allExpanded ? 'Collapse all categories' : 'Expand all categories'}
+                    title={allExpanded ? 'Collapse all categories' : 'Expand all categories'}
+                    className="flex-shrink-0 self-stretch aspect-square flex items-center justify-center bg-[#333333] border border-[#555555] rounded-lg text-gray-300 hover:text-white hover:border-[#336699] active:bg-[#3A3A3A] transition-colors"
                   >
-                    {allExpanded ? (
-                      <>
-                        <div className="flex items-center">
-                          <ChevronRight className="w-4 h-4" />
-                          <ChevronRight className="w-4 h-4 -ml-2" />
-                        </div>
-                        <span>Collapse All Categories</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center">
-                          <ChevronDown className="w-4 h-4" />
-                          <ChevronDown className="w-4 h-4 -ml-2" />
-                        </div>
-                        <span>Expand All Categories</span>
-                      </>
-                    )}
+                    {allExpanded ? <ChevronsDownUp className="w-5 h-5" /> : <ChevronsUpDown className="w-5 h-5" />}
                   </button>
                 </div>
 
@@ -1261,7 +1109,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                                         {formatCurrency(item.price)}
                                       </div>
                                       <div className="text-sm text-gray-400">per {item.unit}</div>
-                                      <div className="text-sm text-[#336699] font-medium mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <div className="text-sm text-[#336699] font-medium mt-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-opacity">
                                         + Add Item
                                       </div>
                                     </div>
@@ -1383,14 +1231,24 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                 <h3 className="text-sm font-medium text-gray-300">
                   Estimate Items ({selectedItems.length})
                 </h3>
-                {selectedItems.length > 0 && (
+                <div className="flex items-center gap-4">
+                  {selectedItems.length > 0 && (
+                    <button
+                      onClick={() => setSelectedItems([])}
+                      className="text-xs text-gray-400 hover:text-white"
+                    >
+                      Clear All
+                    </button>
+                  )}
                   <button
-                    onClick={() => setSelectedItems([])}
-                    className="text-xs text-gray-400 hover:text-white"
+                    onClick={handleSave}
+                    disabled={selectedItems.length === 0 || isSaving}
+                    className="px-4 py-2 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2 whitespace-nowrap"
                   >
-                    Clear All
+                    <Save className="w-3 h-3" />
+                    {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
                   </button>
-                )}
+                </div>
               </div>
               
               {/* Scrollable items container */}
@@ -1439,7 +1297,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                                 <Minus className="w-3 h-3" />
                               </button>
                               <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 value={item.quantity}
                                 onChange={(e) => updateItemQuantity(index, Number(e.target.value))}
                                 className="w-12 text-center px-1 py-1 bg-[#333333] border border-[#555555] rounded-[2px] text-white text-sm font-medium"
@@ -1470,13 +1328,36 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
             {/* Total Summary - Compact and fixed at bottom */}
             <div className="border-t border-[#333333] px-4 py-3 bg-[#1E1E1E] flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-xs text-gray-400">
-                  <span>Valid for {validityDays} days</span>
-                  {validUntil && (
-                    <span>Until {new Date(validUntil).toLocaleDateString()}</span>
-                  )}
+              <div className="flex items-end justify-between gap-4">
+                <div className="flex-1 min-w-0 max-w-md space-y-1.5">
+                <ClientSelector
+                  clients={clients.map(client => ({
+                    id: client.id,
+                    name: client.name,
+                    company_name: client.company_name || client.name,
+                    email: client.email,
+                    phone: client.phone,
+                    address: client.address,
+                    discount_percentage: client.discount_percentage
+                  }))}
+                  value={selectedClient}
+                  onChange={setSelectedClient}
+                  onAddNewClient={() => setShowNewClientModal(true)}
+                  onClientCreated={(newClient) => {
+                    setClients(prev => [...prev, newClient]);
+                  }}
+                  placeholder="Select a client..."
+                  className="w-full"
+                  compact
+                />
+                  <div className="flex items-center gap-4 text-xs text-gray-400">
+                    <span>Valid for {validityDays} days</span>
+                    {validUntil && (
+                      <span>Until {formatDate(validUntil)}</span>
+                    )}
+                  </div>
                 </div>
+                <div className="flex items-end gap-4">
                 <div className="text-right">
                   {/* Show subtotal and discounts if applicable */}
                   {(getClientDiscount() > 0 || additionalDiscount > 0) && (
@@ -1510,6 +1391,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   <div className="font-mono text-lg font-bold text-white">{formatCurrency(calculateTotal())}</div>
                   <div className="text-xs text-gray-400">{selectedItems.length} items</div>
                 </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1523,6 +1405,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
           onSave={handleNewClientSave}
         />
       )}
-    </>
+    </>,
+    document.body,
   );
 };

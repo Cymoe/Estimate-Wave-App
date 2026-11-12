@@ -155,7 +155,7 @@ export const EstimateTableView: React.FC<EstimateTableViewProps> = ({
                   editingPriceId === item.id ? (
                     <div className="flex items-center justify-end gap-1">
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         step="0.01"
                         value={tempPrice}
                         onChange={(e) => setTempPrice(e.target.value)}

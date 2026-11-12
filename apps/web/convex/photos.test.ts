@@ -1,0 +1,111 @@
+import { describe, expect, test } from "vitest";
+import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { setup, signUp } from "./test.setup";
+
+type T = ReturnType<typeof setup>;
+const store = (t: T, type = "image/jpeg", body = "jpegbytes") => t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
+const exists = (t: T, id: Id<"_storage">) => t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
+
+async function job(t: T) {
+  const owner = await signUp(t, "owner@peak.example");
+  const project = (await owner.as.mutation(api.projects.create, { organizationId: owner.organizationId, data: { name: "Miller roof" } }))!;
+  const estimate = (await owner.as.mutation(api.estimates.create, {
+    organizationId: owner.organizationId,
+    data: { title: "Roof", projectId: project._id, items: [{ description: "Shingles", quantity: 1, unitPrice: 100, totalPrice: 100 }] },
+  }))!;
+  return { ...owner, projectId: project._id as Id<"projects">, estimateId: estimate._id as Id<"estimates"> };
+}
+
+describe("job photos", () => {
+  test("photos on an estimate show on it and on its project, with captions", async () => {
+    const t = setup();
+    const { as, organizationId, estimateId, projectId } = await job(t);
+    expect(await as.mutation(api.photos.uploadUrl, { organizationId })).toEqual(expect.any(String));
+    const before = await as.mutation(api.photos.add, { storageId: await store(t), fileName: "before.jpg", estimateId, caption: "Hail damage, north slope" });
+    await as.mutation(api.photos.add, { storageId: await store(t, ""), fileName: "IMG_0042.HEIC", projectId });
+
+    const onEstimate = await as.query(api.photos.list, { estimateId });
+    expect(onEstimate).toEqual([expect.objectContaining({ id: before, fileName: "before.jpg", caption: "Hail damage, north slope", url: expect.any(String) })]);
+    const onProject = await as.query(api.photos.list, { projectId });
+    expect(onProject.map((p: { fileName: string; from?: string }) => [p.fileName, p.from?.startsWith("EST-") ?? false])).toEqual(
+      expect.arrayContaining([
+        ["before.jpg", true],
+        ["IMG_0042.HEIC", false],
+      ]),
+    );
+
+    await as.mutation(api.photos.setCaption, { id: before, caption: "  After tear-off  " });
+    expect((await as.query(api.photos.list, { estimateId }))[0].caption).toBe("After tear-off");
+  });
+
+  test("only photos and PDFs of 15MB or less, on one estimate or project; the file goes when the photo does", async () => {
+    const t = setup();
+    const { as, estimateId, projectId } = await job(t);
+    const text = await store(t, "text/plain");
+    await expect(as.mutation(api.photos.add, { storageId: text, fileName: "notes.txt", estimateId })).rejects.toThrow(/JPEG, PNG, HEIC or WebP\) or a PDF/);
+    const pdf = await as.mutation(api.photos.add, { storageId: await store(t, ""), fileName: "Plan.PDF", estimateId });
+    expect((await as.query(api.photos.list, { estimateId })).find((p: { id: string }) => p.id === pdf)).toMatchObject({ contentType: "application/pdf", inContract: false });
+    await as.mutation(api.photos.remove, { id: pdf });
+    const big = await store(t, "image/jpeg", "x".repeat(15 * 1024 * 1024 + 1));
+    await expect(as.mutation(api.photos.add, { storageId: big, fileName: "big.jpg", estimateId })).rejects.toThrow(/15MB/);
+    await expect(as.mutation(api.photos.add, { storageId: await store(t), fileName: "a.jpg", estimateId, projectId })).rejects.toThrow(/one estimate or one project/);
+
+    const file = await store(t);
+    const id = await as.mutation(api.photos.add, { storageId: file, fileName: "a.jpg", estimateId });
+    await as.mutation(api.photos.remove, { id });
+    expect(await exists(t, file)).toBe(false);
+    expect(await as.query(api.photos.list, { estimateId })).toEqual([]);
+  });
+
+  test("another company can't see or add photos; deleting an estimate or project deletes its photos", async () => {
+    const t = setup();
+    const { as, estimateId, projectId } = await job(t);
+    const other = await signUp(t, "rival@example.com");
+    await expect(other.as.query(api.photos.list, { estimateId })).rejects.toThrow(/Not found/);
+    await expect(other.as.mutation(api.photos.add, { storageId: await store(t), fileName: "x.jpg", projectId })).rejects.toThrow(/Not found/);
+
+    const onEstimate = await store(t);
+    const onProject = await store(t);
+    await as.mutation(api.photos.add, { storageId: onEstimate, fileName: "e.jpg", estimateId });
+    await as.mutation(api.photos.add, { storageId: onProject, fileName: "p.jpg", projectId });
+    await as.mutation(api.estimates.remove, { id: estimateId });
+    expect(await exists(t, onEstimate)).toBe(false);
+    await as.mutation(api.projects.remove, { id: projectId });
+    expect(await exists(t, onProject)).toBe(false);
+    expect(await t.run((ctx) => ctx.db.query("jobPhotos").collect())).toHaveLength(0);
+  });
+
+  test("files marked In contract go on the client's link and are kept with the signed contract", async () => {
+    const t = setup();
+    const { as, estimateId } = await job(t);
+    const plan = await store(t, "application/pdf");
+    const planId = await as.mutation(api.photos.add, { storageId: plan, fileName: "plan.pdf", estimateId });
+    const photo = await as.mutation(api.photos.add, { storageId: await store(t), fileName: "tile.jpg", estimateId });
+    await as.mutation(api.photos.add, { storageId: await store(t), fileName: "before.jpg", estimateId });
+    await as.mutation(api.photos.setInContract, { id: planId, inContract: true });
+    await as.mutation(api.photos.setInContract, { id: photo, inContract: true });
+
+    const token = await as.mutation(api.estimates.shareLink, { id: estimateId });
+    const names = async () => ((await t.query(api.publicEstimates.get, { token }))!.designs as Array<{ name: string }>).map((d) => d.name);
+    expect(await names()).toEqual(["plan.pdf", "tile.jpg"]);
+    // The company's own view of the estimate lists them too, for the agreement preview.
+    expect((await as.query(api.estimates.get, { id: estimateId }))!.contractFiles.map((f: { name: string }) => f.name)).toEqual(["plan.pdf", "tile.jpg"]);
+    await as.mutation(api.photos.setInContract, { id: photo, inContract: false });
+    expect(await names()).toEqual(["plan.pdf"]);
+
+    // Signed: the files are frozen with it. They can't be switched, and deleting one keeps the stored file.
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,AAAA" });
+    await expect(as.mutation(api.photos.setInContract, { id: photo, inContract: true })).rejects.toThrow(/signed/);
+    await as.mutation(api.photos.remove, { id: planId });
+    expect(await exists(t, plan)).toBe(true);
+    expect(await names()).toEqual(["plan.pdf"]);
+  });
+
+  test("a project's own files can't go on a contract", async () => {
+    const t = setup();
+    const { as, projectId } = await job(t);
+    const id = await as.mutation(api.photos.add, { storageId: await store(t), fileName: "a.jpg", projectId });
+    await expect(as.mutation(api.photos.setInContract, { id, inContract: true })).rejects.toThrow(/estimate's files/);
+  });
+});

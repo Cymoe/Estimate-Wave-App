@@ -1,0 +1,168 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { act } from 'react';
+import { ItemPricingDrawer } from '../ItemPricingDrawer';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const item = { description: 'THHN wire', quantity: 2, unit_price: 187.5, red_line_price: 87.5, cap_price: 187.5 };
+
+function type(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function setup() {
+  const onSave = jest.fn();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={onSave} salesMode />));
+  const dialog = document.querySelector('[role="dialog"]')!;
+  const button = (text: string) =>
+    [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes(text))!;
+  const priceInput = dialog.querySelector('input[inputmode="decimal"]') as HTMLInputElement;
+  return { onSave, dialog, button, priceInput, unmount: () => act(() => root.unmount()) };
+}
+
+describe('ItemPricingDrawer', () => {
+  it('shows the commission at cap and each option priced for this item', () => {
+    const { dialog, button, unmount } = setup();
+    expect(dialog.textContent).toContain('$200.00'); // (187.50 - 87.50) × 2
+    expect(button('Need Job').textContent).toContain('$97.50');
+    expect(button('Redline').textContent).toContain('$87.50');
+    unmount();
+  });
+
+  it('picking an option and saving sets that price', () => {
+    const { onSave, button, unmount } = setup();
+    act(() => button('Need Job').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    act(() => button('Save').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenCalledWith({ unit_price: 97.5, quantity: 2, allowance: null });
+    unmount();
+  });
+
+  it("shows the line's category, suggests types of work, and saves a new one as the contractor's choice", () => {
+    const onSave = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(<ItemPricingDrawer item={{ ...item, category: 'Electrical' }} categories={['Electrical', 'Plumbing']} onClose={() => {}} onSave={onSave} />),
+    );
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const save = () => [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save'))!;
+    const input = dialog.querySelector('input[aria-label="Category"]') as HTMLInputElement;
+    expect(input.value).toBe('Electrical');
+    expect([...dialog.querySelectorAll('datalist option')].map(o => o.getAttribute('value'))).toEqual(['Electrical', 'Plumbing']);
+    // Unchanged, Save leaves the category alone.
+    act(() => save().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, allowance: null });
+    act(() => type(input, 'Lighting '));
+    act(() => save().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, category: 'Lighting', category_chosen: true, allowance: null });
+    act(() => root.unmount());
+  });
+
+  it('without Sales mode: just price and quantity, no red line, cap, options or commission, and any price saves', () => {
+    const onSave = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={onSave} />));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).not.toMatch(/Red line|Cap|commission/i);
+    expect(dialog.querySelector('[aria-label="Pricing options"]')).toBeNull();
+    const price = dialog.querySelector('input[inputmode="decimal"]') as HTMLInputElement;
+    act(() => type(price, '40'));
+    act(() => [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 40, quantity: 2, allowance: null });
+    act(() => root.unmount());
+  });
+
+  it('never saves a price below red line', () => {
+    const { onSave, dialog, button, priceInput, unmount } = setup();
+    act(() => type(priceInput, '50'));
+    expect(dialog.textContent).toContain("can't go below red line");
+    act(() => button('Save').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenCalledWith({ unit_price: 87.5, quantity: 2, allowance: null });
+    unmount();
+  });
+
+  it('slides in when an item opens and slides out (staying mounted) when it closes', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={() => {}} />));
+    const dialog = () => document.querySelector('[role="dialog"]')!;
+    expect(dialog().className).toContain('translate-x-full');
+    await act(() => new Promise(resolve => setTimeout(resolve, 100)));
+    expect(dialog().className).toContain('translate-x-0');
+
+    act(() => root.render(<ItemPricingDrawer item={null} onClose={() => {}} onSave={() => {}} />));
+    expect(dialog().className).toContain('translate-x-full');
+    expect(dialog().textContent).toContain('THHN wire');
+    act(() => root.unmount());
+  });
+
+  it('removes the item only on a second tap', () => {
+    const onRemove = jest.fn();
+    const onClose = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={item} onClose={onClose} onSave={() => {}} onRemove={onRemove} />));
+    const removeButton = () =>
+      [...document.querySelectorAll('[role="dialog"] button')].find(b => /remove/i.test(b.textContent ?? ''))!;
+    act(() => removeButton().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(removeButton().textContent).toContain('Tap again');
+    act(() => removeButton().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('lays out like the estimate drawer: as wide, with the pricing options in a column beside the price', () => {
+    const { dialog, unmount } = setup();
+    expect(dialog.className).toContain('md:w-[720px]');
+    const options = dialog.querySelector('[role="group"][aria-label="Pricing options"]')!;
+    expect(options.className).toContain('sm:w-[168px]');
+    expect([...options.querySelectorAll('button')].map(b => b.textContent)).toEqual([
+      'CAP Price (100%)$187.50',
+      'Busy Season (60%)$147.50',
+      'Competitive (35%)$122.50',
+      'Slow Season (25%)$112.50',
+      'Need Job (10%)$97.50',
+      'Redline (0%)$87.50',
+    ]);
+    expect(options.querySelector('[aria-pressed="true"]')!.textContent).toContain('CAP Price');
+    // The price box sits beside the column, not under it.
+    expect(options.parentElement!.className).toContain('sm:flex-row');
+    expect(options.nextElementSibling!.querySelector('input[inputmode="decimal"]')).not.toBeNull();
+    unmount();
+  });
+
+  it('marks a line as an allowance the client picks; its pick-by date and an approved allowance ride along', () => {
+    const onSave = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={{ ...item, red_line_price: undefined }} onClose={() => {}} onSave={onSave} />));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const save = () => act(() => [...dialog.querySelectorAll('button')].find((b) => b.textContent?.includes('Save'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    act(() => (dialog.querySelector('input[aria-label="Allowance"]') as HTMLInputElement).click());
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, allowance: {} });
+
+    act(() => root.render(<ItemPricingDrawer item={{ ...item, unit_price: 3, allowance: { amount: 4, pickBy: '2026-12-01' } }} onClose={() => {}} onSave={onSave} />));
+    expect(dialog.textContent).toContain('Their pick is approved');
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 3, quantity: 2, allowance: { amount: 4, pickBy: '2026-12-01' } });
+    act(() => (dialog.querySelector('input[aria-label="Allowance"]') as HTMLInputElement).click());
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 3, quantity: 2, allowance: null });
+    act(() => root.unmount());
+  });
+});

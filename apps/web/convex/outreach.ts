@@ -1,0 +1,3491 @@
+// Outreach: the owners on the Midland roll, grouped and sorted into who they
+// are (lib/outreach.ts), and the mailing lists a Pro company saves from them.
+//
+// The owners table is rebuilt from the roll after each weekly read. A list is
+// one facet of it read top-down by value, filtered, and snapshotted: the
+// rows a company saved stay as they were, whatever the next roll says.
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import { listResults, outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus, ownerContact, ownerSignal, realtorLicense } from "./schema";
+import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
+import { mutationDef, queryDef } from "./lib/actor";
+import { callClaude } from "./lib/claude";
+import { setupMissing as gmailSetupMissing } from "./lib/gmail";
+import { signalsAt, type StoredSignal } from "./lib/contactSignals";
+import {
+  DEFAULT_ROWS,
+  MAX_ROWS,
+  OUTREACH_INPUT_SCHEMA,
+  OWNERS_SOURCE,
+  ownersSource,
+  OwnerGrouper,
+  REFRESH_SOURCE,
+  RESEARCH_CENTS,
+  SIGNAL_YEARS,
+  UNLOCK_CENTS,
+  freeLookupsLeft,
+  DEFAULT_RESEARCH_QUESTION,
+  WHO_GUIDE,
+  companyKey,
+  defaultTitle,
+  definitionFromArgs,
+  displayName,
+  designersOn,
+  occupantsOn,
+  type CondensedOccupant,
+  type CondensedRealtor,
+  type CondensedSold,
+  facetFor,
+  facetsOf,
+  familyKey,
+  guessDefinition,
+  listOrder,
+  mailKey,
+  matches,
+  propertyFor,
+  underFloor,
+  why,
+  withSignal,
+  type Condensed,
+  type CondensedPermit,
+  type Definition,
+  type Facet,
+  type OwnerContact,
+  type OwnerRow, COUNTY_PLACES, cityOf, knownCounty } from "./lib/outreach";
+import { tidyCase } from "./lib/addressCase";
+import { MIDLAND_PARCELS, addressKey, isStorageOutlet, outletBrand } from "./lib/parcels";
+import { hasDistrictPage } from "./lib/district";
+import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
+import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
+import { planIsActive } from "./lib/plan";
+import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { dollars, postTransaction } from "./lib/wallet";
+
+const COUNTY: string = MIDLAND_PARCELS.county;
+/** How many facet rows one list build reads: past this the list is cut and says so. */
+export const SCAN = 3000;
+const PAGE = 2000;
+const DROP_BATCH = 500;
+
+const title = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+
+// ---- The weekly rebuild ----
+
+/** One page of the roll, cut down to what grouping needs. */
+export const parcelPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("parcels")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", county))
+      .paginate({ cursor: cursor ?? null, numItems: PAGE });
+    const rows: Condensed[] = page.page
+      .map((p) => ({
+        id: p._id,
+        siteAddress: p.siteAddress,
+        street: p.street,
+        useCode: p.useCode,
+        landUse: p.landUse,
+        vendorUse: p.vendorUse,
+        owner: p.owner,
+        mailing: p.mailing,
+        ownerOccupied: p.ownerOccupied,
+        companyOwned: p.companyOwned,
+        marketValueCents: p.marketValueCents,
+        deedDate: p.deedDate,
+        // The newest earlier owner on the deed history: who today's owner bought it from.
+        boughtFrom: p.deeds?.find((d) => d.seller !== p.owner)?.seller,
+      }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/**
+ * One page of the city's records on the roll's parcels, within SIGNAL_YEARS,
+ * each with the parcel it's on: what the violation and stalled lists are
+ * built from. Records not matched to a parcel are skipped.
+ */
+export const signalPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
+    const since = new Date(Date.now() - SIGNAL_YEARS * 365 * 24 * 3600_000).toISOString();
+    const page = await ctx.db.query("signals").paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: Array<{ parcelId: Id<"parcels">; signal: { kind: Doc<"signals">["kind"]; detail: string; date: string }; property: { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number } }> = [];
+    const kept = page.page.filter((s) => s.parcelId && s.county === county && s.date >= since);
+    const parcels = await Promise.all(kept.map((s) => ctx.db.get(s.parcelId!)));
+    kept.forEach((s, i) => {
+      const p = parcels[i];
+      if (!p) return;
+      rows.push({ parcelId: p._id, signal: { kind: s.kind, detail: s.detail, date: s.date }, property: { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents } });
+    });
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/**
+ * One page of the permits a company pulled since `since` (permitsSince),
+ * cut down to what grouping contractors needs. The caller fixes `since`
+ * once for the whole read: a cursor only continues the very same query,
+ * and a window recomputed per page made the live rebuild fail with
+ * InvalidCursor on page two.
+ */
+export const permitPage = internalQuery({
+  args: { since: v.string(), cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("permits")
+      .withIndex("by_county_and_applied", (q) => q.eq("county", county).gte("appliedAt", since))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedPermit[] = [];
+    for (const p of page.page) {
+      const about = { trades: p.trades, address: p.address, addressKey: p.addressKey, appliedAt: p.appliedAt, valuationCents: p.valuationCents, residential: p.residential };
+      if (p.builder) {
+        const mine = companyKey(p.builder);
+        rows.push({
+          builder: p.builder,
+          ...about,
+          contacts: (p.contacts ?? []).filter((c) => companyKey(c.company) === mine).map((c) => ({ role: c.role, person: c.person, phone: c.phone, email: c.email })),
+        });
+      }
+      // The architect or engineer on a commercial permit, as a row of its own.
+      for (const d of designersOn(p)) rows.push({ builder: d.company, kind: "designer", ...about, contacts: d.contacts });
+    }
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** The roll's parcel at each address, for a company's property, with who owns it; addresses off the roll give nothing. */
+export const parcelsAt = internalQuery({
+  args: { addressKeys: v.array(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { addressKeys, county = COUNTY }) => {
+    const out: Record<string, { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number; owner: string }> = {};
+    await Promise.all(
+      [...new Set(addressKeys)].map(async (key) => {
+        const p = await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", county).eq("addressKey", key)).first();
+        if (p) out[key] = { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, owner: p.owner };
+      }),
+    );
+    return out;
+  },
+});
+
+/**
+ * One page of the businesses the city's permits since `since` place at an
+ * address: a certificate of occupancy names the business moving in; a
+ * commercial permit's "owner" contact is the tenant when it isn't the deed
+ * holder (OccupantGrouper settles that against the roll). `since` is fixed
+ * once by the caller, as for permitPage.
+ */
+export const occupantPage = internalQuery({
+  args: { since: v.string(), cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("permits")
+      .withIndex("by_county_and_applied", (q) => q.eq("county", county).gte("appliedAt", since))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedOccupant[] = [];
+    for (const p of page.page) rows.push(...occupantsOn({ name: p.name, detail: p.detail, residential: p.residential, appliedAt: p.appliedAt, address: p.address, addressKey: p.addressKey, builder: p.builder, contacts: p.contacts }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** One page of the county's active license holders (lib/realtors.ts), for the realtor rows. */
+export const realtorPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("realtors")
+      .withIndex("by_county_and_seen", (q) => q.eq("county", county))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedRealtor[] = page.page.map((r) => ({
+      licenseNumber: r.licenseNumber,
+      type: r.type,
+      name: r.name,
+      first: r.first,
+      last: r.last,
+      licensedAt: r.licensedAt,
+      expiresAt: r.expiresAt,
+      brokerage: r.brokerage,
+      brokerageSince: r.brokerageSince,
+      supervisor: r.supervisor,
+    }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** One page of the Comptroller's sales-tax outlets that started selling since `since` (lib/outlets.ts), as occupant sightings. */
+export const outletPage = internalQuery({
+  args: { since: v.string(), cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("outlets")
+      .withIndex("by_county_and_at", (q) => q.eq("county", county).gte("at", since.slice(0, 10)))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedOccupant[] = page.page.map((o) => ({
+      business: o.name,
+      source: "outlet" as const,
+      address: o.address,
+      addressKey: o.addressKey,
+      at: o.at,
+      mailing: o.mailing,
+      taxpayer: o.taxpayer,
+      naics: o.naics,
+    }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** One page of the sales-tax permits in the storage business, by the address they sell from: what names a storage property. */
+export const storageOutletPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("outlets")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", county))
+      .paginate({ cursor: cursor ?? null, numItems: 1000 });
+    const rows = page.page.filter((o) => o.addressKey && isStorageOutlet(o)).map((o) => ({ addressKey: o.addressKey, brand: outletBrand(o.name) }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/**
+ * One page of the county's storage or industrial parcels whose deed history names an owner before: what the
+ * past-owner rows are built from (lib/outreach.ts SellerGrouper).
+ */
+export const soldPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()), kind: v.union(v.literal("storage"), v.literal("industrial")) },
+  handler: async (ctx, { cursor, county = COUNTY, kind }) => {
+    const page = await ctx.db
+      .query("parcels")
+      .withIndex("by_county_and_kind", (q) => q.eq("county", county).eq("kind", kind))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedSold[] = page.page
+      .filter((p) => p.deeds?.length)
+      .map((p) => ({ parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, kind, owner: p.owner, deeds: p.deeds!.map((d) => ({ seller: d.seller, date: d.date })) }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+const boughtFrom = v.object({ name: v.string(), date: v.optional(v.string()) });
+const sale = v.object({ kind: v.union(v.literal("storage"), v.literal("industrial")), parcelId: v.string(), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), to: v.string(), date: v.optional(v.string()) });
+const ownerRow = v.object({
+  key: v.string(),
+  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor"), v.literal("seller")),
+  name: v.string(),
+  company: v.boolean(),
+  mailing: v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) }),
+  parcels: v.number(),
+  residential: v.number(),
+  multifamily: v.number(),
+  commercial: v.number(),
+  totalValueCents: v.number(),
+  maxValueCents: v.number(),
+  homeValueCents: v.optional(v.number()),
+  rentalValueCents: v.optional(v.number()),
+  commercialValueCents: v.optional(v.number()),
+  multifamilyValueCents: v.optional(v.number()),
+  storage: v.optional(v.number()),
+  storageValueCents: v.optional(v.number()),
+  storageDeed: v.optional(v.string()),
+  storageRecent: v.optional(v.number()),
+  industrial: v.optional(v.number()),
+  industrialValueCents: v.optional(v.number()),
+  industrialDeed: v.optional(v.string()),
+  industrialRecent: v.optional(v.number()),
+  storageFrom: v.optional(v.array(boughtFrom)),
+  industrialFrom: v.optional(v.array(boughtFrom)),
+  sales: v.optional(v.array(sale)),
+  holds: v.optional(v.number()),
+  brand: v.optional(v.string()),
+  ownerOccupied: v.boolean(),
+  outOfState: v.boolean(),
+  latestDeed: v.optional(v.string()),
+  homeDeed: v.optional(v.string()),
+  useCodes: v.array(v.string()),
+  streets: v.array(v.string()),
+  tops: v.record(v.string(), v.object({ parcelId: v.id("parcels"), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), owner: v.optional(v.string()) })),
+  owners: v.optional(v.number()),
+  signals: v.optional(v.array(ownerSignal)),
+  trades: v.optional(v.array(v.string())),
+  latestAt: v.optional(v.string()),
+  contacts: v.optional(v.array(ownerContact)),
+  sources: v.optional(v.array(v.union(v.literal("occupancy"), v.literal("permit"), v.literal("outlet")))),
+  businessKind: v.optional(v.string()),
+  taxpayer: v.optional(v.string()),
+  license: v.optional(realtorLicense),
+  brokerage: v.optional(v.string()),
+});
+const facetRow = v.object({ facet: v.string(), sort: v.number() });
+
+const OWNER_KEYS = [
+  "kind", "name", "company", "parcels", "residential", "multifamily", "commercial", "totalValueCents", "maxValueCents",
+  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "storage", "storageValueCents", "storageDeed", "storageRecent", "industrial", "industrialValueCents", "industrialDeed", "industrialRecent", "brand", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer", "brokerage",
+] as const;
+const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
+  OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
+  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources, a.license, a.storageFrom, a.industrialFrom, a.sales, a.holds]) ===
+    JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources, b.license, b.storageFrom, b.industrialFrom, b.sales, b.holds]);
+
+/**
+ * An owner's facet rows made to match `facets`, stamped with this build.
+ * Returns how each facet's count moved (a facet gained is +1, one lost -1).
+ */
+async function writeFacets(ctx: MutationCtx, ownerId: Id<"owners">, facets: Array<{ facet: string; sort: number }>, buildId: string, county = COUNTY): Promise<Record<string, number>> {
+  const delta: Record<string, number> = {};
+  const old = await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).collect();
+  const same = old.length === facets.length && facets.every((f) => old.some((o) => o.facet === f.facet && o.sort === f.sort));
+  if (same) {
+    for (const o of old) await ctx.db.patch(o._id, { buildId });
+    return delta;
+  }
+  for (const o of old) {
+    delta[o.facet] = (delta[o.facet] ?? 0) - 1;
+    await ctx.db.delete(o._id);
+  }
+  for (const f of facets) {
+    delta[f.facet] = (delta[f.facet] ?? 0) + 1;
+    await ctx.db.insert("ownerFacets", { county, facet: f.facet, ownerId, sort: f.sort, buildId });
+  }
+  return delta;
+}
+
+/** Writes a batch of owner rows and their facets, stamping them with this build. */
+export const upsertOwners = internalMutation({
+  args: { rows: v.array(v.object({ owner: ownerRow, facets: v.array(facetRow) })), buildId: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { rows, buildId, county = COUNTY }) => {
+    let added = 0;
+    let updated = 0;
+    for (const { owner, facets } of rows) {
+      const row = { county, ...owner, tops: owner.tops as Doc<"owners">["tops"], buildId };
+      const existing = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", county).eq("key", owner.key)).first();
+      let ownerId: Id<"owners">;
+      if (!existing) {
+        ownerId = await ctx.db.insert("owners", row);
+        added++;
+      } else {
+        ownerId = existing._id;
+        if (sameOwner(existing, owner as OwnerRow)) await ctx.db.patch(ownerId, { buildId });
+        else {
+          await ctx.db.replace(ownerId, row);
+          updated++;
+        }
+      }
+      await writeFacets(ctx, ownerId, facets, buildId, county);
+    }
+    return { added, updated };
+  },
+});
+
+/**
+ * A page of the owners a build or pass didn't write and should drop: any
+ * earlier id, or the same instant under another id. A strictly later id is a
+ * daily pass (outreachRefresh.ts) that ran while this build was writing, and
+ * its rows stay. `kind` narrows to the permit companies of one kind.
+ */
+async function staleOwners(ctx: MutationCtx, buildId: string, kind?: "contractor" | "designer" | "occupant", county = COUNTY): Promise<Doc<"owners">[]> {
+  const sameInstant = `${buildId.split("|")[0]}|\uffff`;
+  type Bounds<R> = { lt(field: "buildId", value: string): R; gt(field: "buildId", value: string): { lt(field: "buildId", value: string): R } };
+  const take = (side: "before" | "beside", n: number) => {
+    const bounds = <R,>(q: Bounds<R>) => (side === "before" ? q.lt("buildId", buildId) : q.gt("buildId", buildId).lt("buildId", sameInstant));
+    return kind
+      ? ctx.db.query("owners").withIndex("by_county_kind_and_build", (q) => bounds(q.eq("county", county).eq("kind", kind))).take(n)
+      : ctx.db.query("owners").withIndex("by_county_and_build", (q) => bounds(q.eq("county", county))).take(n);
+  };
+  const before = await take("before", DROP_BATCH);
+  const beside = before.length < DROP_BATCH ? await take("beside", DROP_BATCH - before.length) : [];
+  return [...before, ...beside];
+}
+
+/** Drops a page of owners and their facets. True when there may be more. */
+async function dropOwners(ctx: MutationCtx, stale: Doc<"owners">[]): Promise<boolean> {
+  for (const o of stale) {
+    for (const f of await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", o._id)).collect()) await ctx.db.delete(f._id);
+    await ctx.db.delete(o._id);
+  }
+  return stale.length === DROP_BATCH;
+}
+
+/** Drops owners (and their facets) this build didn't write: no longer on the roll. Pages itself. */
+export const dropStale = internalMutation({
+  args: { buildId: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { buildId, county }) => {
+    if (await dropOwners(ctx, await staleOwners(ctx, buildId, undefined, county))) await ctx.scheduler.runAfter(0, internal.outreach.dropStale, { buildId, county });
+  },
+});
+
+// ---- The daily records pass (outreachRefresh.ts) ----
+
+/** Drops the companies of one kind this pass didn't write: no permit in CONTRACTOR_DAYS, or no arrival in OCCUPANT_DAYS, any more. Pages itself. */
+export const dropStaleOf = internalMutation({
+  args: { kind: v.union(v.literal("contractor"), v.literal("designer"), v.literal("occupant")), buildId: v.string() },
+  handler: async (ctx, { kind, buildId }) => {
+    const stale = await staleOwners(ctx, buildId, kind);
+    if (await dropOwners(ctx, stale)) await ctx.scheduler.runAfter(0, internal.outreach.dropStaleOf, { kind, buildId });
+    return stale.length;
+  },
+});
+
+/**
+ * One page of the city's records imported since `since`, folded onto the
+ * owners of the parcels they're about, the way the weekly build folds them:
+ * the row's signals, trades, newest date and "signal" property, and its
+ * violation and stalled facets. Records already on the row change nothing.
+ */
+const SIGNAL_WORDS: Record<Doc<"signals">["kind"], string> = { code_violation: "code violation", dilapidated: "dilapidated building", demolition: "demolition order", stalled_permit: "stalled permit" };
+
+/**
+ * A new public record about an owner already sent to Leads goes to the lead:
+ * a dated line in its notes ("Nov 12: new code violation, High weeds.") and
+ * the New signal tag on its card. Only records that came in after the send, once each.
+ */
+async function tellLeads(ctx: MutationCtx, key: string, s: Doc<"signals">) {
+  const now = nowIso();
+  const day = new Date(s.date).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const line = `${day}: new ${SIGNAL_WORDS[s.kind]}, ${s.detail}.`;
+  const told = new Set<string>();
+  for (const c of await ctx.db.query("outreachContacts").withIndex("by_key", (q) => q.eq("key", key)).collect()) {
+    if (!c.leadId || told.has(c.leadId)) continue;
+    // Something already on the record when the owner was sent isn't news.
+    if (c.sentAt && s.importedAt < c.sentAt) continue;
+    const lead = await ctx.db.get(c.leadId);
+    if (!lead || lead.status === "won" || lead.status === "lost" || (lead.notes ?? "").includes(line)) continue;
+    told.add(c.leadId);
+    await ctx.db.patch(lead._id, {
+      notes: [lead.notes, line].filter(Boolean).join("\n"),
+      newSignal: { kind: s.kind, detail: s.detail, date: s.date, at: now },
+      updatedAt: now,
+    });
+  }
+}
+
+export const refreshSignals = internalMutation({
+  args: { since: v.string(), cursor: v.optional(v.string()), buildId: v.string() },
+  handler: async (ctx, { since, cursor, buildId }) => {
+    const keep = new Date(Date.now() - SIGNAL_YEARS * 365 * 24 * 3600_000).toISOString();
+    const page = await ctx.db
+      .query("signals")
+      .withIndex("by_county_and_imported", (q) => q.eq("county", COUNTY).gte("importedAt", since))
+      .paginate({ cursor: cursor ?? null, numItems: 200 });
+    const delta: Record<string, number> = {};
+    const touched = new Set<string>();
+    const now = Date.now();
+    for (const s of page.page) {
+      if (!s.parcelId || s.date < keep) continue;
+      const p = await ctx.db.get(s.parcelId);
+      const key = p && OwnerGrouper.keyFor(p);
+      if (!key) continue;
+      const owner = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", COUNTY).eq("key", key)).first();
+      if (!owner || owner.kind !== "owner") continue;
+      const next = withSignal(owner, { kind: s.kind, detail: s.detail, date: s.date }, { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents });
+      if (next === owner) continue;
+      await ctx.db.patch(owner._id, { signals: next.signals, trades: next.trades, latestAt: next.latestAt, tops: next.tops, buildId });
+      const moved = await writeFacets(ctx, owner._id, facetsOf(next as unknown as OwnerRow, now), buildId);
+      for (const [facet, n] of Object.entries(moved)) delta[facet] = (delta[facet] ?? 0) + n;
+      touched.add(owner.key);
+      await tellLeads(ctx, owner.key, s);
+    }
+    return { read: page.page.length, touched: touched.size, delta, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** Moves the owners build's facet counts (what a whole-facet list reports as its total) after a daily pass: exact counts in `set`, movements in `add`. */
+export const adjustFacetCounts = internalMutation({
+  args: { set: v.optional(v.record(v.string(), v.number())), add: v.optional(v.record(v.string(), v.number())) },
+  handler: async (ctx, { set, add }) => {
+    const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique();
+    if (!sync?.facetCounts) return;
+    const counts = { ...sync.facetCounts, ...(set ?? {}) };
+    for (const [facet, n] of Object.entries(add ?? {})) counts[facet] = Math.max(0, (counts[facet] ?? 0) + n);
+    await ctx.db.patch(sync._id, { facetCounts: counts });
+  },
+});
+
+// ---- Building a list ----
+
+export type ListRow = {
+  key: string;
+  name: string;
+  company?: string;
+  mailing: Doc<"owners">["mailing"];
+  /** Absent for a realtor, who owns nothing here. */
+  property?: Doc<"outreachContacts">["property"];
+  properties: number;
+  totalValueCents: number;
+  why: string;
+  /** A storage owner's name on the sign, when the roll's is only the LLC behind it. */
+  brand?: string;
+  /** A contractor, designer or occupant: the person, phone and email its permits already name, free. A realtor: the person, from their license. */
+  found?: { person?: Doc<"outreachContacts">["person"]; phones: NonNullable<Doc<"outreachContacts">["phones"]>; emails: NonNullable<Doc<"outreachContacts">["emails"]>; source?: string };
+};
+
+/** What a realtor's license already says: the person is the row, from "trec", free. */
+export function foundOnLicense(o: Pick<OwnerRow, "name" | "license">): ListRow["found"] | undefined {
+  if (!o.license) return undefined;
+  return { person: { name: o.name, title: `${o.license.type === "broker" ? "Broker" : "Sales agent"}, TREC license ${o.license.number}`, source: "trec" }, phones: [], emails: [], source: "trec" };
+}
+
+/** What a contractor's permits already say about who to call: the first named person, every phone and email, all from "permits". */
+export function foundOnPermits(contacts: OwnerContact[] | undefined): ListRow["found"] | undefined {
+  if (!contacts?.length) return undefined;
+  const named = contacts.find((c) => c.person);
+  const who = named?.person ? splitName(named.person, "person") : undefined;
+  const person = who?.first && who.last ? { name: title(`${who.first} ${who.last}`), title: named?.role ? `${title(named.role)} on a permit` : undefined, source: "permits" } : undefined;
+  const phones = [...new Set(contacts.map((c) => c.phone).filter((p): p is string => Boolean(p)))].map((number) => ({ number, type: "unknown" as const, source: "permits" }));
+  const emails = [...new Set(contacts.map((c) => c.email).filter((e): e is string => Boolean(e)))].map((email) => ({ email, source: "permits" }));
+  if (!person && !phones.length && !emails.length) return undefined;
+  return { person, phones, emails };
+}
+
+const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
+  const row = o as unknown as OwnerRow;
+  const p = propertyFor(row, facet) ?? o.tops.all;
+  // A realtor owns nothing here: the row stands without a property. Anyone else without one is nothing to list.
+  if (!p && o.kind !== "realtor") return null;
+  return {
+    key: o.key,
+    name: o.name,
+    company: o.kind === "realtor" ? o.brokerage : o.company ? o.name : undefined,
+    mailing: o.mailing,
+    ...(p ? { property: { parcelId: p.parcelId as Id<"parcels">, address: title(p.address), useCode: p.useCode, valueCents: p.valueCents } } : {}),
+    properties: o.parcels,
+    totalValueCents: o.totalValueCents,
+    why: why(row, facet, o.county),
+    ...(o.brand ? { brand: o.brand } : {}),
+    ...(o.kind === "contractor" || o.kind === "designer" || o.kind === "occupant" ? { found: foundOnPermits(o.contacts) } : {}),
+    ...(o.kind === "realtor" ? { found: foundOnLicense(row) } : {}),
+  };
+};
+
+/** Whether a definition narrows its facet at all; one that doesn't is counted from the facet alone, with no owner read. */
+const narrows = (def: Definition) =>
+  def.who === "wealthy" ||
+  def.who === "recent_buyer" ||
+  [def.minValueCents, def.maxValueCents, def.minParcels, def.minRentals, def.ownerOccupied, def.companyOwned, def.outOfState, def.deedWithinDays, def.ownedForDays, def.withinDays].some((x) => x !== undefined) ||
+  Boolean(def.useCodes?.length || def.zips?.length || def.streets?.length || def.trades?.length);
+
+/** Owners read in parallel, a hundred at a time, in the facet's order. */
+async function ownersOf(ctx: QueryCtx | MutationCtx, facetRows: Array<Doc<"ownerFacets">>, from: number, to: number): Promise<Array<Doc<"owners"> | null>> {
+  const out: Array<Doc<"owners"> | null> = [];
+  for (let i = from; i < to; i += 100) {
+    out.push(...(await Promise.all(facetRows.slice(i, Math.min(to, i + 100)).map((f) => ctx.db.get(f.ownerId)))));
+  }
+  return out;
+}
+
+/**
+ * The rows a definition picks: its facet read top-down by what it's sorted
+ * on, filtered in memory. The first `offset` matches are skipped (a list
+ * loading its next page), then up to `want` (at most the limit) are
+ * returned; the rest are only counted, so `total` is how many owners the
+ * definition reaches and `count` how many this page of the list holds.
+ * A definition that doesn't narrow its facet is counted from the facet
+ * alone (the rebuild's count when it has one, exact past the scan), and
+ * only the page's owners are read. `truncated` means the total is a
+ * floor: the scan cap was hit with rows unread.
+ */
+export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, offset = 0, want?: number) {
+  let facet: Facet;
+  try {
+    facet = facetFor(def);
+  } catch (e) {
+    fail("INVALID", e instanceof Error ? e.message : String(e));
+  }
+  const limit = Math.min(MAX_ROWS, Math.max(1, def.limit ?? DEFAULT_ROWS));
+  const page = Math.min(limit, want ?? limit);
+  const now = Date.now();
+  const query = () =>
+    ctx.db
+      .query("ownerFacets")
+      .withIndex("by_facet_and_sort", (q) => q.eq("county", def.county).eq("facet", facet))
+      .order("desc");
+  if (!narrows(def)) {
+    // Every row of the facet is on the list: the count comes from the rebuild, or from the facet up to the scan cap.
+    const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", ownersSource(def.county))).unique();
+    const counted = sync?.facetCounts?.[facet];
+    const facetRows = await query().take(Math.max(SCAN, offset + page));
+    const total = counted ?? facetRows.length;
+    const truncated = counted === undefined && facetRows.length >= SCAN;
+    const end = Math.min(facetRows.length, offset + page);
+    const owners = await ownersOf(ctx, facetRows, offset, end);
+    const rows = owners.flatMap((o) => (o ? (rowOf(o, facet) ?? []) : []));
+    const count = Math.min(limit, Math.max(0, total - offset));
+    return { rows, count, total, truncated, limited: total - offset >= limit, next: Math.max(offset, end) };
+  }
+  const facetRows = await query().take(SCAN);
+  const rows: ListRow[] = [];
+  let total = 0;
+  let floored = false;
+  // Owners taken past the offset, ones without a row to show included: where the next page starts.
+  let taken = 0;
+  outer: for (let i = 0; i < facetRows.length; i += 100) {
+    for (const owner of await ownersOf(ctx, facetRows, i, Math.min(facetRows.length, i + 100))) {
+      if (!owner) continue;
+      // Sorted by holdings or value, so once a row is under the floor every row after it is too: the count is exact.
+      if (underFloor(owner as unknown as OwnerRow, def, facet)) {
+        floored = true;
+        break outer;
+      }
+      if (!matches(owner as unknown as OwnerRow, def, facet, now)) continue;
+      total++;
+      if (total <= offset || taken >= page) continue;
+      taken++;
+      const row = rowOf(owner, facet);
+      if (row) rows.push(row);
+    }
+  }
+  const count = Math.min(limit, Math.max(0, total - offset));
+  return { rows, count, total, truncated: !floored && facetRows.length === SCAN, limited: total - offset >= limit, next: offset + taken };
+}
+
+// ---- A company's lists ----
+
+/** A member of a company on an active Pro plan. */
+export async function requirePro(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  const member = await requireMember(ctx, organizationId);
+  if (!member.organization.plan || !planIsActive(member.organization.plan, Date.now())) fail("FORBIDDEN", "Outreach is part of the Pro plan");
+  return member;
+}
+
+/** What a list has turned into in Leads: owners sent, leads with an estimate, jobs sold; and the estimates' and the sold jobs' totals. */
+type ListResults = { sent: number; estimates: number; sold: number; estimateCents?: number; soldCents?: number };
+const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = { sent: 0, estimates: 0, sold: 0 }, stranded = 0) => ({
+  id: l._id,
+  title: l.title,
+  who: l.definition.who,
+  definition: l.definition,
+  rowCount: l.rowCount,
+  done,
+  truncated: l.truncated,
+  /** How many owners the definition reaches (a floor when truncated); missing on lists saved before it was counted. */
+  total: l.total,
+  results,
+  /** What looking up this list's owners has cost so far; with the results, what the list earned for what it cost. */
+  spentCents: l.spentCents ?? 0,
+  createdAt: l.createdAt,
+  pinned: l.pinned === true,
+  archived: Boolean(l.archivedAt),
+  /** Still adding owners after the first, in the background. */
+  filling: l.filling === true,
+  /** Nobody has worked it: deleting it loses nothing. Otherwise its worked owners stay under All owners when it goes. */
+  deletable: stranded === 0,
+  /** The worked owners only this list holds: they stay when it goes, unless asked to go too. */
+  worked: stranded,
+  /** Owners the list picked up on its own lately (refreshList): how many, and since when. Gone FRESH_DAYS after the last of them. */
+  ...(l.fresh && Date.parse(l.fresh.at) > Date.now() - FRESH_DAYS * 24 * 3600_000 ? { fresh: { since: l.fresh.since, count: l.fresh.count } } : {}),
+});
+
+/** The count and a first look, before saving. `count` is what one list holds; `total` is how many owners the ask reaches. */
+export const preview = query({
+  args: { organizationId: v.id("organizations"), definition: outreachDefinition },
+  handler: async (ctx, { organizationId, definition }) => {
+    await requirePro(ctx, organizationId);
+    const built = await buildRows(ctx, definition, 0, PREVIEW_ROWS);
+    return { count: built.count, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows };
+  },
+});
+
+/** A preview reads this many owners (enough to scroll through before saving); the count and total come without the rest. */
+const PREVIEW_ROWS = 100;
+
+export const previewInternal = internalQuery({
+  args: { organizationId: v.id("organizations"), definition: outreachDefinition },
+  handler: async (ctx, { organizationId, definition }) => {
+    await requirePro(ctx, organizationId);
+    const built = await buildRows(ctx, definition, 0, PREVIEW_ROWS);
+    return { count: built.count, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows };
+  },
+});
+
+export const assertPro = internalQuery({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { user } = await requirePro(ctx, organizationId);
+    return { staff: isStaff(user) };
+  },
+});
+
+/** Dealt with: sent to Leads or skipped (or an earlier settled status); not new or still being tried. */
+const isWorked = (s: Doc<"outreachContacts">["status"]) => !["new", "sent", "no_answer", "callback"].includes(s);
+
+/** The most owners one read takes: what fits in a single read with room to spare (outreach:sizes measures it). */
+const OWNERS_READ_MAX = 4000;
+/**
+ * A company's contacts in one read, up to OWNERS_READ_MAX of them. Only for the tools staff run by hand and for a page
+ * loaded before the paged read existed (contacts); everything else reads by list, by index or a page at a time.
+ */
+async function contactsOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  return await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(OWNERS_READ_MAX);
+}
+
+/**
+ * Builds the list and puts its owners in the company's contacts: a new row
+ * for an owner the company hasn't pulled before, a tag on the row for one
+ * it has (status, note and any unlocked phone stay).
+ */
+export const createDef = mutationDef({
+  args: { organizationId: v.id("organizations"), title: v.optional(v.string()), definition: outreachDefinition },
+  handler: async (ctx, { organizationId, title: wanted, definition }) => {
+    const { user } = await requirePro(ctx, organizationId);
+    // The first owners go in now, so the list opens with them at once; the rest follow in the background, live on the page.
+    const built = await buildRows(ctx, definition, 0, FIRST_ROWS);
+    await roomFor(ctx, organizationId, built.count);
+    const now = nowIso();
+    const more = built.count > built.next;
+    const listId = await ctx.db.insert("outreachLists", {
+      organizationId,
+      title: wanted?.trim() || defaultTitle(definition),
+      definition,
+      rowCount: built.next,
+      total: built.total,
+      done: 0,
+      truncated: built.truncated,
+      createdBy: user._id,
+      createdAt: now,
+      ...(more ? { filling: true } : {}),
+    });
+    const added = await addRows(ctx, organizationId, listId, definition.who, built.rows, now);
+    if (more) await ctx.scheduler.runAfter(0, internal.outreach.fillList, { listId, offset: built.next, target: built.count });
+    return { listId, rowCount: built.count, total: built.total, added, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
+  },
+});
+export const create = mutation(createDef);
+
+/**
+ * The most owners a company's lists hold between them. Nothing on the backend reads every owner any more (lists, the
+ * page and deletes go by list, by index or a page at a time), so this is no longer what one read can hold: it's what
+ * a device holds comfortably, since All owners keeps every owner in the page (tried at 20,000 on a tablet-size
+ * screen). Refusing here, with the reason, beats a page that crawls.
+ */
+export const OWNER_CAP = 20_000;
+export const OWNER_CAP_ERROR = `This company has ${OWNER_CAP.toLocaleString("en-US")} owners loaded, the most Outreach holds right now. Delete a list you're done with to load more.`;
+async function roomFor(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">, adding: number) {
+  // Counted from the lists' own sizes (an owner on two lists counts twice): no read of the owners themselves.
+  const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+  const held = lists.reduce((sum, l) => sum + l.rowCount, 0);
+  if (adding > 0 && held + adding > OWNER_CAP) fail("INVALID", OWNER_CAP_ERROR);
+}
+
+/** How many owners a new list holds the moment it's saved, and how many each background step adds after. */
+const FIRST_ROWS = 50;
+const FILL_ROWS = 100;
+
+/** A new list's owners past the first, a page at a time, each page showing on the list as it lands; the last clears `filling`. */
+export const fillList = internalMutation({
+  args: { listId: v.id("outreachLists"), offset: v.number(), target: v.number() },
+  handler: async (ctx, { listId, offset, target }) => {
+    const list = await ctx.db.get(listId);
+    // Deleted while it was still filling: nothing more to add.
+    if (!list || list.removing) return null;
+    const built = await buildRows(ctx, list.definition, offset, Math.min(FILL_ROWS, target - offset));
+    await addRows(ctx, list.organizationId, listId, list.definition.who, built.rows, nowIso());
+    const next = built.next;
+    const more = next > offset && next < target;
+    await ctx.db.patch(listId, { rowCount: next, total: built.total, truncated: built.truncated, filling: more ? true : undefined });
+    if (more) await ctx.scheduler.runAfter(0, internal.outreach.fillList, { listId, offset: next, target });
+    return null;
+  },
+});
+
+/** Puts a list's rows in the company's contacts: a new row for an owner it hasn't pulled before, a tag on the row for one it has. Returns how many were new. */
+async function addRows(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  listId: Id<"outreachLists">,
+  who: Definition["who"],
+  rows: ListRow[],
+  now: string,
+  /** joined: counts every owner put on the list, new to the company or not. max: stop once this many have joined. */
+  opts: { joined?: { count: number }; max?: number } = {},
+) {
+  let added = 0;
+  let joined = 0;
+  for (const row of rows) {
+    if (opts.max !== undefined && joined >= opts.max) break;
+    const existing = await ctx.db
+      .query("outreachContacts")
+      .withIndex("by_organization_and_key", (q) => q.eq("organizationId", organizationId).eq("key", row.key))
+      .unique();
+    if (existing) {
+      if (existing.listIds.includes(listId)) continue;
+      const listIds = [...existing.listIds, listId];
+      await ctx.db.patch(existing._id, {
+        listIds,
+        kinds: existing.kinds.includes(who) ? existing.kinds : [...existing.kinds, who],
+        ...(row.brand && !existing.brand ? { brand: row.brand } : {}),
+        ...filing({ ...existing, listIds }),
+        // On a list again: what a delete decided for it once its lookup landed no longer applies.
+        afterLookup: undefined,
+        updatedAt: now,
+      });
+      await ctx.db.insert("outreachMembers", { organizationId, listId, contactId: existing._id });
+      joined++;
+    } else {
+      const { found, ...rest } = row;
+      // A contractor's permits (or a realtor's license) already name who to call: those cells start found, from that record, at no charge.
+      const from = found?.source ?? "permits";
+      const given = found
+        ? {
+            person: found.person,
+            phones: found.phones.length ? found.phones : undefined,
+            emails: found.emails.length ? found.emails : undefined,
+            enrichment: {
+              person: found.person ? { status: "found" as const, at: now, source: from, tries: [{ source: from, outcome: "hit" as const, note: found.person.name }] } : LOCKED,
+              phone: found.phones.length ? { status: "found" as const, at: now, source: from, chargedCents: 0, tries: [{ source: from, outcome: "hit" as const, note: `${found.phones.length} ${found.phones.length === 1 ? "number" : "numbers"}` }] } : LOCKED,
+              email: found.emails.length ? { status: "found" as const, at: now, source: from, tries: [{ source: from, outcome: "hit" as const, note: `${found.emails.length} ${found.emails.length === 1 ? "email" : "emails"}` }] } : LOCKED,
+              research: LOCKED,
+            },
+          }
+        : {};
+      const signals = rest.property ? await signalsAt(ctx, rest.property.parcelId) : undefined;
+      const contactId = await ctx.db.insert("outreachContacts", {
+        organizationId,
+        ...rest,
+        ...given,
+        ...(signals ? { signals } : {}),
+        kinds: [who],
+        listIds: [listId],
+        ...filing({ ...rest, person: found?.person, listIds: [listId] }),
+        status: "new",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("outreachMembers", { organizationId, listId, contactId });
+      added++;
+      joined++;
+    }
+  }
+  if (opts.joined) opts.joined.count += joined;
+  return added;
+}
+
+/**
+ * Loads the next page of a list that reached its cap: the owners after the
+ * ones it already holds, in the same order, up to the list's limit again.
+ */
+export const extend = mutation({
+  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists") },
+  handler: async (ctx, { organizationId, listId }) => {
+    await requirePro(ctx, organizationId);
+    const list = await ctx.db.get(listId);
+    if (!list || list.organizationId !== organizationId || list.removing) fail("NOT_FOUND", "No such list");
+    // The background fill is still adding this list's first owners: the next page would run into it.
+    if (list.filling) fail("INVALID", "Still adding owners to this list; load more once it's done");
+    const built = await buildRows(ctx, list.definition, list.rowCount);
+    await roomFor(ctx, organizationId, built.rows.length);
+    const now = nowIso();
+    const added = await addRows(ctx, organizationId, listId, list.definition.who, built.rows, now);
+    const rowCount = built.next;
+    await ctx.db.patch(listId, { rowCount, total: built.total, truncated: built.truncated });
+    return { loaded: built.rows.length, added, rowCount, total: built.total, truncated: built.truncated };
+  },
+});
+
+/** The kinds of list whose owners come from the city's daily records (code cases, permits, new tenants), not only the weekly roll. */
+const DAILY_KINDS = new Set<Definition["who"]>(["violation", "stalled", "contractor", "designer", "occupant"]);
+/** Lists found due are started this far apart, so a morning's refreshes don't all run at once. */
+const REFRESH_SPACING_MS = 250;
+/** How long a list's "N new" stays: additions within this long of each other are counted together, and shown this long after the last. */
+export const FRESH_DAYS = 7;
+
+/**
+ * Every morning (crons.ts), after the records have come in: the lists whose records changed since they were last
+ * checked are refreshed, a page of lists at a time. A list is due when its county's owners were rebuilt (the weekly
+ * roll), or, for a list of the city's daily records in the home county, when the morning's pass ran. Archived lists,
+ * and those of a company off the plan, are left as they are.
+ */
+export const refreshLists = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ due: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachLists").paginate({ cursor: cursor ?? null, numItems: 100 });
+    const stamps = new Map<string, string | undefined>();
+    const stampOf = async (source: string) => {
+      if (!stamps.has(source)) {
+        const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", source)).unique();
+        stamps.set(source, sync && !sync.error ? sync.syncedAt : undefined);
+      }
+      return stamps.get(source);
+    };
+    const onPlan = new Map<Id<"organizations">, boolean>();
+    let due = 0;
+    for (const l of page.page) {
+      if (l.archivedAt || l.filling || l.removing) continue;
+      const since = l.refreshedAt ?? l.createdAt;
+      const changed = [await stampOf(ownersSource(l.definition.county)), DAILY_KINDS.has(l.definition.who) && l.definition.county === COUNTY ? await stampOf(REFRESH_SOURCE) : undefined];
+      if (!changed.some((at) => at !== undefined && at > since)) continue;
+      if (!onPlan.has(l.organizationId)) {
+        const organization = await ctx.db.get(l.organizationId);
+        onPlan.set(l.organizationId, Boolean(organization?.plan && planIsActive(organization.plan, Date.now())));
+      }
+      if (!onPlan.get(l.organizationId)) continue;
+      await ctx.scheduler.runAfter(due * REFRESH_SPACING_MS, internal.outreach.refreshList, { listId: l._id });
+      due++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(due * REFRESH_SPACING_MS, internal.outreach.refreshLists, { cursor: page.continueCursor });
+    return { due, done: page.isDone };
+  },
+});
+
+/**
+ * Brings one list up to date: its definition is run again over the stretch the list covers (all of it when the list
+ * held everyone it reached, else as far down its order as it has loaded), and owners there who aren't on it join,
+ * new to the company or already among its owners. Nobody is taken off: an owner who no longer matches keeps the
+ * work done on it. Up to MAX_ROWS a step, in the background; the last step notes when, and how many joined.
+ */
+export const refreshList = internalMutation({
+  args: {
+    listId: v.id("outreachLists"),
+    /** Carried from step to step: where this one starts, how far the refresh goes, how many have joined, and when it began. */
+    offset: v.optional(v.number()),
+    target: v.optional(v.number()),
+    joined: v.optional(v.number()),
+    startedAt: v.optional(v.string()),
+  },
+  handler: async (ctx, a) => {
+    const list = await ctx.db.get(a.listId);
+    if (!list || list.archivedAt || list.filling || list.removing) return null;
+    const startedAt = a.startedAt ?? nowIso();
+    const offset = a.offset ?? 0;
+    const limit = Math.min(MAX_ROWS, Math.max(1, list.definition.limit ?? DEFAULT_ROWS));
+    const complete = list.total !== undefined && list.rowCount >= list.total;
+    // A list that held everyone it reached takes whoever is new, up to its own limit; one that stopped short covers the same stretch again.
+    const known = a.target ?? (complete ? undefined : list.rowCount);
+    const built = await buildRows(ctx, list.definition, offset, known === undefined ? MAX_ROWS : Math.min(MAX_ROWS, Math.max(1, known - offset)));
+    const target = known ?? Math.min(built.total, Math.max(list.rowCount, limit));
+    // Within the most a company's lists hold between them (counted as roomFor counts).
+    const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", list.organizationId)).collect();
+    const room = OWNER_CAP - lists.reduce((sum, l) => sum + l.rowCount, 0) - (a.joined ?? 0);
+    const count = { count: 0 };
+    if (room > 0) await addRows(ctx, list.organizationId, a.listId, list.definition.who, built.rows.slice(0, Math.max(0, target - offset)), startedAt, { joined: count, max: room });
+    const joined = (a.joined ?? 0) + count.count;
+    if (built.next > offset && built.next < target && count.count < room) {
+      await ctx.scheduler.runAfter(0, internal.outreach.refreshList, { listId: a.listId, offset: built.next, target, joined, startedAt });
+      return null;
+    }
+    // What recent checks added, counted together while they keep coming within FRESH_DAYS of each other.
+    const recent = new Date(Date.parse(startedAt) - FRESH_DAYS * 24 * 3600_000).toISOString();
+    const fresh = joined === 0 ? list.fresh : list.fresh && list.fresh.at > recent ? { since: list.fresh.since, at: startedAt, count: list.fresh.count + joined } : { since: startedAt, at: startedAt, count: joined };
+    await ctx.db.patch(a.listId, { rowCount: list.rowCount + joined, total: built.total, truncated: built.truncated, refreshedAt: startedAt, fresh });
+    return null;
+  },
+});
+
+/**
+ * A company's lists with their numbers (owners worked, results in Leads). The numbers are kept on each list and
+ * counted from its own owners in the background (tally, recount), so this reads the lists and nothing else: not
+ * every owner the company has.
+ */
+export const listsDef = queryDef({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requirePro(ctx, organizationId);
+    const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+    // A list being deleted (its last owners still coming off it in the background) is gone already.
+    return lists.filter((l) => !l.removing).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, l.done, l.results, l.kept ?? 0));
+  },
+});
+export const lists = query(listsDef);
+
+/** How many of a list's owners one step of a count reads. */
+const RECOUNT_PAGE = 300;
+/** The most changed owners tally looks at to tell which lists they're on; past it every list is counted. */
+const TALLY_MAX = 300;
+/**
+ * Numbers this old are counted again when the page asks, whatever changed: a job sold in Leads (or a lead deleted
+ * there) moves a list's results without touching its owners.
+ */
+const COUNT_FRESH_MS = 15 * 60 * 1000;
+
+/**
+ * Counts one list's numbers from its own owners (its membership rows), a page at a time, and keeps them on the list:
+ * owners worked, worked owners only this list holds (they'd be on no list were it deleted), and what it has turned
+ * into in Leads (each lead once, however many of the list's owners joined it). Counted from the rows every time, so
+ * the numbers can't drift.
+ */
+export const recount = internalMutation({
+  args: {
+    listId: v.id("outreachLists"),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    /** Carried from page to page: when the count began, the numbers so far, and the leads already counted. */
+    startedAt: v.optional(v.string()),
+    done: v.optional(v.number()),
+    kept: v.optional(v.number()),
+    results: v.optional(listResults),
+    spent: v.optional(v.number()),
+    leads: v.optional(v.array(v.id("leads"))),
+    /** Owners a page; the tests count in small pages. */
+    page: v.optional(v.number()),
+  },
+  handler: async (ctx, a) => {
+    const list = await ctx.db.get(a.listId);
+    if (!list) return null;
+    const startedAt = a.startedAt ?? nowIso();
+    const read = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", a.listId)).paginate({ cursor: a.cursor ?? null, numItems: a.page ?? RECOUNT_PAGE });
+    let done = a.done ?? 0;
+    let kept = a.kept ?? 0;
+    const results: ListResults = { sent: 0, estimates: 0, sold: 0, ...a.results };
+    let estimateCents = results.estimateCents ?? 0;
+    let soldCents = results.soldCents ?? 0;
+    let spent = a.spent ?? 0;
+    const leads = new Set(a.leads ?? []);
+    for (const m of read.page) {
+      const c = await ctx.db.get(m.contactId);
+      if (!c || !c.listIds.includes(a.listId)) continue;
+      if (isWorked(c.status)) done++;
+      // What its lookups were charged: a phone found, a research answer.
+      for (const cell of Object.values(cellsOf(c))) if (cell?.status === "found") spent += cell.chargedCents ?? 0;
+      const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
+      if (c.listIds.length === 1 && worthKeeping(c, c.leadId !== undefined && !lead)) kept++;
+      if (!lead || leads.has(lead._id)) continue;
+      leads.add(lead._id);
+      results.sent++;
+      if (lead.estimateId || lead.status === "quoted" || lead.status === "won") results.estimates++;
+      if (lead.status === "won") results.sold++;
+      // In money: the lead's estimate as it stands, and again under sold once the job is won.
+      const estimate = lead.estimateId ? await ctx.db.get(lead.estimateId) : null;
+      const cents = estimate ? Math.round(estimate.totalAmount * 100) : 0;
+      estimateCents += cents;
+      if (lead.status === "won") soldCents += cents;
+    }
+    results.estimateCents = estimateCents;
+    results.soldCents = soldCents;
+    if (!read.isDone) {
+      await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: a.listId, cursor: read.continueCursor, startedAt, done, kept, results, spent, leads: [...leads], page: a.page });
+      return null;
+    }
+    // A count begun later has already landed: its numbers are the newer ones.
+    if (list.countedAt && list.countedAt > startedAt) return null;
+    await ctx.db.patch(a.listId, { done, kept, results, spentCents: spent, countedAt: startedAt });
+    return null;
+  },
+});
+
+/**
+ * Asked by the page when it opens and a few seconds after owners change: counts again the lists whose numbers may
+ * have moved. Those are the lists an owner changed since their last count is on (read through the same index the
+ * live feed uses, so no change is missed), every list when owners were removed or too many changed to tell, a list
+ * never counted, and one whose count is old (COUNT_FRESH_MS). Says how many it set counting.
+ */
+export const tally = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { organization } = await requirePro(ctx, organizationId);
+    const lists = (await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).filter((l) => !l.removing);
+    const old = new Date(Date.now() - COUNT_FRESH_MS).toISOString();
+    const removedAt = organization.outreachRemovedAt ?? "";
+    const stale = new Set(lists.filter((l) => !l.countedAt || l.countedAt < old || removedAt >= l.countedAt).map((l) => l._id));
+    const fresh = lists.filter((l) => !stale.has(l._id));
+    if (fresh.length) {
+      const countedAt = new Map(fresh.map((l) => [l._id, l.countedAt as string] as const));
+      const oldest = fresh.reduce((min, l) => ((l.countedAt as string) < min ? (l.countedAt as string) : min), fresh[0].countedAt as string);
+      const changed = await ctx.db
+        .query("outreachContacts")
+        .withIndex("by_organization_and_updated", (q) => q.eq("organizationId", organizationId).gte("updatedAt", oldest))
+        .take(TALLY_MAX + 1);
+      if (changed.length > TALLY_MAX) for (const l of fresh) stale.add(l._id);
+      else
+        for (const c of changed)
+          for (const id of c.listIds) {
+            const at = countedAt.get(id);
+            if (at !== undefined && c.updatedAt !== undefined && c.updatedAt >= at) stale.add(id);
+          }
+    }
+    for (const id of stale) await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: id });
+    return { counting: stale.size };
+  },
+});
+
+/**
+ * Run on deploy: the lists saved before their numbers were kept on them get counted, a page of lists at a time.
+ * Safe to re-run: a list already counted is left alone.
+ */
+export const recountAll = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ counting: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachLists").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let counting = 0;
+    for (const l of page.page) {
+      if (l.countedAt) continue;
+      await ctx.scheduler.runAfter(0, internal.outreach.recount, { listId: l._id });
+      counting++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.recountAll, { cursor: page.continueCursor });
+    return { counting, done: page.isDone };
+  },
+});
+
+type Cell = NonNullable<Doc<"outreachContacts">["enrichment"]>["phone"];
+const LOCKED: Cell = { status: "locked" };
+/** A contact's cells, with the old single unlock read as its cells until the migration has run. */
+export function cellsOf(c: Doc<"outreachContacts">): NonNullable<Doc<"outreachContacts">["enrichment"]> {
+  if (c.enrichment) return c.enrichment;
+  const u = c.unlock;
+  if (!u) return { phone: LOCKED, email: LOCKED, person: LOCKED, research: LOCKED };
+  const status: Cell["status"] = u.status === "pending" ? "running" : u.status;
+  const cell = { status, at: u.at, requestedBy: u.requestedBy, source: u.vendor, error: u.error };
+  return {
+    phone: { ...cell, chargedCents: u.chargedCents },
+    email: { ...cell, status: u.status === "found" && !(c.emails?.length ?? 0) ? "none" : status },
+    person: LOCKED,
+    research: LOCKED,
+  };
+}
+/** The cell for a field, with research's absence on older rows read as locked. */
+export const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, field: Doc<"dataSourceStats">["field"]): Cell => cells[field] ?? LOCKED;
+
+/**
+ * Whether the contact is itself a company (an LLC on the roll, a contractor),
+ * so its sister entities are kin and the person behind it is to be found.
+ * A realtor's `company` is the brokerage they work with, not what they are.
+ */
+const isCompany = (c: { company?: string; kinds: Doc<"outreachContacts">["kinds"] }) => c.company !== undefined && !c.kinds.includes("realtor");
+
+const contactView = (
+  c: Doc<"outreachContacts">,
+  signals: SignalBadge[],
+  related: Array<{ id: Id<"outreachContacts">; name: string }> = [],
+  known?: Known,
+  leadStage?: Doc<"leads">["status"],
+  /** On a list's own view: when the owner joined that list. */
+  joinedAt?: string,
+) => ({
+  id: c._id,
+  key: c.key,
+  name: c.name,
+  company: c.company,
+  mailing: c.mailing,
+  property: c.property,
+  properties: c.properties,
+  totalValueCents: c.totalValueCents,
+  why: c.why,
+  brand: c.brand,
+  kinds: c.kinds,
+  listIds: c.listIds,
+  status: c.status,
+  note: c.note,
+  leadId: c.leadId,
+  /** Where the lead stands in Leads: Contacted, Estimate Sent, Job sold… */
+  ...(c.leadId && leadStage ? { leadStage } : {}),
+  phones: c.phones ?? [],
+  emails: c.emails ?? [],
+  person: c.person,
+  research: c.research,
+  enrichment: { ...cellsOf(c), research: cellFor(cellsOf(c), "research") },
+  signals,
+  /** Sister entities of the same company family ("Nuka Hiva Alpha 1-54 LLC" and "Nuka Hiva Alpha LLC"): likely one operator. */
+  related,
+  /** A client or lead the company already has for this owner, until it's sent. */
+  ...(known && !c.leadId ? { known } : {}),
+  /** Where email outreach stands with them (emailOutreach.ts). */
+  ...(c.email ? { email: { state: c.email.state, at: c.email.at } } : {}),
+  ...(joinedAt ? { joinedAt } : {}),
+  createdAt: c.createdAt,
+});
+export type ContactView = ReturnType<typeof contactView>;
+
+/** What the Signals column says about a contact's property: the newest of each kind of public record. */
+export type SignalBadge = { kind: Doc<"signals">["kind"]; date: string; detail: string; fresh?: boolean };
+
+/**
+ * When a signal counts as new: first seen in the last week, and not in the
+ * first import (a day's grace after it), so the first load of the city's
+ * records doesn't call everything new.
+ */
+async function freshSince(ctx: QueryCtx | MutationCtx, now = Date.now()): Promise<string> {
+  const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const first = await ctx.db.query("signals").order("asc").first();
+  const afterFirst = first ? new Date(Date.parse(first.importedAt) + 24 * 60 * 60 * 1000).toISOString() : weekAgo;
+  return afterFirst > weekAgo ? afterFirst : weekAgo;
+}
+
+async function signalsFor(ctx: QueryCtx | MutationCtx, parcelId: Id<"parcels">, since?: string): Promise<SignalBadge[]> {
+  return badgesOf(await signalsAt(ctx, parcelId), since);
+}
+
+/** The Signals column's badges from the records kept on an owner: new when first seen since `since`. */
+function badgesOf(stored: StoredSignal[], since?: string): SignalBadge[] {
+  return stored.map((r) => ({ kind: r.kind, date: r.date, detail: r.detail, ...(since && r.importedAt > since ? { fresh: true } : {}) }));
+}
+
+/**
+ * One-off, run on deploy: owners saved before their records were kept on
+ * them get them now, a page at a time. Safe to re-run: owners that have
+ * them are skipped.
+ */
+export const backfillContactSignals = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ filled: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let filled = 0;
+    for (const c of page.page) {
+      if (c.signals || !c.property) continue;
+      await ctx.db.patch(c._id, { signals: await signalsAt(ctx, c.property.parcelId), updatedAt: nowIso() });
+      filled++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.backfillContactSignals, { cursor: page.continueCursor });
+    return { filled, done: page.isDone };
+  },
+});
+
+/** "Phone 12 / 200 · 2 sources": how many contacts have each field, and from how many sources. */
+function coverageOf(rows: Doc<"outreachContacts">[]) {
+  const count = (has: (c: Doc<"outreachContacts">) => boolean, source: (c: Doc<"outreachContacts">) => string | undefined, of: (c: Doc<"outreachContacts">) => boolean = () => true) => {
+    const sources = new Set<string>();
+    let found = 0;
+    let total = 0;
+    for (const c of rows) {
+      if (!of(c)) continue;
+      total++;
+      if (has(c)) {
+        found++;
+        const s = source(c);
+        if (s) sources.add(s);
+      }
+    }
+    return { found, total, sources: sources.size };
+  };
+  return {
+    phone: count((c) => (c.phones?.length ?? 0) > 0, (c) => cellsOf(c).phone.source),
+    email: count((c) => (c.emails?.length ?? 0) > 0, (c) => cellsOf(c).email.source),
+    person: count((c) => Boolean(c.person), (c) => c.person?.source, (c) => Boolean(c.company)),
+    research: count((c) => Boolean(c.research), (c) => cellFor(cellsOf(c), "research").source),
+  };
+}
+
+/** The checkers' names: their scorecard rows say how numbers held up, not how often one was found. */
+const checkerNames = () => new Set([...phoneCheckers(process.env).map((c) => c.name), phoneScrub(process.env).name, verifier(process.env).name]);
+
+/** The company's own hit rate on phones so far, for the estimate; undefined until it has tried. Over the finding sources only. */
+async function phoneHitRate(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+  const checkers = checkerNames();
+  let attempts = 0;
+  let hits = 0;
+  for (const s of stats) {
+    if (s.field !== "phone" || checkers.has(s.source)) continue;
+    attempts += s.attempts;
+    hits += s.hits;
+  }
+  return attempts > 0 ? hits / attempts : undefined;
+}
+
+/**
+ * The company's contacts: on one list, in the list's own order (the
+ * biggest holders or the most valuable property first, as the list was
+ * built); across all lists, newest first. With coverage, the balance and
+ * the price, for the headers and the unlock bar.
+ */
+export const contacts = query({
+  /** unlisted: the owners on no list (kept from deleted lists because they were worked), in place of a list. */
+  args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")), unlisted: v.optional(v.boolean()) },
+  handler: async (ctx, { organizationId, listId, unlisted }) => {
+    const { organization } = await requirePro(ctx, organizationId);
+    const all = await contactsOf(ctx, organizationId);
+    const list = listId ? await ctx.db.get(listId) : null;
+    const order = list && list.organizationId === organizationId ? listOrder(list.definition) : undefined;
+    const picked = all
+      .filter((c) => (unlisted ? c.listIds.length === 0 : !listId || c.listIds.includes(listId)))
+      .sort((a, b) => (order ? order.key(b) - order.key(a) || a.name.localeCompare(b.name) : b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name)));
+    // Sister entities across all the company's contacts, not only this list.
+    const families = new Map<string, Array<{ id: Id<"outreachContacts">; name: string }>>();
+    for (const c of all) {
+      const f = isCompany(c) ? familyKey(c.name) : undefined;
+      if (f) families.set(f, [...(families.get(f) ?? []), { id: c._id, name: c.name }]);
+    }
+    const relatedTo = (c: Doc<"outreachContacts">) => {
+      const f = isCompany(c) ? familyKey(c.name) : undefined;
+      return f ? (families.get(f) ?? []).filter((r) => r.id !== c._id) : [];
+    };
+    const since = await freshSince(ctx);
+    // Kept on each owner; only one saved before that (until the backfill reaches it) is looked up here.
+    const signals = await Promise.all(
+      picked.map((c) => (c.signals ? Promise.resolve(badgesOf(c.signals, since)) : c.property ? signalsFor(ctx, c.property.parcelId, since) : Promise.resolve([] as SignalBadge[]))),
+    );
+    // A lead deleted in Leads leaves its owner New here, ready to send again; one still there shows its stage. One read for all of them.
+    const leadsById = picked.some((c) => c.leadId)
+      ? new Map((await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).map((l) => [l._id, l] as const))
+      : new Map<Id<"leads">, Doc<"leads">>();
+    const stages = new Map<Id<"outreachContacts">, Doc<"leads">["status"]>();
+    const gone = new Set<Id<"outreachContacts">>();
+    for (const c of picked) {
+      if (!c.leadId) continue;
+      const lead = leadsById.get(c.leadId);
+      if (lead) stages.set(c._id, lead.status);
+      else gone.add(c._id);
+    }
+    const index = await knownOf(ctx, organizationId);
+    const rows = picked.map((c, i) => {
+      const shown = gone.has(c._id) ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
+      return contactView(shown, signals[i], relatedTo(c), shown.leadId ? undefined : knownFor(shown, index), stages.get(c._id));
+    });
+    return {
+      rows,
+      coverage: coverageOf(picked),
+      balanceCents: organization.walletBalanceCents ?? 0,
+      /** Phones the company can still find free (its first FREE_LOOKUPS). */
+      freeLookups: freeLookupsLeft(organization),
+      unlockCents: UNLOCK_CENTS,
+      researchCents: RESEARCH_CENTS,
+      researchQuestion: DEFAULT_RESEARCH_QUESTION,
+      phoneHitRate: await phoneHitRate(ctx, organizationId),
+      lastSend: await lastSendOf(ctx, organizationId),
+      /** Owners on no list, for the picker's "Not on a list". */
+      unlisted: all.filter((c) => c.listIds.length === 0).length,
+      /** The company's working county, for the county switches (outreach.setCounty). */
+      county: knownCounty(organization.outreachCounty),
+      /** Lookups are simulated (no phone source yet), and a simulated result counts as work. */
+      simulating: simulating(),
+      /** The counties besides Midland whose owners are built: the switches offer them once they are. */
+      readyCounties: await readyCounties(ctx),
+      /** The server's clock at this read and the last removal of owners: where the page's live feed (changes) picks up. */
+      asOf: nowIso(),
+      removedAt: organization.outreachRemovedAt,
+    };
+  },
+});
+
+/** Owners one page of a view carries. OUTREACH_PAGE sets it (the tests read in small pages). */
+const ownersPage = () => Number(process.env.OUTREACH_PAGE) || 300;
+/** The most owners on no list counted for the picker's "Not on a list"; a company rarely keeps more than a few. */
+const UNLISTED_COUNT_MAX = 1000;
+
+/**
+ * The company's contacts a page at a time, so a view of any size loads: one list's owners (read from its membership
+ * rows, which are in the list's own order), those on no list, or all of them newest first. The page reads them in
+ * turn (outreachAPI.contacts) and puts them in order itself. The first page (no cursor) also carries the facts the
+ * screen needs: the balance, the prices, the last send, and where the live feed picks up. Nothing here reads every
+ * owner the company has; `contacts` above did, and stays only for a page loaded before this existed.
+ */
+export const contactsPage = query({
+  args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")), unlisted: v.optional(v.boolean()), cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { organizationId, listId, unlisted, cursor }) => {
+    const { organization } = await requirePro(ctx, organizationId);
+    const paging = { cursor: cursor ?? null, numItems: ownersPage() };
+    const list = listId ? await ctx.db.get(listId) : null;
+    let picked: Doc<"outreachContacts">[] = [];
+    let next: string | null = null;
+    // On a list: when each owner joined it, so the ones it picked up on its own lately can be told apart.
+    const joinedAt = new Map<Id<"outreachContacts">, string>();
+    if (listId) {
+      if (list && list.organizationId === organizationId) {
+        const read = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", listId)).paginate(paging);
+        for (const m of read.page) joinedAt.set(m.contactId, new Date(m._creationTime).toISOString());
+        const owners = await Promise.all(read.page.map((m) => ctx.db.get(m.contactId)));
+        picked = owners.filter((c): c is Doc<"outreachContacts"> => c !== null && c.organizationId === organizationId && c.listIds.includes(listId));
+        next = read.isDone ? null : read.continueCursor;
+      }
+    } else {
+      const read = unlisted
+        ? await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0)).paginate(paging)
+        : await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).order("desc").paginate(paging);
+      picked = read.page;
+      next = read.isDone ? null : read.continueCursor;
+    }
+    // Sister entities across all the company's contacts, not only this page: each family read once, by its index.
+    const families = new Map<string, Array<{ id: Id<"outreachContacts">; name: string }>>();
+    const related = async (c: Doc<"outreachContacts">) => {
+      const f = isCompany(c) ? familyKey(c.name) : undefined;
+      if (f === undefined) return [];
+      let kin = families.get(f);
+      if (!kin) {
+        const owners = await ctx.db.query("outreachContacts").withIndex("by_organization_and_family", (q) => q.eq("organizationId", organizationId).eq("family", f)).take(PEERS_MAX);
+        kin = owners.filter(isCompany).map((o) => ({ id: o._id, name: o.name }));
+        families.set(f, kin);
+      }
+      return kin.filter((r) => r.id !== c._id);
+    };
+    const since = await freshSince(ctx);
+    const index = await knownOf(ctx, organizationId);
+    const rows = [];
+    for (const c of picked) {
+      const signals = c.signals ? badgesOf(c.signals, since) : c.property ? await signalsFor(ctx, c.property.parcelId, since) : [];
+      // A lead deleted in Leads leaves its owner New here, ready to send again; one still there shows its stage.
+      const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
+      const shown = c.leadId && !lead ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
+      rows.push(contactView(shown, signals, await related(c), shown.leadId ? undefined : knownFor(shown, index), lead?.status, joinedAt.get(c._id)));
+    }
+    if (cursor) return { rows, cursor: next };
+    const onNone = await ctx.db
+      .query("outreachContacts")
+      .withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0))
+      .take(UNLISTED_COUNT_MAX);
+    return {
+      rows,
+      cursor: next,
+      facts: {
+        balanceCents: organization.walletBalanceCents ?? 0,
+        freeLookups: freeLookupsLeft(organization),
+        unlockCents: UNLOCK_CENTS,
+        researchCents: RESEARCH_CENTS,
+        researchQuestion: DEFAULT_RESEARCH_QUESTION,
+        phoneHitRate: await phoneHitRate(ctx, organizationId),
+        lastSend: await lastSendOf(ctx, organizationId),
+        unlisted: onNone.length,
+        county: knownCounty(organization.outreachCounty),
+        simulating: simulating(),
+        readyCounties: await readyCounties(ctx),
+        asOf: nowIso(),
+        removedAt: organization.outreachRemovedAt,
+        /** The open list's definition: the page puts its owners in the list's own order from it. */
+        definition: list && list.organizationId === organizationId ? list.definition : undefined,
+      },
+    };
+  },
+});
+
+/**
+ * How big the owners are, by company: how many, their average and largest
+ * stored size, and how far one read of them all is from what a read may hold
+ * (16 MiB). Read-only, for sizing the paged reads; run from the deploy
+ * workflow's "function" input. Looks at the first 8,000 owners.
+ */
+export const sizes = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const LOOK = 8000;
+    const owners = await ctx.db.query("outreachContacts").take(LOOK);
+    const by = new Map<Id<"organizations">, { owners: number; bytes: number; largest: number; lookedUp: number }>();
+    for (const c of owners) {
+      const size = JSON.stringify(c).length;
+      const row = by.get(c.organizationId) ?? { owners: 0, bytes: 0, largest: 0, lookedUp: 0 };
+      row.owners++;
+      row.bytes += size;
+      row.largest = Math.max(row.largest, size);
+      if (Object.values(cellsOf(c)).some((cell) => cell && cell.status !== "locked")) row.lookedUp++;
+      by.set(c.organizationId, row);
+    }
+    const READ_LIMIT = 16 * 1024 * 1024;
+    return {
+      looked: owners.length,
+      all: owners.length < LOOK,
+      companies: [...by.entries()]
+        .map(([organizationId, r]) => ({ organizationId, owners: r.owners, lookedUp: r.lookedUp, averageBytes: Math.round(r.bytes / r.owners), largestBytes: r.largest, megabytes: Math.round((r.bytes / 1024 / 1024) * 10) / 10, ownersOneReadHolds: Math.floor(READ_LIMIT / (r.bytes / r.owners)) }))
+        .sort((a, b) => b.owners - a.owners),
+    };
+  },
+});
+
+/** The most owners one answer of the live feed carries; past it the page reads its view again instead. */
+export const CHANGES_MAX = 300;
+
+/**
+ * The page's live feed: the company's owners changed since a moment, not all
+ * of them again. The page reads its view once (contacts) and then listens
+ * here, so an answer landing sends that one owner rather than the whole list.
+ * Owners removed don't show here; `removedAt` moving tells the page to read
+ * again. A changed owner comes without its related owners or its match to a
+ * client or lead: the page keeps the ones it has.
+ */
+export const changes = query({
+  args: { organizationId: v.id("organizations"), since: v.string() },
+  handler: async (ctx, { organizationId, since }) => {
+    const { organization } = await requirePro(ctx, organizationId);
+    const facts = { balanceCents: organization.walletBalanceCents ?? 0, freeLookups: freeLookupsLeft(organization), removedAt: organization.outreachRemovedAt };
+    const changed = await ctx.db
+      .query("outreachContacts")
+      .withIndex("by_organization_and_updated", (q) => q.eq("organizationId", organizationId).gt("updatedAt", since))
+      .take(CHANGES_MAX + 1);
+    if (changed.length > CHANGES_MAX) return { ...facts, reload: true as const, rows: [], upTo: since };
+    const fresh = await freshSince(ctx);
+    const rows = [];
+    for (const c of changed) {
+      const signals = c.signals ? badgesOf(c.signals, fresh) : c.property ? await signalsFor(ctx, c.property.parcelId, fresh) : [];
+      // A lead deleted in Leads leaves its owner New here, as the full read shows it.
+      const lead = c.leadId ? await ctx.db.get(c.leadId) : null;
+      const shown = c.leadId && !lead ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
+      rows.push(contactView(shown, signals, undefined, undefined, lead?.status));
+    }
+    return { ...facts, reload: false as const, rows, upTo: changed.reduce((latest, c) => (c.updatedAt && c.updatedAt > latest ? c.updatedAt : latest), since) };
+  },
+});
+
+/** How many of an owner's properties the sheet lists at most; past that it says how many more there are. */
+export const PROPERTIES_MAX = 300;
+/** How many earlier owners a property shows. */
+const DEEDS_SHOWN = 5;
+
+/**
+ * Everything an owner holds on the roll, the most valuable first: the owner's row keeps only its top property, so the
+ * rest are read from the roll by the key the parcels are filed under (parcels.ts filing). An office (one address that
+ * gets several owners' tax bills) lists what is billed there. A contractor, a tenant or a realtor owns nothing on the
+ * roll as such, and lists nothing. `filed` is false while the parcels read before this are still being filed.
+ */
+export const properties = query({
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
+  handler: async (ctx, { organizationId, contactId }) => {
+    await requirePro(ctx, organizationId);
+    const c = await ctx.db.get(contactId);
+    if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "That owner isn't here any more");
+    const county = knownCounty(await countyOfOwner(ctx, c));
+    const office = c.key.startsWith("office:");
+    // A company on the city's permits, a tenant or a licensed agent has a key of its own kind, and no parcels under it.
+    const onRoll = !/^(contractor|designer|occupant|realtor|seller):/.test(c.key);
+    // A past owner: what they sold, from their row (the parcels are someone else's now).
+    if (c.key.startsWith("seller:")) {
+      const o = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", county).eq("key", c.key)).first();
+      const rows = (o?.sales ?? []).map((s) => ({ id: `${s.parcelId}:${s.date ?? ""}`, address: tidyCase(s.address) ?? s.address, useCode: s.useCode, valueCents: s.valueCents, kind: s.kind, sold: { to: s.to, date: s.date } }));
+      return { rows, total: Math.max(c.properties, rows.length), more: c.properties > rows.length, city: cityOf(county), filed: true, sold: true };
+    }
+    const read = !onRoll
+      ? []
+      : office
+        ? await ctx.db
+            .query("parcels")
+            .withIndex("by_county_and_mail_key", (q) => q.eq("county", county).eq("mailKey", c.key.slice("office:".length)))
+            .take(PROPERTIES_MAX + 1)
+        : await ctx.db
+            .query("parcels")
+            .withIndex("by_county_and_owner_key", (q) => q.eq("county", county).eq("ownerKey", c.key))
+            .take(PROPERTIES_MAX + 1);
+    const rows = read
+      .sort((a, b) => (b.marketValueCents ?? 0) - (a.marketValueCents ?? 0) || a.siteAddress.localeCompare(b.siteAddress))
+      .slice(0, PROPERTIES_MAX)
+      .map((p) => ({
+        id: p._id,
+        address: tidyCase(p.siteAddress) ?? p.siteAddress,
+        useCode: p.useCode,
+        valueCents: p.marketValueCents,
+        deedDate: p.deedDate,
+        ...(p.kind ? { kind: p.kind } : {}),
+        ...(p.cashBuyer ? { cash: true } : {}),
+        // The owners before, newest first, where the deed history has been read: each sold it on the date beside them.
+        ...(p.deeds?.length ? { deeds: p.deeds.filter((d) => d.seller !== p.owner).slice(0, DEEDS_SHOWN).map((d) => ({ seller: displayName(d.seller), date: d.date })) } : {}),
+        ...(office ? { owner: tidyCase(p.owner) ?? p.owner } : {}),
+      }));
+    return {
+      rows,
+      /** How many the owner holds in all, as its row says; the list may be shorter (PROPERTIES_MAX, or a roll read since). */
+      total: Math.max(c.properties, rows.length),
+      more: read.length > PROPERTIES_MAX,
+      city: cityOf(county),
+      filed: rows.length > 0 || c.properties === 0 || !onRoll,
+    };
+  },
+});
+
+/** The counties besides Midland whose owners have been built cleanly: lists can be made there. */
+async function readyCounties(ctx: QueryCtx): Promise<string[]> {
+  const others = Object.keys(COUNTY_PLACES).filter((c) => c !== COUNTY);
+  const syncs = await Promise.all(others.map((c) => ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", ownersSource(c))).unique()));
+  return others.filter((_, i) => {
+    const s = syncs[i];
+    return Boolean(s && !s.error && s.fetched > 0);
+  });
+}
+
+/**
+ * What going live still needs, read off the deployment: which sources hold a key, whether email, replies, research
+ * and adding funds are set up, and whether anything is stuck. Yes/no and counts only: never a key's value.
+ * Run by hand: `npx convex run outreach:readiness`.
+ */
+export const readiness = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const env = process.env;
+    const on = (xs: Array<{ name: string; connected: boolean }>) => Object.fromEntries(xs.map((x) => [x.name, x.connected]));
+    const rolls = await ctx.db.query("permitSources").take(200);
+    const waiting = await ctx.db.query("outreachQueue").take(2000);
+    return {
+      simulatedLookups: simulating(),
+      sources: on(vendors(env)),
+      phoneCheckers: on(phoneCheckers(env)),
+      doNotCallScrub: phoneScrub(env).connected,
+      emailChecker: verifier(env).connected,
+      aiResearchAndDrafts: Boolean(env.ANTHROPIC_API_KEY),
+      gmailSendingMissing: gmailSetupMissing(env),
+      emailReplies: { resendKey: Boolean(env.RESEND_API_KEY), replyDomain: Boolean(env.REPLY_DOMAIN), webhookSecret: Boolean(env.RESEND_WEBHOOK_SECRET) },
+      addFunds: { stripeKey: Boolean(env.STRIPE_SECRET_KEY), stripeWebhook: Boolean(env.STRIPE_WEBHOOK_SECRET) },
+      dataReads: { sources: rolls.length, withError: rolls.filter((r) => r.error).map((r) => r.source), empty: rolls.filter((r) => !r.error && r.fetched === 0).map((r) => r.source) },
+      lookupQueue: { waiting: waiting.filter((w) => w.state === "queued").length, running: waiting.filter((w) => w.state === "active").length },
+      // How many owners each county's last build put on the commercial, storage and industrial lists, and when it ran.
+      ownerLists: Object.fromEntries(
+        rolls.filter((r) => r.facetCounts).map((r) => [r.source, { builtAt: r.syncedAt, commercial: r.facetCounts?.commercial ?? 0, storage: r.facetCounts?.storage ?? 0, industrial: r.facetCounts?.industrial ?? 0 }]),
+      ),
+    };
+  },
+});
+
+/** Staff: the stack in order, whether each source is connected, and how it has done for this company. */
+export const sources = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requireStaff(ctx);
+    const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+    const checker = verifier(process.env);
+    const scrub = phoneScrub(process.env);
+    const own = [
+      { name: "roll", fields: ["person" as const], connected: true },
+      { name: "permits", fields: ["person" as const, "phone" as const, "email" as const], connected: true },
+    ];
+    const checks = [
+      ...phoneCheckers(process.env).map((c) => ({ name: c.name, fields: c.name === "trestle" ? ["phone" as const, "email" as const] : ["phone" as const], connected: c.connected })),
+      { name: scrub.name, fields: ["phone" as const], connected: scrub.connected },
+      { name: checker.name, fields: ["email" as const], connected: checker.connected },
+    ];
+    return [...own, ...vendors(process.env), ...checks].map((s) => ({
+      name: s.name,
+      fields: s.fields,
+      connected: s.connected,
+      stats: s.fields.map((field) => {
+        const row = stats.find((x) => x.source === s.name && x.field === field);
+        return { field, attempts: row?.attempts ?? 0, hits: row?.hits ?? 0, chargedCents: row?.chargedCents ?? 0, lastAt: row?.lastAt, problem: row?.problem, problemAt: row?.problemAt };
+      }),
+    }));
+  },
+});
+
+/** Marks a contact sent, done or skipped (or new again), with a note. */
+/**
+ * Skip or un-skip an owner, and their note. Outreach stops there: the
+ * calls, follow-ups and the estimate happen in Leads (sendToLeads).
+ */
+export const setStatus = mutation({
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts"), status: outreachRowStatus, note: v.optional(v.string()) },
+  handler: async (ctx, { organizationId, contactId, status, note }) => {
+    await requirePro(ctx, organizationId);
+    const contact = await ctx.db.get(contactId);
+    if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
+    // No note sent leaves the one there; an empty one clears it.
+    const text = note === undefined ? contact.note : note.trim() || undefined;
+    await ctx.db.patch(contactId, { status, note: text, updatedAt: nowIso() });
+    return null;
+  },
+});
+
+/**
+ * Another owner run by the same people: one family of LLCs ("Nuka Hiva Alpha
+ * 1-54 LLC" and "Nuka Hiva Alpha LLC"), or the same decision maker at the same
+ * mailing address. Their calls go to one lead, not one each.
+ */
+function sameOperator(a: Doc<"outreachContacts">, b: Doc<"outreachContacts">): boolean {
+  const family = a.company ? familyKey(a.name) : undefined;
+  if (family !== undefined && b.company && familyKey(b.name) === family) return true;
+  const mail = mailKey(a.mailing);
+  return !!a.person && !!b.person && samePerson(a.person, b.person) && mail !== undefined && mailKey(b.mailing) === mail;
+}
+
+/** On a lead whose owner had sample or simulated results, in place of them. */
+export const SAMPLE_LEFT_OUT = "Sample contact details were left out; look this owner up for real ones.";
+
+/**
+ * One owner to Leads, where the calls, follow-ups and the estimate already
+ * live. The lead (new, source Outreach) gets the decision maker's name (the
+ * company's until one is found), always the owning company, the best number
+ * not on Do Not Call, the email, the property as its address, and a note with
+ * what they own, the mailing address and the company's own note. An owner run
+ * by the same people as one already sent joins that lead instead: a line on
+ * its note, and the number or email it was missing. `all` is the company's
+ * contacts, kept current as owners are sent.
+ */
+/** A client or lead the company already has, matched to an owner. */
+type Known = { kind: "client" | "lead"; id: string; name: string };
+
+const NAME_FILLER = new Set(["llc", "l", "c", "inc", "lp", "llp", "ltd", "co", "corp", "corporation", "company", "the", "pllc", "pc"]);
+/** "Oak Plaza, L.L.C." and "oak plaza llc" → "oak plaza": a name to compare, without its punctuation or entity words. */
+function nameKey(name?: string): string | undefined {
+  const words = (name ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !NAME_FILLER.has(w));
+  // One word is too loose to call two names the same ("Smith").
+  return words.length >= 2 ? words.join(" ") : undefined;
+}
+const phoneKey = (p?: string) => {
+  const d = (p ?? "").replace(/\D/g, "").slice(-10);
+  return d.length === 10 ? d : undefined;
+};
+const emailKey = (e?: string) => e?.trim().toLowerCase() || undefined;
+
+/** Everyone the company already has, by phone, email and name: clients first, so a client wins over a lead. */
+async function knownOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  const index = new Map<string, Known>();
+  const add = (k: Known, keys: Array<string | undefined>) => {
+    for (const key of keys) if (key && !index.has(key)) index.set(key, k);
+  };
+  for (const c of await ctx.db.query("clients").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()) {
+    add({ kind: "client", id: c._id, name: c.companyName || c.name }, [`p:${phoneKey(c.phone)}`, `e:${emailKey(c.email)}`, `n:${nameKey(c.name)}`, `n:${nameKey(c.companyName)}`].filter((k) => !k.endsWith(":undefined")));
+  }
+  for (const l of await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()) {
+    if (l.isSample) continue;
+    add({ kind: "lead", id: l._id, name: l.company || l.name }, [`p:${phoneKey(l.phone)}`, `e:${emailKey(l.email)}`, `n:${nameKey(l.name)}`, `n:${nameKey(l.company)}`].filter((k) => !k.endsWith(":undefined")));
+  }
+  return index;
+}
+type KnownIndex = Awaited<ReturnType<typeof knownOf>>;
+
+/** The client or lead an owner already is: by a real phone or email, else by the owner's name. */
+function knownFor(c: Doc<"outreachContacts">, index: KnownIndex): Known | undefined {
+  const cells = cellsOf(c);
+  const real = (field: "phone" | "email") => !isSampleRun(c) && !cellFor(cells, field).simulated;
+  const keys = [
+    ...(real("phone") ? (c.phones ?? []).map((p) => `p:${phoneKey(p.number)}`) : []),
+    ...(real("email") ? (c.emails ?? []).map((e) => `e:${emailKey(e.email)}`) : []),
+    // The owner's own name, not the decision maker's: two men named Kai Moana are not one lead.
+    `n:${nameKey(c.name)}`,
+  ];
+  const hits = keys.map((k) => index.get(k)).filter((k): k is Known => k !== undefined && !(k.kind === "lead" && k.id === c.leadId));
+  return hits.find((k) => k.kind === "client") ?? hits[0];
+}
+
+/** The county an owner is in: that of the first of its lists still there, or the company's working county. */
+async function countyOfOwner(ctx: QueryCtx | MutationCtx, c: Doc<"outreachContacts">) {
+  for (const id of c.listIds) {
+    const list = await ctx.db.get(id);
+    if (list) return list.definition.county;
+  }
+  return (await ctx.db.get(c.organizationId))?.outreachCounty;
+}
+
+async function sendOne(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  userId: Id<"users">,
+  contact: Doc<"outreachContacts">,
+  now: string,
+  index?: KnownIndex,
+  /** In a send of many: the owners already read, kept current as each is sent. */
+  peers?: Peers,
+  /** The lead of another owner the same person runs (operatorsAmong): joined before anything else is looked for. */
+  join?: Id<"leads">,
+): Promise<{ leadId: Id<"leads">; made: boolean }> {
+  const have = async (id?: Id<"leads">) => (id ? await ctx.db.get(id) : null);
+  // Sample and simulated results are made up: they show the layout here, but a lead is called for real.
+  const cells = cellsOf(contact);
+  const madeUp = (field: "phone" | "email" | "person") => isSampleRun(contact) || Boolean(cellFor(cells, field).simulated);
+  const phone = madeUp("phone") ? undefined : (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
+  const email = madeUp("email") ? undefined : (contact.emails ?? []).find((e) => e.nameMatch !== false);
+  const person = madeUp("person") ? undefined : contact.person;
+  const leftOut = (madeUp("phone") && (contact.phones?.length ?? 0) > 0) || (madeUp("email") && (contact.emails?.length ?? 0) > 0) || (madeUp("person") && Boolean(contact.person));
+  let lead = await have(contact.leadId);
+  let made = false;
+  if (!lead) {
+    lead = await have(join);
+    for (const other of lead ? [] : await peersOf(ctx, contact, peers)) {
+      if (other._id === contact._id || !other.leadId || !sameOperator(contact, other)) continue;
+      lead = await have(other.leadId);
+      if (lead) break;
+    }
+    // Someone the company already has: a lead is joined, a client gets the new lead under their name.
+    const known = lead ? undefined : knownFor(contact, index ?? (await knownOf(ctx, organizationId)));
+    if (known?.kind === "lead") lead = await have(known.id as Id<"leads">);
+    const client = known?.kind === "client" ? await ctx.db.get(known.id as Id<"clients">) : null;
+    if (lead) {
+      // Joins the lead of the same operator: what this one owns, and anything the lead was missing.
+      await ctx.db.patch(lead._id, {
+        notes: [lead.notes, `Also owns as ${contact.name}: ${contact.why}.`].filter(Boolean).join("\n"),
+        ...(!lead.phone && phone ? { phone: phone.number } : {}),
+        ...(!lead.email && email ? { email: email.email } : {}),
+        updatedAt: now,
+      });
+    } else {
+      const mailing = [tidyCase(contact.mailing.address), tidyCase(contact.mailing.city), contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
+      const notes = [
+        `From Outreach. ${contact.why}.`,
+        mailing ? `Mailing address: ${mailing}.` : "",
+        client ? `Already a client: ${client.companyName || client.name}.` : "",
+        leftOut ? SAMPLE_LEFT_OUT : "",
+        isSampleRun(contact) ? "" : (contact.note ?? ""),
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const name = person?.name ?? contact.name;
+      const leadId = await ctx.db.insert("leads", {
+        name,
+        ...(isCompany(contact) ? { company: contact.name } : contact.company ? { company: contact.company } : {}),
+        // Under a client, the client's number and email when the lookup has none: nothing to pay for.
+        ...(phone ? { phone: phone.number } : client?.phone ? { phone: client.phone } : {}),
+        ...(email ? { email: email.email } : client?.email ? { email: client.email } : {}),
+        ...(contact.property?.address ? { address: tidyCase(contact.property.address), city: cityOf(await countyOfOwner(ctx, contact)) } : {}),
+        source: "Outreach",
+        status: "new",
+        notes,
+        ...(client ? { clientId: client._id } : {}),
+        organizationId,
+        userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await logActivity(ctx, { organizationId, userId, action: "created", resourceType: "lead", resourceId: leadId, details: { name, fromOutreach: contact._id } });
+      lead = (await ctx.db.get(leadId))!;
+      made = true;
+      // Later owners in the same send that share a phone or email join this lead.
+      if (index) for (const k of [`p:${phoneKey(lead.phone)}`, `e:${emailKey(lead.email)}`]) if (!k.endsWith(":undefined") && !index.has(k)) index.set(k, { kind: "lead", id: leadId, name: lead.company || lead.name });
+    }
+  }
+  if (contact.status !== "lead" || contact.leadId !== lead._id) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", sentAt: now, updatedAt: now });
+  // Later owners in the same send see this one's lead.
+  if (peers) for (const rows of peers.values()) for (const o of rows) if (o._id === contact._id) o.leadId = lead._id;
+  return { leadId: lead._id, made };
+}
+
+/**
+ * One-off: leads sent from Outreach before Company was always filled get
+ * their owning company. Safe to run again. Run from the deploy workflow:
+ * function `outreach:fillLeadCompanies`.
+ */
+export const fillLeadCompanies = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const tally = { outreachLeads: 0, missing: 0, filled: 0 };
+    for (const lead of await ctx.db.query("leads").filter((q) => q.eq(q.field("source"), "Outreach")).collect()) {
+      tally.outreachLeads++;
+      if (lead.company) continue;
+      tally.missing++;
+      // The owner it was sent from: linked by the send, else the owner of the same name in the same company.
+      const linked = await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", lead._id)).first();
+      const contact =
+        linked ??
+        (await ctx.db
+          .query("outreachContacts")
+          .withIndex("by_organization", (q) => q.eq("organizationId", lead.organizationId))
+          .filter((q) => q.eq(q.field("name"), lead.name))
+          .first());
+      if (!contact?.company) continue;
+      await ctx.db.patch(lead._id, { company: contact.name, updatedAt: nowIso() });
+      if (!linked && !contact.leadId) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", updatedAt: nowIso() });
+      tally.filled++;
+    }
+    return tally;
+  },
+});
+
+/** What the grouping by person reads off an owner. What a sample or simulated lookup made up ties nobody: a lead is called for real. */
+function asOperatorOwner(c: Doc<"outreachContacts">): OperatorOwner {
+  const cells = cellsOf(c);
+  const real = (field: "phone" | "email" | "person") => !isSampleRun(c) && !cellFor(cells, field).simulated;
+  return {
+    id: c._id,
+    name: c.name,
+    company: isCompany(c),
+    person: real("person") ? operatorName(c.person) : undefined,
+    phones: real("phone") ? (c.phones ?? []).map((p) => p.number) : [],
+    emails: real("email") ? (c.emails ?? []).filter((e) => e.nameMatch !== false).map((e) => e.email) : [],
+    mailing: mailKey(c.mailing),
+  };
+}
+
+/**
+ * The people behind the owners of a send (lib/operators.ts, as the page shows
+ * them): for each owner, the key of the person's group, and for each group the
+ * lead one of its owners already made. `alongside` are owners the page says
+ * the same people run and that are in Leads already; they are checked here
+ * like the rest, so naming one that isn't related joins nothing.
+ */
+async function operatorsAmong(ctx: MutationCtx, organizationId: Id<"organizations">, sending: Doc<"outreachContacts">[], alongside: Id<"outreachContacts">[] = []) {
+  const all = new Map(sending.map((c) => [c._id as string, c] as const));
+  for (const id of new Set(alongside.slice(0, SEND_MAX))) {
+    if (all.has(id)) continue;
+    const c = await ctx.db.get(id);
+    if (c && c.organizationId === organizationId) all.set(id, c);
+  }
+  const groups = operatorGroups([...all.values()].map(asOperatorOwner));
+  const leadOf = new Map<string, Id<"leads">>();
+  for (const [id, group] of groups) {
+    const leadId = all.get(id)!.leadId;
+    if (leadId && !leadOf.has(group.key) && (await ctx.db.get(leadId))) leadOf.set(group.key, leadId);
+  }
+  return { keyOf: (id: Id<"outreachContacts">) => groups.get(id)?.key, leadOf };
+}
+
+/** One owner to Leads (see sendOne). Sent once; after that the same lead comes back. */
+export const sendToLeads = mutation({
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts"), alongside: v.optional(v.array(v.id("outreachContacts"))) },
+  handler: async (ctx, { organizationId, contactId, alongside }) => {
+    const { user } = await requirePro(ctx, organizationId);
+    const contact = await ctx.db.get(contactId);
+    if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
+    // Another company of the same person already in Leads: this one joins that lead.
+    const people = alongside?.length ? await operatorsAmong(ctx, organizationId, [contact], alongside) : undefined;
+    const key = people?.keyOf(contactId);
+    return (await sendOne(ctx, organizationId, user._id, contact, nowIso(), undefined, undefined, key ? people?.leadOf.get(key) : undefined)).leadId;
+  },
+});
+
+/**
+ * An owner who answered an outreach email, to Leads (emailOutreach.ts): the
+ * same send as the button, with the reply in the lead's notes.
+ */
+export async function leadFromReply(ctx: MutationCtx, contact: Doc<"outreachContacts">, userId: Id<"users">, reply: string): Promise<Id<"leads">> {
+  const now = nowIso();
+  const { leadId } = await sendOne(ctx, contact.organizationId, userId, contact, now);
+  const lead = await ctx.db.get(leadId);
+  if (lead) {
+    const day = new Date(now).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" });
+    const line = `${day}: replied to your email: "${reply.replace(/\s+/g, " ").slice(0, 600)}"`;
+    await ctx.db.patch(leadId, { notes: [lead.notes, line].filter(Boolean).join("\n"), updatedAt: now });
+  }
+  return leadId;
+}
+
+/** The Outreach owners behind a lead, for the lead's drawer: who they are, what they own and why they were picked. */
+export const ownersOfLead = query({
+  args: { organizationId: v.id("organizations"), leadId: v.id("leads") },
+  handler: async (ctx, { organizationId, leadId }) => {
+    await requireMember(ctx, organizationId);
+    const lead = await ctx.db.get(leadId);
+    if (!lead || lead.organizationId !== organizationId) return [];
+    const owners = await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", leadId)).collect();
+    return owners
+      .filter((c) => c.organizationId === organizationId)
+      .map((c) => ({ id: c._id, name: c.name, why: c.why, properties: c.properties, totalValueCents: c.totalValueCents, address: c.property?.address }));
+  },
+});
+
+/** How long a send to Leads can be taken back. */
+const UNDO_HOURS = 24;
+/** Outreach leads made by one send, which share their creation time. */
+async function leadsOfSend(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  return (await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).filter((l) => l.source === "Outreach");
+}
+/** The latest send of two or more leads in the last day, to offer Undo on: when, and how many leads are still there. */
+async function lastSendOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">): Promise<{ at: string; leads: number } | null> {
+  const since = new Date(Date.now() - UNDO_HOURS * 3600_000).toISOString();
+  const counts = new Map<string, number>();
+  for (const l of await leadsOfSend(ctx, organizationId)) if (l.createdAt >= since) counts.set(l.createdAt, (counts.get(l.createdAt) ?? 0) + 1);
+  const at = [...counts.entries()].filter(([, n]) => n >= 2).map(([t]) => t).sort().at(-1);
+  return at ? { at, leads: counts.get(at)! } : null;
+}
+
+/**
+ * Takes back one send to Leads: its leads still at New with no estimate are
+ * deleted and their owners go back to New here; leads already worked stay.
+ * Owners of that send who joined an older lead leave it again.
+ */
+export const undoSend = mutation({
+  args: { organizationId: v.id("organizations"), at: v.string() },
+  handler: async (ctx, { organizationId, at }) => {
+    await requirePro(ctx, organizationId);
+    const now = nowIso();
+    let removed = 0;
+    let kept = 0;
+    for (const lead of (await leadsOfSend(ctx, organizationId)).filter((l) => l.createdAt === at)) {
+      if (lead.status !== "new" || lead.estimateId) {
+        kept++;
+        continue;
+      }
+      for (const c of await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", lead._id)).collect()) {
+        await ctx.db.patch(c._id, { status: "new", leadId: undefined, sentAt: undefined, updatedAt: now });
+      }
+      await ctx.db.delete(lead._id);
+      removed++;
+    }
+    const sent = await ctx.db.query("outreachContacts").withIndex("by_organization_and_sent", (q) => q.eq("organizationId", organizationId).eq("sentAt", at)).collect();
+    for (const c of sent) {
+      if (!c.leadId) continue;
+      const lead = await ctx.db.get(c.leadId);
+      if (!lead || lead.createdAt === at) continue;
+      const line = `Also owns as ${c.name}:`;
+      await ctx.db.patch(lead._id, { notes: (lead.notes ?? "").split("\n").filter((l) => !l.startsWith(line)).join("\n") || undefined, updatedAt: now });
+      await ctx.db.patch(c._id, { status: "new", leadId: undefined, sentAt: undefined, updatedAt: now });
+    }
+    return { removed, kept };
+  },
+});
+
+/** The most owners one Send to Leads takes. */
+export const SEND_MAX = 500;
+
+/**
+ * Many owners to Leads at once (the ones showing on the page, or one person's
+ * companies). Owners run by the same people share one lead: the companies
+ * naming one decision maker, the owners with one phone or email, a family of
+ * LLCs. Says how many owners went, how many leads that made, and how many
+ * joined a lead of the same operator.
+ */
+export const sendManyToLeads = mutation({
+  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")), alongside: v.optional(v.array(v.id("outreachContacts"))) },
+  handler: async (ctx, { organizationId, contactIds, alongside }) => {
+    const { user } = await requirePro(ctx, organizationId);
+    if (contactIds.length > SEND_MAX) fail("INVALID", `Send up to ${SEND_MAX} at a time`);
+    const now = nowIso();
+    const index = await knownOf(ctx, organizationId);
+    // The owners asked for are read one by one, and each one's kin by index: not every owner the company has.
+    const peers: Peers = new Map();
+    const sending: Doc<"outreachContacts">[] = [];
+    for (const id of new Set(contactIds)) {
+      const contact = await ctx.db.get(id);
+      if (contact && contact.organizationId === organizationId) sending.push(contact);
+    }
+    const people = await operatorsAmong(ctx, organizationId, sending, alongside);
+    let sent = 0;
+    let made = 0;
+    for (const contact of sending) {
+      const before = contact.leadId && (await ctx.db.get(contact.leadId));
+      if (before) continue;
+      const key = people.keyOf(contact._id);
+      const r = await sendOne(ctx, organizationId, user._id, contact, now, index, peers, key ? people.leadOf.get(key) : undefined);
+      // The rest of this person's companies in the send join the same lead.
+      if (key && !people.leadOf.has(key)) people.leadOf.set(key, r.leadId);
+      sent++;
+      if (r.made) made++;
+    }
+    return { sent, leads: made, joined: sent - made };
+  },
+});
+
+/** How many of a list's owners one step of deleting it handles. OUTREACH_REMOVE_PAGE sets it (the tests delete in small steps). */
+const removePage = () => Number(process.env.OUTREACH_REMOVE_PAGE) || 300;
+
+/**
+ * One step of deleting a list: its next owners (read from its membership rows, not from every owner the company has)
+ * lose the tag, and one on no other list goes too unless it holds work (worthKeeping), or, asked to take the worked
+ * ones as well, unless it always stays. Says whether owners are left for another step.
+ */
+async function removeStep(ctx: MutationCtx, list: Doc<"outreachLists">, alsoWorked: boolean): Promise<RemoveStep> {
+  const listId = list._id;
+  const size = removePage();
+  let cancelled = 0;
+  let finishing = 0;
+  const members = await ctx.db.query("outreachMembers").withIndex("by_list", (q) => q.eq("listId", listId)).take(size);
+  const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", list.organizationId)).collect();
+  const whoOf = new Map(lists.map((l) => [l._id, l.definition.who] as const));
+  for (const m of members) {
+    const c = await ctx.db.get(m.contactId);
+    if (!c || !c.listIds.includes(listId)) {
+      await ctx.db.delete(m._id);
+      continue;
+    }
+    const listIds = c.listIds.filter((id) => id !== listId);
+    let afterLookup: Doc<"outreachContacts">["afterLookup"];
+    // Owners you've worked stay (under All owners) even when this was their only list; the rest go with it.
+    if (listIds.length === 0) {
+      // Its lookups still waiting their turn are cancelled: no source was asked, so nothing is charged. Ones already
+      // running finish (a source is being asked), and the delete is finished for the owner when they land.
+      const waiting = await cancelWaiting(ctx, c);
+      cancelled += waiting.cancelled;
+      const owner = waiting.contact;
+      const gone = await leadGone(ctx, owner);
+      if (alsoWorked ? !alwaysStays(owner, gone) : !worthKeeping(owner, gone)) {
+        await dropOwner(ctx, owner._id);
+        continue;
+      }
+      if (lookingUp(owner)) {
+        finishing++;
+        afterLookup = alsoWorked ? "drop" : "keep";
+      }
+    }
+    const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
+    await ctx.db.patch(c._id, { listIds, kinds, ...filing({ ...c, listIds }), ...(afterLookup ? { afterLookup } : {}), updatedAt: nowIso() });
+    await leaveLists(ctx, c._id, listId);
+  }
+  return { more: members.length === size, cancelled, finishing };
+}
+
+/** What one step of deleting a list did: whether owners are left for another step, and what became of their lookups. */
+type RemoveStep = { more: boolean; cancelled: number; finishing: number };
+
+export const CANCELLED_ERROR = "Cancelled: its list was deleted before its turn came. Nothing was charged.";
+
+/**
+ * Takes an owner's lookups still waiting their turn out of the queue (they hold balance, and would be charged when they
+ * land): their cells read cancelled, with a Try again. Ones already running are left to finish. Returns the owner as it
+ * now is, and how many lookups were cancelled.
+ */
+async function cancelWaiting(ctx: MutationCtx, c: Doc<"outreachContacts">): Promise<{ contact: Doc<"outreachContacts">; cancelled: number }> {
+  const waiting = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).filter((r) => r.state === "queued");
+  if (!waiting.length) return { contact: c, cancelled: 0 };
+  const fields = [...new Set(waiting.flatMap((r) => r.fields))];
+  for (const r of waiting) await ctx.db.delete(r._id);
+  const cells = { ...cellsOf(c) };
+  const now = nowIso();
+  for (const f of fields) {
+    const cell = cellFor(cells, f);
+    if (cell.status === "running") cells[f] = { status: "failed", at: now, requestedBy: cell.requestedBy, error: CANCELLED_ERROR };
+  }
+  const patch = { enrichment: cells, ...(fields.includes("research") ? { researchQuestion: undefined } : {}), updatedAt: now };
+  await ctx.db.patch(c._id, patch);
+  await clearProgress(ctx, c._id, fields);
+  return { contact: { ...c, ...patch }, cancelled: waiting.length };
+}
+
+/**
+ * An owner whose last list was deleted while a lookup of its ran: once nothing is running any more, the delete is
+ * finished for it as asked. Kept worked owners stay only if they hold work now (a lookup that found nothing no longer
+ * keeps one); "delete them too" lets it go unless it became a lead or a client. On a list again, it just stays.
+ */
+async function settleAfterLookup(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
+  const c = await ctx.db.get(contactId);
+  if (!c?.afterLookup) return;
+  if (c.listIds.length > 0) {
+    await ctx.db.patch(contactId, { afterLookup: undefined });
+    return;
+  }
+  if (lookingUp(c)) return;
+  const gone = await leadGone(ctx, c);
+  if (c.afterLookup === "drop" ? !alwaysStays(c, gone) : !worthKeeping(c, gone)) await dropOwner(ctx, contactId);
+  else await ctx.db.patch(contactId, { afterLookup: undefined });
+}
+
+/**
+ * Drops a list. Its contacts lose the tag; one on no other list goes too, unless it holds work. A list longer than one
+ * step is gone from the lists at once and its remaining owners follow in the background (removeRest).
+ */
+export const remove = mutation({
+  /** alsoWorked: the worked owners only this list holds go too, all but those now a lead or a client or still being looked up. */
+  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists"), alsoWorked: v.optional(v.boolean()) },
+  handler: async (ctx, { organizationId, listId, alsoWorked }) => {
+    await requirePro(ctx, organizationId);
+    const list = await ctx.db.get(listId);
+    if (!list || list.organizationId !== organizationId || list.removing) fail("NOT_FOUND", "No such list");
+    const step = await removeStep(ctx, list, alsoWorked === true);
+    if (step.more) {
+      await ctx.db.patch(listId, { removing: { alsoWorked: alsoWorked === true }, filling: undefined });
+      await ctx.scheduler.runAfter(0, internal.outreach.removeRest, { listId });
+    } else await ctx.db.delete(listId);
+    // For the page's note: lookups cancelled, and ones running that finish first. A long list's later steps do the same
+    // in the background (`more`), so these are the first step's.
+    return { cancelled: step.cancelled, finishing: step.finishing, more: step.more };
+  },
+});
+
+/** A deleted list's owners past the first step, a step at a time; the last one deletes the list itself. */
+export const removeRest = internalMutation({
+  args: { listId: v.id("outreachLists") },
+  handler: async (ctx, { listId }) => {
+    const list = await ctx.db.get(listId);
+    if (!list?.removing) return null;
+    if ((await removeStep(ctx, list, list.removing.alsoWorked)).more) await ctx.scheduler.runAfter(0, internal.outreach.removeRest, { listId });
+    else await ctx.db.delete(listId);
+    return null;
+  },
+});
+
+/** The county the company's lists are of, chosen on the Outreach page; every device reads it. */
+export const setCounty = mutation({
+  args: { organizationId: v.id("organizations"), county: v.string() },
+  handler: async (ctx, { organizationId, county }) => {
+    await requirePro(ctx, organizationId);
+    if (!COUNTY_PLACES[county]) fail("INVALID", "No such county");
+    await ctx.db.patch(organizationId, { outreachCounty: county });
+    return null;
+  },
+});
+
+/** A lookup someone asked for that hasn't landed yet: its answer (and its charge) is on the way. */
+const lookingUp = (c: Doc<"outreachContacts">) => Object.values(cellsOf(c)).some((cell) => cell?.status === "running" && cell.requestedBy !== undefined);
+
+/**
+ * An owner that stays whatever is deleted: now a lead (one still in Leads) or a client, tracked there; or one being
+ * looked up, so the answer it was asked for (and charged for when it lands) isn't thrown away, and a source
+ * already asked isn't paid for nothing. It can go once its lookup is done.
+ */
+const alwaysStays = (c: Doc<"outreachContacts">, leadGone: boolean) => Boolean(c.clientId) || (Boolean(c.leadId) && !leadGone) || lookingUp(c);
+
+/** An owner removed for good, with any lookup narration it left. */
+/**
+ * How an owner is filed besides its lists, each indexed so nothing has to read every owner a company has: how many
+ * lists it's on (none: "Not on a list"), its company family (sister entities) and its mailing address (the same
+ * people behind two owners). Written wherever listIds is, and by backfillFiling for owners saved before.
+ */
+function filing(c: Pick<Doc<"outreachContacts">, "name" | "company" | "mailing" | "listIds" | "person">) {
+  return { onLists: c.listIds.length, family: c.company ? familyKey(c.name) : undefined, mail: mailKey(c.mailing), home: homeKey(c.person) };
+}
+/** A decision maker's own address as a key, to find the same person behind another owner. */
+const homeKey = (person?: { address?: string }) => person?.address?.trim().toUpperCase() || undefined;
+
+/** The most owners read for one family, mailing address or home when looking for the same people behind another owner. */
+const PEERS_MAX = 300;
+/** Owners already read by family, mailing address or home, kept for the length of one request (a send of many). */
+type Peers = Map<string, Doc<"outreachContacts">[]>;
+/**
+ * The owners that might be run by the same people as this one: its company family, the owners billed at its mailing
+ * address, and (given a person's home) the owners whose decision maker lives there. Read by index, not by reading
+ * every owner the company has.
+ */
+async function peersOf(ctx: QueryCtx | MutationCtx, c: Doc<"outreachContacts">, cache?: Peers, home?: string): Promise<Doc<"outreachContacts">[]> {
+  const organizationId = c.organizationId;
+  const family = c.company ? familyKey(c.name) : undefined;
+  const mail = mailKey(c.mailing);
+  const groups: Doc<"outreachContacts">[][] = [];
+  const group = async (key: string, read: () => Promise<Doc<"outreachContacts">[]>) => {
+    let rows = cache?.get(key);
+    if (!rows) {
+      rows = await read();
+      cache?.set(key, rows);
+    }
+    groups.push(rows);
+  };
+  if (family !== undefined) await group(`f:${family}`, () => ctx.db.query("outreachContacts").withIndex("by_organization_and_family", (q) => q.eq("organizationId", organizationId).eq("family", family)).take(PEERS_MAX));
+  if (mail !== undefined) await group(`m:${mail}`, () => ctx.db.query("outreachContacts").withIndex("by_organization_and_mail", (q) => q.eq("organizationId", organizationId).eq("mail", mail)).take(PEERS_MAX));
+  if (home !== undefined) await group(`h:${home}`, () => ctx.db.query("outreachContacts").withIndex("by_organization_and_home", (q) => q.eq("organizationId", organizationId).eq("home", home)).take(PEERS_MAX));
+  const seen = new Set<Id<"outreachContacts">>();
+  return groups.flat().filter((o) => !seen.has(o._id) && seen.add(o._id));
+}
+
+/** Takes an owner off a list's membership rows, or off every list's when none is named. */
+async function leaveLists(ctx: MutationCtx, contactId: Id<"outreachContacts">, listId?: Id<"outreachLists">) {
+  for (const m of await ctx.db.query("outreachMembers").withIndex("by_contact", (q) => q.eq("contactId", contactId)).collect()) {
+    if (!listId || m.listId === listId) await ctx.db.delete(m._id);
+  }
+}
+
+/**
+ * Run on deploy: owners saved before they were filed (filing) get their membership rows and their onLists, family and
+ * mail, and any out of step are put right. A page at a time in the background; safe to re-run.
+ */
+export const backfillFiling = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ fixed: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let fixed = 0;
+    for (const c of page.page) {
+      const want = filing(c);
+      const members = await ctx.db.query("outreachMembers").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect();
+      const has = new Set(members.map((m) => m.listId));
+      let changed = false;
+      for (const listId of c.listIds) {
+        if (has.has(listId)) continue;
+        await ctx.db.insert("outreachMembers", { organizationId: c.organizationId, listId, contactId: c._id });
+        changed = true;
+      }
+      for (const m of members) {
+        if (c.listIds.includes(m.listId)) continue;
+        await ctx.db.delete(m._id);
+        changed = true;
+      }
+      if (c.onLists !== want.onLists || c.family !== want.family || c.mail !== want.mail || c.home !== want.home) {
+        await ctx.db.patch(c._id, want);
+        changed = true;
+      }
+      if (changed) fixed++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.backfillFiling, { cursor: page.continueCursor });
+    return { fixed, done: page.isDone };
+  },
+});
+
+async function dropOwner(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
+  await clearProgress(ctx, contactId, ["phone", "email", "person", "research"]);
+  await leaveLists(ctx, contactId);
+  const c = await ctx.db.get(contactId);
+  await ctx.db.delete(contactId);
+  if (c) await ownersRemoved(ctx, c.organizationId);
+}
+
+/** Owners were removed: stamped on the company, so an open page (which only hears of owners that changed) reads its view again. */
+async function ownersRemoved(ctx: MutationCtx, organizationId: Id<"organizations">) {
+  await ctx.db.patch(organizationId, { outreachRemovedAt: nowIso() });
+}
+
+/**
+ * The owners on no list, removed: kept from deleted lists because they were
+ * worked, and now let go. Those that became a lead or a client stay, as
+ * Leads and Clients track them, and so do those still being looked up.
+ * contactIds narrows it to some of them.
+ */
+export const removeUnlisted = mutation({
+  args: { organizationId: v.id("organizations"), contactIds: v.optional(v.array(v.id("outreachContacts"))) },
+  handler: async (ctx, { organizationId, contactIds }) => {
+    await requirePro(ctx, organizationId);
+    // The ones named, or those filed as on no list (by index, a page; the rest follow in the background).
+    let page: Doc<"outreachContacts">[];
+    let next: string | null = null;
+    if (contactIds) {
+      const named = await Promise.all([...new Set(contactIds)].map((id) => ctx.db.get(id)));
+      page = named.filter((c): c is Doc<"outreachContacts"> => c !== null && c.organizationId === organizationId);
+    } else {
+      const read = await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0)).paginate({ cursor: null, numItems: UNLISTED_PAGE });
+      // And any saved before owners were filed, should the backfill not have reached them yet.
+      const unfiled = await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", undefined)).take(UNLISTED_PAGE);
+      page = [...read.page, ...unfiled];
+      if (!read.isDone) next = read.continueCursor;
+    }
+    const counts = await removeUnlistedPage(ctx, page);
+    if (next) await ctx.scheduler.runAfter(0, internal.outreach.removeUnlistedRest, { organizationId, cursor: next });
+    return counts;
+  },
+});
+
+const UNLISTED_PAGE = 300;
+/** One page of owners on no list let go: all but those now a lead or a client, or still being looked up. */
+async function removeUnlistedPage(ctx: MutationCtx, page: Doc<"outreachContacts">[]) {
+  let removed = 0;
+  let kept = 0;
+  for (const listed of page) {
+    if (listed.listIds.length > 0) continue;
+    // As deleting a list does: lookups still waiting are cancelled (nothing charged); one already running finishes, and
+    // the owner goes when it lands unless it became a lead or a client.
+    const c = (await cancelWaiting(ctx, listed)).contact;
+    if (alwaysStays(c, await leadGone(ctx, c))) {
+      if (lookingUp(c) && !c.clientId && !c.leadId) await ctx.db.patch(c._id, { afterLookup: "drop" });
+      kept++;
+      continue;
+    }
+    await dropOwner(ctx, c._id);
+    removed++;
+  }
+  return { removed, kept };
+}
+
+/** removeUnlisted past its first page, a page at a time. */
+export const removeUnlistedRest = internalMutation({
+  args: { organizationId: v.id("organizations"), cursor: v.string() },
+  handler: async (ctx, { organizationId, cursor }) => {
+    const read = await ctx.db.query("outreachContacts").withIndex("by_organization_and_on_lists", (q) => q.eq("organizationId", organizationId).eq("onLists", 0)).paginate({ cursor, numItems: UNLISTED_PAGE });
+    const counts = await removeUnlistedPage(ctx, read.page);
+    if (!read.isDone) await ctx.scheduler.runAfter(0, internal.outreach.removeUnlistedRest, { organizationId, cursor: read.continueCursor });
+    return counts;
+  },
+});
+
+/**
+ * Whether an owner holds work of the company's own, so it's kept even on no
+ * list: a lead or client it became, a status or note someone set, a research
+ * answer, or a real lookup someone asked for. Sample and simulated results are
+ * made up, and what a permit or license gave free when the list was built
+ * comes back with the next list, so neither keeps anything: an owner with
+ * only sample results goes with its list, whether or not a real source is
+ * connected yet.
+ */
+/**
+ * Lookups are simulated (made up, never charged) while no phone source is connected, as skipTrace decides.
+ * OUTREACH_SIMULATE=off turns it off. The page says so; a simulated result never counts as the company's work.
+ */
+export const simulating = () => process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => standsAlone(s, "phone"));
+
+function worthKeeping(c: Doc<"outreachContacts">, leadGone = false) {
+  // A lead deleted in Leads leaves its owner New, as the page shows it: being sent once keeps nothing.
+  if (leadGone) c = { ...c, leadId: undefined, status: c.status === "lead" ? "new" : c.status };
+  if (alwaysStays(c, false)) return true;
+  // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
+  if (isSampleRun(c)) return false;
+  // A research answer counts only when it's real: the simulated chain writes a made-up one too.
+  const research = Boolean(c.research) && !cellsOf(c).research?.simulated;
+  if (c.status !== "new" || c.note?.trim() || research || c.followUpOn || (c.touches?.length ?? 0) > 0) return true;
+  // A lookup someone asked for or paid for; a name or number the permits or a license gave for free at build doesn't count (the next list has it again).
+  return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated && (cell.requestedBy !== undefined || (cell.chargedCents ?? 0) > 0));
+}
+
+/** Sent to a lead that has since been deleted in Leads. */
+async function leadGone(ctx: QueryCtx | MutationCtx, c: Doc<"outreachContacts">) {
+  return c.leadId !== undefined && (await ctx.db.get(c.leadId)) === null;
+}
+
+/**
+ * One-off, run on deploy: owners left on no list that aren't worth keeping
+ * (only sample or simulated results) are removed, as deleting their list now
+ * does. Real lookups and owners sent to Leads stay. Safe to re-run; goes on in
+ * the background until it has looked at every contact.
+ */
+export const clearLeftovers = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ removed: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: 500 });
+    let removed = 0;
+    for (const c of page.page) {
+      if (c.listIds.length > 0 || worthKeeping(c, await leadGone(ctx, c))) continue;
+      await leaveLists(ctx, c._id);
+      await ctx.db.delete(c._id);
+      await ownersRemoved(ctx, c.organizationId);
+      removed++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.clearLeftovers, { cursor: page.continueCursor });
+    return { removed, done: page.isDone };
+  },
+});
+
+/** Keeps the lists tidy: a new name, pinned to the top of the picker, or archived out of the way (its contacts stay). */
+export const organizeList = mutation({
+  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists"), title: v.optional(v.string()), pinned: v.optional(v.boolean()), archived: v.optional(v.boolean()) },
+  handler: async (ctx, { organizationId, listId, title, pinned, archived }) => {
+    await requirePro(ctx, organizationId);
+    const list = await ctx.db.get(listId);
+    if (!list || list.organizationId !== organizationId || list.removing) fail("NOT_FOUND", "No such list");
+    const patch: Partial<Doc<"outreachLists">> = {};
+    if (title !== undefined) {
+      const t = title.trim().replace(/\s+/g, " ");
+      if (!t) fail("INVALID", "Give the list a name");
+      if (t.length > 120) fail("INVALID", "That name is too long (120 characters at most)");
+      patch.title = t;
+    }
+    if (pinned !== undefined) patch.pinned = pinned || undefined;
+    if (archived !== undefined) {
+      patch.archivedAt = archived ? nowIso() : undefined;
+      // An archived list isn't pinned.
+      if (archived) patch.pinned = undefined;
+    }
+    await ctx.db.patch(listId, patch);
+    return null;
+  },
+});
+
+/**
+ * One-off: the rows lists kept before contacts existed become contacts,
+ * tagged with their list; a row's status and note come along. Safe to run
+ * again; the deploy runs it until the table is empty: `npx convex run outreach:migrateRows`.
+ */
+export const migrateRows = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("outreachRows").take(200);
+    let moved = 0;
+    for (const r of rows) {
+      const list = await ctx.db.get(r.listId);
+      const now = nowIso();
+      if (list) {
+        const existing = await ctx.db
+          .query("outreachContacts")
+          .withIndex("by_organization_and_key", (q) => q.eq("organizationId", r.organizationId).eq("key", r.key))
+          .unique();
+        if (existing) {
+          if (!existing.listIds.includes(r.listId)) {
+            await ctx.db.patch(existing._id, {
+              listIds: [...existing.listIds, r.listId],
+              kinds: existing.kinds.includes(list.definition.who) ? existing.kinds : [...existing.kinds, list.definition.who],
+              updatedAt: now,
+            });
+          }
+        } else {
+          await ctx.db.insert("outreachContacts", {
+            organizationId: r.organizationId,
+            key: r.key,
+            name: r.name,
+            company: r.company,
+            mailing: r.mailing,
+            property: r.property,
+            properties: r.properties,
+            totalValueCents: r.totalValueCents,
+            why: r.why,
+            kinds: [list.definition.who],
+            listIds: [r.listId],
+            status: r.status,
+            note: r.note,
+            createdAt: list.createdAt,
+            updatedAt: r.updatedAt ?? nowIso(),
+          });
+        }
+        moved++;
+      }
+      await ctx.db.delete(r._id);
+    }
+    if (rows.length === 200) await ctx.scheduler.runAfter(0, internal.outreach.migrateRows, {});
+    return { moved, more: rows.length === 200 };
+  },
+});
+
+// ---- Enriching contacts: the person behind a company, their phone and email ----
+
+const FIELDS: Doc<"dataSourceStats">["field"][] = ["person", "phone", "email", "research"];
+
+/**
+ * Queues the stack for each contact and field, for an admin with the
+ * balance to cover the phones. The charge (UNLOCK_CENTS) lands only when
+ * a phone is found; emails, the person, a miss and a vendor error are
+ * free. A field already found or running is skipped; person only applies
+ * to company owners.
+ */
+export const enrich = mutation({
+  args: {
+    organizationId: v.id("organizations"),
+    contactIds: v.array(v.id("outreachContacts")),
+    fields: v.optional(v.array(outreachField)),
+    /** For research: what to find out; the default question when left out. */
+    question: v.optional(v.string()),
+  },
+  handler: async (ctx, { organizationId, contactIds, fields = ["person", "phone", "email"], question }) => {
+    const { user, organization } = await requireMember(ctx, organizationId, "admin");
+    if (!organization.plan || !planIsActive(organization.plan, Date.now())) fail("FORBIDDEN", "Outreach is part of the Pro plan");
+    const jobs: Array<{ contact: Doc<"outreachContacts">; fields: Doc<"dataSourceStats">["field"][]; rows: Doc<"outreachQueue">[] }> = [];
+    for (const id of new Set(contactIds)) {
+      const c = await ctx.db.get(id);
+      if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
+      const cells = cellsOf(c);
+      // The owner's lookups waiting or running, and the fields they still have to fill. A cell marked running that none of
+      // them covers has nothing behind it (stuck), and is asked for again like a failed one.
+      const rows = await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect();
+      const covered = new Set(rows.flatMap((r) => r.fields));
+      const open = FIELDS.filter(
+        (f) => fields.includes(f) && (f !== "person" || isCompany(c)) && cellFor(cells, f).status !== "found" && (cellFor(cells, f).status !== "running" || !covered.has(f)),
+      );
+      if (open.length) jobs.push({ contact: c, fields: open, rows });
+    }
+    const phones = jobs.filter((j) => j.fields.includes("phone")).length;
+    const answers = jobs.filter((j) => j.fields.includes("research")).length;
+    const balance = organization.walletBalanceCents ?? 0;
+    // Lookups still running are charged when they land, so what they could cost is spoken for already.
+    const running = phones || answers ? await heldLookups(ctx, organizationId) : { phones: 0, research: 0 };
+    // The company's free phones cover the running lookups first, then these.
+    const freeForThese = Math.max(0, freeLookupsLeft(organization) - running.phones);
+    const cost = Math.max(0, phones - freeForThese) * UNLOCK_CENTS + answers * RESEARCH_CENTS;
+    const held = Math.max(0, running.phones - freeLookupsLeft(organization)) * UNLOCK_CENTS + running.research * RESEARCH_CENTS;
+    if (cost + held > balance) {
+      const needs = [phones ? `${phones} ${phones === 1 ? "phone" : "phones"}` : "", answers ? `${answers} research ${answers === 1 ? "answer" : "answers"}` : ""].filter(Boolean).join(" and ");
+      const free = held ? `${dollars(Math.max(0, balance - held))} available (${dollars(held)} held for lookups still running)` : `${dollars(balance)} available`;
+      fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${needs}, ${free}`);
+    }
+    const asked = question?.trim().slice(0, 300) || DEFAULT_RESEARCH_QUESTION;
+    const now = nowIso();
+    // Sister entities wait their turn: the first finds the person and the phone, the rest find the same person free and copy it.
+    const place = new Map<string, number>();
+    const later = new Set<number>(jobs.length ? [0] : []);
+    for (const { contact, fields: open, rows } of jobs) {
+      const family = isCompany(contact) && open.some((f) => f === "phone" || f === "email") ? familyKey(contact.name) : undefined;
+      const turn = family ? (place.get(family) ?? 0) : 0;
+      if (family) place.set(family, turn + 1);
+      const delay = turn * FAMILY_STAGGER_MS;
+      later.add(delay);
+      const cells = { ...cellsOf(contact) };
+      for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
+      // Asked for on purpose: whatever a delete decided for it once its lookup landed no longer applies.
+      await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, afterLookup: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
+      // A fresh run starts its narration over.
+      await clearProgress(ctx, contact._id, open);
+      // Into the queue: the pump starts it when its turn comes (and its watchdog with it), so a big batch can't flood the sources
+      // or have lookups time out while they wait in line. An earlier request for this owner keeps its place while it still has
+      // cells to fill: dropping it (as asking for research while the phone waited once did) left those cells running for good.
+      // Only a leftover with nothing still running on it goes.
+      for (const stale of rows) if (!stale.fields.some((f) => cellFor(cellsOf(contact), f).status === "running" && !open.includes(f))) await ctx.db.delete(stale._id);
+      await ctx.db.insert("outreachQueue", { organizationId, contactId: contact._id, fields: open, at: now, notBefore: Date.now() + delay, state: "queued", ...(isSampleRun(contact) ? { free: true } : {}) });
+    }
+    // One pump now, and one for each later turn of a sister company.
+    for (const delay of later) await ctx.scheduler.runAfter(delay, internal.outreach.pump, {});
+    return { queued: jobs.length, costCents: cost, at: now };
+  },
+});
+
+/** The most the company's running lookups can still charge: a phone or a research answer each, sample runs aside. */
+async function heldLookups(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  const held = { phones: 0, research: 0 };
+  // From the queue (waiting and running), whose rows keep only the fields still to land: no read of every owner.
+  for (const state of ["queued", "active"] as const) {
+    const rows = await ctx.db.query("outreachQueue").withIndex("by_state_and_organization", (q) => q.eq("state", state).eq("organizationId", organizationId)).collect();
+    for (const r of rows) {
+      if (r.free) continue;
+      if (r.fields.includes("phone")) held.phones++;
+      if (r.fields.includes("research")) held.research++;
+    }
+  }
+  return held;
+}
+
+/** How many lookups run at once across every company: under the 64 the Node runtime allows on the smallest plan, with room left for the rest of the app. OUTREACH_MAX_ACTIVE raises it on a bigger plan. */
+export const maxActive = () => Math.max(1, Number(process.env.OUTREACH_MAX_ACTIVE) || 40);
+/** How many companies with lookups waiting one pump looks at. */
+const QUEUE_COMPANIES = 50;
+
+/**
+ * Starts waiting lookups while there's room. A company on its own may use
+ * every slot; when several have lookups waiting, the slots are shared
+ * evenly and handed out one each in turn, starting after the company served
+ * last, so one big batch never holds the others up. A lookup's watchdog
+ * starts with it, not when it was asked for.
+ */
+async function pumpQueue(ctx: MutationCtx) {
+  const cap = maxActive();
+  const nowMs = Date.now();
+  const active = await ctx.db.query("outreachQueue").withIndex("by_state_and_organization", (q) => q.eq("state", "active")).take(cap);
+  let room = cap - active.length;
+  if (room <= 0) return { started: 0 };
+  const running = new Map<Id<"organizations">, number>();
+  for (const r of active) running.set(r.organizationId, (running.get(r.organizationId) ?? 0) + 1);
+  const last = active.reduce<Doc<"outreachQueue"> | undefined>((a, b) => (!a || (b.startedAt ?? 0) > (a.startedAt ?? 0) ? b : a), undefined)?.organizationId;
+  // The companies with lookups waiting, from just after the one served last and round again.
+  const companies: Id<"organizations">[] = [];
+  let after = last;
+  let wrapped = !last;
+  while (companies.length < QUEUE_COMPANIES) {
+    const from = after;
+    const next = await ctx.db
+      .query("outreachQueue")
+      .withIndex("by_state_and_organization", (q) => (from ? q.eq("state", "queued").gt("organizationId", from) : q.eq("state", "queued")))
+      .first();
+    if (!next) {
+      if (wrapped) break;
+      wrapped = true;
+      after = undefined;
+      continue;
+    }
+    if (companies.includes(next.organizationId)) break;
+    companies.push(next.organizationId);
+    after = next.organizationId;
+  }
+  // Each company's lookups that are due, as many as there's room for.
+  const waiting: Array<{ organizationId: Id<"organizations">; rows: Doc<"outreachQueue">[]; next: number }> = [];
+  for (const organizationId of companies) {
+    const rows = await ctx.db
+      .query("outreachQueue")
+      .withIndex("by_state_and_organization", (q) => q.eq("state", "queued").eq("organizationId", organizationId).lte("notBefore", nowMs))
+      .take(room);
+    if (rows.length) waiting.push({ organizationId, rows, next: 0 });
+  }
+  const share = Math.max(1, Math.floor(cap / Math.max(1, waiting.length)));
+  let started = 0;
+  // First within each company's even share, then whatever room is left to anyone still waiting.
+  for (const within of [true, false]) {
+    for (let any = true; any && room > 0; ) {
+      any = false;
+      for (const w of waiting) {
+        if (room <= 0) break;
+        if (within && (running.get(w.organizationId) ?? 0) >= share) continue;
+        const row = w.rows[w.next];
+        if (!row) continue;
+        w.next++;
+        any = true;
+        // The owner went (its list was deleted before its turn came): nothing to look up.
+        if (!(await ctx.db.get(row.contactId))) {
+          await ctx.db.delete(row._id);
+          continue;
+        }
+        await ctx.db.patch(row._id, { state: "active", startedAt: nowMs });
+        await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: row.contactId, fields: row.fields, queueId: row._id });
+        // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
+        await ctx.scheduler.runAfter(GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: row.contactId, fields: row.fields, at: row.at, queueId: row._id });
+        running.set(w.organizationId, (running.get(w.organizationId) ?? 0) + 1);
+        room--;
+        started++;
+      }
+    }
+  }
+  return { started };
+}
+
+export const STUCK_ERROR = "Stopped without an answer. Nothing was charged; try again.";
+const STUCK_PAGE = 500;
+
+/** One page of owners: those with a cell marked running that no lookup waiting or running still has to fill. */
+export const stuckPage = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("outreachContacts").paginate({ numItems: STUCK_PAGE, cursor });
+    const stuck: Array<{ contactId: Id<"outreachContacts">; name: string; fields: Doc<"dataSourceStats">["field"][] }> = [];
+    for (const c of page.page) {
+      const cells = cellsOf(c);
+      const running = FIELDS.filter((f) => cellFor(cells, f).status === "running");
+      if (!running.length) continue;
+      const covered = new Set((await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).flatMap((r) => r.fields));
+      const left = running.filter((f) => !covered.has(f));
+      if (left.length) stuck.push({ contactId: c._id, name: c.name, fields: left });
+    }
+    return { stuck, checked: page.page.length, cursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+/** Fails the given cells if they're still running with nothing behind them (looked at again here, in case one has started since). */
+export const failStuck = internalMutation({
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField) },
+  handler: async (ctx, { contactId, fields }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c) return { failed: 0 };
+    const covered = new Set((await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", contactId)).collect()).flatMap((r) => r.fields));
+    const cells = { ...cellsOf(c) };
+    const now = nowIso();
+    const failed = fields.filter((f) => cellFor(cells, f).status === "running" && !covered.has(f));
+    for (const f of failed) cells[f] = { status: "failed", at: now, requestedBy: cellFor(cells, f).requestedBy, error: STUCK_ERROR };
+    if (failed.length) {
+      await ctx.db.patch(contactId, { enrichment: cells, ...(failed.includes("research") ? { researchQuestion: undefined } : {}), updatedAt: now });
+      await clearProgress(ctx, contactId, failed);
+      await settleAfterLookup(ctx, contactId);
+    }
+    return { failed: failed.length };
+  },
+});
+
+/**
+ * Finds every owner with a cell left running and nothing behind it (a lookup's request dropped from the queue, or one whose
+ * end and watchdog both failed to write), and fails those cells so the page offers Try again. Safe to run again:
+ * `npx convex run outreach:repairStuck '{}'`.
+ */
+export const repairStuck = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; fixed: number; owners: string[] }> => {
+    let cursor: string | null = null;
+    let checked = 0;
+    let fixed = 0;
+    const owners: string[] = [];
+    do {
+      const page: { stuck: Array<{ contactId: Id<"outreachContacts">; name: string; fields: Doc<"dataSourceStats">["field"][] }>; checked: number; cursor: string | null } =
+        await ctx.runQuery(internal.outreach.stuckPage, { cursor });
+      checked += page.checked;
+      for (const s of page.stuck) {
+        const { failed } = await ctx.runMutation(internal.outreach.failStuck, { contactId: s.contactId, fields: s.fields });
+        if (failed) {
+          fixed += failed;
+          if (owners.length < 25) owners.push(`${s.name}: ${s.fields.join(", ")}`);
+        }
+      }
+      cursor = page.cursor;
+    } while (cursor);
+    return { checked, fixed, owners };
+  },
+});
+
+/** Starts whatever is waiting and has room: after a request, when a lookup ends, and every few minutes as a safety net. */
+export const pump = internalMutation({
+  args: {},
+  handler: async (ctx) => await pumpQueue(ctx),
+});
+
+/**
+ * A lookup ended (however it went): its place is free for the next one waiting. The next is started by a pump of its own:
+ * run in here, every lookup that ended at the same moment read the whole queue, and they collided until some gave up.
+ */
+export const lookupDone = internalMutation({
+  args: { queueId: v.id("outreachQueue") },
+  handler: async (ctx, { queueId }) => {
+    const row = await ctx.db.get(queueId);
+    if (row) {
+      await ctx.db.delete(queueId);
+      // Its list deleted while it ran: finish the delete for the owner now the answer is in.
+      await settleAfterLookup(ctx, row.contactId);
+    }
+    await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
+    return null;
+  },
+});
+
+export const UNPAID_ERROR = "Found, but the balance ran out before it could be paid for. Add funds and look it up again.";
+
+/** How long a sister entity's lookup waits behind the one before it in the same batch. */
+export const FAMILY_STAGGER_MS = 90 * 1000;
+
+/** How long a lookup may run before its cells are failed as taking too long (Convex stops the action itself at ten). */
+export const GIVE_UP_AFTER_MS = 10 * 60 * 1000;
+export const GIVE_UP_ERROR = `Took longer than ${GIVE_UP_AFTER_MS / 60_000} minutes and was stopped.`;
+
+/**
+ * Fails the cells of one request that are still running when the watchdog
+ * fires. Only that request's cells (same start time): a newer request on
+ * the same field is left to its own watchdog. Nothing is charged.
+ */
+export const giveUp = internalMutation({
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), at: v.string(), queueId: v.optional(v.id("outreachQueue")) },
+  handler: async (ctx, { contactId, fields, at, queueId }) => {
+    // Its place in the queue is given up too, should the lookup have died without saying it ended; the next starts on its
+    // own pump, so the watchdogs of a batch going off together don't collide (and fail) over the queue.
+    if (queueId && (await ctx.db.get(queueId))) {
+      await ctx.db.delete(queueId);
+      await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
+    }
+    const c = await ctx.db.get(contactId);
+    if (!c) return { failed: 0 };
+    const cells = { ...cellsOf(c) };
+    let failed = 0;
+    for (const field of fields) {
+      const cell = cellFor(cells, field);
+      if (cell.status !== "running" || cell.at !== at) continue;
+      cells[field] = { status: "failed", at: nowIso(), requestedBy: cell.requestedBy, error: GIVE_UP_ERROR };
+      failed++;
+    }
+    if (failed) await ctx.db.patch(contactId, { enrichment: cells, ...(fields.includes("research") && cells.research?.status === "failed" ? { researchQuestion: undefined } : {}), updatedAt: nowIso() });
+    if (failed) await clearProgress(ctx, contactId, fields.filter((f) => cells[f]?.status !== "running"));
+    await settleAfterLookup(ctx, contactId);
+    return { failed };
+  },
+});
+
+/** What the trace sends the sources: the owner, the person already known, both addresses, and which fields are still running. */
+export const contactForTrace = internalQuery({
+  args: { contactId: v.id("outreachContacts") },
+  handler: async (ctx, { contactId }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c) return null;
+    const cells = cellsOf(c);
+    const fields = FIELDS.filter((f) => cellFor(cells, f).status === "running");
+    if (fields.length === 0) return null;
+    // An owner of one property the appraisal district keeps a page for: before anything is paid for, the lookup asks
+    // the district whether they still own it (skipTrace.ts). An owner of several is still an owner if one has sold.
+    const parcel = c.property && c.properties === 1 && !/^(office|contractor|designer|occupant|realtor|seller):/.test(c.key) ? await ctx.db.get(c.property.parcelId) : null;
+    return {
+      ...(parcel && hasDistrictPage(parcel) && parcel.source !== "batchdata" ? { stillOwns: { cadId: parcel.cadId, owner: parcel.owner, ...(parcel.owner2 ? { owner2: parcel.owner2 } : {}) } } : {}),
+      name: c.name,
+      company: c.company,
+      person: c.person,
+      ...(c.property ? { property: { address: c.property.address, city: cityOf(await countyOfOwner(ctx, c)), state: "TX", zip: undefined as string | undefined } } : {}),
+      mailing: c.mailing,
+      // Addresses already on the contact: the mobile finder keys off one.
+      emails: (c.emails ?? []).map((e) => e.email),
+      fields,
+      question: c.researchQuestion ?? DEFAULT_RESEARCH_QUESTION,
+      properties: c.properties,
+      // A sample owner reruns the sample chain: every source by name, nothing called, nothing charged.
+      sample: isSampleRun(c),
+    };
+  },
+});
+
+/**
+ * A running lookup's progress: the source it's asking now and the turns so
+ * far, for the page to narrate. Only while that cell is still running; the
+ * final answer replaces it.
+ */
+export const noteProgress = internalMutation({
+  args: { contactId: v.id("outreachContacts"), field: outreachField, asking: v.optional(v.string()), tries: v.array(outreachTry) },
+  handler: async (ctx, { contactId, field, asking, tries }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c) return null;
+    if (cellFor(cellsOf(c), field).status !== "running") return null;
+    // On its own row, not the owner: the owner changes once, when the answer lands.
+    const row = await progressOf(ctx, contactId, field);
+    if (row) await ctx.db.patch(row._id, { asking, tries });
+    else await ctx.db.insert("outreachProgress", { organizationId: c.organizationId, contactId, field, asking, tries });
+    return null;
+  },
+});
+
+async function progressOf(ctx: QueryCtx | MutationCtx, contactId: Id<"outreachContacts">, field: Doc<"outreachProgress">["field"]) {
+  return await ctx.db
+    .query("outreachProgress")
+    .withIndex("by_contact_and_field", (q) => q.eq("contactId", contactId).eq("field", field))
+    .unique();
+}
+
+/** A lookup's narration goes once its cell stops running. */
+async function clearProgress(ctx: MutationCtx, contactId: Id<"outreachContacts">, fields: Doc<"outreachProgress">["field"][]) {
+  for (const field of fields) {
+    const row = await progressOf(ctx, contactId, field);
+    if (row) await ctx.db.delete(row._id);
+  }
+}
+
+/** The company's running lookups as they go: which source each is asking now and the turns so far, for the page to narrate. */
+export const progress = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requirePro(ctx, organizationId);
+    const rows = await ctx.db.query("outreachProgress").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(1000);
+    return rows.map((r) => ({ contactId: r.contactId, field: r.field, asking: r.asking, tries: r.tries }));
+  },
+});
+
+/**
+ * A phone and email already found on another of the company's owners with
+ * the same decision maker, for the trace to copy instead of paying again.
+ * Same person by name is not enough on its own (two John Smiths): the
+ * owners must also be one family, share a mailing address, or the person
+ * the same address.
+ */
+export const sharedLookup = internalQuery({
+  args: { contactId: v.id("outreachContacts"), person: outreachPerson },
+  handler: async (ctx, { contactId, person }): Promise<{ from: string; phones: Doc<"outreachContacts">["phones"]; emails: Doc<"outreachContacts">["emails"] } | null> => {
+    const me = await ctx.db.get(contactId);
+    if (!me) return null;
+    const family = me.company ? familyKey(me.name) : undefined;
+    const mail = mailKey(me.mailing);
+    const home = person.address?.trim().toUpperCase();
+    for (const c of await peersOf(ctx, me, undefined, home)) {
+      if (c._id === contactId || !c.person || !(c.phones?.length) || cellFor(cellsOf(c), "phone").status !== "found") continue;
+      if (!samePerson(person, c.person)) continue;
+      const tied =
+        (family !== undefined && isCompany(c) && familyKey(c.name) === family) ||
+        (mail !== undefined && mailKey(c.mailing) === mail) ||
+        (home !== undefined && c.person.address?.trim().toUpperCase() === home);
+      if (tied) return { from: c.name, phones: c.phones, emails: c.emails };
+    }
+    return null;
+  },
+});
+
+const ENTITY_WORDS = /\b(LLC|L L C|INC|LTD|LP|LLP|CORP|CORPORATION|COMPANY|CO|TRUST|HOLDINGS?|PROPERTIES|INVESTMENTS?|PARTNERS?|GROUP|ESTATE|CHURCH|CITY|COUNTY|BANK)\b/i;
+const PO_BOX = /\b(P\.?\s?O\.?\s?BOX|BOX)\b/i;
+const titleWords = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+
+/**
+ * The person who owns the home a company's mail goes to, from the roll
+ * itself: when an LLC gets its tax bill at a Midland street address and
+ * that address is a home on the roll owned by a person, that person is
+ * almost always who runs the LLC. Free, and the first thing tried.
+ */
+export const homeAt = internalQuery({
+  args: { address: v.optional(v.string()), city: v.optional(v.string()), zip: v.optional(v.string()) },
+  handler: async (ctx, { address, city }): Promise<{ person: Person; home: string } | { why: string }> => {
+    if (!address || !/^\d/.test(address.trim()) || PO_BOX.test(address)) return { why: "The mail doesn't go to a street address" };
+    // The roll of the county whose city the mail goes to (Midland, Odessa, Lubbock); no city, Midland's.
+    const town = city?.trim().toUpperCase();
+    const county = town ? Object.keys(COUNTY_PLACES).find((k) => COUNTY_PLACES[k].city.toUpperCase() === town) : COUNTY;
+    if (!county) return { why: `The mail goes to ${titleWords(city!.trim())}, off the roll` };
+    const key = addressKey(address);
+    const homes = (await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", county).eq("addressKey", key)).take(10)).filter(
+      (p) => !p.companyOwned && !ENTITY_WORDS.test(p.owner),
+    );
+    if (homes.length === 0) return { why: "No home owned by a person at the mailing address" };
+    const home = homes.find((p) => p.ownerOccupied) ?? homes[0];
+    const who = splitName(home.owner);
+    if (!who.first || !who.last) return { why: "No home owned by a person at the mailing address" };
+    return {
+      person: { name: titleWords(`${who.first} ${who.last}`), title: "Owns the home the mail goes to", address: `${titleWords(home.siteAddress)}, ${COUNTY_PLACES[county].city}, TX`, source: "roll" },
+      home: home.siteAddress,
+    };
+  },
+});
+
+/**
+ * What the city's permits at a company's property say about the company
+ * itself: the applicant or owner contact on a permit the company pulled
+ * names a person, often with a phone and email. Contractors on the same
+ * permit are other companies and are left out.
+ */
+export const permitContactsAt = internalQuery({
+  args: { address: v.string(), company: v.string() },
+  handler: async (ctx, { address, company }): Promise<{ found: Found; permits: number; matched: number }> => {
+    const permits = await ctx.db.query("permits").withIndex("by_county_and_address_key", (q) => q.eq("county", COUNTY).eq("addressKey", addressKey(address))).take(50);
+    const wanted = companyKey(company);
+    const found: Found = { phones: [], emails: [] };
+    let matched = 0;
+    for (const permit of permits) {
+      for (const c of permit.contacts ?? []) {
+        if (!wanted || companyKey(c.company) !== wanted) continue;
+        matched++;
+        if (c.person && !found.person) {
+          const who = splitName(c.person, "person");
+          if (who.first && who.last) found.person = { name: titleWords(`${who.first} ${who.last}`), title: c.role ? `${titleWords(c.role)} on permit ${permit.permitNumber}` : undefined, source: "permits" };
+        }
+        const digits = (c.phone ?? "").replace(/\D/g, "");
+        const number = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+        if (number.length === 10) found.phones!.push({ number, type: "unknown", line: "work", source: "permits" });
+        if (c.email && c.email.includes("@")) found.emails!.push({ email: c.email.trim().toLowerCase(), source: "permits" });
+      }
+    }
+    return { found, permits: permits.length, matched };
+  },
+});
+
+/** One field's answer from the stack: what was found and by whom (a phone is charged), nothing (free), or an error (free). */
+export const recordEnrichment = internalMutation({
+  args: {
+    contactId: v.id("outreachContacts"),
+    field: outreachField,
+    source: v.optional(v.string()),
+    phones: v.optional(v.array(outreachPhone)),
+    emails: v.optional(v.array(outreachEmail)),
+    person: v.optional(outreachPerson),
+    research: v.optional(outreachResearch),
+    error: v.optional(v.string()),
+    tries: v.optional(v.array(outreachTry)),
+    /** From the simulated chain (no phone source connected yet): kept apart, never charged. */
+    simulated: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, research, error, tries, simulated }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c) return null;
+    const cells = { ...cellsOf(c) };
+    if (cellFor(cells, field).status !== "running") return null;
+    const now = nowIso();
+    const requestedBy = cellFor(cells, field).requestedBy;
+    const found = field === "phone" ? phones.length > 0 : field === "email" ? emails.length > 0 : field === "person" ? Boolean(person) : Boolean(research);
+    // Copied from a related owner with the same decision maker (already paid for there), or a sample run: no charge, no scorecard.
+    const shared = source === "shared" || isSampleRun(c) || Boolean(simulated);
+    const mark = simulated ? { simulated: true } : {};
+    const price = shared ? 0 : field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
+    let chargedCents = 0;
+    let unpaid = false;
+    // A company's first phones found are on the house (FREE_LOOKUPS): counted on the company, nothing charged.
+    const organization = found && price > 0 && field === "phone" && requestedBy ? await ctx.db.get(c.organizationId) : null;
+    if (organization && freeLookupsLeft(organization) > 0) {
+      await ctx.db.patch(organization._id, { outreachFreeUsed: (organization.outreachFreeUsed ?? 0) + 1 });
+    } else if (found && price > 0 && requestedBy) {
+      try {
+        await postTransaction(ctx, c.organizationId, {
+          type: "unlock",
+          amountCents: -price,
+          createdBy: requestedBy,
+          contactId,
+          note: field === "research" ? `Research on ${c.name}` : `Phone for ${c.name}${source ? ` via ${sourceLabel(source)}` : ""}`,
+        });
+        chargedCents = price;
+      } catch {
+        // Spent elsewhere since the request (the hold only covers other lookups): what was found isn't handed over unpaid.
+        unpaid = true;
+      }
+    }
+    const kept = found && !unpaid;
+    cells[field] = unpaid
+      ? { status: "failed", at: now, requestedBy, source, error: UNPAID_ERROR, tries, ...mark }
+      : found
+        ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 || (shared && field === "phone") ? chargedCents : undefined, tries, ...mark }
+        : error
+          ? { status: "failed", at: now, requestedBy, error, tries, ...mark }
+          : { status: "none", at: now, requestedBy, source, tries, ...mark };
+    await ctx.db.patch(contactId, {
+      enrichment: cells,
+      ...(field === "phone" && kept ? { phones } : {}),
+      ...(field === "email" && kept ? { emails } : {}),
+      ...(field === "person" && kept ? { person, home: homeKey(person) } : {}),
+      ...(field === "research" ? { research: kept ? research : c.research, researchQuestion: undefined } : {}),
+      updatedAt: now,
+    });
+    await clearProgress(ctx, contactId, [field]);
+    // Its queue row keeps only what's still to land, so the balance held for running lookups stays exact.
+    for (const row of await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", contactId)).collect()) {
+      if (row.fields.includes(field)) await ctx.db.patch(row._id, { fields: row.fields.filter((f) => f !== field) });
+    }
+    // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
+    if (!shared && (source || !error)) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
+    if (tries && !shared) await noteProblems(ctx, c.organizationId, field, tries, now);
+    return null;
+  },
+});
+
+/**
+ * A source whose answer was a refused key or an empty account is flagged on
+ * its scorecard row for the Sources page; a proper answer later (a hit or
+ * a miss) clears the flag.
+ */
+async function noteProblems(ctx: MutationCtx, organizationId: Id<"organizations">, field: Doc<"dataSourceStats">["field"], tries: Array<{ source: string; outcome: string; note?: string }>, now: string) {
+  for (const t of tries) {
+    const trouble = t.outcome === "error" && needsAttention(t.note);
+    const fine = t.outcome === "hit" || t.outcome === "miss";
+    if (!trouble && !fine) continue;
+    const row = await ctx.db
+      .query("dataSourceStats")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId).eq("source", t.source).eq("field", field))
+      .unique();
+    if (trouble) {
+      if (row) await ctx.db.patch(row._id, { problem: t.note, problemAt: now });
+      else await ctx.db.insert("dataSourceStats", { organizationId, source: t.source, field, attempts: 0, hits: 0, chargedCents: 0, lastAt: now, problem: t.note, problemAt: now });
+    } else if (row?.problem) {
+      await ctx.db.patch(row._id, { problem: undefined, problemAt: undefined });
+    }
+  }
+}
+
+/** One more attempt (and maybe a hit) on a source's row of the scorecard. */
+async function bumpStat(ctx: MutationCtx, organizationId: Id<"organizations">, source: string, field: Doc<"dataSourceStats">["field"], hit: boolean, chargedCents: number, now: string) {
+  const row = await ctx.db
+    .query("dataSourceStats")
+    .withIndex("by_organization", (q) => q.eq("organizationId", organizationId).eq("source", source).eq("field", field))
+    .unique();
+  if (row) await ctx.db.patch(row._id, { attempts: row.attempts + 1, hits: row.hits + (hit ? 1 : 0), chargedCents: row.chargedCents + chargedCents, lastAt: now });
+  else await ctx.db.insert("dataSourceStats", { organizationId, source, field, attempts: 1, hits: hit ? 1 : 0, chargedCents, lastAt: now });
+}
+
+/** A checker's turn on the scorecard: the deliverability check counts as an attempt, a deliverable address as a hit. */
+export const recordCheck = internalMutation({
+  args: { contactId: v.id("outreachContacts"), source: v.string(), field: outreachField, hit: v.boolean() },
+  handler: async (ctx, { contactId, source, field, hit }) => {
+    const c = await ctx.db.get(contactId);
+    if (c) await bumpStat(ctx, c.organizationId, source, field, hit, 0, nowIso());
+    return null;
+  },
+});
+
+/** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
+export const sourceLabel = (s: string) =>
+  ({
+    roll: "Appraisal roll",
+    permits: "City permits",
+    batchdata: "BatchData",
+    tracerfy: "Tracerfy",
+    enformion: "EnformionGO",
+    hunter: "Hunter",
+    leadmagic: "LeadMagic",
+    "leadmagic-mobile": "LeadMagic mobile finder",
+    "tx-comptroller": "Texas Comptroller",
+    cobalt: "State registry (Cobalt)",
+    zerobounce: "ZeroBounce",
+    twilio: "Twilio line check",
+    trestle: "Trestle contact check",
+    "tracerfy-dnc": "Tracerfy DNC scrub",
+    claude: "Claude, from the web",
+    shared: "A related owner (no charge)",
+  })[s] ?? s;
+
+/**
+ * One-off: contacts unlocked before per-field cells existed get their
+ * cells; the deploy runs it until none is left: `npx convex run outreach:migrateUnlocks`.
+ */
+export const migrateUnlocks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = (await ctx.db.query("outreachContacts").take(500)).filter((c) => c.unlock && !c.enrichment);
+    for (const c of rows) {
+      await ctx.db.patch(c._id, {
+        enrichment: cellsOf(c),
+        phones: (c.phones ?? []).map((p) => ({ ...p, type: p.type ?? "unknown" })),
+        unlock: undefined,
+        updatedAt: nowIso(),
+      });
+    }
+    return { moved: rows.length };
+  },
+});
+
+/** The note a sample owner carries, and what clearSample looks for. */
+
+/**
+ * One-off, for a look at the finished layout before any source key is
+ * set: fills one of a company's owners with sample data (the person
+ * behind the company, two ranked phones, an email, a research answer and
+ * the ledger), marked by its note. Nothing is charged. `clear` takes it
+ * back out, and only from an owner carrying that note.
+ * `npx convex run outreach:seedSample '{"email":"owner@example.com"}'`
+ */
+export const seedSample = internalMutation({
+  args: { email: v.optional(v.string()), organization: v.optional(v.string()), name: v.optional(v.string()), clear: v.optional(v.boolean()) },
+  handler: async (ctx, { email, organization: orgName, name = "1788 Development LLC", clear }) => {
+    // The companies to look in: the user's, then any whose name holds the word given.
+    const candidates: Id<"organizations">[] = [];
+    let user: Doc<"users"> | null = null;
+    if (email) {
+      user = await ctx.db.query("users").withIndex("email", (q) => q.eq("email", email)).unique();
+      if (!user) return { done: false, reason: "no user" };
+      candidates.push(...(await organizationIdsFor(ctx, user._id)));
+    }
+    if (orgName) {
+      const all = await ctx.db.query("organizations").take(2000);
+      for (const o of all) if (o.name.toLowerCase().includes(orgName.toLowerCase()) && !candidates.includes(o._id)) candidates.push(o._id);
+    }
+    const seen: Array<{ organization: string; contacts: number }> = [];
+    for (const organizationId of candidates) {
+      const organization = await ctx.db.get(organizationId);
+      const rows = await contactsOf(ctx, organizationId);
+      if (organization) seen.push({ organization: organization.name, contacts: rows.length });
+      const contact = rows.find((c) => c.name.toLowerCase() === name.toLowerCase()) ?? rows.find((c) => c.company);
+      if (!organization || !contact) continue;
+      const now = nowIso();
+      if (clear) {
+        if (!contact.note?.startsWith("Sample")) return { done: false, reason: "not a sample", organization: organization.name, contact: contact.name };
+        await ctx.db.patch(contact._id, {
+          enrichment: { phone: LOCKED, email: LOCKED, person: LOCKED, research: LOCKED },
+          person: undefined,
+          phones: undefined,
+          emails: undefined,
+          research: undefined,
+          note: undefined,
+          updatedAt: now,
+        });
+        return { done: true, cleared: true, organization: organization.name, contact: contact.name };
+      }
+      if (contact.note?.startsWith("Sample")) return { done: true, already: true, organization: organization.name, contact: contact.name };
+      const found = (source: string, extra: Partial<Cell> = {}): Cell => ({ status: "found", at: now, requestedBy: user?._id, source, ...extra });
+      const person = { name: "Mark Ellison", title: "Managing member", source: "tx-comptroller" };
+      await ctx.db.patch(contact._id, {
+        person,
+        phones: [
+          { number: "4325550142", type: "mobile", verified: true, score: 95, source: "tracerfy" },
+          { number: "4325550199", type: "landline", dnc: true, score: 60, source: "tracerfy" },
+        ],
+        emails: [{ email: "mark.ellison@example.com", source: "tracerfy", verified: true }],
+        research: {
+          question: DEFAULT_RESEARCH_QUESTION,
+          answer: `Sample: ${contact.name} is a Midland developer building spec homes on the west side, run by ${person.name}. A plat for 12 lots was filed in August 2026, and a site-work permit followed in October.`,
+          sources: [{ title: "Midland P&Z agenda, Aug 2026 (sample)", url: "https://example.com/midland-pz-agenda" }],
+          at: now,
+        },
+        enrichment: {
+          person: found("tx-comptroller", { tries: [{ source: "tx-comptroller", outcome: "hit", note: `${person.name}, ${person.title}` }] }),
+          phone: found("tracerfy", {
+            chargedCents: UNLOCK_CENTS,
+            tries: [
+              { source: "batchdata", outcome: "miss", note: "No match" },
+              { source: "tracerfy", outcome: "hit", note: "2 numbers" },
+            ],
+          }),
+          email: found("tracerfy", {
+            tries: [
+              { source: "batchdata", outcome: "miss", note: "No match" },
+              { source: "tracerfy", outcome: "hit", note: "1 email" },
+            ],
+          }),
+          research: found("claude", { chargedCents: RESEARCH_CENTS, tries: [{ source: "claude", outcome: "hit", note: "2 pages read" }] }),
+        },
+        note: SAMPLE_NOTE,
+        updatedAt: now,
+      });
+      return { done: true, organization: organization.name, contact: contact.name };
+    }
+    return { done: false, reason: "no contact", seen };
+  },
+});
+
+/** An owner the sample filler marked: reruns walk the sample chain and cost nothing. Only the mark counts here. */
+export const isSampleRun = (c: Doc<"outreachContacts">) => Boolean(c.note?.startsWith("Sample"));
+/** An owner filled by the sample filler: its note, or its 555-01xx numbers or example.com addresses, say so. */
+const isSample = (c: Doc<"outreachContacts">) =>
+  Boolean(c.note?.startsWith("Sample")) ||
+  (c.phones ?? []).some((p) => isSampleNumber(p.number)) ||
+  (c.emails ?? []).some((e) => e.email.endsWith("example.com")) ||
+  Object.values(cellsOf(c)).some((cell) => cell?.simulated);
+
+/**
+ * Fills a list's first owners (in the list's own order) with sample results,
+ * as a run with every key set would leave them, to see and use the page
+ * before the keys are in. Owners with real results are left alone; sister
+ * entities copy the first one's phone, as the shared lookup does. Nothing is
+ * charged. `clear` resets every sample-marked owner of the company to locked.
+ * Run it from the deploy workflow:
+ * `outreach:seedSampleList {"email":"…","list":"company investors","count":40}`.
+ */
+export const seedSampleList = internalMutation({
+  args: { email: v.optional(v.string()), organization: v.optional(v.string()), list: v.optional(v.string()), count: v.optional(v.number()), clear: v.optional(v.boolean()) },
+  handler: async (ctx, { email, organization: orgName, list: wanted = "company investors", count = 40, clear }) => {
+    const candidates: Id<"organizations">[] = [];
+    let user: Doc<"users"> | null = null;
+    if (email) {
+      user = await ctx.db.query("users").withIndex("email", (q) => q.eq("email", email)).unique();
+      if (!user) return { done: false, reason: "no user" };
+      candidates.push(...(await organizationIdsFor(ctx, user._id)));
+    }
+    if (orgName) {
+      for await (const o of ctx.db.query("organizations")) if (o.name.toLowerCase().includes(orgName.toLowerCase()) && !candidates.includes(o._id)) candidates.push(o._id);
+    }
+    // What was looked at, so a miss says where it looked.
+    const seen: Array<{ organization: string; lists: string[]; contacts: number }> = [];
+    for (const organizationId of candidates) {
+      const organization = await ctx.db.get(organizationId);
+      if (!organization) continue;
+      const contacts = await contactsOf(ctx, organizationId);
+      const now = nowIso();
+      if (clear) {
+        let cleared = 0;
+        for (const c of contacts.filter(isSample)) {
+          await ctx.db.patch(c._id, {
+            enrichment: { phone: LOCKED, email: LOCKED, person: LOCKED, research: LOCKED },
+            person: undefined,
+            phones: undefined,
+            emails: undefined,
+            research: undefined,
+            note: c.note?.startsWith("Sample") ? undefined : c.note,
+            updatedAt: now,
+          });
+          cleared++;
+        }
+        if (cleared) return { done: true, cleared, organization: organization.name };
+        continue;
+      }
+      const lists = (await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const list = lists.find((l) => l.title.toLowerCase().includes(wanted.toLowerCase())) ?? lists[0];
+      seen.push({ organization: organization.name, lists: lists.map((l) => l.title), contacts: contacts.length });
+      if (!list) continue;
+      const order = listOrder(list.definition);
+      const members = contacts.filter((c) => c.listIds.includes(list._id)).sort((a, b) => order.key(b) - order.key(a) || a.name.localeCompare(b.name));
+      const untouched = (c: Doc<"outreachContacts">) => isSample(c) || Object.values(cellsOf(c)).every((cell) => cell.status === "locked");
+      const families = new Map<string, Doc<"outreachContacts">>();
+      let filled = 0;
+      let shared = 0;
+      for (const c of members) {
+        if (filled >= Math.min(SAMPLE_MAX, Math.max(1, count))) break;
+        if (!untouched(c)) continue;
+        const at = new Date(Date.now() - filled * 7 * 60_000).toISOString();
+        const family = isCompany(c) ? familyKey(c.name) : undefined;
+        const sister = family ? families.get(family) : undefined;
+        const s = sampleFor(filled, { name: c.name, company: isCompany(c), properties: c.properties }, at);
+        const cell = (x: (typeof s.cells)["phone"]): Cell => (x.status === "locked" ? LOCKED : { ...x, requestedBy: user?._id });
+        if (sister?.person && sister.phones?.length) {
+          // The same manager as a sister entity: the phone and email copied free, as the shared lookup does.
+          const note = `Same decision maker as ${sister.name}; copied, no charge`;
+          const copied = (field: "phone" | "email"): Cell => ({ status: "found", at, requestedBy: user?._id, source: "shared", chargedCents: field === "phone" ? 0 : undefined, tries: [{ source: "shared", outcome: "hit", note }] });
+          await ctx.db.patch(c._id, {
+            person: sister.person,
+            phones: sister.phones,
+            emails: sister.emails,
+            research: undefined,
+            enrichment: {
+              person: { status: "found", at, requestedBy: user?._id, source: sister.person.source, tries: [{ source: sister.person.source, outcome: "hit", note: `${sister.person.name}, ${sister.person.title ?? "Officer"}` }] },
+              phone: copied("phone"),
+              email: sister.emails?.length ? copied("email") : { status: "none", at, requestedBy: user?._id, tries: [{ source: "shared", outcome: "miss", note: "None on the sister entity" }] },
+              research: LOCKED,
+            },
+            note: SAMPLE_NOTE,
+            updatedAt: now,
+          });
+          shared++;
+        } else {
+          await ctx.db.patch(c._id, {
+            person: s.person,
+            phones: s.phones,
+            emails: s.emails,
+            research: s.research,
+            enrichment: { person: cell(s.cells.person), phone: cell(s.cells.phone), email: cell(s.cells.email), research: cell(s.cells.research) },
+            note: SAMPLE_NOTE,
+            updatedAt: now,
+          });
+          if (family && s.person && s.phones?.length) families.set(family, { ...c, person: s.person, phones: s.phones, emails: s.emails });
+        }
+        filled++;
+      }
+      return { done: true, organization: organization.name, list: list.title, filled, shared };
+    }
+    return { done: false, reason: clear ? "nothing to clear" : "no list", seen };
+  },
+});
+
+// ---- Asking in plain words ----
+
+/** The assistant's instructions for one county's roll. */
+const interpretSystem = (county: string) => `You turn a contractor's plain-English ask into a list definition over the ${COUNTY_PLACES[county].label}, Texas appraisal roll, so they can mail or visit the people on it.
+
+What the roll holds, per parcel: the owner's name, their mailing address, the property's address, its appraised value, its use code (A: homes; B: apartments and duplexes; F1: commercial buildings such as shops, offices and shopping centers; F2: industrial such as warehouses), the deed date, whether the owner lives there, and whether the owner is a company.
+What it does NOT hold: phone numbers, emails, occupations, income, age, religion, ethnicity, credit, or anything else about the person. Only ${COUNTY_PLACES[county].label} exists.
+
+${WHO_GUIDE.replaceAll("Midland", county)}
+
+Answer with kind "list" and a definition when the ask maps to one who, even loosely ("rich people" → wealthy; "apartment complexes" → multifamily; "strip malls" → commercial; "storage units" → storage; "warehouses" → industrial; "landlords" → investor). Use min_value only when a dollar amount is asked for or implied ("over $2M", "luxury" → 1500000); use streets or zips only when a street or zip is named; set use_codes ["F2"] for warehouses or industrial. Give a title of 50 characters or fewer, like "Shopping center owners, ${county}" or "Homes over $2M, ${county}". The explanation is one sentence on what the list is and what it leaves out (no phones; LLC names rather than people where a company owns it).
+
+Answer with kind "cannot" when the ask needs what the roll doesn't hold (a job, an income, an age, a business's customers, another county, a person by name) or isn't about property owners at all. Say in one sentence why, and give closest: the nearest list that can be made (usually wealthy homeowners by value, or commercial owners) with its own title.`;
+
+type Interpreted =
+  | { ok: true; definition: Definition; title: string; explanation: string; note?: string; count: number; total: number; truncated: boolean; limited: boolean; preview: ListRow[] }
+  | { ok: false; explanation: string; suggestion?: { definition: Definition; title: string } };
+
+/** "shopping center owners in Midland" → a definition, with the count and a first look. */
+export const interpret = action({
+  /** county: the county the page is on (the company's working county); Midland when not given. */
+  args: { organizationId: v.id("organizations"), request: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { organizationId, request, county: asked }): Promise<Interpreted> => {
+    const county = knownCounty(asked);
+    const { staff } = await ctx.runQuery(internal.outreach.assertPro, { organizationId });
+    const ask = request.trim().slice(0, 500);
+    if (!ask) return { ok: false, explanation: "Say who you want to reach, like shopping center owners or homes over $1M." };
+    // Without the assistant (no key, or it couldn't answer), the words alone decide, for the common asks. Staff see why.
+    const fromWords = async (why: string): Promise<Interpreted> => {
+      const guess = guessDefinition(ask, county);
+      if (!guess) {
+        return {
+          ok: false,
+          explanation: `${why.replace(/:.*$/, "").replace(/,$/, "")}. Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.`,
+        };
+      }
+      const built: { count: number; total: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
+        organizationId,
+        definition: guess.definition,
+      });
+      return {
+        ok: true,
+        definition: guess.definition,
+        title: guess.title,
+        explanation: `${guess.title.replace(new RegExp(`, ${county}$`), "")}. Names and mailing addresses; no phone numbers.`,
+        ...(staff ? { note: `${why} so the words alone picked this list.` } : {}),
+        count: built.count,
+        total: built.total,
+        truncated: built.truncated,
+        limited: built.limited,
+        preview: built.rows,
+      };
+    };
+    if (!process.env.ANTHROPIC_API_KEY) return await fromWords("The assistant isn't connected: the Convex deployment has no Anthropic key,");
+    let parsed: Record<string, unknown>;
+    try {
+      const response = await callClaude({
+        max_tokens: 1024,
+        output_config: { effort: "low", format: { type: "json_schema", schema: OUTREACH_INPUT_SCHEMA } },
+        system: [{ type: "text", text: interpretSystem(county), cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: ask }],
+      });
+      if (response.stop_reason === "refusal") return { ok: false, explanation: "That isn't a list I can make. Try who you want to reach, like commercial owners." };
+      const text = response.content
+        .filter((b) => b.type === "text")
+        .map((b) => b.text as string)
+        .join("");
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return await fromWords("The assistant couldn't answer just now,");
+    }
+    // Always the page's county, whatever the assistant wrote.
+    const toDefinition = (raw: unknown) => ({ ...definitionFromArgs((raw ?? {}) as Record<string, unknown>, county), county });
+    const titleOf = (raw: unknown, def: Definition) => (typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 50) : defaultTitle(def));
+    const explanation = typeof parsed.explanation === "string" ? parsed.explanation.trim() : "";
+    if (parsed.kind !== "list") {
+      let suggestion: { definition: Definition; title: string } | undefined;
+      const closest = parsed.closest as { definition?: unknown; title?: unknown } | undefined;
+      try {
+        if (closest?.definition) {
+          const definition = toDefinition(closest.definition);
+          suggestion = { definition, title: titleOf(closest.title, definition) };
+        }
+      } catch {
+        suggestion = undefined;
+      }
+      return { ok: false, explanation: explanation || "That isn't something the appraisal roll can tell us.", suggestion };
+    }
+    let definition: Definition;
+    try {
+      definition = toDefinition(parsed.definition);
+    } catch (e) {
+      return { ok: false, explanation: e instanceof Error ? e.message : "That didn't make a list." };
+    }
+    const built: { count: number; total: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
+      organizationId,
+      definition,
+    });
+    return {
+      ok: true,
+      definition,
+      title: titleOf(parsed.title, definition),
+      explanation: explanation || `${built.count} on the roll.`,
+      count: built.count,
+      total: built.total,
+      truncated: built.truncated,
+      limited: built.limited,
+      preview: built.rows,
+    };
+  },
+});
+
+/** For staff: when the owners were last rebuilt, from how many parcels, and when the daily records pass last ran. */
+export const status = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    const [sync, refresh] = await Promise.all([
+      ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique(),
+      ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", REFRESH_SOURCE)).unique(),
+    ]);
+    if (!sync) return null;
+    return {
+      syncedAt: sync.syncedAt,
+      parcels: sync.fetched,
+      owners: sync.added + sync.updated,
+      error: sync.error,
+      // The daily pass, when it has run since the build: its time, how many owners it touched, or why it failed.
+      ...(refresh && refresh.syncedAt > sync.syncedAt ? { records: { at: refresh.syncedAt, touched: refresh.updated, error: refresh.error } } : {}),
+    };
+  },
+});
+
+/**
+ * One-off, to start Outreach over for a company: every list and every owner
+ * pulled into it are removed. Leads already sent stay on the Leads page; the
+ * county roll is untouched, so new lists pull owners again. Without
+ * `confirm` it only reports what it would remove. `organization` is a word
+ * of the company's name and must match one company.
+ * `outreach:startOver {"organization":"…","confirm":true}`
+ */
+export const startOver = internalMutation({
+  args: { organization: v.string(), confirm: v.optional(v.boolean()) },
+  handler: async (ctx, { organization, confirm }) => {
+    const word = organization.trim().toLowerCase();
+    if (!word) return { done: false, reason: "name a company" };
+    const all = await ctx.db.query("organizations").take(2000);
+    const exact = all.filter((o) => o.name.trim().toLowerCase() === word);
+    const hits = exact.length ? exact : all.filter((o) => o.name.toLowerCase().includes(word));
+    const matches = [];
+    for (const o of hits) {
+      const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", o._id)).collect();
+      const owners = await contactsOf(ctx, o._id);
+      matches.push({ organization: o.name, lists: lists.length, owners: owners.length, sentToLeads: owners.filter((c) => c.leadId).length });
+    }
+    if (!confirm) return { done: false, dryRun: true, matches };
+    if (hits.length !== 1) return { done: false, reason: `${hits.length} companies match; give more of the name`, matches };
+    const organizationId = hits[0]._id;
+    for (const l of await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()) await ctx.db.delete(l._id);
+    await ctx.scheduler.runAfter(0, internal.outreach.clearOwnersOf, { organizationId });
+    return { done: true, removed: matches[0] };
+  },
+});
+
+/** startOver's owners, a page at a time until none are left. */
+export const clearOwnersOf = internalMutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const page = await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(1000);
+    for (const c of page) {
+      await leaveLists(ctx, c._id);
+      await ctx.db.delete(c._id);
+    }
+    if (page.length) await ownersRemoved(ctx, organizationId);
+    if (page.length === 1000) await ctx.scheduler.runAfter(0, internal.outreach.clearOwnersOf, { organizationId });
+    return { removed: page.length };
+  },
+});
