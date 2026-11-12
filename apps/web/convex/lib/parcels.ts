@@ -38,7 +38,8 @@ const STORAGE_LAND = /^CWH03$/;
 const INDUSTRIAL_LAND = /^(CID\d|CI0\d|CWH(0[4-9]|99|O4)$)/;
 const STORAGE_NAME = /\b(STORAGE|MINI[- ]?WAREHOUSES?)\b/;
 type Classed = { useCode: string | undefined; landUse?: string; owner: string };
-export const isStorageParcel = (p: Classed) => isCommercialUse(p.useCode) && (STORAGE_LAND.test(p.landUse ?? "") || STORAGE_NAME.test(p.owner.toUpperCase()));
+export const isStorageParcel = (p: Classed) =>
+  isCommercialUse(p.useCode) && (STORAGE_LAND.test(p.landUse ?? "") || STORAGE_NAME.test(p.owner.toUpperCase()) || Boolean(storageOperator(p.owner)));
 export const isIndustrialParcel = (p: Classed) => isCommercialUse(p.useCode) && !isStorageParcel(p) && (p.useCode === "F2" || INDUSTRIAL_LAND.test(p.landUse ?? ""));
 
 /**
@@ -53,15 +54,21 @@ export const parcelKind = (p: Classed, storageOutlet = false): ParcelKind | unde
  * The big storage operators hold each market in an LLC of its own, so the roll never says the name on the sign:
  * KO Storage's Midland properties are "KOSF II MIDLAND LLC". Each entry here was checked against the operator's own
  * filings or its sales-tax permits (KOSF: Texas TDLR projects at KO Storage's Minnetonka office; AVAD: "Avid Storage"
- * permits under AVAD-ETUDE LLCs). A short list on purpose: local names come from the sales-tax permit at the address.
+ * permits under AVAD-ETUDE LLCs; PROPERTY RENEGADES: the broker's announcement of Atlas Self Storage's sale to KO
+ * Storage, and the June 1, 2023 deed from Property Renegades LLC to KOSF II at 200 S Norman). A short list on
+ * purpose: local names come from the sales-tax permit at the address. A commercial parcel one of them owns is
+ * storage whatever its land code says (isStorageParcel).
  */
 const STORAGE_OPERATORS: Array<[RegExp, string]> = [
   [/^KOSF\b/, "KO Storage"],
   [/^SROA\b/, "Storage Rentals of America"],
   [/^AVAD\b/, "Avid Storage"],
+  [/^PROPERTY RENEGADES\b/, "Atlas Self Storage"],
 ];
 /** The name on the sign for an owner the roll lists by its LLC, when it's one of the operators known here. */
-export const storageOperator = (owner: string): string | undefined => STORAGE_OPERATORS.find(([re]) => re.test(owner.toUpperCase().trim()))?.[1];
+export function storageOperator(owner: string): string | undefined {
+  return STORAGE_OPERATORS.find(([re]) => re.test(owner.toUpperCase().trim()))?.[1];
+}
 
 /** A sales-tax permit in the storage business: the state's industry code for mini-warehouses, or a name that says so. */
 export const isStorageOutlet = (o: { naics?: string; name: string }) => o.naics === "531130" || STORAGE_NAME.test(o.name.toUpperCase());
@@ -259,6 +266,121 @@ export function deedHistory(html: string, now = Date.now()): DeedRow[] | undefin
     rows.push({ seller, ...(date ? { date } : {}), ...(instrument ? { instrument } : {}) });
   }
   return rows;
+}
+
+/**
+ * Midland's blank parcels. About one shape in twenty on the city's layer has no owner, value or use at all (the
+ * roll's row never joined to it): a storage facility at 200 S Norman among them. The appraisal district's public
+ * property search has every one, so each blank shape's street address (from the city's address points) is looked
+ * up there, slowly (parcels.ts findGaps, fillGaps). One search lists every property on a street.
+ */
+export const MIDLAND_GAPS = {
+  source: "midland-gaps",
+  addresses: "https://services.arcgis.com/0H6bQdxd9223gQB5/arcgis/rest/services/EsiteAddr_Collab/FeatureServer/0",
+  search: (street: string, number: string) => `https://iswdataclient.azurewebsites.net/webSearchAddress.aspx?dbkey=MIDLANDCAD&stype=situs&sdata=${encodeURIComponent(`${street}|${number}|`)}`,
+} as const;
+
+/** One property in the district's search results: its id, owner, and where it is ("NORMAN   200   S" → street, number, direction). */
+export type DistrictRow = { id: string; owner: string; street: string; number: string; dir?: string; marketValueCents?: number };
+
+const dollarCents = (s: string): number | undefined => {
+  const n = Number(s.replace(/[$,\s]/g, ""));
+  return s.includes("$") && Number.isFinite(n) && n > 0 ? Math.round(n * 100) : undefined;
+};
+
+/**
+ * The rows of the district's address search: real property only (ids starting "R"; "P" is a business's equipment),
+ * each id once. Undefined when the page isn't a search result at all.
+ */
+export function districtSearchRows(html: string): DistrictRow[] | undefined {
+  if (!/Your search of/i.test(html)) return undefined;
+  const rows: DistrictRow[] = [];
+  const seen = new Set<string>();
+  for (const tr of html.match(/<tr[\s\S]*?<\/tr>/gi) ?? []) {
+    const cells = (tr.match(/<td[\s\S]*?<\/td>/gi) ?? []).map(cellText);
+    const at = cells.findIndex((c) => /^R\d{6,}$/.test(c));
+    if (at < 0 || cells.length < at + 6) continue;
+    const id = cells[at];
+    const owner = ownerOf(cells[at + 2]);
+    // "MARLIN AV   1120  " or "NORMAN   200   S": the page's own spacing is squashed by now, so read it from the raw cell.
+    const raw = (tr.match(/<td[\s\S]*?<\/td>/gi) ?? [])[at + 3].replace(/<[^>]*>/g, "").replace(/&nbsp;/gi, " ");
+    const [street, number, dir] = raw.split(/\s{2,}/).map((x) => x.trim());
+    if (!owner || !street || !number || seen.has(id)) continue;
+    seen.add(id);
+    rows.push({ id, owner, street: street.toUpperCase(), number, ...(dir ? { dir: dir.toUpperCase() } : {}), ...(dollarCents(cells[at + 5]) ? { marketValueCents: dollarCents(cells[at + 5]) } : {}) });
+  }
+  return rows;
+}
+
+/** Whether a search row is at this house number on this street: "MARLIN AV" is MARLIN, "NORMANDY LN" is not NORMAN. */
+export function atAddress(row: DistrictRow, number: string, street: string, dir?: string): boolean {
+  const name = squash(street.toUpperCase());
+  if (row.number !== number.trim() || number.trim() === "0") return false;
+  if (row.street !== name && !row.street.startsWith(`${name} `)) return false;
+  return !dir || !row.dir || row.dir === dir.toUpperCase();
+}
+
+/** What the district's property page says of a property: who owns it, where their bill goes, what's built on it, and the deeds. */
+export type DistrictProperty = {
+  owner?: string;
+  mailing: { address?: string; city?: string; state?: string; zip?: string };
+  /** The building kinds on it, as the page codes them: RES a house, COMM a commercial building, PKLT a parking lot. */
+  buildings: string[];
+  buildingValueCents?: number;
+  deeds: DeedRow[];
+};
+
+const byId = (html: string, id: string): string | undefined => html.match(new RegExp(`id=["']${id}["'][^>]*>([\\s\\S]*?)<\\/td>`, "i"))?.[1];
+
+/** The district's property page, read whole. Undefined when it isn't a property's page (no owner on it). */
+export function districtProperty(html: string, now = Date.now()): DistrictProperty | undefined {
+  const owner = ownerOf(cellText(byId(html, "webprop_name") ?? ""));
+  if (!owner) return undefined;
+  // "10301 WAYZATA BLVD<br/>MINNETONKA, MN 55305": the last line is the city; the one before it the street or box.
+  const lines = (byId(html, "webprop_mailaddress") ?? "").split(/<br\s*\/?>/i).map(cellText).filter(Boolean);
+  const last = lines[lines.length - 1]?.match(/^(.*?),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i);
+  const mailing = last
+    ? { address: lines.length > 1 ? lines[lines.length - 2] : undefined, city: last[1].trim() || undefined, state: last[2].toUpperCase(), zip: last[3] }
+    : { address: lines[0] };
+  const built = html.match(/<tbody[^>]*\bid=["']tableBld["'][^>]*>([\s\S]*?)<\/tbody>/i)?.[1] ?? "";
+  const buildings = [...new Set((built.match(/<tr[\s\S]*?<\/tr>/gi) ?? []).map((tr) => (tr.match(/<td[\s\S]*?<\/td>/gi) ?? []).map(cellText)[1]?.toUpperCase()).filter((x): x is string => Boolean(x)))];
+  // "Improvements | + | $416,930 | …": this year's first.
+  const improvements = html.match(/>\s*Improvements\s*<[\s\S]*?(\$[\d,]+)/i)?.[1];
+  return { owner, mailing, buildings, ...(improvements && dollarCents(improvements) ? { buildingValueCents: dollarCents(improvements) } : {}), deeds: deedHistory(html, now) ?? [] };
+}
+
+/**
+ * The state's use code for a property the district's page describes: the page has no code, only what is built there.
+ * A commercial building makes it commercial, a house a home; land or a parking lot alone isn't kept (as on the roll).
+ */
+export const useFromBuildings = (buildings: string[]): string | undefined => (buildings.includes("COMM") ? "F1" : buildings.includes("RES") ? "A1" : undefined);
+
+/**
+ * The parcel a blank shape turns out to be: one owner's accounts at one address (two half-interest accounts are one
+ * property, valued once), with the page of the first. Nothing when there's no building on it to keep.
+ */
+export function districtParcel(accounts: DistrictRow[], page: DistrictProperty): ParcelRow | undefined {
+  const first = accounts[0];
+  const useCode = useFromBuildings(page.buildings);
+  if (!first || !useCode || !page.owner) return undefined;
+  const site = [first.number, first.dir, first.street].filter(Boolean).join(" ");
+  const value = Math.max(0, ...accounts.map((a) => a.marketValueCents ?? 0));
+  return {
+    cadId: first.id,
+    useCode,
+    siteAddress: site,
+    addressKey: addressKey(site),
+    looseKey: looseKey(site),
+    street: streetKey(site),
+    owner: page.owner,
+    mailing: page.mailing,
+    ownerOccupied: isResidentialUse(useCode) ? ownerOccupied(site, page.mailing.address) : false,
+    companyOwned: isCompanyOwner(page.owner),
+    ...(value ? { marketValueCents: value } : {}),
+    ...(page.buildingValueCents ? { buildingValueCents: page.buildingValueCents } : {}),
+    // The newest deed is when today's owner took it.
+    ...(page.deeds[0]?.date ? { deedDate: page.deeds[0].date } : {}),
+  };
 }
 
 /** The layer's features as parcel rows: homes, apartment and commercial buildings, with an id, an owner and a site address. */

@@ -327,6 +327,19 @@ describe("grouping the roll into owners", () => {
     expect(propertyFor(hejl, "storage_seller")).toMatchObject({ parcelId: "k1" });
     expect(propertyFor(hejl, "industrial_seller")).toMatchObject({ parcelId: "i1" });
 
+    // The company behind Atlas Self Storage sold 200 S Norman to KO: both sides by the name people know.
+    const norman = new SellerGrouper().addAll([{ ...ko, parcelId: "n1", address: "200 S NORMAN", valueCents: 14_842_000, deeds: [{ seller: "PROPERTY RENEGADES LLC", date: "2023-06-01" }, { seller: "HEJL BETTY TR", date: "2022-03-31" }] }]).grouped(() => undefined, NOW);
+    const atlas = norman.find((r) => r.owner.name === "Property Renegades LLC")!.owner;
+    expect(atlas.brand).toBe("Atlas Self Storage");
+    expect(why(atlas, "storage_seller")).toBe("Sold the storage property at 200 S Norman to KO Storage (Kosf II Midland LLC), Jun 2023; owns nothing in Midland County now");
+    const before = norman.find((r) => r.owner.name === "Hejl Betty Tr")!.owner;
+    expect(before.brand).toBeUndefined();
+    expect(why(before, "storage_seller")).toBe("Sold the storage property at 200 S Norman to Atlas Self Storage (Property Renegades LLC), Mar 2022; owns nothing in Midland County now");
+    // And on KO's own row: an operator's commercial parcel is storage whatever its land code, bought from Atlas.
+    const kos = groupOwners([parcel("n1", { owner: "KOSF II MIDLAND LLC", companyOwned: true, ownerOccupied: false, useCode: "F1", landUse: "CR00L", siteAddress: "200 S NORMAN", marketValueCents: 14_842_000, deedDate: "2023-06-01", boughtFrom: "PROPERTY RENEGADES LLC", mailing: { address: "10301 WAYZATA BLVD", city: "MINNETONKA", state: "MN", zip: "55305" } })], NOW).owners[0];
+    expect(kos).toMatchObject({ storage: 1, brand: "KO Storage", storageFrom: [{ name: "Atlas Self Storage (Property Renegades LLC)", date: "2023-06-01" }] });
+    expect(why(kos, "storage")).toBe("KO Storage · Storage property worth $148K; bought Jun 2023 from Atlas Self Storage (Property Renegades LLC)");
+
     // "Sold in the last five years": by the newest sale of that kind; once past the window the read can stop.
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const lately = { county: "Midland", who: "storage_seller" as const, withinDays: 1826 };

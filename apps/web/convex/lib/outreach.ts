@@ -265,6 +265,12 @@ export function displayName(owner: string): string {
 /** "A", "A and B", or with more than it names "A, B and others". */
 const listOf = (names: string[], more = false) => (more ? `${names.join(", ")} and others` : names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? ""));
 
+/** The other side of a sale as a line names them: the name on the sign first, when the records have only the LLC behind it ("KO Storage (Kosf II Midland LLC)"). */
+export const signedName = (owner: string) => {
+  const sign = storageOperator(owner);
+  return sign ? `${sign} (${displayName(owner)})` : displayName(owner);
+};
+
 /** "$4.2M", "$850K", "$52,674". */
 export function shortMoney(cents: number): string {
   const dollars = cents / 100;
@@ -287,7 +293,7 @@ export const ownersSource = (county: string) => (county === "Midland" ? OWNERS_S
 /** Where the daily records pass (outreachRefresh.ts) records how it went. */
 export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 11;
+export const OWNERS_VERSION = 12;
 /** A build id for the owners table: the instant it started, then a few random characters, so ids sort by time. */
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
@@ -419,7 +425,7 @@ function fold(acc: Acc, p: Condensed, hints: Hints = {}) {
       }
       // Who they bought from: each seller once, at their newest deed, the newest FROM_KEEP kept.
       if (p.boughtFrom) {
-        const name = displayName(p.boughtFrom);
+        const name = signedName(p.boughtFrom);
         const from = (acc[`${kind}From`] ?? []).filter((f) => f.name !== name || (f.date ?? "") > (p.deedDate ?? ""));
         if (!from.some((f) => f.name === name)) from.push({ name, ...(p.deedDate ? { date: p.deedDate } : {}) });
         acc[`${kind}From`] = from.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.name.localeCompare(b.name)).slice(0, FROM_KEEP);
@@ -1114,11 +1120,6 @@ export class ContractorGrouper {
 /** One storage or industrial parcel with the owners before it, as the rebuild reads it (parcels.deeds, newest first). */
 export type CondensedSold = { parcelId: string; address: string; useCode: string; valueCents?: number; kind: ParcelKind; owner: string; deeds: Array<{ seller: string; date?: string }> };
 
-/** A buyer as a sale names them: the name on the sign first, when the roll's is only the LLC behind it. */
-const buyerName = (owner: string) => {
-  const sign = storageOperator(owner);
-  return sign ? `${sign} (${displayName(owner)})` : displayName(owner);
-};
 
 /**
  * One row per past owner, from the deed history of storage and industrial parcels: each deed row is someone who
@@ -1141,7 +1142,7 @@ export class SellerGrouper {
         }
         // The same parcel sold twice by the same owner (bought back between) is two sales; the same deed twice is one.
         if (!s.sales.some((x) => x.parcelId === p.parcelId && x.date === d.date)) {
-          s.sales.push({ kind: p.kind, parcelId: p.parcelId, address: p.address, useCode: p.useCode, ...(p.valueCents ? { valueCents: p.valueCents } : {}), to: buyerName(buyer), ...(d.date ? { date: d.date } : {}) });
+          s.sales.push({ kind: p.kind, parcelId: p.parcelId, address: p.address, useCode: p.useCode, ...(p.valueCents ? { valueCents: p.valueCents } : {}), to: signedName(buyer), ...(d.date ? { date: d.date } : {}) });
         }
       }
       buyer = d.seller;
@@ -1191,6 +1192,8 @@ export class SellerGrouper {
         ...(sales[0].date ? { latestAt: sales[0].date } : {}),
         sales: sales.slice(0, SALES_KEEP),
         ...(holds ? { holds: holds.parcels } : {}),
+        // The name people knew them by, where it's one of the operators known ("Atlas Self Storage" for Property Renegades LLC).
+        ...(storageOperator(s.name) ? { brand: storageOperator(s.name) } : {}),
       };
       out.push({ owner, facets: facetsOf(owner, now) });
     }

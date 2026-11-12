@@ -130,6 +130,8 @@ describe("Midland owners (the appraisal roll)", () => {
         landlordAsks.push(url);
         return new Response(JSON.stringify({ features: [{ attributes: { OWNER: "NUKA HIVA LLC &", homes: 7 } }] }), { status: 200 });
       }
+      // The listing of blank parcels the read sets off afterwards: none here.
+      if (url.includes("returnIdsOnly")) return new Response(JSON.stringify({ objectIds: [] }), { status: 200 });
       urls.push(url);
       return new Response(JSON.stringify(pages[urls.length - 1] ?? { features: [] }), { status: 200 });
     }));

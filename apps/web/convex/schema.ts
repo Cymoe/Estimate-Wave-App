@@ -992,6 +992,8 @@ export default defineSchema({
     // first sold to today's owner. deedsReadFor is the deedDate it was read at ("" for none): a new deed is read again.
     deeds: v.optional(v.array(v.object({ seller: v.string(), date: v.optional(v.string()), instrument: v.optional(v.string()) }))),
     deedsReadFor: v.optional(v.string()),
+    // "district": the city's layer had this parcel blank, and the appraisal district's page filled it (parcelGaps).
+    source: v.optional(v.literal("district")),
     importedAt: v.string(),
   })
     .index("by_county_and_kind", ["county", "kind"])
@@ -1002,6 +1004,27 @@ export default defineSchema({
     .index("by_county_and_loose_key", ["county", "looseKey"])
     .index("by_county_and_street", ["county", "street"])
     .index("by_county_and_deed", ["county", "deedDate"]),
+
+  // Midland's blank parcels (lib/parcels.ts MIDLAND_GAPS): a street address inside a shape the city's layer has no
+  // owner for, waiting to be looked up at the appraisal district; then what was found there, or that nothing was.
+  parcelGaps: defineTable({
+    county: v.string(),
+    // lib/parcels.ts addressKey of the city's address point.
+    addressKey: v.string(),
+    number: v.string(),
+    // The street's name alone ("NORMAN"), as the district's search takes it, and its direction when it has one.
+    street: v.string(),
+    dir: v.optional(v.string()),
+    state: v.union(v.literal("waiting"), v.literal("found"), v.literal("none")),
+    // The district's property ids kept for it.
+    cadIds: v.optional(v.array(v.string())),
+    lookedUpAt: v.optional(v.string()),
+    // The last listing of blanks that had it: one the city has since filled isn't seen again, and goes.
+    seenAt: v.string(),
+  })
+    .index("by_county_and_address_key", ["county", "addressKey"])
+    .index("by_county_and_state", ["county", "state", "street"])
+    .index("by_county_and_seen", ["county", "seenAt"]),
 
   // Numbers a Webb Leads caller must not dial (calls.ts): the national and
   // Texas lists as uploaded in Ops (only the current upload of each counts),

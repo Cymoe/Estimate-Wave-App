@@ -1,0 +1,255 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { internal } from "./_generated/api";
+import { setup } from "./test.setup";
+import { MIDLAND_GAPS, atAddress, districtParcel, districtProperty, districtSearchRows, isStorageParcel, storageOperator, useFromBuildings } from "./lib/parcels";
+import { DEED_PACE } from "./parcels";
+
+const pace = { ...DEED_PACE };
+beforeEach(() => {
+  DEED_PACE.waitMs = 0;
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  Object.assign(DEED_PACE, pace);
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+/** A row of the appraisal district's address search, as its page writes one (copied from the live search for 200 Norman). */
+const result = (id: string, owner: string, address: string, value: string) =>
+  `<tr>
+		<td align="left"><a id="ucResultsGrid_${id}" href="javascript:WebForm_DoPostBackWithOptions(new WebForm_PostBackOptions(&quot;ucResultsGrid$${id}&quot;, &quot;&quot;, false, &quot;&quot;, &quot;webProperty.aspx?dbkey=MIDLANDCAD&amp;id=${id}&quot;, false, true))"><u>View Property</u></a></td><td align="right">${id}</td><td align="right">00003910.033.3700</td><td align="left">${owner}</td><td align="left">${address}</td><td align="left">Acres: 1.080,  SW/4, SEC:  33, BLK:  39-T1S</td><td align="right">${value}</td><td><a name="${id}">&nbsp;</a></td>
+	</tr>`;
+const searchPage = (rows: string[], n = rows.length) => `<html><body><table><tr><td>
+  <span>Your search of ' NORMAN | 200 | ' returned ${n} result(s)</span>
+  <div id="dvPrimary"><table width="100%">
+	<tr>
+		<th align="left">Details</th><th align="right">Property ID</th><th align="right">Geographic ID</th><th align="left">Owner Name</th><th align="left">Address</th><th align="left">Legal</th><th align="right">Market Value</th>
+	</tr>${rows.join("")}
+  </table></div></td></tr></table></body></html>`;
+const NORMAN = searchPage([
+  result("R000004331", "KOSF II MIDLAND LLC", "NORMAN   200   S", "$148,420"),
+  result("R000207001", "KOSF II MIDLAND LLC", "NORMAN   200   S", "$148,420"),
+  result("R000039656", "NEIFING KORBEY", "NORMANDY LN   1700  ", "$446,630"),
+  // A business's equipment at an address isn't the property.
+  result("P000215548", "CURSHAW SERVICES LLC", "NORMANDY LN   1711  ", "$0"),
+  result("R000039663", "WIGGINS LESLIE D", "NORMANDY LN   1711  ", "$409,940"),
+]);
+
+/** The district's property page, the parts read (copied from the live pages for 200 S Norman and a home). */
+const propertyPage = (o: { owner: string; mail: string; interest?: string; built: Array<[string, string]>; improvements: string; deeds: Array<[string, string, string]> }) => `<html><body>
+  <table><tbody>
+    <tr> <td id="webprop_name" valign="top">${o.owner}</td> </tr>
+    <tr> <td id="webprop_mailaddress" valign="top">${o.mail}</td> </tr>
+    <tr> <td id="webprop_interest" valign="top">Ownership Interest: ${o.interest ?? "1.0000000"}</td> </tr>
+    <tr> <td id="webprop_situs" valign="top">Situs: NORMAN   200   S</td> </tr>
+  </tbody></table>
+  <table><tr> <th align="left">Values by Year</th> <th></th> <th id="hist0_yr" class="style1">2026</th> <th id="hist1_yr" class="style1">2025</th> </tr>
+    <tr><td>Improvements</td><td>+</td><td>${o.improvements}</td><td>$126,810</td></tr><tr><td>Land</td><td>+</td><td>$23,529</td><td>$23,529</td></tr></table>
+  <table><tbody id="tableBld">${o.built.map(([code, what], i) => `<tr><td align='left'>${101 + i}</td><td align='left'>${code}</td><td align='left'>${what}</td><td align='right'>1973</td><td align='right'>4,368</td><td align='right'>412</td></tr>`).join("")}</tbody></table>
+  <table><tbody id="tableLnd"><tr><td align='left'>CR00L</td><td align='right'>1.080</td><td align='right'>47,058</td></tr></tbody></table>
+  <table class="propertyDetails" summary="Deed History"><tbody id="tableSale">${o.deeds.map(([who, date, inst]) => `<tr><td align='left'>${who}</td><td align='right'></td><td align='right'></td><td align='right'>${date}</td><td align='left'>${inst}</td></tr>`).join("")}</tbody></table>
+</body></html>`;
+const ATLAS = propertyPage({
+  owner: "KOSF II MIDLAND LLC",
+  mail: "10301 WAYZATA BLVD<br/>MINNETONKA, MN 55305",
+  interest: "0.5000000",
+  built: [["COMM", "COMM BLDG"], ["COMM", "COMM BLDG"], ["PKLT", "PARKING LT"]],
+  improvements: "$136,650",
+  deeds: [["PROPERTY RENEGADES LLC", "6/1/2023", "2023-13086"], ["HEJL BETTY TR", "3/31/2022", "2022-9376"], ["HEJL JEROME C", "4/8/2010", "2010-6398"]],
+});
+const HOME = propertyPage({ owner: "NEIFING KORBEY", mail: "1700 NORMANDY LN<br/>MIDLAND, TX 79705", built: [["RES", "RESIDENCE"], ["GAR", "ATTACHED GARAGE FINISED"]], improvements: "$416,930", deeds: [["SMITH JOHN &", "6/27/2019", "2019-1"]] });
+
+/** The district's site answering by street searched and by property id; `asked` is every request made, in order. */
+function district(searches: Record<string, () => Response>, pages: Record<string, () => Response>) {
+  const asked: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith("webSearchAddress.aspx")) {
+        const street = u.searchParams.get("sdata")!.split("|")[0];
+        asked.push(`search ${street}`);
+        return (searches[street] ?? (() => new Response(searchPage([], 0), { status: 200 })))();
+      }
+      const id = u.searchParams.get("id")!;
+      asked.push(`page ${id}`);
+      return (pages[id] ?? (() => new Response("gone", { status: 404 })))();
+    }),
+  );
+  return asked;
+}
+const ok = (html: string) => () => new Response(html, { status: 200 });
+const gap = (number: string, street: string, over: Record<string, unknown> = {}) => ({ county: "Midland", addressKey: `${number} ${street}`, number, street, state: "waiting" as const, seenAt: "2026-11-11T00:00:00.000Z", ...over });
+
+describe("Midland's blank parcels, looked up at the appraisal district", () => {
+  test("the district's search lists a street's properties; a row is at an address by its number and its street's name", () => {
+    const rows = districtSearchRows(NORMAN)!;
+    // Real property only, each id once.
+    expect(rows.map((r) => r.id)).toEqual(["R000004331", "R000207001", "R000039656", "R000039663"]);
+    expect(rows[0]).toEqual({ id: "R000004331", owner: "KOSF II MIDLAND LLC", street: "NORMAN", number: "200", dir: "S", marketValueCents: 14_842_000 });
+    expect(rows[2]).toEqual({ id: "R000039656", owner: "NEIFING KORBEY", street: "NORMANDY LN", number: "1700", marketValueCents: 44_663_000 });
+    // 200 Norman is both of KO's accounts and nothing on Normandy Lane; the street's type is the district's to add.
+    expect(rows.filter((r) => atAddress(r, "200", "NORMAN")).map((r) => r.id)).toEqual(["R000004331", "R000207001"]);
+    expect(rows.filter((r) => atAddress(r, "1700", "NORMAN"))).toEqual([]);
+    expect(rows.filter((r) => atAddress(r, "1700", "Normandy")).map((r) => r.id)).toEqual(["R000039656"]);
+    // The direction decides only when both sides give one.
+    expect(atAddress(rows[0], "200", "NORMAN", "S")).toBe(true);
+    expect(atAddress(rows[0], "200", "NORMAN", "N")).toBe(false);
+    expect(atAddress({ ...rows[0], number: "0" }, "0", "NORMAN")).toBe(false);
+    // A street with nothing on it is an empty list; a page that isn't a search result is no answer.
+    expect(districtSearchRows(searchPage([], 0))).toEqual([]);
+    expect(districtSearchRows("<html><body>Welcome</body></html>")).toBeUndefined();
+    expect(MIDLAND_GAPS.search("NORMAN", "200")).toBe("https://iswdataclient.azurewebsites.net/webSearchAddress.aspx?dbkey=MIDLANDCAD&stype=situs&sdata=NORMAN%7C200%7C");
+  });
+
+  test("the district's page gives the owner, where their bill goes, what's built and the deeds; that makes the parcel", () => {
+    const page = districtProperty(ATLAS)!;
+    expect(page).toMatchObject({ owner: "KOSF II MIDLAND LLC", mailing: { address: "10301 WAYZATA BLVD", city: "MINNETONKA", state: "MN", zip: "55305" }, buildings: ["COMM", "PKLT"], buildingValueCents: 13_665_000 });
+    expect(page.deeds.map((d) => [d.seller, d.date])).toEqual([["PROPERTY RENEGADES LLC", "2023-06-01"], ["HEJL BETTY TR", "2022-03-31"], ["HEJL JEROME C", "2010-04-08"]]);
+    expect(districtProperty("<html><body>Property not found</body></html>")).toBeUndefined();
+    // What's built says what it is: a commercial building, a house, or land alone (which isn't kept).
+    expect(useFromBuildings(["COMM", "PKLT"])).toBe("F1");
+    expect(useFromBuildings(["RES", "GAR"])).toBe("A1");
+    expect(useFromBuildings(["PKLT"])).toBeUndefined();
+    expect(useFromBuildings([])).toBeUndefined();
+
+    // Two half-interest accounts are one property, valued once.
+    const accounts = districtSearchRows(NORMAN)!.slice(0, 2);
+    const parcel = districtParcel(accounts, page)!;
+    expect(parcel).toMatchObject({ cadId: "R000004331", useCode: "F1", siteAddress: "200 S NORMAN", addressKey: "200 S NORMAN", owner: "KOSF II MIDLAND LLC", companyOwned: true, ownerOccupied: false, marketValueCents: 14_842_000, deedDate: "2023-06-01" });
+    // KO's LLC doesn't say "storage" and this land isn't coded mini-storage: the owner being a storage operator does.
+    expect(isStorageParcel(parcel)).toBe(true);
+    expect(isStorageParcel({ useCode: "A1", owner: "KOSF II MIDLAND LLC" })).toBe(false);
+    // The company behind Atlas Self Storage, by the name people knew it.
+    expect(storageOperator("PROPERTY RENEGADES LLC")).toBe("Atlas Self Storage");
+    // A home is lived in by its owner when the bill goes there.
+    expect(districtParcel(districtSearchRows(NORMAN)!.slice(2, 3), districtProperty(HOME)!)).toMatchObject({ cadId: "R000039656", useCode: "A1", siteAddress: "1700 NORMANDY LN", ownerOccupied: true, companyOwned: false, deedDate: "2019-06-27" });
+    expect(districtParcel(accounts, { ...page, buildings: ["PKLT"] })).toBeUndefined();
+  });
+
+  test("each waiting address is looked up once, a street at a time; what's found becomes a parcel with its deed history", async () => {
+    const t = setup();
+    await t.run(async (ctx) => {
+      for (const g of [gap("12", "ELM"), gap("200", "NORMAN"), gap("999", "NORMAN"), gap("1700", "NORMANDY"), gap("1711", "NORMANDY")]) await ctx.db.insert("parcelGaps", g);
+      // The city's own read already has 1711 Normandy Ln: it is left alone.
+      await ctx.db.insert("parcels", { county: "Midland", cadId: "R000039663", useCode: "A1", siteAddress: "1711 NORMANDY LN", addressKey: "1711 NORMANDY LN", owner: "WIGGINS LESLIE D", mailing: {}, ownerOccupied: true, companyOwned: false, importedAt: "2026-11-01" });
+    });
+    const asked = district(
+      // Elm's search is broken; the next reads fine, so the trouble is that street's.
+      { ELM: () => new Response("oops", { status: 500 }), NORMAN: ok(NORMAN), NORMANDY: ok(NORMAN) },
+      { R000004331: ok(ATLAS), R000039656: ok(HOME) },
+    );
+    expect(await t.action(internal.parcels.fillGaps, {})).toEqual({ waiting: 0, looked: 5, added: 2, none: 3 });
+    // One search a street, one page an owner: KO's second account isn't read again, nor the parcel the city has.
+    expect(asked).toEqual(["search ELM", "search NORMAN", "page R000004331", "search NORMANDY", "page R000039656"]);
+    await t.run(async (ctx) => {
+      const by = Object.fromEntries((await ctx.db.query("parcels").collect()).map((p) => [p.cadId, p]));
+      expect(Object.keys(by).sort()).toEqual(["R000004331", "R000039656", "R000039663"]);
+      expect(by.R000004331).toMatchObject({ county: "Midland", source: "district", owner: "KOSF II MIDLAND LLC", useCode: "F1", kind: "storage", siteAddress: "200 S NORMAN", deedDate: "2023-06-01", deedsReadFor: "2023-06-01", marketValueCents: 14_842_000 });
+      expect(by.R000004331.deeds?.map((d) => d.seller)).toEqual(["PROPERTY RENEGADES LLC", "HEJL BETTY TR", "HEJL JEROME C"]);
+      // Filed under its owner like any parcel, so the owner's sheet lists it.
+      expect(by.R000004331.ownerKey).toBeTruthy();
+      expect(by.R000039656).toMatchObject({ source: "district", useCode: "A1", ownerOccupied: true });
+      expect(by.R000039656.kind).toBeUndefined();
+      expect(by.R000039663.source).toBeUndefined();
+      const gaps = Object.fromEntries((await ctx.db.query("parcelGaps").collect()).map((g) => [g.addressKey, [g.state, g.cadIds]]));
+      expect(gaps).toEqual({ "12 ELM": ["none", []], "200 NORMAN": ["found", ["R000004331"]], "999 NORMAN": ["none", []], "1700 NORMANDY": ["found", ["R000039656"]], "1711 NORMANDY": ["none", []] });
+      const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-gaps")).unique();
+      expect(sync).toMatchObject({ fetched: 5, added: 2, updated: 3 });
+    });
+    expect(await t.query(internal.parcels.gapCoverage, {})).toEqual({ waiting: 0, found: 2, none: 3, storageFilled: 1, industrialFilled: 0 });
+    // The storage parcel's history was read in the same visit: the deed read has nothing to ask for.
+    expect((await t.query(internal.parcels.deedsDue, { limit: 10 })).left).toBe(0);
+
+    // Nothing is asked for twice.
+    asked.length = 0;
+    expect(await t.action(internal.parcels.fillGaps, {})).toMatchObject({ looked: 0, added: 0 });
+    expect(asked).toEqual([]);
+
+    // When the city's read has the parcel after all, its row takes over.
+    await t.mutation(internal.parcels.upsert, {
+      rows: [{ cadId: "R000004331", useCode: "F1", landUse: "CWH03", siteAddress: "200 S NORMAN AV", addressKey: "200 S NORMAN AV", looseKey: "200 NORMAN", owner: "KOSF II MIDLAND LLC", mailing: { address: "10301 WAYZATA BLVD", city: "MINNETONKA", state: "MN", zip: "55305" }, ownerOccupied: false, companyOwned: true, deedDate: "2023-06-01" }],
+    });
+    const taken = await t.run(async (ctx) => (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", "R000004331")).unique())!);
+    expect(taken.source).toBeUndefined();
+    expect(taken).toMatchObject({ siteAddress: "200 S NORMAN AV", kind: "storage" });
+    // The deed history it was given stays.
+    expect(taken.deeds).toHaveLength(3);
+  });
+
+  test("one address can be looked up at once; a refusal stops everything where it is", async () => {
+    const t = setup();
+    let asked = district({ NORMAN: ok(NORMAN) }, { R000004331: ok(ATLAS) });
+    expect(await t.action(internal.parcels.fillAddress, { number: "200", street: "norman" })).toEqual({ added: 1, found: ["R000004331"] });
+    expect(asked).toEqual(["search NORMAN", "page R000004331"]);
+    expect(await t.action(internal.parcels.fillAddress, { number: "5", street: "NORMAN" })).toEqual({ added: 0, found: [] });
+
+    await t.run(async (ctx) => {
+      for (const g of [gap("1", "ASH"), gap("2", "BIRCH"), gap("3", "CEDAR")]) await ctx.db.insert("parcelGaps", g);
+    });
+    asked = district({ ASH: () => new Response("slow down", { status: 429 }) }, {});
+    const refused = await t.action(internal.parcels.fillGaps, {});
+    expect(refused.error).toBe("Midland blank parcels: the district's site refused the read (HTTP 429)");
+    // One request, and no more: nothing is retried or worked around, and nothing is marked looked up.
+    expect(asked).toEqual(["search ASH"]);
+    await t.run(async (ctx) => {
+      expect((await ctx.db.query("parcelGaps").collect()).every((g) => g.state === "waiting")).toBe(true);
+      const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-gaps")).unique();
+      expect(sync!.error).toContain("refused");
+    });
+  });
+
+  test("the listing: blank shapes on the city's layer, the addresses inside them, and the gaps the city has since filled", async () => {
+    const t = setup();
+    await t.run(async (ctx) => {
+      // Looked up before and found; the city has since filled that shape, so this listing doesn't see it.
+      await ctx.db.insert("parcelGaps", gap("7", "OAK", { state: "found", cadIds: ["R7"], seenAt: "2026-11-01T00:00:00.000Z" }));
+      // Nothing found long ago: asked again. Nothing found last week: left.
+      await ctx.db.insert("parcelGaps", gap("300", "PINE", { addressKey: "300 S PINE ST", dir: "S", state: "none", lookedUpAt: "2026-06-01T00:00:00.000Z" }));
+      await ctx.db.insert("parcelGaps", gap("302", "PINE", { addressKey: "302 S PINE ST", dir: "S", state: "none", lookedUpAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() }));
+    });
+    const square = (x: number, y: number) => ({ geometry: { rings: [[[x, y], [x + 0.001, y], [x + 0.001, y + 0.001], [x, y + 0.001], [x, y]]] } });
+    const point = (x: number, y: number, n: string, name: string, type = "ST", dir = "") => ({ attributes: { ADDR_HN: n, ADDR_PD: dir, ADDR_SN: name, ADDRESS: `${n} ${dir ? `${dir} ` : ""}${name} ${type}` }, geometry: { x, y } });
+    const asks: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { body?: string }) => {
+        const params = new URLSearchParams(init?.body ?? new URL(url).search);
+        if (url.includes("EsiteAddr")) {
+          asks.push("addresses");
+          return new Response(
+            JSON.stringify({
+              features: [
+                point(-102.1087, 31.9818, "200", "NORMAN", "AV"),
+                // Inside no blank shape.
+                point(-102.2, 31.9, "5", "ELM"),
+                // A tract with many address points is looked up by three of them.
+                ...["300", "302", "304", "306"].map((n) => point(-102.0495, 31.9505, n, "PINE", "ST", "S")),
+                // No house number: nothing to look up.
+                point(-102.1087, 31.9818, " ", "NORMAN"),
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (params.get("returnIdsOnly")) {
+          expect(params.get("where")).toBe("OWNER IS NULL");
+          return new Response(JSON.stringify({ objectIds: [11, 12] }), { status: 200 });
+        }
+        asks.push(`shapes ${params.get("objectIds")}`);
+        return new Response(JSON.stringify({ features: [square(-102.109, 31.9815), square(-102.05, 31.95)] }), { status: 200 });
+      }),
+    );
+    expect(await t.action(internal.parcels.findGaps, { thenFill: false })).toEqual({ blank: 2, addresses: 4, added: 2 });
+    expect(asks).toEqual(["shapes 11,12", "addresses"]);
+    const gaps = await t.run(async (ctx) => Object.fromEntries((await ctx.db.query("parcelGaps").collect()).map((g) => [g.addressKey, [g.state, g.number, g.street, g.dir ?? null]])));
+    expect(gaps).toEqual({
+      "200 NORMAN AV": ["waiting", "200", "NORMAN", null],
+      // Asked again after three months; the one asked last week waits; a third address of the tract is new.
+      "300 S PINE ST": ["waiting", "300", "PINE", "S"],
+      "302 S PINE ST": ["none", "302", "PINE", "S"],
+      "304 S PINE ST": ["waiting", "304", "PINE", "S"],
+    });
+  });
+});

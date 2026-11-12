@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, countyParcels, deedHistory, isCommercialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type ParcelKind } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, isCommercialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
 
@@ -80,8 +80,9 @@ export const upsert = internalMutation({
       if (!existing) {
         await ctx.db.insert("parcels", { county: at, ...row, ...filing(row), ...(kind ? { kind } : {}), importedAt: now });
         added++;
-      } else if (!sameParcel(existing, row) || existing.kind !== kind) {
-        await ctx.db.patch(existing._id, { ...row, ...filing(row), kind, importedAt: now });
+      } else if (!sameParcel(existing, row) || existing.kind !== kind || existing.source) {
+        // The city's own row from here on, if the district had filled it while the city's was blank.
+        await ctx.db.patch(existing._id, { ...row, ...filing(row), kind, source: undefined, importedAt: now });
         updated++;
       }
     }
@@ -199,6 +200,8 @@ async function pullMidlandParcels(ctx: ActionCtx) {
     await ctx.scheduler.runAfter(0, internal.signals.recomputePage, {});
     await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
     await ctx.scheduler.runAfter(0, internal.parcels.readDeedHistory, {});
+    // And the parcels the city's layer has blank, looked up at the appraisal district.
+    await ctx.scheduler.runAfter(0, internal.parcels.findGaps, {});
   }
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,
@@ -308,19 +311,28 @@ export const DEED_PACE = { waitMs: 1_000, batch: 20 };
 /** This many pages in a row that can't be read and the trouble is the site's, not one parcel's. */
 const DEED_DOUBTS = 5;
 
-type DeedPage = { deeds: DeedRow[] } | { none: string } | { refused: string };
+type Got = { html: string } | { none: string } | { refused: string };
 
-/** One property's page: its deed rows; `none` when this page can't be read (missing, broken, no deed table); `refused` when the site says to stop asking. */
-async function deedPage(cadId: string): Promise<DeedPage> {
+/** One page of the district's site: `none` when it can't be read (missing, broken); `refused` when the site says to stop asking. */
+async function districtGet(url: string): Promise<Got> {
   let response: Response;
   try {
-    response = await fetch(MIDLAND_DEEDS.page(cadId));
+    response = await fetch(url);
   } catch (e) {
     return { none: e instanceof Error ? e.message : String(e) };
   }
   if (response.status === 401 || response.status === 403 || response.status === 429) return { refused: `HTTP ${response.status}` };
   if (!response.ok) return { none: `HTTP ${response.status}` };
-  const deeds = deedHistory(await response.text());
+  return { html: await response.text() };
+}
+
+type DeedPage = { deeds: DeedRow[] } | { none: string } | { refused: string };
+
+/** One property's page: its deed rows; `none` when this page can't be read (missing, broken, no deed table); `refused` when the site says to stop asking. */
+async function deedPage(cadId: string): Promise<DeedPage> {
+  const got = await districtGet(MIDLAND_DEEDS.page(cadId));
+  if (!("html" in got)) return got;
+  const deeds = deedHistory(got.html);
   return deeds ? { deeds } : { none: "no deed table on the page" };
 }
 
@@ -403,6 +415,347 @@ export const readDeedHistory = internalAction({
   },
 });
 
+// ---- Midland's blank parcels (lib/parcels.ts MIDLAND_GAPS) ----
+
+const pause = () => (DEED_PACE.waitMs ? new Promise((r) => setTimeout(r, DEED_PACE.waitMs)) : Promise.resolve());
+/** How many street addresses one blank shape is looked up by (a tract with a dozen address points is still one owner or two). */
+const GAP_ADDRESSES = 3;
+/** An address the district had nothing for is asked again after this long. */
+const GAP_RETRY_MS = 90 * 24 * 60 * 60 * 1000;
+/** How many of a street's addresses one step takes (a page a second each). */
+const GAPS_PER_STREET = 60;
+
+const gapRow = v.object({ addressKey: v.string(), number: v.string(), street: v.string(), dir: v.optional(v.string()) });
+
+/** The blank shapes' addresses as of this listing: new ones wait to be looked up; one the district had nothing for waits again after GAP_RETRY_MS. */
+export const noteGaps = internalMutation({
+  args: { rows: v.array(gapRow), seenAt: v.string() },
+  handler: async (ctx, { rows, seenAt }) => {
+    let added = 0;
+    for (const row of rows) {
+      const have = await ctx.db
+        .query("parcelGaps")
+        .withIndex("by_county_and_address_key", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("addressKey", row.addressKey))
+        .first();
+      if (!have) {
+        await ctx.db.insert("parcelGaps", { county: MIDLAND_PARCELS.county, ...row, state: "waiting", seenAt });
+        added++;
+      } else {
+        const again = have.state === "none" && (!have.lookedUpAt || Date.parse(seenAt) - Date.parse(have.lookedUpAt) > GAP_RETRY_MS);
+        await ctx.db.patch(have._id, { seenAt, ...(again ? { state: "waiting" as const } : {}) });
+      }
+    }
+    return { added };
+  },
+});
+
+/** Drops the gaps this listing didn't see: the city's layer has those parcels now. A few hundred a step. */
+export const dropFilledGaps = internalMutation({
+  args: { seenAt: v.string() },
+  handler: async (ctx, { seenAt }) => {
+    const gone = await ctx.db
+      .query("parcelGaps")
+      .withIndex("by_county_and_seen", (q) => q.eq("county", MIDLAND_PARCELS.county).lt("seenAt", seenAt))
+      .take(400);
+    for (const g of gone) await ctx.db.delete(g._id);
+    if (gone.length === 400) await ctx.scheduler.runAfter(0, internal.parcels.dropFilledGaps, { seenAt });
+    return { dropped: gone.length };
+  },
+});
+
+type Ring = number[][];
+type Shape = { rings: Ring[]; box: [number, number, number, number]; found: number };
+const inRing = (x: number, y: number, ring: Ring) => {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+/** Which grid square a point is in: shapes are filed under every square their box touches, so a point meets only its neighbours. */
+const CELL = 0.004;
+const cellOf = (x: number, y: number) => `${Math.floor(x / CELL)}:${Math.floor(y / CELL)}`;
+
+/**
+ * Lists Midland's blank parcels and the street addresses inside them (both from the city's public layers) into
+ * parcelGaps, drops the gaps the city has since filled, and starts the lookups. Scheduled after each roll read.
+ * By hand: `npx convex run parcels:findGaps '{}'`.
+ */
+export const findGaps = internalAction({
+  args: { thenFill: v.optional(v.boolean()) },
+  handler: async (ctx, { thenFill = true }): Promise<{ blank: number; addresses: number; added: number; error?: string }> => {
+    const seenAt = nowIso();
+    let blank = 0;
+    let addresses = 0;
+    let added = 0;
+    let error: string | undefined;
+    try {
+      // The shapes with no owner on them.
+      const idsAnswer = (await query(MIDLAND_PARCELS.layer, { where: "OWNER IS NULL", returnIdsOnly: "true" }, "Midland blank parcels")) as { objectIds?: number[] };
+      const ids = idsAnswer.objectIds ?? [];
+      const shapes: Shape[] = [];
+      const grid = new Map<string, number[]>();
+      for (let i = 0; i < ids.length; i += 150) {
+        const answer = (await query(
+          MIDLAND_PARCELS.layer,
+          { objectIds: ids.slice(i, i + 150).join(","), outFields: "OBJECTID", returnGeometry: "true", outSR: "4326", geometryPrecision: "6" },
+          "Midland blank parcels",
+        )) as { features?: Array<{ geometry?: { rings?: Ring[] } }> };
+        for (const f of answer.features ?? []) {
+          const rings = f.geometry?.rings;
+          if (!rings?.length) continue;
+          const xs = rings[0].map((p) => p[0]);
+          const ys = rings[0].map((p) => p[1]);
+          const box: Shape["box"] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+          const at = shapes.push({ rings, box, found: 0 }) - 1;
+          for (let cx = Math.floor(box[0] / CELL); cx <= Math.floor(box[2] / CELL); cx++) {
+            for (let cy = Math.floor(box[1] / CELL); cy <= Math.floor(box[3] / CELL); cy++) {
+              const key = `${cx}:${cy}`;
+              if (!grid.has(key)) grid.set(key, []);
+              grid.get(key)!.push(at);
+            }
+          }
+        }
+      }
+      blank = shapes.length;
+      // Every address point, a page at a time; kept only when it falls inside a blank shape.
+      const rows = new Map<string, { addressKey: string; number: string; street: string; dir?: string }>();
+      // (With no blank shapes there is nothing to place: the address points aren't read at all.)
+      for (let offset = 0; shapes.length > 0; ) {
+        const answer = (await query(
+          MIDLAND_GAPS.addresses,
+          { where: "ADDR_HN IS NOT NULL", outFields: "ADDR_HN,ADDR_PD,ADDR_SN,ADDRESS", orderByFields: "OBJECTID ASC", returnGeometry: "true", outSR: "4326", geometryPrecision: "6", resultOffset: String(offset), resultRecordCount: "2000" },
+          "Midland addresses",
+        )) as Answer & { features?: Array<Feature & { geometry?: { x?: number; y?: number } }> };
+        const features = answer.features ?? [];
+        for (const f of features) {
+          const { x, y } = f.geometry ?? {};
+          const a = f.attributes ?? {};
+          const number = typeof a.ADDR_HN === "string" ? a.ADDR_HN.trim() : "";
+          const street = typeof a.ADDR_SN === "string" ? a.ADDR_SN.trim().toUpperCase() : "";
+          if (x === undefined || y === undefined || !/^\d+$/.test(number) || !street) continue;
+          const shape = (grid.get(cellOf(x, y)) ?? []).map((i) => shapes[i]).find((sh) => x >= sh.box[0] && x <= sh.box[2] && y >= sh.box[1] && y <= sh.box[3] && inRing(x, y, sh.rings[0]));
+          if (!shape || shape.found >= GAP_ADDRESSES) continue;
+          const key = addressKey(typeof a.ADDRESS === "string" ? a.ADDRESS : `${number} ${street}`);
+          if (!key || rows.has(key)) continue;
+          shape.found++;
+          const dir = typeof a.ADDR_PD === "string" && a.ADDR_PD.trim() ? a.ADDR_PD.trim().toUpperCase() : undefined;
+          rows.set(key, { addressKey: key, number, street, ...(dir ? { dir } : {}) });
+        }
+        if (!answer.exceededTransferLimit || features.length === 0) break;
+        offset += features.length;
+      }
+      addresses = rows.size;
+      const all = [...rows.values()];
+      for (let i = 0; i < all.length; i += 200) {
+        const r: { added: number } = await ctx.runMutation(internal.parcels.noteGaps, { rows: all.slice(i, i + 200), seenAt });
+        added += r.added;
+      }
+      await ctx.runMutation(internal.parcels.dropFilledGaps, { seenAt });
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    if (!error && thenFill) await ctx.scheduler.runAfter(0, internal.parcels.fillGaps, {});
+    return { blank, addresses, added, error };
+  },
+});
+
+type Gap = { id: Doc<"parcelGaps">["_id"]; number: string; street: string; dir?: string };
+
+/** The next street with addresses waiting, GAPS_PER_STREET of them at most (skipping the streets set aside this step), and how many wait in all. */
+export const gapsDue = internalQuery({
+  args: { skip: v.array(v.string()) },
+  handler: async (ctx, { skip }): Promise<{ street?: string; gaps: Gap[]; waiting: number }> => {
+    let street: string | undefined;
+    const gaps: Gap[] = [];
+    let waiting = 0;
+    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", "waiting"))) {
+      waiting++;
+      if (skip.includes(g.street)) continue;
+      street ??= g.street;
+      if (g.street === street && gaps.length < GAPS_PER_STREET) gaps.push({ id: g._id, number: g.number, street: g.street, dir: g.dir });
+    }
+    return { street, gaps, waiting };
+  },
+});
+
+/** Which of these property ids the city's own read already holds: those are left alone. */
+export const cityHas = internalQuery({
+  args: { cadIds: v.array(v.string()) },
+  handler: async (ctx, { cadIds }) => {
+    const out: string[] = [];
+    for (const cadId of cadIds) {
+      const p = await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", cadId)).first();
+      if (p && p.source !== "district") out.push(cadId);
+    }
+    return out;
+  },
+});
+
+/** Keeps the parcels the district's pages gave (with their deed history, read in the same visit), and what became of each gap. */
+export const saveFilled = internalMutation({
+  args: {
+    parcels: v.array(v.object({ row: parcelRow, deeds: v.array(deedRow) })),
+    gaps: v.array(v.object({ id: v.id("parcelGaps"), cadIds: v.array(v.string()) })),
+  },
+  handler: async (ctx, { parcels, gaps }) => {
+    const now = nowIso();
+    const county = MIDLAND_PARCELS.county;
+    let added = 0;
+    for (const { row, deeds } of parcels) {
+      const existing = await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first();
+      if (existing && existing.source !== "district") continue;
+      const fields = { ...row, ...filing(row), kind: await kindOf(ctx, county, row), source: "district" as const, deeds, deedsReadFor: row.deedDate ?? "", importedAt: now };
+      if (existing) await ctx.db.patch(existing._id, fields);
+      else {
+        await ctx.db.insert("parcels", { county, ...fields });
+        added++;
+      }
+    }
+    for (const g of gaps) if (await ctx.db.get(g.id)) await ctx.db.patch(g.id, { state: g.cadIds.length ? "found" : "none", cadIds: g.cadIds, lookedUpAt: now });
+    return { added };
+  },
+});
+
+type Looked = { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; found: Map<number, string[]>; refused?: string; unreadable?: string };
+
+/**
+ * One street at the district: a search lists every property on it, each wanted address takes the rows at its number,
+ * and each owner there gets one page read (the owner, the mailing address, what's built, the deeds). Properties the
+ * city's own read already holds are left alone. `found` is the property ids kept for each wanted address, by position.
+ */
+async function lookUpStreet(ctx: ActionCtx, street: string, wanted: Array<{ number: string; dir?: string }>): Promise<Looked> {
+  const out: Looked = { parcels: [], found: new Map() };
+  const search = await districtGet(MIDLAND_GAPS.search(street, wanted[0].number));
+  await pause();
+  if ("refused" in search) return { ...out, refused: search.refused };
+  const rows = "html" in search ? districtSearchRows(search.html) : undefined;
+  if (!rows) return { ...out, unreadable: "none" in search ? search.none : "the search page had no results list" };
+  const matches = wanted.map((w) => rows.filter((r) => atAddress(r, w.number, street, w.dir)));
+  const held = new Set<string>(matches.flat().length ? await ctx.runQuery(internal.parcels.cityHas, { cadIds: [...new Set(matches.flat().map((r) => r.id))] }) : []);
+  const done = new Set<string>();
+  for (const [i, at] of matches.entries()) {
+    const ids: string[] = [];
+    // One owner's accounts at the address are one property.
+    const byOwner = new Map<string, DistrictRow[]>();
+    for (const r of at) if (!held.has(r.id)) byOwner.set(r.owner, [...(byOwner.get(r.owner) ?? []), r]);
+    for (const accounts of byOwner.values()) {
+      if (done.has(accounts[0].id)) {
+        ids.push(accounts[0].id);
+        continue;
+      }
+      const page = await districtGet(MIDLAND_DEEDS.page(accounts[0].id));
+      await pause();
+      if ("refused" in page) return { ...out, refused: page.refused };
+      const read = "html" in page ? districtProperty(page.html) : undefined;
+      const row = read ? districtParcel(accounts, read) : undefined;
+      if (!read || !row) continue;
+      done.add(row.cadId);
+      ids.push(row.cadId);
+      out.parcels.push({ row, deeds: read.deeds });
+    }
+    out.found.set(i, ids);
+  }
+  return out;
+}
+
+const fillTotals = v.object({ looked: v.number(), added: v.number(), none: v.number() });
+
+/**
+ * Looks up the waiting addresses at the appraisal district, a street at a time and a request about every second,
+ * handing on to a fresh step after STEP_MS. The same rules as the deed read: a refusal stops it where it is and
+ * nothing works around one; DEED_DOUBTS unreadable searches in a row and the step is tried again a minute later,
+ * up to STEP_TRIES. When it's done it records how it went under MIDLAND_GAPS.source and, if it added parcels,
+ * rebuilds Midland's owners. By hand: `npx convex run parcels:fillGaps '{}'`.
+ */
+export const fillGaps = internalAction({
+  args: { totals: v.optional(fillTotals), failures: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<{ waiting: number; looked: number; added: number; none: number; error?: string }> => {
+    const sum = { looked: 0, added: 0, none: 0, ...(args.totals ?? {}) };
+    const started = Date.now();
+    let error: string | undefined;
+    let refused = false;
+    let waiting = 0;
+    let more = false;
+    // Streets whose search couldn't be read this step, until a later one reads fine.
+    const doubts: Array<{ street: string; gaps: Gap[] }> = [];
+    let why = "";
+    while (!error) {
+      const due: { street?: string; gaps: Gap[]; waiting: number } = await ctx.runQuery(internal.parcels.gapsDue, { skip: doubts.map((d) => d.street) });
+      waiting = due.waiting;
+      if (!due.street) break;
+      if (Date.now() - started >= STEP_MS) {
+        more = true;
+        break;
+      }
+      const looked = await lookUpStreet(ctx, due.street, due.gaps);
+      if (looked.refused) {
+        refused = true;
+        error = `Midland blank parcels: the district's site refused the read (${looked.refused})`;
+        break;
+      }
+      if (looked.unreadable) {
+        doubts.push({ street: due.street, gaps: due.gaps });
+        why = looked.unreadable;
+        if (doubts.length >= DEED_DOUBTS) error = `Midland blank parcels: ${DEED_DOUBTS} searches in a row couldn't be read (${why})`;
+        continue;
+      }
+      // A search that reads fine says the earlier trouble was those streets' own: nothing found for them, for now.
+      const gaps = [...due.gaps.map((g, i) => ({ id: g.id, cadIds: looked.found.get(i) ?? [] })), ...doubts.flatMap((d) => d.gaps.map((g) => ({ id: g.id, cadIds: [] as string[] })))];
+      doubts.length = 0;
+      const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps });
+      sum.looked += gaps.length;
+      sum.added += saved.added;
+      sum.none += gaps.filter((g) => g.cadIds.length === 0).length;
+    }
+    if (!error && more) {
+      await ctx.scheduler.runAfter(0, internal.parcels.fillGaps, { totals: sum });
+      return { waiting, ...sum };
+    }
+    const failures = (args.failures ?? 0) + 1;
+    if (error && !refused && failures < STEP_TRIES) {
+      await ctx.scheduler.runAfter(60_000, internal.parcels.fillGaps, { totals: sum, failures });
+      return { waiting, ...sum, error };
+    }
+    if (!error && doubts.length) error = `Midland blank parcels: ${doubts.length} search${doubts.length === 1 ? "" : "es"} couldn't be read (${why})`;
+    if (sum.added > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    await ctx.runMutation(internal.permits.recordSync, { source: MIDLAND_GAPS.source, fetched: sum.looked, added: sum.added, updated: sum.none, error });
+    return { waiting, ...sum, error };
+  },
+});
+
+/**
+ * One address looked up at the district at once, whether or not the listing has it: for a property someone asks
+ * about. `npx convex run parcels:fillAddress '{"number":"200","street":"NORMAN"}'`.
+ */
+export const fillAddress = internalAction({
+  args: { number: v.string(), street: v.string(), dir: v.optional(v.string()) },
+  handler: async (ctx, { number, street, dir }): Promise<{ added: number; found: string[]; error?: string }> => {
+    const looked = await lookUpStreet(ctx, street.trim().toUpperCase(), [{ number: number.trim(), dir }]);
+    if (looked.refused || looked.unreadable) return { added: 0, found: [], error: looked.refused ? `the district's site refused the read (${looked.refused})` : looked.unreadable };
+    const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps: [] });
+    if (looked.parcels.length) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    return { added: saved.added, found: looked.found.get(0) ?? [] };
+  },
+});
+
+/** How the blank parcels stand, for the readiness report: addresses waiting, found and with nothing found, and the storage and industrial parcels filled from the district. */
+export const gapCoverage = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const c = { waiting: 0, found: 0, none: 0, storageFilled: 0, industrialFilled: 0 };
+    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county))) c[g.state]++;
+    for (const kind of KINDS) {
+      for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) {
+        if (p.source === "district") c[`${kind}Filled`]++;
+      }
+    }
+    return c;
+  },
+});
+
 // ---- Odessa and Lubbock (lib/parcels.ts COUNTY_ROLLS) ----
 
 type Feature = { attributes?: Record<string, unknown> };
@@ -413,7 +766,7 @@ export const QUERY_WAITS = [0, 2_000, 6_000];
 
 /** One query of an ArcGIS layer, posted when the where clause is long; a failed try is tried again twice, a little later each time. */
 async function query(layer: string, params: Record<string, string>, what: string): Promise<Answer> {
-  const body = new URLSearchParams({ ...params, returnGeometry: "false", f: "json" });
+  const body = new URLSearchParams({ returnGeometry: "false", f: "json", ...params });
   let last: unknown;
   for (const wait of QUERY_WAITS) {
     if (wait) await new Promise((r) => setTimeout(r, wait));

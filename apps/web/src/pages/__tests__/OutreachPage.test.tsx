@@ -2345,8 +2345,9 @@ describe('the Outreach page', () => {
       ...twoContacts(),
       rows: [
         contact('r1', {
-          key: 'seller:MIDLAND LOCK STORAGE LLC',
-          name: 'Midland Lock Storage LLC',
+          key: 'seller:PROPERTY RENEGADES LLC',
+          name: 'Property Renegades LLC',
+          brand: 'Atlas Self Storage',
           kinds: ['storage_seller'],
           properties: 2,
           property: { parcelId: 'p1', address: '1901 W Florida Av', useCode: 'F1', valueCents: 34_800_000 },
@@ -2368,8 +2369,16 @@ describe('the Outreach page', () => {
     };
     await render('/outreach/l1');
     const row = document.body.querySelector('[data-testid="contact-row"]') as HTMLElement;
-    // The table says what kind of row it is, and search finds a past owner by who they sold to.
+    // The table says what kind of row it is, with the name people knew the company by under its legal one.
     expect(row.textContent).toContain('Sold storage');
+    expect(row.querySelector('[data-testid="brand"]')!.textContent).toBe('Atlas Self Storage');
+    // Typing that name finds it.
+    const search = document.body.querySelector('input[type="search"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'atlas');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).map((r) => r.querySelector('td')!.firstChild!.textContent)).toEqual(['Property Renegades LLC']);
     await act(async () => row.click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     // The property on their row is one they sold, not one they hold.
