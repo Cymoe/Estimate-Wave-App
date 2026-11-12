@@ -1018,6 +1018,9 @@ export default defineSchema({
     state: v.union(v.literal("waiting"), v.literal("found"), v.literal("none")),
     // The district's property ids kept for it.
     cadIds: v.optional(v.array(v.string())),
+    // Why nothing was kept: the city's read already holds the property there ("held"), the district shows land or
+    // a lot with no building ("land"), or the district has nothing at that number ("absent").
+    why: v.optional(v.union(v.literal("held"), v.literal("land"), v.literal("absent"))),
     lookedUpAt: v.optional(v.string()),
     // The last listing of blanks that had it: one the city has since filled isn't seen again, and goes.
     seenAt: v.string(),

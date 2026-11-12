@@ -598,7 +598,7 @@ export const cityHas = internalQuery({
 export const saveFilled = internalMutation({
   args: {
     parcels: v.array(v.object({ row: parcelRow, deeds: v.array(deedRow) })),
-    gaps: v.array(v.object({ id: v.id("parcelGaps"), cadIds: v.array(v.string()) })),
+    gaps: v.array(v.object({ id: v.id("parcelGaps"), cadIds: v.array(v.string()), why: v.optional(v.union(v.literal("held"), v.literal("land"), v.literal("absent"))) })),
   },
   handler: async (ctx, { parcels, gaps }) => {
     const now = nowIso();
@@ -614,12 +614,13 @@ export const saveFilled = internalMutation({
         added++;
       }
     }
-    for (const g of gaps) if (await ctx.db.get(g.id)) await ctx.db.patch(g.id, { state: g.cadIds.length ? "found" : "none", cadIds: g.cadIds, lookedUpAt: now });
+    for (const g of gaps) if (await ctx.db.get(g.id)) await ctx.db.patch(g.id, { state: g.cadIds.length ? "found" : "none", cadIds: g.cadIds, why: g.cadIds.length ? undefined : g.why, lookedUpAt: now });
     return { added };
   },
 });
 
-type Looked = { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; found: Map<number, string[]>; refused?: string; unreadable?: string };
+type NoneWhy = "held" | "land" | "absent";
+type Looked = { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; found: Map<number, string[]>; why: Map<number, NoneWhy>; refused?: string; unreadable?: string };
 
 /**
  * One street at the district: a search lists every property on it, each wanted address takes the rows at its number,
@@ -627,7 +628,7 @@ type Looked = { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; found: Map
  * city's own read already holds are left alone. `found` is the property ids kept for each wanted address, by position.
  */
 async function lookUpStreet(ctx: ActionCtx, street: string, wanted: Array<{ number: string; dir?: string }>): Promise<Looked> {
-  const out: Looked = { parcels: [], found: new Map() };
+  const out: Looked = { parcels: [], found: new Map(), why: new Map() };
   // The district's site sometimes answers a first search with its front page; asked once more, it gives the results.
   let search = await districtGet(MIDLAND_GAPS.search(street, wanted[0].number));
   await pause();
@@ -666,6 +667,8 @@ async function lookUpStreet(ctx: ActionCtx, street: string, wanted: Array<{ numb
       out.parcels.push({ row, deeds: read.deeds });
     }
     out.found.set(i, ids);
+    // Nothing kept: the district has nothing at that number, the city's own read already holds what is there, or it's land.
+    if (ids.length === 0) out.why.set(i, at.length === 0 ? "absent" : at.every((r) => held.has(r.id)) ? "held" : "land");
   }
   return out;
 }
@@ -712,7 +715,7 @@ export const fillGaps = internalAction({
         continue;
       }
       // A search that reads fine says the earlier trouble was those streets' own: nothing found for them, for now.
-      const gaps = [...due.gaps.map((g, i) => ({ id: g.id, cadIds: looked.found.get(i) ?? [] })), ...doubts.flatMap((d) => d.gaps.map((g) => ({ id: g.id, cadIds: [] as string[] })))];
+      const gaps = [...due.gaps.map((g, i) => ({ id: g.id, cadIds: looked.found.get(i) ?? [], why: looked.why.get(i) })), ...doubts.flatMap((d) => d.gaps.map((g) => ({ id: g.id, cadIds: [] as string[], why: undefined as NoneWhy | undefined })))];
       doubts.length = 0;
       const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps });
       sum.looked += gaps.length;
@@ -750,12 +753,28 @@ export const fillAddress = internalAction({
   },
 });
 
+/** Every `every`th address in a state, to check a run by hand. */
+export const gapSample = internalQuery({
+  args: { state: v.union(v.literal("waiting"), v.literal("found"), v.literal("none")), every: v.number() },
+  handler: async (ctx, { state, every }) => {
+    const out: Array<{ number: string; street: string; dir?: string; cadIds?: string[]; why?: string }> = [];
+    let n = 0;
+    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", state))) {
+      if (n++ % every === 0 && out.length < 60) out.push({ number: g.number, street: g.street, dir: g.dir, cadIds: g.cadIds, why: g.why });
+    }
+    return out;
+  },
+});
+
 /** How the blank parcels stand, for the readiness report: addresses waiting, found and with nothing found, and the storage and industrial parcels filled from the district. */
 export const gapCoverage = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const c = { waiting: 0, found: 0, none: 0, storageFilled: 0, industrialFilled: 0 };
-    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county))) c[g.state]++;
+    const c = { waiting: 0, found: 0, none: 0, held: 0, land: 0, absent: 0, storageFilled: 0, industrialFilled: 0 };
+    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county))) {
+      c[g.state]++;
+      if (g.state === "none" && g.why) c[g.why]++;
+    }
     for (const kind of KINDS) {
       for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) {
         if (p.source === "district") c[`${kind}Filled`]++;

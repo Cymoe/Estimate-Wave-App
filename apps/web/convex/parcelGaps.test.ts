@@ -153,12 +153,14 @@ describe("Midland's blank parcels, looked up at the appraisal district", () => {
       expect(by.R000039656).toMatchObject({ source: "district", useCode: "A1", ownerOccupied: true });
       expect(by.R000039656.kind).toBeUndefined();
       expect(by.R000039663.source).toBeUndefined();
-      const gaps = Object.fromEntries((await ctx.db.query("parcelGaps").collect()).map((g) => [g.addressKey, [g.state, g.cadIds]]));
-      expect(gaps).toEqual({ "12 ELM": ["none", []], "200 NORMAN": ["found", ["R000004331"]], "999 NORMAN": ["none", []], "1700 NORMANDY": ["found", ["R000039656"]], "1711 NORMANDY": ["none", []] });
+      const gaps = Object.fromEntries((await ctx.db.query("parcelGaps").collect()).map((g) => [g.addressKey, [g.state, g.cadIds, g.why ?? null]]));
+      // Why nothing was kept is kept too: the district has nothing at 999 Norman; the city already holds 1711 Normandy.
+      expect(gaps).toEqual({ "12 ELM": ["none", [], null], "200 NORMAN": ["found", ["R000004331"], null], "999 NORMAN": ["none", [], "absent"], "1700 NORMANDY": ["found", ["R000039656"], null], "1711 NORMANDY": ["none", [], "held"] });
       const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-gaps")).unique();
       expect(sync).toMatchObject({ fetched: 5, added: 2, updated: 3 });
     });
-    expect(await t.query(internal.parcels.gapCoverage, {})).toEqual({ waiting: 0, found: 2, none: 3, storageFilled: 1, industrialFilled: 0 });
+    expect(await t.query(internal.parcels.gapCoverage, {})).toEqual({ waiting: 0, found: 2, none: 3, held: 1, land: 0, absent: 1, storageFilled: 1, industrialFilled: 0 });
+    expect(await t.query(internal.parcels.gapSample, { state: "none", every: 2 })).toHaveLength(2);
     // The storage parcel's history was read in the same visit: the deed read has nothing to ask for.
     expect((await t.query(internal.parcels.deedsDue, { limit: 10 })).left).toBe(0);
 
