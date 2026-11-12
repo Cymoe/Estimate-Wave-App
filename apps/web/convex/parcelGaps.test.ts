@@ -321,4 +321,74 @@ describe("Midland's blank parcels, looked up at the appraisal district", () => {
       "304 S PINE ST": ["waiting", "304", "PINE", "S"],
     });
   });
+
+  test("a spot check of houses: the app's owner and mailing address against the district's page today", async () => {
+    const t = setup();
+    const home = (cadId: string, siteAddress: string, owner: string, over: Record<string, unknown> = {}) => ({
+      county: "Midland", cadId, useCode: "A1", siteAddress, addressKey: siteAddress, owner, mailing: { address: siteAddress, city: "MIDLAND", state: "TX", zip: "79705" },
+      ownerOccupied: true, companyOwned: false, importedAt: "2026-01-01T00:00:00.000Z", ...over,
+    });
+    const page = (owner: string, mail: string) => ok(propertyPage({ owner, mail, built: [["RES", "RESIDENCE"]], improvements: "$200,000", deeds: [] }));
+    await t.run(async (ctx) => {
+      // The same on both sides, the zip written longer at the district.
+      await ctx.db.insert("parcels", home("R000000001", "100 ASH ST", "NEIFING KORBEY"));
+      // Two owners the roll splits across its fields.
+      await ctx.db.insert("parcels", home("R000000002", "200 BIRCH ST", "MATHES JOE", { owner2: "MATHES MARY" }));
+      // Sold since the roll was read.
+      await ctx.db.insert("parcels", home("R000000003", "300 CEDAR ST", "OLD OWNER LLC"));
+      // The bill goes somewhere new.
+      await ctx.db.insert("parcels", home("R000000004", "400 DATE ST", "WIGGINS LESLIE D"));
+      // The district's page is gone.
+      await ctx.db.insert("parcels", home("R000000005", "500 ELM ST", "NOBODY HOME"));
+      // Not a house, and one the gap fill added: neither is sampled.
+      await ctx.db.insert("parcels", home("R000000006", "600 FIR ST", "SHOP LLC", { useCode: "F1" }));
+      await ctx.db.insert("parcels", home("R000000007", "700 GUM ST", "FILLED IN", { source: "district" }));
+    });
+    const asked = district({}, {
+      R000000001: page("NEIFING KORBEY", "100 ASH ST<br/>MIDLAND, TX 79705-1234"),
+      R000000002: page("MATHES JOE & MARY", "200 BIRCH ST<br/>MIDLAND, TX 79705"),
+      R000000003: page("NEW BUYER JANE", "300 CEDAR ST<br/>MIDLAND, TX 79705"),
+      R000000004: page("WIGGINS LESLIE D", "PO BOX 12<br/>ODESSA, TX 79760"),
+    });
+    const sample = await t.query(internal.parcels.homeSample, { keys: ["1", "1", "3", "9"], n: 10 });
+    // Each key gives the first house at or after it that isn't already taken: four keys, and the last is past them all.
+    expect(sample.map((p) => p.cadId)).toEqual(["R000000001", "R000000002", "R000000003"]);
+    const result = await t.action(internal.parcels.checkHomes, { n: 200 });
+    expect(result.sampled).toBeGreaterThan(0);
+    expect(result.checked + result.unreadable).toBe(result.sampled);
+    expect(asked.every((a) => /^page R00000000[1-5]$/.test(a))).toBe(true);
+    for (const d of result.differences) {
+      if (d.id === "R000000003") expect(d).toEqual({ address: "300 CEDAR ST", id: "R000000003", owner: { app: "OLD OWNER LLC", district: "NEW BUYER JANE" } });
+      else if (d.id === "R000000004") expect(d).toEqual({ address: "400 DATE ST", id: "R000000004", mailing: { app: "400 DATE ST, MIDLAND, TX, 79705", district: "PO BOX 12, ODESSA, TX, 79760" } });
+      else throw new Error(`Not a difference: ${d.id}`);
+    }
+    expect(result.bothSame).toBe(result.checked - result.differences.length);
+
+    // A refusal stops the check where it is.
+    const again = district({}, { R000000001: () => new Response("no", { status: 403 }), R000000002: () => new Response("no", { status: 403 }), R000000003: () => new Response("no", { status: 403 }), R000000004: () => new Response("no", { status: 403 }), R000000005: () => new Response("no", { status: 403 }) });
+    const stopped = await t.action(internal.parcels.checkHomes, {});
+    expect(stopped).toMatchObject({ checked: 0, refused: "the district's site refused the read (HTTP 403)" });
+    expect(again).toHaveLength(1);
+  });
+
+  test("a spot check of coverage: of the houses the district has, how many the app has", async () => {
+    const t = setup();
+    expect(await t.action(internal.parcels.checkCoverage, {})).toEqual({ error: "No Midland parcels to check against" });
+    const parcel = (cadId: string, county = "Midland") => ({ county, cadId, useCode: "A1", siteAddress: "1 A ST", addressKey: "1 A ST", owner: "X", mailing: {}, ownerOccupied: true, companyOwned: false, importedAt: "2026-01-01T00:00:00.000Z" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("parcels", parcel("R000000001"));
+      await ctx.db.insert("parcels", parcel("R000000004"));
+      // Another county's ids, and one BatchData gave, don't set the range.
+      await ctx.db.insert("parcels", parcel("R999999", "Lubbock"));
+      await ctx.db.insert("parcels", parcel("bd:abc"));
+    });
+    expect(await t.query(internal.parcels.cadRange, {})).toEqual({ low: 1, high: 4 });
+    const house = ok(propertyPage({ owner: "SMITH JOHN", mail: "1 A ST<br/>MIDLAND, TX 79705", built: [["RES", "RESIDENCE"]], improvements: "$1", deeds: [] }));
+    const lot = ok(propertyPage({ owner: "LAND CO", mail: "1 A ST<br/>MIDLAND, TX 79705", built: [], improvements: "$0", deeds: [] }));
+    // 1: a house the app has. 2: a house it lacks. 3: land. 4: no page.
+    const asked = district({}, { R000000001: house, R000000002: house, R000000003: lot });
+    const result = await t.action(internal.parcels.checkCoverage, { n: 50 });
+    expect(asked.slice().sort()).toEqual(["page R000000001", "page R000000002", "page R000000003", "page R000000004"]);
+    expect(result).toEqual({ read: 4, noPage: 1, notAHouse: 1, houses: 2, inApp: 1, lacking: [{ id: "R000000002", owner: "SMITH JOHN", city: "MIDLAND" }] });
+  });
 });

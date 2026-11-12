@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, isCommercialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
 
@@ -1075,5 +1075,141 @@ export const syncCounty = internalAction({
       fieldsVersion: error ? undefined : PARCEL_VERSION,
     });
     return { fetched: sum.fetched, added: sum.added, updated: sum.updated, error };
+  },
+});
+
+// ── Spot checks of Midland's houses against the appraisal district's own pages. Nothing is written. ──
+
+type Mailing = Doc<"parcels">["mailing"];
+const mailLine = (m: Mailing) => [m.address, m.city, m.state, m.zip?.slice(0, 5)].filter(Boolean).join(", ");
+/** The same owner, however the roll splits two owners across its two fields or shortens the second. */
+function sameOwnerName(app: { owner: string; owner2?: string }, district: string): boolean {
+  const [a, b, both] = [nameKey(app.owner), nameKey(district), nameKey(`${app.owner} ${app.owner2 ?? ""}`)];
+  return a === b || both === b || (a.length >= 5 && b.startsWith(a)) || (b.length >= 5 && a.startsWith(b));
+}
+/** The tax bill goes to the same place: the same street line (or box), and the same zip where both give one. */
+function sameMailing(app: Mailing, district: Mailing): boolean {
+  const zips = [app.zip?.slice(0, 5), district.zip?.slice(0, 5)];
+  return addressKey(app.address) === addressKey(district.address) && (!zips[0] || !zips[1] || zips[0] === zips[1]);
+}
+
+/** `n` of Midland's houses for a spot check: the first one at or after each key (a random house number and letter), none twice. */
+export const homeSample = internalQuery({
+  args: { keys: v.array(v.string()), n: v.number() },
+  handler: async (ctx, { keys, n }) => {
+    const out = new Map<string, { cadId: string; address: string; owner: string; owner2?: string; mailing: Mailing }>();
+    for (const key of keys) {
+      if (out.size >= n) break;
+      const here = await ctx.db
+        .query("parcels")
+        .withIndex("by_county_and_address_key", (q) => q.eq("county", MIDLAND_PARCELS.county).gte("addressKey", key))
+        .take(8);
+      // A house the city's own read gave, under the district's id: what the lists are built from.
+      const p = here.find((x) => isResidentialUse(x.useCode) && /^R\d+$/.test(x.cadId) && !x.source && !out.has(x.cadId));
+      if (p) out.set(p.cadId, { cadId: p.cadId, address: p.siteAddress, owner: p.owner, ...(p.owner2 ? { owner2: p.owner2 } : {}), mailing: p.mailing });
+    }
+    return [...out.values()];
+  },
+});
+
+/** How long a spot check reads before it reports what it has: inside an action's 10 minutes. */
+const CHECK_MS = 8 * 60 * 1000;
+const DIFFERENCES_SHOWN = 20;
+
+/**
+ * Is what the app shows of a house right? `n` houses spread across Midland's roll, each compared with the district's
+ * own page today: the owner's name and where the tax bill goes. A difference is listed with both values, so a sale
+ * since the last read can be told from a spelling. `npx convex run parcels:checkHomes '{}'`.
+ */
+export const checkHomes = internalAction({
+  args: { n: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const n = Math.min(Math.max(args.n ?? 100, 1), 200);
+    const letters = "ABCDEFGHIJKLMNOPRSTW";
+    const keys = Array.from({ length: n * 4 }, () => `${100 + Math.floor(Math.random() * 9_900)} ${letters[Math.floor(Math.random() * letters.length)]}`);
+    const sample: Array<{ cadId: string; address: string; owner: string; owner2?: string; mailing: Mailing }> = await ctx.runQuery(internal.parcels.homeSample, { keys, n });
+    const differences: Array<{ address: string; id: string; owner?: { app: string; district: string }; mailing?: { app: string; district: string } }> = [];
+    const out = { sampled: sample.length, checked: 0, ownerSame: 0, mailingSame: 0, bothSame: 0, unreadable: 0 };
+    let refused: string | undefined;
+    const started = Date.now();
+    for (const p of sample) {
+      if (Date.now() - started > CHECK_MS) break;
+      const got = await districtGet(MIDLAND_DEEDS.page(p.cadId));
+      await pause();
+      if ("refused" in got) {
+        refused = got.refused;
+        break;
+      }
+      const page = "html" in got ? districtProperty(got.html) : undefined;
+      if (!page?.owner) {
+        out.unreadable++;
+        continue;
+      }
+      out.checked++;
+      const owner = sameOwnerName(p, page.owner);
+      const mailing = sameMailing(p.mailing, page.mailing);
+      if (owner) out.ownerSame++;
+      if (mailing) out.mailingSame++;
+      if (owner && mailing) out.bothSame++;
+      else if (differences.length < DIFFERENCES_SHOWN)
+        differences.push({
+          address: p.address,
+          id: p.cadId,
+          ...(owner ? {} : { owner: { app: [p.owner, p.owner2].filter(Boolean).join(" / "), district: page.owner } }),
+          ...(mailing ? {} : { mailing: { app: mailLine(p.mailing), district: mailLine(page.mailing) } }),
+        });
+    }
+    return { ...out, ...(refused ? { refused: `the district's site refused the read (${refused})` } : {}), differences };
+  },
+});
+
+/** The lowest and highest of the district's property numbers among Midland's parcels ("R000004331" is 4331). */
+export const cadRange = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const mine = (p: Doc<"parcels">) => p.county === MIDLAND_PARCELS.county && /^R\d{9}$/.test(p.cadId);
+    const between = () => ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.gte("cadId", "R0").lt("cadId", "R:"));
+    const low = (await between().order("asc").take(300)).find(mine);
+    const high = (await between().order("desc").take(300)).find(mine);
+    return low && high ? { low: Number(low.cadId.slice(1)), high: Number(high.cadId.slice(1)) } : null;
+  },
+});
+
+/**
+ * Is anything missing? `n` of the district's property numbers at random, each one's page read: a number with no page,
+ * or a page with no house on it, is passed over; for each house the district has, does the app have it?
+ * `npx convex run parcels:checkCoverage '{}'`.
+ */
+export const checkCoverage = internalAction({
+  args: { n: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const n = Math.min(Math.max(args.n ?? 300, 1), 450);
+    const range: { low: number; high: number } | null = await ctx.runQuery(internal.parcels.cadRange, {});
+    if (!range) return { error: "No Midland parcels to check against" };
+    const ids = new Set<string>();
+    const span = range.high - range.low + 1;
+    for (let tries = 0; ids.size < Math.min(n, span) && tries < n * 20; tries++) ids.add(`R${String(range.low + Math.floor(Math.random() * span)).padStart(9, "0")}`);
+    const out = { read: 0, noPage: 0, notAHouse: 0, houses: 0, inApp: 0 };
+    const houses: Array<{ id: string; owner: string; city?: string }> = [];
+    let refused: string | undefined;
+    const started = Date.now();
+    for (const id of ids) {
+      if (Date.now() - started > CHECK_MS) break;
+      const got = await districtGet(MIDLAND_DEEDS.page(id));
+      await pause();
+      if ("refused" in got) {
+        refused = got.refused;
+        break;
+      }
+      out.read++;
+      const page = "html" in got ? districtProperty(got.html) : undefined;
+      if (!page?.owner) out.noPage++;
+      else if (codeFromBuildings(page.buildings) !== "A1") out.notAHouse++;
+      else houses.push({ id, owner: page.owner, ...(page.mailing.city ? { city: page.mailing.city } : {}) });
+    }
+    const have = new Set<string>(houses.length ? await ctx.runQuery(internal.parcels.haveParcels, { cadIds: houses.map((h) => h.id) }) : []);
+    out.houses = houses.length;
+    out.inApp = houses.filter((h) => have.has(h.id)).length;
+    return { ...out, ...(refused ? { refused: `the district's site refused the read (${refused})` } : {}), lacking: houses.filter((h) => !have.has(h.id)).slice(0, DIFFERENCES_SHOWN) };
   },
 });
