@@ -999,9 +999,14 @@ export default defineSchema({
     // BatchData says the last purchase was cash.
     vendorUse: v.optional(v.string()),
     cashBuyer: v.optional(v.boolean()),
+    // When the appraisal district's own page was last read for who owns this today (parcels.ts refreshOwners): the
+    // city's layer runs about a year behind, so from then on the owner, mailing address and deed date are the
+    // district's, and the city's read only replaces them with a newer deed.
+    districtAt: v.optional(v.string()),
     importedAt: v.string(),
   })
     .index("by_county_and_kind", ["county", "kind"])
+    .index("by_county_and_district_at", ["county", "districtAt"])
     .index("by_county_and_owner_key", ["county", "ownerKey"])
     .index("by_county_and_mail_key", ["county", "mailKey"])
     .index("by_cad_id", ["cadId"])

@@ -8,8 +8,8 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_DEEDS, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
-import { districtGet, sameOwnerName } from "./lib/district";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, isCompanyOwner, ownerOccupied, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
+import { districtGet, hasDistrictPage, sameOwnerName } from "./lib/district";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
 
@@ -72,11 +72,17 @@ export const upsert = internalMutation({
     let updated = 0;
     const now = nowIso();
     const at = county ?? MIDLAND_PARCELS.county;
-    for (const row of rows) {
+    for (const read of rows) {
       const existing = await ctx.db
         .query("parcels")
-        .withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId))
+        .withIndex("by_cad_id", (q) => q.eq("cadId", read.cadId))
         .first();
+      // Who owns it, where their bill goes and when they bought are the district's once its page has been read
+      // (refreshOwners): the city's layer runs about a year behind, so its word only wins with a newer deed.
+      const row =
+        existing?.districtAt && !((read.deedDate ?? "") > (existing.deedDate ?? ""))
+          ? { ...read, owner: existing.owner, owner2: existing.owner2, mailing: existing.mailing, deedDate: existing.deedDate, ownerOccupied: existing.ownerOccupied, companyOwned: existing.companyOwned }
+          : read;
       const kind = await kindOf(ctx, at, { ...row, vendorUse: existing?.vendorUse });
       if (!existing) {
         await ctx.db.insert("parcels", { county: at, ...row, ...filing(row), ...(kind ? { kind } : {}), importedAt: now });
@@ -203,6 +209,8 @@ async function pullMidlandParcels(ctx: ActionCtx) {
     await ctx.scheduler.runAfter(0, internal.parcels.readDeedHistory, {});
     // And the parcels the city's layer has blank, looked up at the appraisal district.
     await ctx.scheduler.runAfter(0, internal.parcels.findGaps, {});
+    // And who owns each parcel today, from the district's own pages: whatever hasn't been read in the last month.
+    await ctx.scheduler.runAfter(0, internal.parcels.refreshOwners, {});
   }
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,
@@ -1195,5 +1203,163 @@ export const checkCoverage = internalAction({
     out.houses = houses.length;
     out.inApp = houses.filter((h) => have.has(h.id)).length;
     return { ...out, ...(refused ? { refused: `the district's site refused the read (${refused})` } : {}), lacking: houses.filter((h) => !have.has(h.id)).slice(0, DIFFERENCES_SHOWN) };
+  },
+});
+
+// ── Who owns each Midland parcel today, from the appraisal district's own pages ──
+//
+// The city's layer the roll is read from has no sale after late 2025: about one house in nine has changed hands since,
+// and nobody who bought this year is on it. The district's page for a property is current. Every parcel's page is
+// read in turn, a request a second (the first pass is most of a day), and again once it is OWNERS_MAX_AGE_MS old.
+
+/** Where the refresh records how it stands (permitSources): fetched is the pages read, added the parcels with a new owner, updated those with a new mailing address or deed date. */
+export const MIDLAND_OWNERS_SOURCE = "midland-owners";
+/** A parcel's page is read again once its last read is this old. */
+const OWNERS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+/** Outreach's owners are rebuilt each time this many more pages have been read, and when a pass ends. */
+const OWNERS_REBUILD_EVERY = 12_000;
+/** A pass still going wrote its record within this long: a second one isn't started beside it. */
+const OWNERS_RUNNING_MS = 15 * 60 * 1000;
+
+/** `limit` Midland parcels whose district page hasn't been read since `before`, the longest-waiting first. */
+export const ownersDue = internalQuery({
+  args: { limit: v.number(), before: v.string(), skip: v.optional(v.array(v.id("parcels"))) },
+  handler: async (ctx, { limit, before, skip = [] }) => {
+    const out: Array<{ id: Doc<"parcels">["_id"]; cadId: string; siteAddress: string; owner: string; owner2?: string; mailing: Mailing; deedDate?: string }> = [];
+    // Never read first, then the oldest: a missing districtAt sorts before every date.
+    const waiting = ctx.db.query("parcels").withIndex("by_county_and_district_at", (q) => q.eq("county", MIDLAND_PARCELS.county).lt("districtAt", before));
+    for await (const p of waiting) {
+      // A parcel only BatchData has isn't on the district's site under its id.
+      if (!hasDistrictPage(p) || p.source === "batchdata" || skip.includes(p._id)) continue;
+      out.push({ id: p._id, cadId: p.cadId, siteAddress: p.siteAddress, owner: p.owner, ...(p.owner2 ? { owner2: p.owner2 } : {}), mailing: p.mailing, ...(p.deedDate ? { deedDate: p.deedDate } : {}) });
+      if (out.length >= limit) break;
+    }
+    return out;
+  },
+});
+
+const mailingArg = v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) });
+
+/**
+ * Keeps what the district's pages said: each parcel is marked read; one with a new owner takes the owner, the mailing
+ * address and the deed date; one with the same owner takes a mailing address or deed date that changed.
+ */
+export const saveOwners = internalMutation({
+  args: { at: v.string(), rows: v.array(v.object({ id: v.id("parcels"), owner: v.optional(v.string()), mailing: v.optional(mailingArg), deedDate: v.optional(v.string()) })) },
+  handler: async (ctx, { at, rows }) => {
+    for (const r of rows) {
+      const p = await ctx.db.get(r.id);
+      if (!p) continue;
+      const owner = r.owner ?? p.owner;
+      const mailing = r.mailing ?? p.mailing;
+      const changed = r.owner !== undefined || r.mailing !== undefined;
+      await ctx.db.patch(r.id, {
+        districtAt: at,
+        ...(r.deedDate ? { deedDate: r.deedDate } : {}),
+        ...(changed ? { owner, mailing, ownerOccupied: ownerOccupied(p.siteAddress, mailing.address), companyOwned: isCompanyOwner(owner), ...filing({ owner, mailing }) } : {}),
+        // A new owner is one name, as the district writes it; and who owns it can make it storage (KO Storage's LLCs).
+        ...(r.owner !== undefined ? { owner2: undefined, kind: await kindOf(ctx, p.county, { ...p, owner }) } : {}),
+      });
+    }
+  },
+});
+
+const fiveDigit = (m: Mailing): Mailing => Object.fromEntries(Object.entries({ ...m, zip: m.zip?.slice(0, 5) }).filter(([, x]) => x)) as Mailing;
+const refreshTotals = v.object({ read: v.number(), sold: v.number(), moved: v.number(), unreadable: v.number() });
+
+/**
+ * Reads the district's page for every Midland parcel not read since `before` (a month ago when not given), a request
+ * a second, handing on to a fresh step after STEP_MS. The deed reader's rules: a refusal stops it where it is and
+ * nothing works around one; DEED_DOUBTS pages in a row that can't be read and the step is tried again a minute
+ * later, STEP_TRIES times. `background` schedules it and returns at once.
+ * By hand: `npx convex run parcels:refreshOwners '{"background":true}'`.
+ */
+export const refreshOwners = internalAction({
+  args: { background: v.optional(v.boolean()), before: v.optional(v.string()), totals: v.optional(refreshTotals), failures: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<{ scheduled?: true; running?: true; done?: true; read: number; sold: number; moved: number; unreadable: number; error?: string }> => {
+    const sum = { read: 0, sold: 0, moved: 0, unreadable: 0, ...(args.totals ?? {}) };
+    // A fresh start, not a step of a pass under way: one pass at a time, so the site never gets two requests a second.
+    if (!args.before) {
+      const last = await ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_OWNERS_SOURCE });
+      if (last?.lastAppliedAt === "running" && Date.now() - Date.parse(last.syncedAt) < OWNERS_RUNNING_MS) return { running: true, ...sum };
+    }
+    const before = args.before ?? new Date(Date.now() - OWNERS_MAX_AGE_MS).toISOString();
+    const record = (state: { running?: true; error?: string }) =>
+      ctx.runMutation(internal.permits.recordSync, { source: MIDLAND_OWNERS_SOURCE, fetched: sum.read, added: sum.sold, updated: sum.moved, lastAppliedAt: state.running ? "running" : nowIso(), error: state.error });
+    if (args.background) {
+      await record({ running: true });
+      await ctx.scheduler.runAfter(0, internal.parcels.refreshOwners, { before });
+      return { scheduled: true, ...sum };
+    }
+    const started = Date.now();
+    const readAtStart = sum.read;
+    let error: string | undefined;
+    let refused = false;
+    let done = false;
+    // Pages that couldn't be read, until a later one reads fine: then they're marked read too (a retired property id).
+    let doubts: Array<Doc<"parcels">["_id"]> = [];
+    let why = "";
+    while (!error && !done && Date.now() - started < STEP_MS) {
+      const due: Array<{ id: Doc<"parcels">["_id"]; cadId: string; siteAddress: string; owner: string; owner2?: string; mailing: Mailing; deedDate?: string }> = await ctx.runQuery(internal.parcels.ownersDue, { limit: DEED_PACE.batch, before, skip: doubts });
+      if (due.length === 0) {
+        // The last few with nothing after them to clear them (a retired property id or two): marked read, asked again in a month.
+        if (doubts.length) {
+          await ctx.runMutation(internal.parcels.saveOwners, { at: nowIso(), rows: doubts.map((id) => ({ id })) });
+          sum.read += doubts.length;
+          sum.unreadable += doubts.length;
+        }
+        done = true;
+        break;
+      }
+      const rows: Array<{ id: Doc<"parcels">["_id"]; owner?: string; mailing?: Mailing; deedDate?: string }> = [];
+      for (const p of due) {
+        const asked = Date.now();
+        const got = await districtGet(MIDLAND_DEEDS.page(p.cadId));
+        if ("refused" in got) {
+          refused = true;
+          error = `Midland owners: the district's site refused the read (${got.refused})`;
+          break;
+        }
+        const page = "html" in got ? districtProperty(got.html) : undefined;
+        if (!page?.owner) {
+          doubts.push(p.id);
+          why = "none" in got ? got.none : "no owner on the page";
+          if (doubts.length >= DEED_DOUBTS) error = `Midland owners: ${DEED_DOUBTS} pages in a row couldn't be read (${why})`;
+        } else {
+          const sold = !sameOwnerName(p, page.owner);
+          const mailing = fiveDigit(page.mailing);
+          const moved = Boolean(mailing.address) && !sameMailing(p.mailing, mailing);
+          const newest = page.deeds[0]?.date;
+          const deedDate = newest && (sold || newest > (p.deedDate ?? "")) ? newest : undefined;
+          rows.push({ id: p.id, ...(sold ? { owner: page.owner } : {}), ...((sold || moved) && mailing.address ? { mailing } : {}), ...(deedDate ? { deedDate } : {}) }, ...doubts.map((id) => ({ id })));
+          sum.read += 1 + doubts.length;
+          sum.unreadable += doubts.length;
+          if (sold) sum.sold++;
+          else if (moved || deedDate) sum.moved++;
+          doubts = [];
+        }
+        if (error) break;
+        // A request a second, counting the time the page took to come back.
+        if (DEED_PACE.waitMs) await new Promise((r) => setTimeout(r, Math.max(0, DEED_PACE.waitMs - (Date.now() - asked))));
+      }
+      if (rows.length) await ctx.runMutation(internal.parcels.saveOwners, { at: nowIso(), rows });
+    }
+    // The lists follow the district as the pass goes, not only when it ends a day later.
+    const crossed = Math.floor(sum.read / OWNERS_REBUILD_EVERY) > Math.floor(readAtStart / OWNERS_REBUILD_EVERY);
+    if (!error && !done) {
+      if (crossed) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+      await record({ running: true });
+      await ctx.scheduler.runAfter(0, internal.parcels.refreshOwners, { before, totals: sum });
+      return { ...sum };
+    }
+    const failures = (args.failures ?? 0) + 1;
+    if (error && !refused && failures < STEP_TRIES) {
+      await record({ running: true });
+      await ctx.scheduler.runAfter(60_000, internal.parcels.refreshOwners, { before, totals: sum, failures });
+      return { ...sum, error };
+    }
+    if (sum.sold + sum.moved > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    await record({ error });
+    return { ...(done ? { done: true as const } : {}), ...sum, ...(error ? { error } : {}) };
   },
 });

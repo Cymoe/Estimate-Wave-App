@@ -13,7 +13,7 @@ export const MIDLAND_PARCELS = {
 } as const;
 
 /** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
-export const PARCEL_VERSION = 7;
+export const PARCEL_VERSION = 8;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
@@ -453,7 +453,8 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
       street: streetKey(site),
       owner,
       owner2: text(a.OWNER2),
-      mailing: { address: mailing, city: text(a.CITY_1), state: text(a.STATE_1), zip: text(a.ZIP) },
+      // The layer drops a zip's leading zero ("7731" for Howell, New Jersey).
+      mailing: { address: mailing, city: text(a.CITY_1), state: text(a.STATE_1), zip: text(a.ZIP)?.replace(/^\d{3,4}$/, (z) => z.padStart(5, "0")) },
       ownerOccupied: numbered ? ownerOccupied(site, mailing) : false,
       companyOwned: isCompanyOwner(owner),
       marketValueCents: cents(a.MKT_VALUE),
