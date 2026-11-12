@@ -632,7 +632,11 @@ async function lookUpStreet(ctx: ActionCtx, street: string, wanted: Array<{ numb
   await pause();
   if ("refused" in search) return { ...out, refused: search.refused };
   const rows = "html" in search ? districtSearchRows(search.html) : undefined;
-  if (!rows) return { ...out, unreadable: "none" in search ? search.none : "the search page had no results list" };
+  if (!rows) {
+    // What came back instead, in a few words, for whoever reads the record of the run.
+    const title = "html" in search ? (search.html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    return { ...out, unreadable: "none" in search ? search.none : `the search page had no results list (${search.html.length} characters${title ? `, titled "${title}"` : ""})` };
+  }
   const matches = wanted.map((w) => rows.filter((r) => atAddress(r, w.number, street, w.dir)));
   const held = new Set<string>(matches.flat().length ? await ctx.runQuery(internal.parcels.cityHas, { cadIds: [...new Set(matches.flat().map((r) => r.id))] }) : []);
   const done = new Set<string>();
