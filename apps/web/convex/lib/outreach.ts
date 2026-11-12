@@ -21,6 +21,8 @@ export type Condensed = {
   useCode: string;
   /** The district's own land code, where the roll has one (lib/parcels.ts isStorageParcel). */
   landUse?: string;
+  /** BatchData's land use code, where it has the parcel. */
+  vendorUse?: string;
   owner: string;
   mailing: Mailing;
   ownerOccupied: boolean;

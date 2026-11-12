@@ -43,13 +43,13 @@ const KEYS = [
   "companyOwned", "marketValueCents", "buildingValueCents", "deedDate",
 ] as const;
 /** Whose a parcel is, as Outreach groups the roll, and where its bill goes: what lists an owner's properties ("" for none). */
-const filing = (p: { owner: string; mailing: Doc<"parcels">["mailing"] }) => ({ ownerKey: OwnerGrouper.keyFor(p) ?? "", mailKey: mailKey(p.mailing) ?? "" });
+export const filing = (p: { owner: string; mailing: Doc<"parcels">["mailing"] }) => ({ ownerKey: OwnerGrouper.keyFor(p) ?? "", mailKey: mailKey(p.mailing) ?? "" });
 
 /**
  * Storage, industrial or neither, as Outreach's grouping decides it (lib/outreach.ts fold): by the parcel's own codes
  * and owner, or for a commercial parcel they don't settle, by a storage business's sales-tax permit at its address.
  */
-async function kindOf(ctx: MutationCtx, county: string, row: { useCode: string; landUse?: string; owner: string; addressKey: string }): Promise<ParcelKind | undefined> {
+export async function kindOf(ctx: MutationCtx, county: string, row: { useCode: string; landUse?: string; owner: string; addressKey: string; vendorUse?: string }): Promise<ParcelKind | undefined> {
   if (!isCommercialUse(row.useCode)) return undefined;
   if (parcelKind(row) === "storage") return "storage";
   const here = await ctx.db
@@ -76,7 +76,7 @@ export const upsert = internalMutation({
         .query("parcels")
         .withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId))
         .first();
-      const kind = await kindOf(ctx, at, row);
+      const kind = await kindOf(ctx, at, { ...row, vendorUse: existing?.vendorUse });
       if (!existing) {
         await ctx.db.insert("parcels", { county: at, ...row, ...filing(row), ...(kind ? { kind } : {}), importedAt: now });
         added++;
@@ -254,7 +254,8 @@ export const deedsDue = internalQuery({
     for (const kind of KINDS) {
       for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) {
         const readFor = p.deedDate ?? "";
-        if (p.deedsReadFor === readFor) continue;
+        // A parcel only BatchData has isn't on the district's site under this id: its deed history came with it.
+        if (p.deedsReadFor === readFor || p.source === "batchdata") continue;
         left++;
         if (due.length < limit) due.push({ id: p._id, cadId: p.cadId, readFor });
       }
@@ -267,7 +268,11 @@ export const deedsDue = internalQuery({
 export const saveDeeds = internalMutation({
   args: { rows: v.array(v.object({ id: v.id("parcels"), readFor: v.string(), deeds: v.optional(v.array(deedRow)) })) },
   handler: async (ctx, { rows }) => {
-    for (const r of rows) if (await ctx.db.get(r.id)) await ctx.db.patch(r.id, { deeds: r.deeds, deedsReadFor: r.readFor });
+    for (const r of rows) {
+      const p = await ctx.db.get(r.id);
+      // A page with nothing to read leaves a history BatchData gave in place.
+      if (p) await ctx.db.patch(r.id, { deeds: r.deeds ?? (p.vendorUse ? p.deeds : undefined), deedsReadFor: r.readFor });
+    }
   },
 });
 
@@ -611,7 +616,7 @@ export const saveFilled = internalMutation({
     for (const { row, deeds } of parcels) {
       const existing = await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first();
       if (existing && existing.source !== "district") continue;
-      const fields = { ...row, ...filing(row), kind: await kindOf(ctx, county, row), source: "district" as const, deeds, deedsReadFor: row.deedDate ?? "", importedAt: now };
+      const fields = { ...row, ...filing(row), kind: await kindOf(ctx, county, { ...row, vendorUse: existing?.vendorUse }), source: "district" as const, deeds, deedsReadFor: row.deedDate ?? "", importedAt: now };
       if (existing) await ctx.db.patch(existing._id, fields);
       else {
         await ctx.db.insert("parcels", { county, ...fields });

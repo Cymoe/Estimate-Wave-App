@@ -993,7 +993,12 @@ export default defineSchema({
     deeds: v.optional(v.array(v.object({ seller: v.string(), date: v.optional(v.string()), instrument: v.optional(v.string()) }))),
     deedsReadFor: v.optional(v.string()),
     // "district": the city's layer had this parcel blank, and the appraisal district's page filled it (parcelGaps).
-    source: v.optional(v.literal("district")),
+    // "batchdata": the public roll doesn't have this parcel at all, and BatchData's property search does (batchParcels.ts).
+    source: v.optional(v.union(v.literal("district"), v.literal("batchdata"))),
+    // BatchData's land use code for the parcel ("C32" is self-storage), where it has been read there, and whether
+    // BatchData says the last purchase was cash.
+    vendorUse: v.optional(v.string()),
+    cashBuyer: v.optional(v.boolean()),
     importedAt: v.string(),
   })
     .index("by_county_and_kind", ["county", "kind"])

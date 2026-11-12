@@ -1414,8 +1414,9 @@ export type OwnerProperties = {
   /**
    * `deeds`: the owners before, newest first, each with when they sold it (Midland's storage and industrial buildings).
    * `sold`: on a past owner's list, who they sold it to and when.
+   * `cash`: the owner paid cash for it, where the property data says.
    */
-  rows: Array<{ id: string; address: string; useCode: string; valueCents?: number; deedDate?: string; owner?: string; kind?: 'storage' | 'industrial'; deeds?: Array<{ seller: string; date?: string }>; sold?: { to: string; date?: string } }>;
+  rows: Array<{ id: string; address: string; useCode: string; valueCents?: number; deedDate?: string; owner?: string; kind?: 'storage' | 'industrial'; deeds?: Array<{ seller: string; date?: string }>; sold?: { to: string; date?: string }; cash?: boolean }>;
   total: number;
   /** There are more than the list holds. */
   more: boolean;

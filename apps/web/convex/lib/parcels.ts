@@ -37,10 +37,23 @@ export const isCommercialUse = (code: string | undefined) => (COMMERCIAL_USE as 
 const STORAGE_LAND = /^CWH03$/;
 const INDUSTRIAL_LAND = /^(CID\d|CI0\d|CWH(0[4-9]|99|O4)$)/;
 const STORAGE_NAME = /\b(STORAGE|MINI[- ]?WAREHOUSES?)\b/;
-type Classed = { useCode: string | undefined; landUse?: string; owner: string };
+type Classed = { useCode: string | undefined; landUse?: string; owner: string; /** BatchData's land use code, where it has the parcel (lib/batchProperty.ts). */ vendorUse?: string };
+/**
+ * Storage, industrial or neither, by BatchData's land use code: C32 is "Mini-Warehouse or Self-Storage" and the I..
+ * codes are its Industrial category, less the ones that aren't a building someone runs a business from (common areas,
+ * labor camps, dumps, airports, railroads, highways, roads and bridges).
+ */
+const NOT_A_BUILDING = new Set(["I21", "I38", "I45", "I49", "I50", "I51", "I52"]);
+export function vendorKind(code: string | undefined): "storage" | "industrial" | undefined {
+  if (!code) return undefined;
+  if (code === "C32") return "storage";
+  return /^I\d+$/.test(code) && !NOT_A_BUILDING.has(code) ? "industrial" : undefined;
+}
 export const isStorageParcel = (p: Classed) =>
-  isCommercialUse(p.useCode) && (STORAGE_LAND.test(p.landUse ?? "") || STORAGE_NAME.test(p.owner.toUpperCase()) || Boolean(storageOperator(p.owner)));
-export const isIndustrialParcel = (p: Classed) => isCommercialUse(p.useCode) && !isStorageParcel(p) && (p.useCode === "F2" || INDUSTRIAL_LAND.test(p.landUse ?? ""));
+  isCommercialUse(p.useCode) &&
+  (STORAGE_LAND.test(p.landUse ?? "") || vendorKind(p.vendorUse) === "storage" || STORAGE_NAME.test(p.owner.toUpperCase()) || Boolean(storageOperator(p.owner)));
+export const isIndustrialParcel = (p: Classed) =>
+  isCommercialUse(p.useCode) && !isStorageParcel(p) && (p.useCode === "F2" || INDUSTRIAL_LAND.test(p.landUse ?? "") || vendorKind(p.vendorUse) === "industrial");
 
 /**
  * What a commercial parcel is filed as beyond "commercial": storage, industrial, or neither. A storage business with a

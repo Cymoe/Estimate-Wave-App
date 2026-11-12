@@ -1614,6 +1614,7 @@ const OwnerPropertiesList: React.FC<{ organizationId: string; contactId: string;
                 <div className="text-xs text-gray-500 truncate">
                   {p.kind ? KIND[p.kind] : wordForUse(p.useCode)}
                   {p.owner ? ` · ${p.owner}` : ''}
+                  {p.cash ? ' · Paid cash' : ''}
                 </div>
                 {p.sold && (
                   <div className="pt-1 text-xs text-gray-400 break-words" data-testid="sold-to">

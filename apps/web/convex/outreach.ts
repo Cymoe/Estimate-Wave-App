@@ -96,6 +96,7 @@ export const parcelPage = internalQuery({
         street: p.street,
         useCode: p.useCode,
         landUse: p.landUse,
+        vendorUse: p.vendorUse,
         owner: p.owner,
         mailing: p.mailing,
         ownerOccupied: p.ownerOccupied,
@@ -1555,6 +1556,7 @@ export const properties = query({
         valueCents: p.marketValueCents,
         deedDate: p.deedDate,
         ...(p.kind ? { kind: p.kind } : {}),
+        ...(p.cashBuyer ? { cash: true } : {}),
         // The owners before, newest first, where the deed history has been read: each sold it on the date beside them.
         ...(p.deeds?.length ? { deeds: p.deeds.filter((d) => d.seller !== p.owner).slice(0, DEEDS_SHOWN).map((d) => ({ seller: displayName(d.seller), date: d.date })) } : {}),
         ...(office ? { owner: tidyCase(p.owner) ?? p.owner } : {}),
