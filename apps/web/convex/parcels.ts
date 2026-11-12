@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_DEEDS, isCompanyOwner, ownerOccupied, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, findParcel, isCompanyOwner, ownerOccupied, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
 import { districtGet, hasDistrictPage, sameOwnerName } from "./lib/district";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
@@ -211,6 +211,8 @@ async function pullMidlandParcels(ctx: ActionCtx) {
     await ctx.scheduler.runAfter(0, internal.parcels.findGaps, {});
     // And who owns each parcel today, from the district's own pages: whatever hasn't been read in the last month.
     await ctx.scheduler.runAfter(0, internal.parcels.refreshOwners, {});
+    // And the district's own parcel file, for the properties neither read has (it skips a file it has already read).
+    await ctx.scheduler.runAfter(0, internal.districtFile.importFile, {});
   }
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,
@@ -613,7 +615,7 @@ export const saveFilled = internalMutation({
     for (const { row, deeds } of parcels) {
       const existing = await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first();
       if (existing && existing.source !== "district") continue;
-      const fields = { ...row, ...filing(row), kind: await kindOf(ctx, county, { ...row, vendorUse: existing?.vendorUse }), source: "district" as const, deeds, deedsReadFor: row.deedDate ?? "", importedAt: now };
+      const fields = { ...row, ...filing(row), kind: await kindOf(ctx, county, { ...row, vendorUse: existing?.vendorUse }), source: "district" as const, deeds, deedsReadFor: row.deedDate ?? "", districtAt: now, importedAt: now };
       if (existing) await ctx.db.patch(existing._id, fields);
       else {
         await ctx.db.insert("parcels", { county, ...fields });
@@ -1268,8 +1270,74 @@ export const saveOwners = internalMutation({
   },
 });
 
+// ── The parcels the app lacks, found in the district's own file (lib/districtFile.ts, districtFile.ts importFile) ──
+
+const findRow = v.object({ cadId: v.string(), siteAddress: v.string(), marketValueCents: v.optional(v.number()) });
+
+/** Notes the file's parcels the app has no record of, to be read at the district. One already noted, or kept as a parcel since, isn't noted again. */
+export const noteFinds = internalMutation({
+  args: { rows: v.array(findRow) },
+  handler: async (ctx, { rows }) => {
+    const now = nowIso();
+    let added = 0;
+    for (const row of rows) {
+      if (await ctx.db.query("parcelFinds").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first()) continue;
+      if (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first()) continue;
+      await ctx.db.insert("parcelFinds", { county: MIDLAND_PARCELS.county, ...row, state: "waiting", seenAt: now });
+      added++;
+    }
+    return added;
+  },
+});
+
+/** `limit` finds still waiting to be read at the district. */
+export const findsDue = internalQuery({
+  args: { limit: v.number(), skip: v.optional(v.array(v.id("parcelFinds"))) },
+  handler: async (ctx, { limit, skip = [] }) => {
+    const waiting = await ctx.db
+      .query("parcelFinds")
+      .withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", "waiting"))
+      .take(limit + skip.length);
+    return waiting.filter((f) => !skip.includes(f._id)).slice(0, limit).map((f) => ({ id: f._id, cadId: f.cadId, siteAddress: f.siteAddress, ...(f.marketValueCents ? { marketValueCents: f.marketValueCents } : {}) }));
+  },
+});
+
+const findWhy = v.union(v.literal("land"), v.literal("unnumbered"), v.literal("unreadable"));
+
+/** Keeps the finds the district's pages made parcels of (with their deed history), and what became of each find. */
+export const saveFinds = internalMutation({
+  args: { parcels: v.array(v.object({ row: parcelRow, deeds: v.array(deedRow) })), finds: v.array(v.object({ id: v.id("parcelFinds"), kept: v.boolean(), why: v.optional(findWhy) })) },
+  handler: async (ctx, { parcels, finds }) => {
+    const now = nowIso();
+    const county = MIDLAND_PARCELS.county;
+    let added = 0;
+    for (const { row, deeds } of parcels) {
+      if (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first()) continue;
+      await ctx.db.insert("parcels", { county, ...row, ...filing(row), kind: await kindOf(ctx, county, row), source: "district", deeds, deedsReadFor: row.deedDate ?? "", districtAt: now, importedAt: now });
+      added++;
+    }
+    for (const f of finds) if (await ctx.db.get(f.id)) await ctx.db.patch(f.id, { state: f.kept ? "kept" : "none", why: f.kept ? undefined : f.why, lookedUpAt: now });
+    return { added };
+  },
+});
+
+/** How the finds stand: waiting, kept as parcels, and not kept by why. */
+export const findCoverage = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const out = { waiting: 0, kept: 0, land: 0, unnumbered: 0, unreadable: 0 };
+    for (const state of ["waiting", "kept", "none"] as const) {
+      for await (const f of ctx.db.query("parcelFinds").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", state))) {
+        if (state === "none") out[f.why ?? "land"]++;
+        else out[state]++;
+      }
+    }
+    return out;
+  },
+});
+
 const fiveDigit = (m: Mailing): Mailing => Object.fromEntries(Object.entries({ ...m, zip: m.zip?.slice(0, 5) }).filter(([, x]) => x)) as Mailing;
-const refreshTotals = v.object({ read: v.number(), sold: v.number(), moved: v.number(), unreadable: v.number() });
+const refreshTotals = v.object({ read: v.number(), sold: v.number(), moved: v.number(), unreadable: v.number(), found: v.optional(v.number()) });
 
 /**
  * Reads the district's page for every Midland parcel not read since `before` (a month ago when not given), a request
@@ -1280,8 +1348,8 @@ const refreshTotals = v.object({ read: v.number(), sold: v.number(), moved: v.nu
  */
 export const refreshOwners = internalAction({
   args: { background: v.optional(v.boolean()), before: v.optional(v.string()), totals: v.optional(refreshTotals), failures: v.optional(v.number()) },
-  handler: async (ctx, args): Promise<{ scheduled?: true; running?: true; done?: true; read: number; sold: number; moved: number; unreadable: number; error?: string }> => {
-    const sum = { read: 0, sold: 0, moved: 0, unreadable: 0, ...(args.totals ?? {}) };
+  handler: async (ctx, args): Promise<{ scheduled?: true; running?: true; done?: true; read: number; sold: number; moved: number; unreadable: number; found: number; error?: string }> => {
+    const sum = { read: 0, sold: 0, moved: 0, unreadable: 0, found: 0, ...(args.totals ?? {}) };
     // A fresh start, not a step of a pass under way: one pass at a time, so the site never gets two requests a second.
     if (!args.before) {
       const last = await ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_OWNERS_SOURCE });
@@ -1302,8 +1370,52 @@ export const refreshOwners = internalAction({
     let done = false;
     // Pages that couldn't be read, until a later one reads fine: then they're marked read too (a retired property id).
     let doubts: Array<Doc<"parcels">["_id"]> = [];
+    let findDoubts: Array<Doc<"parcelFinds">["_id"]> = [];
     let why = "";
     while (!error && !done && Date.now() - started < STEP_MS) {
+      // First the parcels the district's file has and the app lacks (a couple of thousand at most): what is built on
+      // each, and who owns it today, from the same page.
+      const finds: Array<{ id: Doc<"parcelFinds">["_id"]; cadId: string; siteAddress: string; marketValueCents?: number }> = await ctx.runQuery(internal.parcels.findsDue, { limit: DEED_PACE.batch, skip: findDoubts });
+      if (finds.length > 0) {
+        const kept: Array<{ row: ParcelRow; deeds: DeedRow[] }> = [];
+        const marks: Array<{ id: Doc<"parcelFinds">["_id"]; kept: boolean; why?: "land" | "unnumbered" | "unreadable" }> = [];
+        for (const f of finds) {
+          const asked = Date.now();
+          const got = await districtGet(MIDLAND_DEEDS.page(f.cadId));
+          if ("refused" in got) {
+            refused = true;
+            error = `Midland owners: the district's site refused the read (${got.refused})`;
+            break;
+          }
+          const page = "html" in got ? districtProperty(got.html) : undefined;
+          if (!page?.owner) {
+            findDoubts.push(f.id);
+            why = "none" in got ? got.none : "no owner on the page";
+            if (findDoubts.length >= DEED_DOUBTS) error = `Midland owners: ${DEED_DOUBTS} pages in a row couldn't be read (${why})`;
+          } else {
+            const row = findParcel(f, page);
+            if (typeof row === "string") marks.push({ id: f.id, kept: false, why: row });
+            else {
+              kept.push({ row, deeds: page.deeds });
+              marks.push({ id: f.id, kept: true });
+              sum.found++;
+            }
+            // A good page: the ones before it that couldn't be read have no page of their own.
+            marks.push(...findDoubts.map((id) => ({ id, kept: false, why: "unreadable" as const })));
+            findDoubts = [];
+            sum.read++;
+          }
+          if (error) break;
+          if (DEED_PACE.waitMs) await new Promise((r) => setTimeout(r, Math.max(0, DEED_PACE.waitMs - (Date.now() - asked))));
+        }
+        if (kept.length || marks.length) await ctx.runMutation(internal.parcels.saveFinds, { parcels: kept, finds: marks });
+        continue;
+      }
+      // The last finds with nothing after them to clear them: no page of their own.
+      if (findDoubts.length) {
+        await ctx.runMutation(internal.parcels.saveFinds, { parcels: [], finds: findDoubts.map((id) => ({ id, kept: false, why: "unreadable" as const })) });
+        findDoubts = [];
+      }
       const due: Array<{ id: Doc<"parcels">["_id"]; cadId: string; siteAddress: string; owner: string; owner2?: string; mailing: Mailing; deedDate?: string }> = await ctx.runQuery(internal.parcels.ownersDue, { limit: DEED_PACE.batch, before, skip: doubts });
       if (due.length === 0) {
         // The last few with nothing after them to clear them (a retired property id or two): marked read, asked again in a month.
@@ -1362,7 +1474,7 @@ export const refreshOwners = internalAction({
       await ctx.scheduler.runAfter(60_000, internal.parcels.refreshOwners, { before, totals: sum, failures });
       return { ...sum, error };
     }
-    if (sum.sold + sum.moved > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    if (sum.sold + sum.moved + sum.found > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
     await record({ error });
     return { ...(done ? { done: true as const } : {}), ...sum, ...(error ? { error } : {}) };
   },

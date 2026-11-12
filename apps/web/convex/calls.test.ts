@@ -134,6 +134,8 @@ describe("Midland owners (the appraisal roll)", () => {
       if (url.includes("returnIdsOnly")) return new Response(JSON.stringify({ objectIds: [] }), { status: 200 });
       // And the appraisal district's page for each parcel, asked who owns it today: no page here.
       if (url.includes("webProperty.aspx")) return new Response("gone", { status: 404 });
+      // And the district's own parcel file: not there here.
+      if (url.includes("midcad.org")) return new Response("gone", { status: 404 });
       urls.push(url);
       return new Response(JSON.stringify(pages[urls.length - 1] ?? { features: [] }), { status: 200 });
     }));

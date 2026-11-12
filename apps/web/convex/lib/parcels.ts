@@ -402,6 +402,35 @@ export function districtProperty(html: string, now = Date.now()): DistrictProper
 export const codeFromBuildings = (buildings: string[]): string | undefined => (buildings.includes("COMM") ? "F1" : buildings.includes("RES") ? "A1" : undefined);
 
 /**
+ * A parcel from the district's own file (lib/districtFile.ts) once its page has been read: the address and market
+ * value are the file's, everything else the page's. "land" when nothing on it is a house or a commercial building;
+ * "unnumbered" for a house the district gives no street number (nowhere to send a crew or a letter).
+ */
+export function findParcel(find: { cadId: string; siteAddress: string; marketValueCents?: number }, page: DistrictProperty): ParcelRow | "land" | "unnumbered" {
+  const useCode = codeFromBuildings(page.buildings);
+  if (!useCode || !page.owner) return "land";
+  const site = find.siteAddress;
+  const numbered = /^[1-9]\d*[A-Z]?\s+\S/.test(site);
+  if (!numbered && !isCommercialUse(useCode)) return "unnumbered";
+  const mailing = { ...page.mailing, ...(page.mailing.zip ? { zip: page.mailing.zip.slice(0, 5) } : {}) };
+  return {
+    cadId: find.cadId,
+    useCode,
+    siteAddress: site,
+    addressKey: addressKey(site),
+    looseKey: looseKey(site),
+    street: streetKey(site),
+    owner: page.owner,
+    mailing,
+    ownerOccupied: numbered ? ownerOccupied(site, mailing.address) : false,
+    companyOwned: isCompanyOwner(page.owner),
+    marketValueCents: find.marketValueCents,
+    buildingValueCents: page.buildingValueCents,
+    deedDate: page.deeds[0]?.date,
+  };
+}
+
+/**
  * The parcel a blank shape turns out to be: one owner's accounts at one address (two half-interest accounts are one
  * property, valued once), with the page of the first. Nothing when there's no building on it to keep.
  */

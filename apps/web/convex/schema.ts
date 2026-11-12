@@ -1015,6 +1015,22 @@ export default defineSchema({
     .index("by_county_and_street", ["county", "street"])
     .index("by_county_and_deed", ["county", "deedDate"]),
 
+  // Parcels in the appraisal district's own file (lib/districtFile.ts) that have a building and that the app has no
+  // record of: each waits for the owner refresh to read its page at the district, which says what is built there and
+  // who owns it today. Then it is kept as a parcel, or it wasn't one to keep (land, or a house with no number).
+  parcelFinds: defineTable({
+    county: v.string(),
+    cadId: v.string(),
+    siteAddress: v.string(),
+    marketValueCents: v.optional(v.number()),
+    state: v.union(v.literal("waiting"), v.literal("kept"), v.literal("none")),
+    why: v.optional(v.union(v.literal("land"), v.literal("unnumbered"), v.literal("unreadable"))),
+    seenAt: v.string(),
+    lookedUpAt: v.optional(v.string()),
+  })
+    .index("by_cad_id", ["cadId"])
+    .index("by_county_and_state", ["county", "state"]),
+
   // Midland's blank parcels (lib/parcels.ts MIDLAND_GAPS): a street address inside a shape the city's layer has no
   // owner for, waiting to be looked up at the appraisal district; then what was found there, or that nothing was.
   parcelGaps: defineTable({

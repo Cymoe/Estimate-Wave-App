@@ -74,7 +74,7 @@ describe("who owns each Midland parcel today, from the appraisal district", () =
       R000000003: page("WIGGINS LESLIE D", "16304 FM 1325 APT 6105<br/>AUSTIN, TX 78728", [["SMITH JOHN", "6/27/2019"]]),
     });
     const result = await t.action(internal.parcels.refreshOwners, {});
-    expect(result).toEqual({ done: true, read: 4, sold: 1, moved: 1, unreadable: 1 });
+    expect(result).toEqual({ done: true, read: 4, sold: 1, moved: 1, unreadable: 1, found: 0 });
     expect(asked.slice().sort()).toEqual(["R000000001", "R000000002", "R000000003", "R000000004"]);
     const now = await parcels(t);
     expect(now.R000000001).toMatchObject({
@@ -91,7 +91,7 @@ describe("who owns each Midland parcel today, from the appraisal district", () =
 
     // Read again the same day: nothing is due, and the district isn't asked.
     asked.length = 0;
-    expect(await t.action(internal.parcels.refreshOwners, {})).toEqual({ done: true, read: 0, sold: 0, moved: 0, unreadable: 0 });
+    expect(await t.action(internal.parcels.refreshOwners, {})).toEqual({ done: true, read: 0, sold: 0, moved: 0, unreadable: 0, found: 0 });
     expect(asked).toEqual([]);
     // A month on, every page is read again.
     vi.setSystemTime(Date.parse("2026-12-20T12:00:00Z"));
