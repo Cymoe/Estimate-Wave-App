@@ -1025,6 +1025,8 @@ export default defineSchema({
     marketValueCents: v.optional(v.number()),
     state: v.union(v.literal("waiting"), v.literal("kept"), v.literal("none")),
     why: v.optional(v.union(v.literal("land"), v.literal("unnumbered"), v.literal("unreadable"))),
+    // What the district's page had built on one that wasn't kept ("GAR", "STG"): to see what the rule is passing over.
+    buildings: v.optional(v.array(v.string())),
     seenAt: v.string(),
     lookedUpAt: v.optional(v.string()),
   })

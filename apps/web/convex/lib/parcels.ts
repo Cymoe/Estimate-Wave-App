@@ -396,10 +396,13 @@ export function districtProperty(html: string, now = Date.now()): DistrictProper
 }
 
 /**
- * The state's use code for a property the district's page describes: the page has no code, only what is built there.
- * A commercial building makes it commercial, a house a home; land or a parking lot alone isn't kept (as on the roll).
+ * The state's use code for a property the district's page describes: the page has no code, only what is built there,
+ * each building with a type of the district's own. A commercial building makes it commercial; a house a home; a
+ * mobile home with no house beside it a mobile home (A2, a home as the roll counts them). A garage, a carport, a shed
+ * or a parking lot alone isn't kept, like land (as on the roll).
  */
-export const codeFromBuildings = (buildings: string[]): string | undefined => (buildings.includes("COMM") ? "F1" : buildings.includes("RES") ? "A1" : undefined);
+export const codeFromBuildings = (buildings: string[]): string | undefined =>
+  buildings.includes("COMM") ? "F1" : buildings.includes("RES") ? "A1" : buildings.includes("MH") ? "A2" : undefined;
 
 /**
  * A parcel from the district's own file (lib/districtFile.ts) once its page has been read: the address and market

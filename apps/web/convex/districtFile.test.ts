@@ -161,7 +161,7 @@ describe("the appraisal district's own parcel file", () => {
     // The refresh the import set going: every find's page is read once, before anything else.
     await t.finishAllScheduledFunctions(() => {});
     expect(asked.slice(2).map((u) => new URL(u).searchParams.get("id")).sort()).toEqual(["R000000002", "R000000003", "R000000005", "R000000006"]);
-    expect(await t.query(internal.parcels.findCoverage, {})).toEqual({ waiting: 0, kept: 2, land: 1, unnumbered: 1, unreadable: 0 });
+    expect(await t.query(internal.parcels.findCoverage, {})).toEqual({ waiting: 0, kept: 2, land: 1, unnumbered: 1, unreadable: 0, landBuildings: { BARN: 1 } });
     const parcels = await t.run(async (ctx) => Object.fromEntries((await ctx.db.query("parcels").collect()).map((p) => [p.cadId, p])));
     expect(Object.keys(parcels).sort()).toEqual(["R000000001", "R000000002", "R000000003"]);
     expect(parcels.R000000002).toMatchObject({ county: "Midland", useCode: "A1", siteAddress: "9708 FM RD 307", owner: "HAUT TROY D", source: "district", marketValueCents: 30_000_000, deedDate: "2019-05-14", districtAt: expect.any(String) });
@@ -170,12 +170,19 @@ describe("the appraisal district's own parcel file", () => {
     const record = await t.query(internal.permits.sourceState, { source: DISTRICT_FILE.source });
     expect(record).toMatchObject({ fetched: 7, added: 4, lastAppliedAt: `${link} (${packed.length} bytes)` });
 
+    // The rule for what is kept changes (a mobile home is a home): the ones passed over as land are read again.
+    pages.R000000005 = () => page("RANCH LLC", "500 E COUNTY RD 140<br/>MIDLAND, TX 79706", ["MH", "CP"], [["SELLER BEFORE", "2/2/2020"]]);
+    expect(await t.mutation(internal.parcels.retryFinds, {})).toEqual({ again: 1 });
+    expect(await t.action(internal.parcels.refreshOwners, {})).toMatchObject({ done: true, found: 1 });
+    expect(await t.query(internal.parcels.findCoverage, {})).toEqual({ waiting: 0, kept: 3, land: 0, unnumbered: 1, unreadable: 0 });
+    expect((await t.run(async (ctx) => (await ctx.db.query("parcels").collect()).find((p) => p.cadId === "R000000005")))!).toMatchObject({ useCode: "A2", siteAddress: "500 E COUNTY RD 140", owner: "RANCH LLC", ownerOccupied: true });
+
     // The same file next week: fetched, seen to be the same, and not read again.
     asked.length = 0;
     expect(await t.action(internal.districtFile.importFile, {})).toEqual({ skipped: true, file: `${link} (${packed.length} bytes)` });
     // Next year's file: read, and nothing already noted or kept is noted twice.
     link = "https://midcad.org/wp-content/uploads/2027/08/MidlandCAD2027.zip";
-    expect(await t.action(internal.districtFile.importFile, {})).toMatchObject({ parcels: 7, withBuilding: 5, lacking: 2, noted: 0 });
+    expect(await t.action(internal.districtFile.importFile, {})).toMatchObject({ parcels: 7, withBuilding: 5, lacking: 1, noted: 0 });
 
     // The page without the file's link, or a file with no table in it, is recorded as it went.
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<p>Maps</p>", { status: 200 })));

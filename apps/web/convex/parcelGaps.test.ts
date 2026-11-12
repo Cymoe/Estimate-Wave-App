@@ -116,6 +116,10 @@ describe("Midland's blank parcels, looked up at the appraisal district", () => {
     // What's built says what it is: a commercial building, a house, or land alone (which isn't kept).
     expect(codeFromBuildings(["COMM", "PKLT"])).toBe("F1");
     expect(codeFromBuildings(["RES", "GAR"])).toBe("A1");
+    // A mobile home with no house beside it is a home too, as the roll counts one; beside a house it's the house's.
+    expect(codeFromBuildings(["MH", "CP"])).toBe("A2");
+    expect(codeFromBuildings(["MH", "RES"])).toBe("A1");
+    expect(codeFromBuildings(["GAR", "STG", "CP"])).toBeUndefined();
     expect(codeFromBuildings(["PKLT"])).toBeUndefined();
     expect(codeFromBuildings([])).toBeUndefined();
 

@@ -1198,7 +1198,7 @@ export const checkCoverage = internalAction({
       out.read++;
       const page = "html" in got ? districtProperty(got.html) : undefined;
       if (!page?.owner) out.noPage++;
-      else if (codeFromBuildings(page.buildings) !== "A1") out.notAHouse++;
+      else if (!isResidentialUse(codeFromBuildings(page.buildings))) out.notAHouse++;
       else houses.push({ id, owner: page.owner, ...(page.mailing.city ? { city: page.mailing.city } : {}) });
     }
     const have = new Set<string>(houses.length ? await ctx.runQuery(internal.parcels.haveParcels, { cadIds: houses.map((h) => h.id) }) : []);
@@ -1306,7 +1306,10 @@ const findWhy = v.union(v.literal("land"), v.literal("unnumbered"), v.literal("u
 
 /** Keeps the finds the district's pages made parcels of (with their deed history), and what became of each find. */
 export const saveFinds = internalMutation({
-  args: { parcels: v.array(v.object({ row: parcelRow, deeds: v.array(deedRow) })), finds: v.array(v.object({ id: v.id("parcelFinds"), kept: v.boolean(), why: v.optional(findWhy) })) },
+  args: {
+    parcels: v.array(v.object({ row: parcelRow, deeds: v.array(deedRow) })),
+    finds: v.array(v.object({ id: v.id("parcelFinds"), kept: v.boolean(), why: v.optional(findWhy), buildings: v.optional(v.array(v.string())) })),
+  },
   handler: async (ctx, { parcels, finds }) => {
     const now = nowIso();
     const county = MIDLAND_PARCELS.county;
@@ -1316,23 +1319,45 @@ export const saveFinds = internalMutation({
       await ctx.db.insert("parcels", { county, ...row, ...filing(row), kind: await kindOf(ctx, county, row), source: "district", deeds, deedsReadFor: row.deedDate ?? "", districtAt: now, importedAt: now });
       added++;
     }
-    for (const f of finds) if (await ctx.db.get(f.id)) await ctx.db.patch(f.id, { state: f.kept ? "kept" : "none", why: f.kept ? undefined : f.why, lookedUpAt: now });
+    for (const f of finds) if (await ctx.db.get(f.id)) await ctx.db.patch(f.id, { state: f.kept ? "kept" : "none", why: f.kept ? undefined : f.why, buildings: f.kept ? undefined : f.buildings, lookedUpAt: now });
     return { added };
   },
 });
 
-/** How the finds stand: waiting, kept as parcels, and not kept by why. */
+/**
+ * How the finds stand: waiting, kept as parcels, and not kept by why; and for the ones passed over as land, how many
+ * had each kind of building on them ("GAR": 40), so a kind that ought to be kept shows up.
+ */
 export const findCoverage = internalQuery({
   args: {},
   handler: async (ctx) => {
     const out = { waiting: 0, kept: 0, land: 0, unnumbered: 0, unreadable: 0 };
+    const built: Record<string, number> = {};
     for (const state of ["waiting", "kept", "none"] as const) {
       for await (const f of ctx.db.query("parcelFinds").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", state))) {
-        if (state === "none") out[f.why ?? "land"]++;
-        else out[state]++;
+        if (state !== "none") out[state]++;
+        else {
+          out[f.why ?? "land"]++;
+          if ((f.why ?? "land") === "land") for (const b of f.buildings?.length ? f.buildings : [f.buildings ? "nothing" : "not recorded"]) built[b] = (built[b] ?? 0) + 1;
+        }
       }
     }
-    return out;
+    return { ...out, ...(Object.keys(built).length ? { landBuildings: built } : {}) };
+  },
+});
+
+/** Puts the finds passed over as land back in the queue: after the rule for what is a building to keep has changed. */
+export const retryFinds = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let again = 0;
+    const passed = await ctx.db.query("parcelFinds").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", "none")).collect();
+    for (const f of passed) {
+      if ((f.why ?? "land") !== "land") continue;
+      await ctx.db.patch(f._id, { state: "waiting", why: undefined, buildings: undefined, lookedUpAt: undefined });
+      again++;
+    }
+    return { again };
   },
 });
 
@@ -1378,7 +1403,7 @@ export const refreshOwners = internalAction({
       const finds: Array<{ id: Doc<"parcelFinds">["_id"]; cadId: string; siteAddress: string; marketValueCents?: number }> = await ctx.runQuery(internal.parcels.findsDue, { limit: DEED_PACE.batch, skip: findDoubts });
       if (finds.length > 0) {
         const kept: Array<{ row: ParcelRow; deeds: DeedRow[] }> = [];
-        const marks: Array<{ id: Doc<"parcelFinds">["_id"]; kept: boolean; why?: "land" | "unnumbered" | "unreadable" }> = [];
+        const marks: Array<{ id: Doc<"parcelFinds">["_id"]; kept: boolean; why?: "land" | "unnumbered" | "unreadable"; buildings?: string[] }> = [];
         for (const f of finds) {
           const asked = Date.now();
           const got = await districtGet(MIDLAND_DEEDS.page(f.cadId));
@@ -1394,7 +1419,7 @@ export const refreshOwners = internalAction({
             if (findDoubts.length >= DEED_DOUBTS) error = `Midland owners: ${DEED_DOUBTS} pages in a row couldn't be read (${why})`;
           } else {
             const row = findParcel(f, page);
-            if (typeof row === "string") marks.push({ id: f.id, kept: false, why: row });
+            if (typeof row === "string") marks.push({ id: f.id, kept: false, why: row, buildings: page.buildings.slice(0, 12) });
             else {
               kept.push({ row, deeds: page.deeds });
               marks.push({ id: f.id, kept: true });
