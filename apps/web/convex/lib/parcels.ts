@@ -281,90 +281,13 @@ export function deedHistory(html: string, now = Date.now()): DeedRow[] | undefin
   return rows;
 }
 
-/**
- * Midland's blank parcels. About one shape in twenty on the city's layer has no owner, value or use at all (the
- * roll's row never joined to it): a storage facility at 200 S Norman among them. The appraisal district's public
- * property search has every one, so each blank shape's street address (from the city's address points) is looked
- * up there, slowly (parcels.ts findGaps, fillGaps). One search lists every property on a street.
- */
-export const MIDLAND_GAPS = {
-  source: "midland-gaps",
-  addresses: "https://services.arcgis.com/0H6bQdxd9223gQB5/arcgis/rest/services/EsiteAddr_Collab/FeatureServer/0",
-  search: (street: string, number: string) => `https://iswdataclient.azurewebsites.net/webSearchAddress.aspx?dbkey=MIDLANDCAD&stype=situs&sdata=${encodeURIComponent(`${street}|${number}|`)}`,
-  /** Every property whose owner's name starts with `name`. */
-  byName: (name: string) => `https://iswdataclient.azurewebsites.net/webSearchName.aspx?dbkey=MIDLANDCAD&stype=name&sdata=${encodeURIComponent(name)}`,
-} as const;
-
-/**
- * A numbered road as the district writes it, from the city's address point ("8910 F M 307", street name "307"):
- * farm roads zero-padded ("FM RD 00307"), county roads and highways not ("COUNTY RD 116", "HWY 80"). Any other
- * street is its own name.
- */
-export function districtStreet(name: string, address: string): string {
-  const n = name.trim();
-  if (!/^\d+$/.test(n)) return n.toUpperCase();
-  const a = address.toUpperCase();
-  if (/\bF\.? ?M\b/.test(a)) return `FM RD ${n.padStart(5, "0")}`;
-  if (/\bC\.? ?R\b|\bCOUNTY\b/.test(a)) return `COUNTY RD ${String(Number(n))}`;
-  if (/\bHWY\b|\bHIGHWAY\b|\bS\.? ?H\b/.test(a)) return `HWY ${String(Number(n))}`;
-  return n;
-}
-
 /** One spelling of an owner for comparing the district's name with the roll's: "KOSF II-MIDLAND LLC" is "KOSF II MIDLAND LLC". */
 export const nameKey = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
-
-const GENERIC_FIRST = new Set(["MIDLAND", "CITY", "COUNTY", "STATE", "UNITED", "TEXAS", "WEST", "PERMIAN", "FIRST", "THE", "BASIN"]);
-/**
- * What to search the district's owner names by for a roll name: its first two words (three when the first is one
- * half the county starts with), so a hyphen or a suffix written differently later in the name still matches.
- */
-export function nameSearch(owner: string): string {
-  const words = owner.trim().split(/\s+/);
-  return words.slice(0, GENERIC_FIRST.has(words[0]?.toUpperCase()) ? 3 : 2).join(" ");
-}
-
-/** One property in the district's search results: its id, owner, and where it is ("NORMAN   200   S" → street, number, direction). */
-export type DistrictRow = { id: string; owner: string; street: string; number: string; dir?: string; marketValueCents?: number };
 
 const dollarCents = (s: string): number | undefined => {
   const n = Number(s.replace(/[$,\s]/g, ""));
   return s.includes("$") && Number.isFinite(n) && n > 0 ? Math.round(n * 100) : undefined;
 };
-
-/**
- * The rows of the district's address search: real property only (ids starting "R"; "P" is a business's equipment),
- * each id once. Undefined when the page isn't a search result at all.
- */
-export function districtSearchRows(html: string): DistrictRow[] | undefined {
-  if (!/Your search of/i.test(html)) return undefined;
-  const rows: DistrictRow[] = [];
-  const seen = new Set<string>();
-  for (const tr of html.match(/<tr[\s\S]*?<\/tr>/gi) ?? []) {
-    const cells = (tr.match(/<td[\s\S]*?<\/td>/gi) ?? []).map(cellText);
-    const at = cells.findIndex((c) => /^R\d{6,}$/.test(c));
-    if (at < 0 || cells.length < at + 6) continue;
-    const id = cells[at];
-    const owner = ownerOf(cells[at + 2]);
-    // "MARLIN AV   1120  " or "NORMAN   200   S": the page's own spacing is squashed by now, so read it from the raw cell.
-    const raw = (tr.match(/<td[\s\S]*?<\/td>/gi) ?? [])[at + 3].replace(/<[^>]*>/g, "").replace(/&nbsp;/gi, " ");
-    const [street, number, dir] = raw.split(/\s{2,}/).map((x) => x.trim());
-    if (!owner || !street || !number || seen.has(id)) continue;
-    seen.add(id);
-    rows.push({ id, owner, street: street.toUpperCase(), number, ...(dir ? { dir: dir.toUpperCase() } : {}), ...(dollarCents(cells[at + 5]) ? { marketValueCents: dollarCents(cells[at + 5]) } : {}) });
-  }
-  return rows;
-}
-
-/** Whether a search row is at this house number on this street: "MARLIN AV" is MARLIN, "NORMANDY LN" is not NORMAN. */
-export function atAddress(row: DistrictRow, number: string, street: string, dir?: string): boolean {
-  // "FM RD 00307" and "FM RD 307" are one road.
-  const plain = (x: string) => squash(x.toUpperCase()).replace(/\b0+(\d)/g, "$1");
-  const name = plain(street);
-  const at = plain(row.street);
-  if (row.number !== number.trim() || number.trim() === "0") return false;
-  if (at !== name && !at.startsWith(`${name} `)) return false;
-  return !dir || !row.dir || row.dir === dir.toUpperCase();
-}
 
 /** What the district's property page says of a property: who owns it, where their bill goes, what's built on it, and the deeds. */
 export type DistrictProperty = {
@@ -403,63 +326,6 @@ export function districtProperty(html: string, now = Date.now()): DistrictProper
  */
 export const codeFromBuildings = (buildings: string[]): string | undefined =>
   buildings.includes("COMM") ? "F1" : buildings.includes("RES") ? "A1" : buildings.includes("MH") ? "A2" : undefined;
-
-/**
- * A parcel from the district's own file (lib/districtFile.ts) once its page has been read: the address and market
- * value are the file's, everything else the page's. "land" when nothing on it is a house or a commercial building;
- * "unnumbered" for a house the district gives no street number (nowhere to send a crew or a letter).
- */
-export function findParcel(find: { cadId: string; siteAddress: string; marketValueCents?: number }, page: DistrictProperty): ParcelRow | "land" | "unnumbered" {
-  const useCode = codeFromBuildings(page.buildings);
-  if (!useCode || !page.owner) return "land";
-  const site = find.siteAddress;
-  const numbered = /^[1-9]\d*[A-Z]?\s+\S/.test(site);
-  if (!numbered && !isCommercialUse(useCode)) return "unnumbered";
-  const mailing = { ...page.mailing, ...(page.mailing.zip ? { zip: page.mailing.zip.slice(0, 5) } : {}) };
-  return {
-    cadId: find.cadId,
-    useCode,
-    siteAddress: site,
-    addressKey: addressKey(site),
-    looseKey: looseKey(site),
-    street: streetKey(site),
-    owner: page.owner,
-    mailing,
-    ownerOccupied: numbered ? ownerOccupied(site, mailing.address) : false,
-    companyOwned: isCompanyOwner(page.owner),
-    marketValueCents: find.marketValueCents,
-    buildingValueCents: page.buildingValueCents,
-    deedDate: page.deeds[0]?.date,
-  };
-}
-
-/**
- * The parcel a blank shape turns out to be: one owner's accounts at one address (two half-interest accounts are one
- * property, valued once), with the page of the first. Nothing when there's no building on it to keep.
- */
-export function districtParcel(accounts: DistrictRow[], page: DistrictProperty): ParcelRow | undefined {
-  const first = accounts[0];
-  const useCode = codeFromBuildings(page.buildings);
-  if (!first || !useCode || !page.owner) return undefined;
-  const site = [first.number, first.dir, first.street].filter(Boolean).join(" ");
-  const value = Math.max(0, ...accounts.map((a) => a.marketValueCents ?? 0));
-  return {
-    cadId: first.id,
-    useCode,
-    siteAddress: site,
-    addressKey: addressKey(site),
-    looseKey: looseKey(site),
-    street: streetKey(site),
-    owner: page.owner,
-    mailing: page.mailing,
-    ownerOccupied: isResidentialUse(useCode) ? ownerOccupied(site, page.mailing.address) : false,
-    companyOwned: isCompanyOwner(page.owner),
-    ...(value ? { marketValueCents: value } : {}),
-    ...(page.buildingValueCents ? { buildingValueCents: page.buildingValueCents } : {}),
-    // The newest deed is when today's owner took it.
-    ...(page.deeds[0]?.date ? { deedDate: page.deeds[0].date } : {}),
-  };
-}
 
 /** The layer's features as parcel rows: homes, apartment and commercial buildings, with an id, an owner and a site address. */
 export function rowsToParcels(features: Array<{ attributes?: Record<string, unknown> }>): ParcelRow[] {

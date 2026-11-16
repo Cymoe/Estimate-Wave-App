@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_DEEDS, findParcel, isCompanyOwner, ownerOccupied, MIDLAND_GAPS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, atAddress, countyParcels, deedHistory, districtParcel, districtProperty, districtSearchRows, districtStreet, nameKey, nameSearch, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type DistrictRow, type ParcelKind, type ParcelRow } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, isCompanyOwner, ownerOccupied, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, countyParcels, deedHistory, districtProperty, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type ParcelKind } from "./lib/parcels";
 import { districtGet, hasDistrictPage, sameOwnerName } from "./lib/district";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
@@ -217,12 +217,8 @@ async function pullMidlandParcels(ctx: ActionCtx) {
     await ctx.scheduler.runAfter(0, internal.signals.recomputePage, {});
     await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
     await ctx.scheduler.runAfter(0, internal.parcels.readDeedHistory, {});
-    // And the parcels the city's layer has blank, looked up at the appraisal district.
-    await ctx.scheduler.runAfter(0, internal.parcels.findGaps, {});
     // And who owns each parcel today, from the district's own pages: whatever hasn't been read in the last month.
     await ctx.scheduler.runAfter(0, internal.parcels.refreshOwners, {});
-    // And the district's own parcel file, for the properties neither read has (it skips a file it has already read).
-    await ctx.scheduler.runAfter(0, internal.districtFile.importFile, {});
     // And the district's certified roll, the base for every Midland parcel (skipped when no new roll is posted).
     await ctx.scheduler.runAfter(0, internal.districtRoll.importRoll, {});
   }
@@ -431,361 +427,9 @@ export const readDeedHistory = internalAction({
   },
 });
 
-// ---- Midland's blank parcels (lib/parcels.ts MIDLAND_GAPS) ----
+// ---- Reads of the appraisal district's pages ----
 
 const pause = () => (DEED_PACE.waitMs ? new Promise((r) => setTimeout(r, DEED_PACE.waitMs)) : Promise.resolve());
-/** How many street addresses one blank shape is looked up by (a tract with a dozen address points is still one owner or two). */
-const GAP_ADDRESSES = 3;
-/** An address the district had nothing for is asked again after this long. */
-const GAP_RETRY_MS = 90 * 24 * 60 * 60 * 1000;
-/** How many of a street's addresses one step takes (a page a second each). */
-const GAPS_PER_STREET = 60;
-
-const gapRow = v.object({ addressKey: v.string(), number: v.string(), street: v.string(), dir: v.optional(v.string()) });
-
-/** The blank shapes' addresses as of this listing: new ones wait to be looked up; one the district had nothing for waits again after GAP_RETRY_MS. */
-export const noteGaps = internalMutation({
-  args: { rows: v.array(gapRow), seenAt: v.string() },
-  handler: async (ctx, { rows, seenAt }) => {
-    let added = 0;
-    for (const row of rows) {
-      const have = await ctx.db
-        .query("parcelGaps")
-        .withIndex("by_county_and_address_key", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("addressKey", row.addressKey))
-        .first();
-      if (!have) {
-        await ctx.db.insert("parcelGaps", { county: MIDLAND_PARCELS.county, ...row, state: "waiting", seenAt });
-        added++;
-      } else {
-        // Asked again after a while, or at once when the street is now named as the district names it.
-        const renamed = have.street !== row.street;
-        const again = have.state === "none" && (renamed || !have.lookedUpAt || Date.parse(seenAt) - Date.parse(have.lookedUpAt) > GAP_RETRY_MS);
-        await ctx.db.patch(have._id, { seenAt, ...(renamed ? { street: row.street } : {}), ...(again ? { state: "waiting" as const, why: undefined } : {}) });
-      }
-    }
-    return { added };
-  },
-});
-
-/** Drops the gaps this listing didn't see: the city's layer has those parcels now. A few hundred a step. */
-export const dropFilledGaps = internalMutation({
-  args: { seenAt: v.string() },
-  handler: async (ctx, { seenAt }) => {
-    const gone = await ctx.db
-      .query("parcelGaps")
-      .withIndex("by_county_and_seen", (q) => q.eq("county", MIDLAND_PARCELS.county).lt("seenAt", seenAt))
-      .take(400);
-    for (const g of gone) await ctx.db.delete(g._id);
-    if (gone.length === 400) await ctx.scheduler.runAfter(0, internal.parcels.dropFilledGaps, { seenAt });
-    return { dropped: gone.length };
-  },
-});
-
-type Ring = number[][];
-type Shape = { rings: Ring[]; box: [number, number, number, number]; found: number };
-const inRing = (x: number, y: number, ring: Ring) => {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i];
-    const [xj, yj] = ring[j];
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-};
-/** Which grid square a point is in: shapes are filed under every square their box touches, so a point meets only its neighbours. */
-const CELL = 0.004;
-const cellOf = (x: number, y: number) => `${Math.floor(x / CELL)}:${Math.floor(y / CELL)}`;
-
-/**
- * Lists Midland's blank parcels and the street addresses inside them (both from the city's public layers) into
- * parcelGaps, drops the gaps the city has since filled, and starts the lookups. Scheduled after each roll read.
- * By hand: `npx convex run parcels:findGaps '{}'`.
- */
-export const findGaps = internalAction({
-  args: { thenFill: v.optional(v.boolean()) },
-  handler: async (ctx, { thenFill = true }): Promise<{ blank: number; addresses: number; added: number; error?: string }> => {
-    const seenAt = nowIso();
-    let blank = 0;
-    let addresses = 0;
-    let added = 0;
-    let error: string | undefined;
-    try {
-      // The shapes with no owner on them.
-      const idsAnswer = (await query(MIDLAND_PARCELS.layer, { where: "OWNER IS NULL", returnIdsOnly: "true" }, "Midland blank parcels")) as { objectIds?: number[] };
-      const ids = idsAnswer.objectIds ?? [];
-      const shapes: Shape[] = [];
-      const grid = new Map<string, number[]>();
-      for (let i = 0; i < ids.length; i += 150) {
-        const answer = (await query(
-          MIDLAND_PARCELS.layer,
-          { objectIds: ids.slice(i, i + 150).join(","), outFields: "OBJECTID", returnGeometry: "true", outSR: "4326", geometryPrecision: "6" },
-          "Midland blank parcels",
-        )) as { features?: Array<{ geometry?: { rings?: Ring[] } }> };
-        for (const f of answer.features ?? []) {
-          const rings = f.geometry?.rings;
-          if (!rings?.length) continue;
-          const xs = rings[0].map((p) => p[0]);
-          const ys = rings[0].map((p) => p[1]);
-          const box: Shape["box"] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-          const at = shapes.push({ rings, box, found: 0 }) - 1;
-          for (let cx = Math.floor(box[0] / CELL); cx <= Math.floor(box[2] / CELL); cx++) {
-            for (let cy = Math.floor(box[1] / CELL); cy <= Math.floor(box[3] / CELL); cy++) {
-              const key = `${cx}:${cy}`;
-              if (!grid.has(key)) grid.set(key, []);
-              grid.get(key)!.push(at);
-            }
-          }
-        }
-      }
-      blank = shapes.length;
-      // Every address point, a page at a time; kept only when it falls inside a blank shape.
-      const rows = new Map<string, { addressKey: string; number: string; street: string; dir?: string }>();
-      // (With no blank shapes there is nothing to place: the address points aren't read at all.)
-      for (let offset = 0; shapes.length > 0; ) {
-        const answer = (await query(
-          MIDLAND_GAPS.addresses,
-          { where: "ADDR_HN IS NOT NULL", outFields: "ADDR_HN,ADDR_PD,ADDR_SN,ADDRESS", orderByFields: "OBJECTID ASC", returnGeometry: "true", outSR: "4326", geometryPrecision: "6", resultOffset: String(offset), resultRecordCount: "2000" },
-          "Midland addresses",
-        )) as Answer & { features?: Array<Feature & { geometry?: { x?: number; y?: number } }> };
-        const features = answer.features ?? [];
-        for (const f of features) {
-          const { x, y } = f.geometry ?? {};
-          const a = f.attributes ?? {};
-          const number = typeof a.ADDR_HN === "string" ? a.ADDR_HN.trim() : "";
-          const full = typeof a.ADDRESS === "string" ? a.ADDRESS : "";
-          // The street as the district will list it: a numbered road gets its kind ("307" on "8910 F M 307" is "FM RD 00307").
-          const street = typeof a.ADDR_SN === "string" && a.ADDR_SN.trim() ? districtStreet(a.ADDR_SN, full) : "";
-          if (x === undefined || y === undefined || !/^\d+$/.test(number) || !street) continue;
-          const shape = (grid.get(cellOf(x, y)) ?? []).map((i) => shapes[i]).find((sh) => x >= sh.box[0] && x <= sh.box[2] && y >= sh.box[1] && y <= sh.box[3] && inRing(x, y, sh.rings[0]));
-          if (!shape || shape.found >= GAP_ADDRESSES) continue;
-          const key = addressKey(full || `${number} ${street}`);
-          if (!key || rows.has(key)) continue;
-          shape.found++;
-          const dir = typeof a.ADDR_PD === "string" && a.ADDR_PD.trim() ? a.ADDR_PD.trim().toUpperCase() : undefined;
-          rows.set(key, { addressKey: key, number, street, ...(dir ? { dir } : {}) });
-        }
-        if (!answer.exceededTransferLimit || features.length === 0) break;
-        offset += features.length;
-      }
-      addresses = rows.size;
-      const all = [...rows.values()];
-      for (let i = 0; i < all.length; i += 200) {
-        const r: { added: number } = await ctx.runMutation(internal.parcels.noteGaps, { rows: all.slice(i, i + 200), seenAt });
-        added += r.added;
-      }
-      await ctx.runMutation(internal.parcels.dropFilledGaps, { seenAt });
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    }
-    if (!error && thenFill) await ctx.scheduler.runAfter(0, internal.parcels.fillGaps, {});
-    return { blank, addresses, added, error };
-  },
-});
-
-type Gap = { id: Doc<"parcelGaps">["_id"]; number: string; street: string; dir?: string };
-
-/** The next street with addresses waiting, GAPS_PER_STREET of them at most (skipping the streets set aside this step), and how many wait in all. */
-export const gapsDue = internalQuery({
-  args: { skip: v.array(v.string()) },
-  handler: async (ctx, { skip }): Promise<{ street?: string; gaps: Gap[]; waiting: number }> => {
-    let street: string | undefined;
-    const gaps: Gap[] = [];
-    let waiting = 0;
-    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", "waiting"))) {
-      waiting++;
-      if (skip.includes(g.street)) continue;
-      street ??= g.street;
-      if (g.street === street && gaps.length < GAPS_PER_STREET) gaps.push({ id: g._id, number: g.number, street: g.street, dir: g.dir });
-    }
-    return { street, gaps, waiting };
-  },
-});
-
-/** Which of these property ids the city's own read already holds: those are left alone. */
-export const cityHas = internalQuery({
-  args: { cadIds: v.array(v.string()) },
-  handler: async (ctx, { cadIds }) => {
-    const out: string[] = [];
-    for (const cadId of cadIds) {
-      const p = await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", cadId)).first();
-      if (p && p.source !== "district") out.push(cadId);
-    }
-    return out;
-  },
-});
-
-/** Keeps the parcels the district's pages gave (with their deed history, read in the same visit), and what became of each gap. */
-export const saveFilled = internalMutation({
-  args: {
-    parcels: v.array(v.object({ row: parcelRow, deeds: v.array(deedRow) })),
-    gaps: v.array(v.object({ id: v.id("parcelGaps"), cadIds: v.array(v.string()), why: v.optional(v.union(v.literal("held"), v.literal("land"), v.literal("absent"))) })),
-  },
-  handler: async (ctx, { parcels, gaps }) => {
-    const now = nowIso();
-    const county = MIDLAND_PARCELS.county;
-    let added = 0;
-    for (const { row, deeds } of parcels) {
-      const existing = await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first();
-      if (existing && existing.source !== "district") continue;
-      const fields = { ...row, ...filing(row), kind: await kindOf(ctx, county, { ...row, vendorUse: existing?.vendorUse }), source: "district" as const, deeds, deedsReadFor: row.deedDate ?? "", districtAt: now, importedAt: now };
-      if (existing) await ctx.db.patch(existing._id, fields);
-      else {
-        await ctx.db.insert("parcels", { county, ...fields });
-        added++;
-      }
-    }
-    for (const g of gaps) if (await ctx.db.get(g.id)) await ctx.db.patch(g.id, { state: g.cadIds.length ? "found" : "none", cadIds: g.cadIds, why: g.cadIds.length ? undefined : g.why, lookedUpAt: now });
-    return { added };
-  },
-});
-
-type NoneWhy = "held" | "land" | "absent";
-type Looked = { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; found: Map<number, string[]>; why: Map<number, NoneWhy>; refused?: string; unreadable?: string };
-
-/**
- * One street at the district: a search lists every property on it, each wanted address takes the rows at its number,
- * and each owner there gets one page read (the owner, the mailing address, what's built, the deeds). Properties the
- * city's own read already holds are left alone. `found` is the property ids kept for each wanted address, by position.
- */
-async function lookUpStreet(ctx: ActionCtx, street: string, wanted: Array<{ number: string; dir?: string }>): Promise<Looked> {
-  const out: Looked = { parcels: [], found: new Map(), why: new Map() };
-  // The district's site sometimes answers a first search with its front page; asked once more, it gives the results.
-  let search = await districtGet(MIDLAND_GAPS.search(street, wanted[0].number));
-  await pause();
-  if ("html" in search && !districtSearchRows(search.html)) {
-    search = await districtGet(MIDLAND_GAPS.search(street, wanted[0].number));
-    await pause();
-  }
-  if ("refused" in search) return { ...out, refused: search.refused };
-  const rows = "html" in search ? districtSearchRows(search.html) : undefined;
-  if (!rows) {
-    // What came back instead, in a few words, for whoever reads the record of the run.
-    const title = "html" in search ? (search.html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 80) : "";
-    return { ...out, unreadable: "none" in search ? search.none : `the search page had no results list (${search.html.length} characters${title ? `, titled "${title}"` : ""})` };
-  }
-  const matches = wanted.map((w) => rows.filter((r) => atAddress(r, w.number, street, w.dir)));
-  const held = new Set<string>(matches.flat().length ? await ctx.runQuery(internal.parcels.cityHas, { cadIds: [...new Set(matches.flat().map((r) => r.id))] }) : []);
-  const done = new Set<string>();
-  for (const [i, at] of matches.entries()) {
-    const ids: string[] = [];
-    // One owner's accounts at the address are one property.
-    const byOwner = new Map<string, DistrictRow[]>();
-    for (const r of at) if (!held.has(r.id)) byOwner.set(r.owner, [...(byOwner.get(r.owner) ?? []), r]);
-    for (const accounts of byOwner.values()) {
-      if (done.has(accounts[0].id)) {
-        ids.push(accounts[0].id);
-        continue;
-      }
-      const page = await districtGet(MIDLAND_DEEDS.page(accounts[0].id));
-      await pause();
-      if ("refused" in page) return { ...out, refused: page.refused };
-      const read = "html" in page ? districtProperty(page.html) : undefined;
-      const row = read ? districtParcel(accounts, read) : undefined;
-      if (!read || !row) continue;
-      done.add(row.cadId);
-      ids.push(row.cadId);
-      out.parcels.push({ row, deeds: read.deeds });
-    }
-    out.found.set(i, ids);
-    // Nothing kept: the district has nothing at that number, the city's own read already holds what is there, or it's land.
-    if (ids.length === 0) out.why.set(i, at.length === 0 ? "absent" : at.every((r) => held.has(r.id)) ? "held" : "land");
-  }
-  return out;
-}
-
-const fillTotals = v.object({ looked: v.number(), added: v.number(), none: v.number() });
-
-/**
- * Looks up the waiting addresses at the appraisal district, a street at a time and a request about every second,
- * handing on to a fresh step after STEP_MS. The same rules as the deed read: a refusal stops it where it is and
- * nothing works around one; DEED_DOUBTS unreadable searches in a row and the step is tried again a minute later,
- * up to STEP_TRIES. When it's done it records how it went under MIDLAND_GAPS.source and, if it added parcels,
- * rebuilds Midland's owners. By hand: `npx convex run parcels:fillGaps '{}'`.
- */
-export const fillGaps = internalAction({
-  args: { totals: v.optional(fillTotals), failures: v.optional(v.number()) },
-  handler: async (ctx, args): Promise<{ waiting: number; looked: number; added: number; none: number; error?: string }> => {
-    const sum = { looked: 0, added: 0, none: 0, ...(args.totals ?? {}) };
-    const started = Date.now();
-    let error: string | undefined;
-    let refused = false;
-    let waiting = 0;
-    let more = false;
-    // Streets whose search couldn't be read this step, until a later one reads fine.
-    const doubts: Array<{ street: string; gaps: Gap[] }> = [];
-    let why = "";
-    while (!error) {
-      const due: { street?: string; gaps: Gap[]; waiting: number } = await ctx.runQuery(internal.parcels.gapsDue, { skip: doubts.map((d) => d.street) });
-      waiting = due.waiting;
-      if (!due.street) break;
-      if (Date.now() - started >= STEP_MS) {
-        more = true;
-        break;
-      }
-      const looked = await lookUpStreet(ctx, due.street, due.gaps);
-      if (looked.refused) {
-        refused = true;
-        error = `Midland blank parcels: the district's site refused the read (${looked.refused})`;
-        break;
-      }
-      if (looked.unreadable) {
-        doubts.push({ street: due.street, gaps: due.gaps });
-        why = looked.unreadable;
-        if (doubts.length >= DEED_DOUBTS) error = `Midland blank parcels: ${DEED_DOUBTS} searches in a row couldn't be read (${why})`;
-        continue;
-      }
-      // A search that reads fine says the earlier trouble was those streets' own: nothing found for them, for now.
-      const gaps = [...due.gaps.map((g, i) => ({ id: g.id, cadIds: looked.found.get(i) ?? [], why: looked.why.get(i) })), ...doubts.flatMap((d) => d.gaps.map((g) => ({ id: g.id, cadIds: [] as string[], why: undefined as NoneWhy | undefined })))];
-      doubts.length = 0;
-      const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps });
-      sum.looked += gaps.length;
-      sum.added += saved.added;
-      sum.none += gaps.filter((g) => g.cadIds.length === 0).length;
-    }
-    if (!error && more) {
-      await ctx.scheduler.runAfter(0, internal.parcels.fillGaps, { totals: sum });
-      return { waiting, ...sum };
-    }
-    const failures = (args.failures ?? 0) + 1;
-    if (error && !refused && failures < STEP_TRIES) {
-      await ctx.scheduler.runAfter(60_000, internal.parcels.fillGaps, { totals: sum, failures });
-      return { waiting, ...sum, error };
-    }
-    if (!error && doubts.length) error = `Midland blank parcels: ${doubts.length} search${doubts.length === 1 ? "" : "es"} couldn't be read (${why})`;
-    if (sum.added > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
-    await ctx.runMutation(internal.permits.recordSync, { source: MIDLAND_GAPS.source, fetched: sum.looked, added: sum.added, updated: sum.none, error });
-    return { waiting, ...sum, error };
-  },
-});
-
-/**
- * One address looked up at the district at once, whether or not the listing has it: for a property someone asks
- * about. `npx convex run parcels:fillAddress '{"number":"200","street":"NORMAN"}'`.
- */
-export const fillAddress = internalAction({
-  args: { number: v.string(), street: v.string(), dir: v.optional(v.string()) },
-  handler: async (ctx, { number, street, dir }): Promise<{ added: number; found: string[]; error?: string }> => {
-    const looked = await lookUpStreet(ctx, street.trim().toUpperCase(), [{ number: number.trim(), dir }]);
-    if (looked.refused || looked.unreadable) return { added: 0, found: [], error: looked.refused ? `the district's site refused the read (${looked.refused})` : looked.unreadable };
-    const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps: [] });
-    if (looked.parcels.length) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
-    return { added: saved.added, found: looked.found.get(0) ?? [] };
-  },
-});
-
-// ---- The same owners, by name: what else the district shows them holding ----
-
-/** The owners of Midland's storage and industrial parcels, each name once, in order: who the name check asks about. */
-export const kindOwners = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const names = new Set<string>();
-    for (const kind of KINDS) {
-      for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) names.add(p.owner);
-    }
-    return [...names].sort();
-  },
-});
 
 /** Which of these property ids are in the parcels table at all. */
 export const haveParcels = internalQuery({
@@ -794,137 +438,6 @@ export const haveParcels = internalQuery({
     const out: string[] = [];
     for (const cadId of cadIds) if (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", cadId)).first()) out.push(cadId);
     return out;
-  },
-});
-
-/** How many properties one owner may have missing before it's left for a person to look at (a name shared by many). */
-const OWNER_MISSING_MAX = 25;
-
-/**
- * One owner at the district, by name: every property under that name the parcels table doesn't have, each read from
- * its page and kept when there's a building on it. Catches what an address can't: a property the city's layer has
- * blank and addresses differently (KO Storage's 8910 FM 307).
- */
-async function lookUpOwner(ctx: ActionCtx, owner: string): Promise<{ parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }>; refused?: string; unreadable?: string; skipped?: true }> {
-  const out: { parcels: Array<{ row: ParcelRow; deeds: DeedRow[] }> } = { parcels: [] };
-  const term = nameSearch(owner);
-  let search = await districtGet(MIDLAND_GAPS.byName(term));
-  await pause();
-  if ("html" in search && !districtSearchRows(search.html)) {
-    search = await districtGet(MIDLAND_GAPS.byName(term));
-    await pause();
-  }
-  if ("refused" in search) return { ...out, refused: search.refused };
-  const rows = "html" in search ? districtSearchRows(search.html) : undefined;
-  if (!rows) return { ...out, unreadable: "none" in search ? search.none : "the name search had no results list" };
-  const theirs = rows.filter((r) => nameKey(r.owner) === nameKey(owner) && r.number !== "0");
-  const have = new Set<string>(theirs.length ? await ctx.runQuery(internal.parcels.haveParcels, { cadIds: theirs.map((r) => r.id) }) : []);
-  // One property per address: accounts at one address are one (undivided interests), and one we hold any account of is held.
-  const byAddress = new Map<string, DistrictRow[]>();
-  for (const r of theirs) {
-    const key = `${r.number}|${r.dir ?? ""}|${r.street}`;
-    byAddress.set(key, [...(byAddress.get(key) ?? []), r]);
-  }
-  const missing = [...byAddress.values()].filter((accounts) => !accounts.some((a) => have.has(a.id)));
-  if (missing.length > OWNER_MISSING_MAX) return { ...out, skipped: true };
-  for (const accounts of missing) {
-    const page = await districtGet(MIDLAND_DEEDS.page(accounts[0].id));
-    await pause();
-    if ("refused" in page) return { ...out, refused: page.refused };
-    const read = "html" in page ? districtProperty(page.html) : undefined;
-    const row = read ? districtParcel(accounts, read) : undefined;
-    if (read && row) out.parcels.push({ row, deeds: read.deeds });
-  }
-  return out;
-}
-
-const ownerTotals = v.object({ asked: v.number(), added: v.number(), skipped: v.number() });
-
-/**
- * The name check: each storage and industrial owner looked up at the district by name, from `from` on, a request
- * about every second, handing on to a fresh step after STEP_MS. `names` asks about just those. A refusal stops it;
- * unreadable searches in a row are tried again later, then recorded. Records how it went under "midland-owner-check"
- * and rebuilds Midland's owners when it added any. By hand: `npx convex run parcels:fillOwners '{"names":["KOSF II MIDLAND LLC"]}'`.
- */
-export const fillOwners = internalAction({
-  args: { names: v.optional(v.array(v.string())), from: v.optional(v.number()), totals: v.optional(ownerTotals), failures: v.optional(v.number()) },
-  handler: async (ctx, args): Promise<{ owners: number; asked: number; added: number; skipped: number; addedTo: string[]; error?: string }> => {
-    const names: string[] = args.names ?? (await ctx.runQuery(internal.parcels.kindOwners, {}));
-    const sum = { asked: 0, added: 0, skipped: 0, ...(args.totals ?? {}) };
-    const addedTo: string[] = [];
-    const started = Date.now();
-    let at = args.from ?? 0;
-    let error: string | undefined;
-    let refused = false;
-    let doubts = 0;
-    for (; at < names.length && !error && Date.now() - started < STEP_MS; at++) {
-      const looked = await lookUpOwner(ctx, names[at]);
-      if (looked.refused) {
-        refused = true;
-        error = `Midland owner check: the district's site refused the read (${looked.refused})`;
-        break;
-      }
-      if (looked.unreadable) {
-        if (++doubts >= DEED_DOUBTS) {
-          error = `Midland owner check: ${DEED_DOUBTS} searches in a row couldn't be read (${looked.unreadable})`;
-          at -= doubts - 1;
-          break;
-        }
-        continue;
-      }
-      doubts = 0;
-      sum.asked++;
-      if (looked.skipped) sum.skipped++;
-      if (looked.parcels.length) {
-        const saved: { added: number } = await ctx.runMutation(internal.parcels.saveFilled, { parcels: looked.parcels, gaps: [] });
-        sum.added += saved.added;
-        if (saved.added) addedTo.push(names[at]);
-      }
-    }
-    const rest = args.names ? { names: args.names } : {};
-    if (!error && at < names.length) {
-      await ctx.scheduler.runAfter(0, internal.parcels.fillOwners, { ...rest, from: at, totals: sum });
-      return { owners: names.length, ...sum, addedTo };
-    }
-    const failures = (args.failures ?? 0) + 1;
-    if (error && !refused && failures < STEP_TRIES) {
-      await ctx.scheduler.runAfter(60_000, internal.parcels.fillOwners, { ...rest, from: Math.max(0, at), totals: sum, failures });
-      return { owners: names.length, ...sum, addedTo, error };
-    }
-    if (sum.added > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
-    await ctx.runMutation(internal.permits.recordSync, { source: "midland-owner-check", fetched: sum.asked, added: sum.added, updated: sum.skipped, error });
-    return { owners: names.length, ...sum, addedTo, error };
-  },
-});
-
-/** Every `every`th address in a state, to check a run by hand. */
-export const gapSample = internalQuery({
-  args: { state: v.union(v.literal("waiting"), v.literal("found"), v.literal("none")), every: v.number() },
-  handler: async (ctx, { state, every }) => {
-    const out: Array<{ number: string; street: string; dir?: string; cadIds?: string[]; why?: string }> = [];
-    let n = 0;
-    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", state))) {
-      if (n++ % every === 0 && out.length < 60) out.push({ number: g.number, street: g.street, dir: g.dir, cadIds: g.cadIds, why: g.why });
-    }
-    return out;
-  },
-});
-
-/** How the blank parcels stand, for the readiness report: addresses waiting, found and with nothing found, and the storage and industrial parcels filled from the district. */
-export const gapCoverage = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const c = { waiting: 0, found: 0, none: 0, held: 0, land: 0, absent: 0, storageFilled: 0, industrialFilled: 0 };
-    for await (const g of ctx.db.query("parcelGaps").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county))) {
-      c[g.state]++;
-      if (g.state === "none" && g.why) c[g.why]++;
-    }
-    for (const kind of KINDS) {
-      for await (const p of ctx.db.query("parcels").withIndex("by_county_and_kind", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("kind", kind))) {
-        if (p.source === "district") c[`${kind}Filled`]++;
-      }
-    }
-    return c;
   },
 });
 
@@ -1282,98 +795,8 @@ export const saveOwners = internalMutation({
   },
 });
 
-// ── The parcels the app lacks, found in the district's own file (lib/districtFile.ts, districtFile.ts importFile) ──
-
-const findRow = v.object({ cadId: v.string(), siteAddress: v.string(), marketValueCents: v.optional(v.number()) });
-
-/** Notes the file's parcels the app has no record of, to be read at the district. One already noted, or kept as a parcel since, isn't noted again. */
-export const noteFinds = internalMutation({
-  args: { rows: v.array(findRow) },
-  handler: async (ctx, { rows }) => {
-    const now = nowIso();
-    let added = 0;
-    for (const row of rows) {
-      if (await ctx.db.query("parcelFinds").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first()) continue;
-      if (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first()) continue;
-      await ctx.db.insert("parcelFinds", { county: MIDLAND_PARCELS.county, ...row, state: "waiting", seenAt: now });
-      added++;
-    }
-    return added;
-  },
-});
-
-/** `limit` finds still waiting to be read at the district. */
-export const findsDue = internalQuery({
-  args: { limit: v.number(), skip: v.optional(v.array(v.id("parcelFinds"))) },
-  handler: async (ctx, { limit, skip = [] }) => {
-    const waiting = await ctx.db
-      .query("parcelFinds")
-      .withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", "waiting"))
-      .take(limit + skip.length);
-    return waiting.filter((f) => !skip.includes(f._id)).slice(0, limit).map((f) => ({ id: f._id, cadId: f.cadId, siteAddress: f.siteAddress, ...(f.marketValueCents ? { marketValueCents: f.marketValueCents } : {}) }));
-  },
-});
-
-const findWhy = v.union(v.literal("land"), v.literal("unnumbered"), v.literal("unreadable"));
-
-/** Keeps the finds the district's pages made parcels of (with their deed history), and what became of each find. */
-export const saveFinds = internalMutation({
-  args: {
-    parcels: v.array(v.object({ row: parcelRow, deeds: v.array(deedRow) })),
-    finds: v.array(v.object({ id: v.id("parcelFinds"), kept: v.boolean(), why: v.optional(findWhy), buildings: v.optional(v.array(v.string())) })),
-  },
-  handler: async (ctx, { parcels, finds }) => {
-    const now = nowIso();
-    const county = MIDLAND_PARCELS.county;
-    let added = 0;
-    for (const { row, deeds } of parcels) {
-      if (await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId)).first()) continue;
-      await ctx.db.insert("parcels", { county, ...row, ...filing(row), kind: await kindOf(ctx, county, row), source: "district", deeds, deedsReadFor: row.deedDate ?? "", districtAt: now, importedAt: now });
-      added++;
-    }
-    for (const f of finds) if (await ctx.db.get(f.id)) await ctx.db.patch(f.id, { state: f.kept ? "kept" : "none", why: f.kept ? undefined : f.why, buildings: f.kept ? undefined : f.buildings, lookedUpAt: now });
-    return { added };
-  },
-});
-
-/**
- * How the finds stand: waiting, kept as parcels, and not kept by why; and for the ones passed over as land, how many
- * had each kind of building on them ("GAR": 40), so a kind that ought to be kept shows up.
- */
-export const findCoverage = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const out = { waiting: 0, kept: 0, land: 0, unnumbered: 0, unreadable: 0 };
-    const built: Record<string, number> = {};
-    for (const state of ["waiting", "kept", "none"] as const) {
-      for await (const f of ctx.db.query("parcelFinds").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", state))) {
-        if (state !== "none") out[state]++;
-        else {
-          out[f.why ?? "land"]++;
-          if ((f.why ?? "land") === "land") for (const b of f.buildings?.length ? f.buildings : [f.buildings ? "nothing" : "not recorded"]) built[b] = (built[b] ?? 0) + 1;
-        }
-      }
-    }
-    return { ...out, ...(Object.keys(built).length ? { landBuildings: built } : {}) };
-  },
-});
-
-/** Puts the finds passed over as land back in the queue: after the rule for what is a building to keep has changed. */
-export const retryFinds = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    let again = 0;
-    const passed = await ctx.db.query("parcelFinds").withIndex("by_county_and_state", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("state", "none")).collect();
-    for (const f of passed) {
-      if ((f.why ?? "land") !== "land") continue;
-      await ctx.db.patch(f._id, { state: "waiting", why: undefined, buildings: undefined, lookedUpAt: undefined });
-      again++;
-    }
-    return { again };
-  },
-});
-
 const fiveDigit = (m: Mailing): Mailing => Object.fromEntries(Object.entries({ ...m, zip: m.zip?.slice(0, 5) }).filter(([, x]) => x)) as Mailing;
+// `found` was the shapefile finds' count: still accepted from a step scheduled before they were retired.
 const refreshTotals = v.object({ read: v.number(), sold: v.number(), moved: v.number(), unreadable: v.number(), found: v.optional(v.number()) });
 
 /**
@@ -1385,8 +808,9 @@ const refreshTotals = v.object({ read: v.number(), sold: v.number(), moved: v.nu
  */
 export const refreshOwners = internalAction({
   args: { background: v.optional(v.boolean()), before: v.optional(v.string()), totals: v.optional(refreshTotals), failures: v.optional(v.number()) },
-  handler: async (ctx, args): Promise<{ scheduled?: true; running?: true; done?: true; read: number; sold: number; moved: number; unreadable: number; found: number; error?: string }> => {
-    const sum = { read: 0, sold: 0, moved: 0, unreadable: 0, found: 0, ...(args.totals ?? {}) };
+  handler: async (ctx, args): Promise<{ scheduled?: true; running?: true; done?: true; read: number; sold: number; moved: number; unreadable: number; error?: string }> => {
+    const t = args.totals;
+    const sum = { read: t?.read ?? 0, sold: t?.sold ?? 0, moved: t?.moved ?? 0, unreadable: t?.unreadable ?? 0 };
     // A fresh start, not a step of a pass under way: one pass at a time, so the site never gets two requests a second.
     if (!args.before) {
       const last = await ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_OWNERS_SOURCE });
@@ -1407,52 +831,8 @@ export const refreshOwners = internalAction({
     let done = false;
     // Pages that couldn't be read, until a later one reads fine: then they're marked read too (a retired property id).
     let doubts: Array<Doc<"parcels">["_id"]> = [];
-    let findDoubts: Array<Doc<"parcelFinds">["_id"]> = [];
     let why = "";
     while (!error && !done && Date.now() - started < STEP_MS) {
-      // First the parcels the district's file has and the app lacks (a couple of thousand at most): what is built on
-      // each, and who owns it today, from the same page.
-      const finds: Array<{ id: Doc<"parcelFinds">["_id"]; cadId: string; siteAddress: string; marketValueCents?: number }> = await ctx.runQuery(internal.parcels.findsDue, { limit: DEED_PACE.batch, skip: findDoubts });
-      if (finds.length > 0) {
-        const kept: Array<{ row: ParcelRow; deeds: DeedRow[] }> = [];
-        const marks: Array<{ id: Doc<"parcelFinds">["_id"]; kept: boolean; why?: "land" | "unnumbered" | "unreadable"; buildings?: string[] }> = [];
-        for (const f of finds) {
-          const asked = Date.now();
-          const got = await districtGet(MIDLAND_DEEDS.page(f.cadId));
-          if ("refused" in got) {
-            refused = true;
-            error = `Midland owners: the district's site refused the read (${got.refused})`;
-            break;
-          }
-          const page = "html" in got ? districtProperty(got.html) : undefined;
-          if (!page?.owner) {
-            findDoubts.push(f.id);
-            why = "none" in got ? got.none : "no owner on the page";
-            if (findDoubts.length >= DEED_DOUBTS) error = `Midland owners: ${DEED_DOUBTS} pages in a row couldn't be read (${why})`;
-          } else {
-            const row = findParcel(f, page);
-            if (typeof row === "string") marks.push({ id: f.id, kept: false, why: row, buildings: page.buildings.slice(0, 12) });
-            else {
-              kept.push({ row, deeds: page.deeds });
-              marks.push({ id: f.id, kept: true });
-              sum.found++;
-            }
-            // A good page: the ones before it that couldn't be read have no page of their own.
-            marks.push(...findDoubts.map((id) => ({ id, kept: false, why: "unreadable" as const })));
-            findDoubts = [];
-            sum.read++;
-          }
-          if (error) break;
-          if (DEED_PACE.waitMs) await new Promise((r) => setTimeout(r, Math.max(0, DEED_PACE.waitMs - (Date.now() - asked))));
-        }
-        if (kept.length || marks.length) await ctx.runMutation(internal.parcels.saveFinds, { parcels: kept, finds: marks });
-        continue;
-      }
-      // The last finds with nothing after them to clear them: no page of their own.
-      if (findDoubts.length) {
-        await ctx.runMutation(internal.parcels.saveFinds, { parcels: [], finds: findDoubts.map((id) => ({ id, kept: false, why: "unreadable" as const })) });
-        findDoubts = [];
-      }
       const due: Array<{ id: Doc<"parcels">["_id"]; cadId: string; siteAddress: string; owner: string; owner2?: string; mailing: Mailing; deedDate?: string }> = await ctx.runQuery(internal.parcels.ownersDue, { limit: DEED_PACE.batch, before, skip: doubts });
       if (due.length === 0) {
         // The last few with nothing after them to clear them (a retired property id or two): marked read, asked again in a month.
@@ -1511,7 +891,7 @@ export const refreshOwners = internalAction({
       await ctx.scheduler.runAfter(60_000, internal.parcels.refreshOwners, { before, totals: sum, failures });
       return { ...sum, error };
     }
-    if (sum.sold + sum.moved + sum.found > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+    if (sum.sold + sum.moved > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
     await record({ error });
     return { ...(done ? { done: true as const } : {}), ...sum, ...(error ? { error } : {}) };
   },

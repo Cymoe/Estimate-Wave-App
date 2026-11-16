@@ -992,7 +992,8 @@ export default defineSchema({
     // first sold to today's owner. deedsReadFor is the deedDate it was read at ("" for none): a new deed is read again.
     deeds: v.optional(v.array(v.object({ seller: v.string(), date: v.optional(v.string()), instrument: v.optional(v.string()) }))),
     deedsReadFor: v.optional(v.string()),
-    // "district": the city's layer had this parcel blank, and the appraisal district's page filled it (parcelGaps).
+    // "district": the city's layer had this parcel blank, and the appraisal district's page filled it (before the
+    // certified roll was read; the roll now holds every such parcel and clears this).
     // "batchdata": the public roll doesn't have this parcel at all, and BatchData's property search does (batchParcels.ts).
     source: v.optional(v.union(v.literal("district"), v.literal("batchdata"))),
     // BatchData's land use code for the parcel ("C32" is self-storage), where it has been read there, and whether
@@ -1037,9 +1038,9 @@ export default defineSchema({
     again: v.optional(v.boolean()),
   }).index("by_county", ["county"]),
 
-  // Parcels in the appraisal district's own file (lib/districtFile.ts) that have a building and that the app has no
-  // record of: each waits for the owner refresh to read its page at the district, which says what is built there and
-  // who owns it today. Then it is kept as a parcel, or it wasn't one to keep (land, or a house with no number).
+  // Retired: nothing reads or writes it since Midland's parcels come from the district's certified roll. Kept only
+  // so the deploy accepts the rows already stored. Parcels in the district's shapefile the app had no record of,
+  // each waiting for its page to be read at the district.
   parcelFinds: defineTable({
     county: v.string(),
     cadId: v.string(),
@@ -1055,8 +1056,8 @@ export default defineSchema({
     .index("by_cad_id", ["cadId"])
     .index("by_county_and_state", ["county", "state"]),
 
-  // Midland's blank parcels (lib/parcels.ts MIDLAND_GAPS): a street address inside a shape the city's layer has no
-  // owner for, waiting to be looked up at the appraisal district; then what was found there, or that nothing was.
+  // Retired, as parcelFinds. Midland's blank parcels: a street address inside a shape the city's layer had no owner
+  // for, looked up at the appraisal district.
   parcelGaps: defineTable({
     county: v.string(),
     // lib/parcels.ts addressKey of the city's address point.
