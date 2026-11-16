@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -595,6 +595,23 @@ const rebuild = async (t: ReturnType<typeof setup>) => {
   await t.finishAllScheduledFunctions(() => {});
   return result;
 };
+
+describe("officer titles as the Comptroller files them", () => {
+  test("a title cut at ten letters is spelled out; a full one or one not on the list is kept as filed", () => {
+    expect(fullTitle("MANAGING M")).toBe("Managing Member");
+    expect(fullTitle("VICE PRESI")).toBe("Vice President");
+    expect(fullTitle("GENERAL PA")).toBe("General Partner");
+    expect(fullTitle("CHIEF EXEC")).toBe("Chief Executive Officer");
+    expect(fullTitle("MANAGER")).toBe("Manager");
+    expect(fullTitle("PRESIDENT")).toBe("President");
+    expect(fullTitle("MEMBER")).toBe("Member");
+    expect(fullTitle("VP")).toBe("Vice President");
+    expect(fullTitle("C.E.O.")).toBe("Chief Executive Officer");
+    // Too short to be a cut one, and not a title on the list: as filed.
+    expect(fullTitle("AGENT")).toBe("Agent");
+    expect(fullTitle("ASSISTANT SECRETARY")).toBe("Assistant Secretary");
+  });
+});
 
 describe("the owners table", () => {
   test("reads more than a page of permits, in the build and in the daily pass", async () => {

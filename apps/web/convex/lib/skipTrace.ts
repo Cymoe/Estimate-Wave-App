@@ -350,6 +350,34 @@ export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base =
   };
 }
 
+/**
+ * The Comptroller's filings cut an officer's title at ten letters ("MANAGING M"). The titles filed, in full: a cut one
+ * is read as the first of these it starts. Anything else is kept as filed.
+ */
+const FULL_TITLES = [
+  "Managing Member", "Managing Partner", "Managing Director", "Manager", "Member", "Sole Member",
+  "President", "Vice President", "Executive Vice President", "Senior Vice President", "Secretary", "Treasurer",
+  "Secretary/Treasurer", "Director", "Chairman", "Chief Executive Officer", "Chief Financial Officer",
+  "Chief Operating Officer", "Chief Manager", "General Partner", "Limited Partner", "Partner", "Owner", "Principal",
+  "Trustee", "Officer", "Authorized Person", "Authorized Representative", "Organizer", "Registered Agent", "Governing Person",
+];
+/** Titles filed as letters. */
+const SHORT_TITLES: Record<string, string> = {
+  VP: "Vice President", EVP: "Executive Vice President", SVP: "Senior Vice President", CEO: "Chief Executive Officer",
+  CFO: "Chief Financial Officer", COO: "Chief Operating Officer", MGR: "Manager", MGMR: "Managing Member", MM: "Managing Member",
+  PRES: "President", SEC: "Secretary", TREAS: "Treasurer", DIR: "Director", GP: "General Partner",
+};
+/** "MANAGING M" → "Managing Member"; "VICE PRESI" → "Vice President"; a full title or one not on the list, in title case. */
+export function fullTitle(title: string): string {
+  const filed = title.replace(/\s+/g, " ").trim();
+  const upper = filed.toUpperCase();
+  const exact = FULL_TITLES.find((t) => t.toUpperCase() === upper) ?? SHORT_TITLES[upper.replace(/\./g, "")];
+  if (exact) return exact;
+  // Only a cut one: the Comptroller's limit is ten letters, so a shorter title is as filed.
+  const cut = filed.length >= 9 ? FULL_TITLES.find((t) => t.toUpperCase().startsWith(upper)) : undefined;
+  return cut ?? titleCase(filed);
+}
+
 /** The officer titles that run a company, most useful first. */
 const RUNS_IT = [/MANAG/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
 
@@ -399,7 +427,7 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       return {
         person: {
           name: titleCase(best.name),
-          title: best.title ? titleCase(best.title) : undefined,
+          title: best.title ? fullTitle(best.title) : undefined,
           address: address || undefined,
           source: "tx-comptroller",
         },
@@ -467,7 +495,7 @@ export function cobaltSos(key: string | undefined, fetchFn: Fetch = fetch, base 
       const agent = result.registeredAgent;
       const pick = best ?? (agent?.name && !ENTITY.test(agent.name) ? { name: agent.name, title: "Registered agent", address: agent.address } : undefined);
       if (!pick?.name) return {};
-      return { person: { name: titleCase(pick.name), title: pick.title ? titleCase(pick.title) : undefined, address: pick.address || undefined, source: "cobalt" } };
+      return { person: { name: titleCase(pick.name), title: pick.title ? fullTitle(pick.title) : undefined, address: pick.address || undefined, source: "cobalt" } };
     },
   };
 }

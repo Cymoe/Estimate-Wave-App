@@ -339,8 +339,29 @@ async function runSample(
  * `npx convex run skipTrace:tryPerson '{"company":"KOSF II MIDLAND LLC"}'`.
  */
 export const tryPerson = internalAction({
-  args: { company: v.string(), zip: v.optional(v.string()) },
-  handler: async (_ctx, { company, zip }) => {
+  args: { company: v.string(), zip: v.optional(v.string()), raw: v.optional(v.boolean()) },
+  handler: async (_ctx, { company, zip, raw }) => {
+    // What the Comptroller has on file for the company, as filed: its matches, and each one's officers by name, title and
+    // where they are. To see why a company gave nobody (its officers are other companies, or it isn't registered here).
+    if (raw) {
+      const key = process.env.TX_COMPTROLLER_API_KEY;
+      if (!key) return { error: "TX_COMPTROLLER_API_KEY isn't set" };
+      const base = "https://api.comptroller.texas.gov/public-data/v1/public";
+      const headers = { Accept: "application/json", "x-api-key": key };
+      const list = await fetch(`${base}/franchise-tax-list?name=${encodeURIComponent(company.toUpperCase().slice(0, 50))}`, { headers });
+      if (!list.ok) return { error: `HTTP ${list.status}` };
+      const found = ((await list.json()) as { data?: Array<Record<string, unknown>> }).data ?? [];
+      const out = [];
+      for (const e of found.slice(0, 5)) {
+        const id = typeof e.taxpayerId === "string" ? e.taxpayerId : undefined;
+        const details = id ? await fetch(`${base}/franchise-tax/${encodeURIComponent(id)}`, { headers }) : undefined;
+        const body = details?.ok ? ((await details.json()) as { data?: Record<string, unknown> }).data : undefined;
+        const officers = (Array.isArray(body?.officerInfo) ? (body!.officerInfo as Array<Record<string, unknown>>) : []).map((o) => ({ name: o.AGNT_NM, title: o.AGNT_TITL_TX, city: o.CITY_NM, state: o.ST_CD }));
+        const rest = Object.fromEntries(Object.entries(body ?? {}).filter(([k]) => k !== "officerInfo"));
+        out.push({ match: e.name, taxpayerId: id, zip: e.mailingAddressZip, fields: Object.keys(rest).sort(), stateOfFormation: rest.stateOfFormation ?? rest.STATE_OF_FORMATION ?? null, officers });
+      }
+      return { matches: found.length, entities: out };
+    }
     const free = vendors(process.env).filter((s) => s.fields.includes("person") && s.free);
     const input: TraceInput = { name: company, company, mailing: zip ? { zip } : {} };
     const out: Array<{ source: string; connected: boolean; person?: unknown; error?: string }> = [];
