@@ -332,3 +332,30 @@ async function runSample(
     });
   }
 }
+
+/**
+ * Asks the free person sources outside the app (the Texas Comptroller) who runs a company, to check a key by hand.
+ * Nothing is saved and nothing is charged.
+ * `npx convex run skipTrace:tryPerson '{"company":"KOSF II MIDLAND LLC"}'`.
+ */
+export const tryPerson = internalAction({
+  args: { company: v.string(), zip: v.optional(v.string()) },
+  handler: async (_ctx, { company, zip }) => {
+    const free = vendors(process.env).filter((s) => s.fields.includes("person") && s.free);
+    const input: TraceInput = { name: company, company, mailing: zip ? { zip } : {} };
+    const out: Array<{ source: string; connected: boolean; person?: unknown; error?: string }> = [];
+    for (const s of free) {
+      if (!s.connected) {
+        out.push({ source: s.name, connected: false });
+        continue;
+      }
+      try {
+        const found = await s.trace(input);
+        out.push({ source: s.name, connected: true, person: found.person ?? null });
+      } catch (e) {
+        out.push({ source: s.name, connected: true, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return out;
+  },
+});
