@@ -1006,3 +1006,36 @@ export const rollCoverage = internalQuery({
     return { ...out, cursor: page.continueCursor, isDone: page.isDone };
   },
 });
+
+/** One page of a county's parcels whose deed history names the seller. */
+export const soldByPage = internalQuery({
+  args: { county: v.string(), seller: v.string(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { county, seller, cursor }) => {
+    const page = await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", county)).paginate({ numItems: 1500, cursor });
+    const s = seller.toUpperCase();
+    const hits = page.page.flatMap((p) =>
+      (p.deeds ?? []).some((d) => d.seller.toUpperCase().includes(s))
+        ? [{ address: p.siteAddress, kind: p.kind ?? null, useCode: p.useCode, ownerToday: p.owner, retired: Boolean(p.retiredAt), deeds: (p.deeds ?? []).map((d) => `${d.seller}${d.date ? ` (${d.date})` : ""}`) }]
+        : [],
+    );
+    return { hits, cursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+/**
+ * Every parcel in a county whose deed history names the seller (a word of the name will do), with today's owner:
+ * what a past owner sold. Nothing is saved. `npx convex run parcels:soldBy '{"seller":"PROPERTY RENEGADES"}'`.
+ */
+export const soldBy = internalAction({
+  args: { seller: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { seller, county = MIDLAND_PARCELS.county }) => {
+    const out: unknown[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { hits: unknown[]; cursor: string | null } = await ctx.runQuery(internal.parcels.soldByPage, { county, seller, cursor });
+      out.push(...page.hits);
+      cursor = page.cursor;
+    } while (cursor && out.length < 60);
+    return out;
+  },
+});

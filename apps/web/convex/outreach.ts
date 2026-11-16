@@ -3563,3 +3563,38 @@ export const rekeyContacts = internalMutation({
     return { ...sum, done: page.isDone };
   },
 });
+
+// ── Hand checks of the owners lists, by name. Nothing is saved. ──
+
+/** One page of a county's owners (any kind, any build) whose name holds the word. */
+export const ownersNamedPage = internalQuery({
+  args: { county: v.string(), word: v.string(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { county, word, cursor }) => {
+    const page = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", county)).paginate({ numItems: 2000, cursor });
+    const w = word.toUpperCase();
+    const hits = [];
+    for (const o of page.page.filter((x) => x.name.toUpperCase().includes(w))) {
+      const facets = (await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", o._id)).collect()).map((f) => f.facet);
+      hits.push({ name: o.name, kind: o.kind, facets, parcels: o.parcels, storage: o.storage, brand: o.brand, holds: o.holds, sales: o.sales, storageFrom: o.storageFrom, mailing: o.mailing });
+    }
+    return { hits, cursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+/**
+ * Every owner row in a county whose name holds the word, with what it owns or sold, to check a list by hand:
+ * `npx convex run outreach:findOwners '{"county":"Midland","word":"RENEGADES"}'`.
+ */
+export const findOwners = internalAction({
+  args: { county: v.string(), word: v.string() },
+  handler: async (ctx, { county, word }) => {
+    const out: unknown[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { hits: unknown[]; cursor: string | null } = await ctx.runQuery(internal.outreach.ownersNamedPage, { county, word, cursor });
+      out.push(...page.hits);
+      cursor = page.cursor;
+    } while (cursor && out.length < 50);
+    return { owners: out };
+  },
+});
