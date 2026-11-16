@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { COUNTY_ROLLS, MIDLAND_DEEDS, isCompanyOwner, ownerOccupied, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, countyParcels, deedHistory, districtProperty, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type ParcelKind } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_DEEDS, SELF_STORAGE_NAICS, isCompanyOwner, ownerOccupied, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, countyParcels, deedHistory, districtProperty, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type ParcelKind } from "./lib/parcels";
 import { districtGet, hasDistrictPage, sameOwnerName } from "./lib/district";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
@@ -51,7 +51,16 @@ export const filing = (p: { owner: string; mailing: Doc<"parcels">["mailing"] })
  * and owner, or for a commercial parcel they don't settle, by a storage business's sales-tax permit at its address.
  */
 export async function kindOf(ctx: MutationCtx, county: string, row: { useCode: string; landUse?: string; owner: string; addressKey: string; vendorUse?: string }): Promise<ParcelKind | undefined> {
-  if (!isCommercialUse(row.useCode)) return undefined;
+  if (!isCommercialUse(row.useCode)) {
+    // A self-storage business on a property the district codes as a home (an RV and boat yard beside the house): its
+    // self-storage permit at the address makes it storage, so its deed history is read and its sellers listed.
+    if (!isResidentialUse(row.useCode)) return undefined;
+    const here = await ctx.db
+      .query("outlets")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", county).eq("addressKey", row.addressKey))
+      .take(20);
+    return here.some((o) => o.naics === SELF_STORAGE_NAICS) ? "storage" : undefined;
+  }
   if (parcelKind(row) === "storage") return "storage";
   const here = await ctx.db
     .query("outlets")

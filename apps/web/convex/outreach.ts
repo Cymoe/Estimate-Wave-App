@@ -65,7 +65,7 @@ import {
   type OwnerContact,
   type OwnerRow, COUNTY_PLACES, cityOf, knownCounty } from "./lib/outreach";
 import { tidyCase } from "./lib/addressCase";
-import { MIDLAND_PARCELS, addressKey, isStorageOutlet, outletBrand } from "./lib/parcels";
+import { MIDLAND_PARCELS, SELF_STORAGE_NAICS, addressKey, isStorageOutlet, outletBrand } from "./lib/parcels";
 import { hasDistrictPage } from "./lib/district";
 import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
@@ -257,7 +257,7 @@ export const storageOutletPage = internalQuery({
       .query("outlets")
       .withIndex("by_county_and_address_key", (q) => q.eq("county", county))
       .paginate({ cursor: cursor ?? null, numItems: 1000 });
-    const rows = page.page.filter((o) => o.addressKey && isStorageOutlet(o)).map((o) => ({ addressKey: o.addressKey, brand: outletBrand(o.name) }));
+    const rows = page.page.filter((o) => o.addressKey && isStorageOutlet(o)).map((o) => ({ addressKey: o.addressKey, brand: outletBrand(o.name), selfStorage: o.naics === SELF_STORAGE_NAICS }));
     return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
   },
 });

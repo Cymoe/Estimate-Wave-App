@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { internal } from "./_generated/api";
 import { setup } from "./test.setup";
-import { MIDLAND_DEEDS, deedHistory, parcelKind } from "./lib/parcels";
-import { DEED_PACE } from "./parcels";
+import { MIDLAND_DEEDS, addressKey, deedHistory, parcelKind } from "./lib/parcels";
+import { DEED_PACE, kindOf } from "./parcels";
 
 const pace = { ...DEED_PACE };
 beforeEach(() => {
@@ -101,6 +101,20 @@ describe("Midland's deed history", () => {
     // A storage business's sales-tax permit at the address makes it storage, even an industrial lot.
     expect(parcelKind({ useCode: "F2", owner: "TANRIC INVESTMENTS LP" }, true)).toBe("storage");
     expect(parcelKind({ useCode: "A1", landUse: "CWH03", owner: "SMITH STORAGE" }, true)).toBeUndefined();
+  });
+
+  test("a home with a self-storage permit at its address is storage; one with only a storage word in a permit's name isn't", async () => {
+    const t = setup();
+    await t.run(async (ctx) => {
+      const outlet = (n: string, name: string, address: string, naics?: string) =>
+        ctx.db.insert("outlets", { county: "Midland", taxpayerNumber: n, outletNumber: "1", name, address, addressKey: addressKey(address), city: "MIDLAND", ...(naics ? { naics } : {}), importedAt: "2026-01-01", seenAt: "2026-01-01" });
+      await outlet("1", "BOBBY'S RV & BOAT STORAGE", "3215 S COUNTY ROAD 1222", "531130");
+      await outlet("2", "STORAGE SHEDS OF TEXAS", "100 OAK ST", "444190");
+      // The roll's spelling of the same address finds the permit.
+      expect(await kindOf(ctx, "Midland", { useCode: "A2", owner: "WILLIS ROBERT L JR", addressKey: addressKey("3215 S COUNTY RD 01222") })).toBe("storage");
+      expect(await kindOf(ctx, "Midland", { useCode: "A1", owner: "SMITH JANE", addressKey: addressKey("100 OAK ST") })).toBeUndefined();
+      expect(await kindOf(ctx, "Midland", { useCode: "A1", owner: "JONES BOB", addressKey: addressKey("200 OAK ST") })).toBeUndefined();
+    });
   });
 
   test("the roll read files storage and industrial parcels, and their deed history is read once, slowly, from the district", async () => {

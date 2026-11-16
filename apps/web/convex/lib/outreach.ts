@@ -405,8 +405,12 @@ type Acc = {
   signals?: OwnerSignal[];
 };
 
-/** What the grouping knows beyond the roll: the storage businesses with a sales-tax permit, by the address they sell from. */
-export type Hints = { storageAt?: Map<string, string> };
+/**
+ * What the grouping knows beyond the roll: the storage businesses with a sales-tax permit, by the address they sell
+ * from; and of those, the addresses with a self-storage permit by its industry code (NAICS 531130), which make a
+ * property storage even where the district codes it as a home (an RV and boat yard beside the owner's house).
+ */
+export type Hints = { storageAt?: Map<string, string>; selfStorageAt?: Set<string> };
 
 function fold(acc: Acc, p: Condensed, hints: Hints = {}) {
   const v = value(p);
@@ -414,11 +418,35 @@ function fold(acc: Acc, p: Condensed, hints: Hints = {}) {
     const t = acc.tops[k];
     if (!t || v > (t.valueCents ?? 0)) acc.tops[k] = property(p);
   };
+  // A storage or industrial building counted as its own kind too, with when it was bought and from whom.
+  const countKind = (kind: ParcelKind) => {
+    acc[kind] = (acc[kind] ?? 0) + 1;
+    acc[`${kind}Max`] = Math.max(acc[`${kind}Max`] ?? 0, v);
+    top(kind);
+    if (p.deedDate) {
+      if (!acc[`${kind}Deed`] || p.deedDate > acc[`${kind}Deed`]!) acc[`${kind}Deed`] = p.deedDate;
+      if (Date.now() - Date.parse(`${p.deedDate}T12:00:00Z`) <= RECENT_BUY_YEARS * 365.25 * DAY_MS) acc[`${kind}Recent`] = (acc[`${kind}Recent`] ?? 0) + 1;
+    }
+    // Who they bought from: each seller once, at their newest deed, the newest FROM_KEEP kept.
+    if (p.boughtFrom) {
+      const name = signedName(p.boughtFrom);
+      const from = (acc[`${kind}From`] ?? []).filter((f) => f.name !== name || (f.date ?? "") > (p.deedDate ?? ""));
+      if (!from.some((f) => f.name === name)) from.push({ name, ...(p.deedDate ? { date: p.deedDate } : {}) });
+      acc[`${kind}From`] = from.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.name.localeCompare(b.name)).slice(0, FROM_KEEP);
+    }
+  };
   acc.parcels++;
   acc.total += v;
   if (v > acc.max) acc.max = v;
   top("all");
   if (isResidentialUse(p.useCode)) {
+    // A self-storage business on a property the district codes as a home (an RV and boat yard beside the house):
+    // storage too, under the name on its permit.
+    const key = addressKey(p.siteAddress);
+    if (hints.selfStorageAt?.has(key)) {
+      if (!acc.brand) acc.brand = hints.storageAt?.get(key);
+      countKind("storage");
+    }
     if (p.ownerOccupied) {
       acc.homes++;
       acc.homeMax = Math.max(acc.homeMax ?? 0, v);
@@ -438,22 +466,7 @@ function fold(acc: Acc, p: Condensed, hints: Hints = {}) {
     const outlet = hints.storageAt?.get(addressKey(p.siteAddress));
     const kind = parcelKind(p, Boolean(outlet));
     if (kind === "storage" && !acc.brand) acc.brand = storageOperator(p.owner) ?? outlet;
-    if (kind) {
-      acc[kind] = (acc[kind] ?? 0) + 1;
-      acc[`${kind}Max`] = Math.max(acc[`${kind}Max`] ?? 0, v);
-      top(kind);
-      if (p.deedDate) {
-        if (!acc[`${kind}Deed`] || p.deedDate > acc[`${kind}Deed`]!) acc[`${kind}Deed`] = p.deedDate;
-        if (Date.now() - Date.parse(`${p.deedDate}T12:00:00Z`) <= RECENT_BUY_YEARS * 365.25 * DAY_MS) acc[`${kind}Recent`] = (acc[`${kind}Recent`] ?? 0) + 1;
-      }
-      // Who they bought from: each seller once, at their newest deed, the newest FROM_KEEP kept.
-      if (p.boughtFrom) {
-        const name = signedName(p.boughtFrom);
-        const from = (acc[`${kind}From`] ?? []).filter((f) => f.name !== name || (f.date ?? "") > (p.deedDate ?? ""));
-        if (!from.some((f) => f.name === name)) from.push({ name, ...(p.deedDate ? { date: p.deedDate } : {}) });
-        acc[`${kind}From`] = from.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.name.localeCompare(b.name)).slice(0, FROM_KEEP);
-      }
-    }
+    if (kind) countKind(kind);
   } else if (isMultifamilyUse(p.useCode)) {
     acc.multifamily++;
     acc.multifamilyMax = Math.max(acc.multifamilyMax ?? 0, v);

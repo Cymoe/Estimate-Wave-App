@@ -84,7 +84,9 @@ export function storageOperator(owner: string): string | undefined {
 }
 
 /** A sales-tax permit in the storage business: the state's industry code for mini-warehouses, or a name that says so. */
-export const isStorageOutlet = (o: { naics?: string; name: string }) => o.naics === "531130" || STORAGE_NAME.test(o.name.toUpperCase());
+/** The industry code a self-storage business files its sales-tax permit under ("Lessors of Miniwarehouses and Self-Storage Units"). */
+export const SELF_STORAGE_NAICS = "531130";
+export const isStorageOutlet = (o: { naics?: string; name: string }) => o.naics === SELF_STORAGE_NAICS || STORAGE_NAME.test(o.name.toUpperCase());
 /** "AVID STORAGE - CALDERA" → "Avid Storage": the business's name without the branch it's at. */
 export const outletBrand = (name: string): string =>
   ownerName(name.replace(/\s+-\s+.*$/, "").replace(/,?\s+(L\.?L\.?C\.?|INC\.?|LP|LTD)\.?$/i, "").trim()).replace(/\b(Rv|Llc)\b/g, (m) => m.toUpperCase()).replace(/'S\b/g, "'s");

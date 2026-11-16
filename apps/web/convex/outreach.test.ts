@@ -278,6 +278,29 @@ describe("grouping the roll into owners", () => {
     expect(listOrder({ county: "Midland", who: "industrial" }).label).toBe("most properties first");
   });
 
+  test("a self-storage permit on a property the district codes as a home makes its owner a storage owner too, under the permit's name", () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const home = (owner: string, siteAddress: string) => ({ owner, companyOwned: false, ownerOccupied: true, useCode: "A2", siteAddress, mailing: { address: siteAddress, city: "MIDLAND", state: "TX", zip: "79706" }, marketValueCents: 33_881_000 });
+    const roll: Condensed[] = [
+      // Bobby's RV & Boat Storage: ten acres the district codes as a mobile-home homesite, its self-storage permit at the address.
+      parcel("b1", home("WILLIS ROBERT L JR", "3215 S COUNTY RD 01222")),
+      // A house with a shop selling storage sheds (a storage word in its name, not the self-storage code): a home only.
+      parcel("b2", home("SMITH JANE", "100 OAK ST")),
+    ];
+    const storageAt = new Map([
+      [addressKey("3215 S COUNTY ROAD 1222"), "Bobby's RV & Boat Storage"],
+      [addressKey("100 OAK ST"), "Storage Sheds Of Texas"],
+    ]);
+    const selfStorageAt = new Set([addressKey("3215 S COUNTY ROAD 1222")]);
+    const { owners, facets } = groupOwners(roll, NOW, { storageAt, selfStorageAt });
+    const by = Object.fromEntries(owners.map((o) => [o.name, o]));
+    const on = (name: string) => (facets.get(by[name].key) ?? []).map((f) => f.facet).sort();
+    expect(by["Willis Robert L Jr"]).toMatchObject({ storage: 1, brand: "Bobby's RV & Boat Storage" });
+    expect(on("Willis Robert L Jr")).toEqual(expect.arrayContaining(["storage", "homeowner"]));
+    expect(by["Smith Jane"].storage).toBeUndefined();
+    expect(on("Smith Jane")).not.toContain("storage");
+  });
+
   test("past owners of storage and industrial buildings: everyone the deed history shows sold one, with what, to whom and when", () => {
     const ko = { useCode: "F1", kind: "storage" as const, owner: "KOSF II MIDLAND LLC" };
     const sold = new SellerGrouper().addAll([
