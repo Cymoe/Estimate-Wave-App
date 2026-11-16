@@ -379,7 +379,7 @@ export function fullTitle(title: string): string {
 }
 
 /** The officer titles that run a company, most useful first. */
-const RUNS_IT = [/MANAG/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
+const RUNS_IT = [/MANAG/i, /GOVERN/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
 
 /**
  * The Texas Comptroller's public franchise-tax data: an entity by name,
@@ -399,17 +399,27 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       if (!input.company) return {};
       const name = input.company.toUpperCase().replace(/[<>]/g, "").replace(/\s*&\s*$/, "").trim().slice(0, 50);
       if (name.length < 2) return {};
-      const list = await fetchFn(`${base}/franchise-tax-list?name=${encodeURIComponent(name)}`, { headers });
-      if (!list.ok) throw new Error(`Texas Comptroller: HTTP ${list.status}`);
-      const found = (await list.json()) as { data?: Array<{ name?: string; taxpayerId?: string; mailingAddressZip?: string }> };
-      const entities = asArray(found.data) as Array<{ name?: string; taxpayerId?: string; mailingAddressZip?: string }>;
-      const wanted = name;
+      type Entity = { name?: string; taxpayerId?: string; mailingAddressZip?: string };
+      const search = async (term: string): Promise<Entity[]> => {
+        const list = await fetchFn(`${base}/franchise-tax-list?name=${encodeURIComponent(term)}`, { headers });
+        if (!list.ok) throw new Error(`Texas Comptroller: HTTP ${list.status}`);
+        const found = (await list.json()) as { data?: Entity[] };
+        return asArray(found.data) as Entity[];
+      };
+      // The name as filed may be punctuated differently from the roll's ("KOSF II - MIDLAND, LLC" for "KOSF II MIDLAND
+      // LLC"): names are compared by their letters and numbers alone, and only the same name is ever taken.
+      const plain = (s?: string) => (s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+      const wanted = plain(name);
+      let same = (await search(name)).filter((e) => plain(e.name) === wanted);
+      // Not found as written: asked again by its first words (the search matches a name's start), longest first.
+      const words = wanted.split(" ");
+      for (let n = Math.min(words.length - 1, 3); same.length === 0 && n >= 1; n--) {
+        const term = words.slice(0, n).join(" ");
+        if (term.length < 3) break;
+        same = (await search(term)).filter((e) => plain(e.name) === wanted);
+      }
       const zip = input.mailing.zip?.slice(0, 5);
-      const entity =
-        entities.find((e) => e.name?.toUpperCase() === wanted && (!zip || e.mailingAddressZip?.slice(0, 5) === zip)) ??
-        entities.find((e) => e.name?.toUpperCase() === wanted) ??
-        entities.find((e) => zip && e.mailingAddressZip?.slice(0, 5) === zip) ??
-        entities[0];
+      const entity = same.find((e) => zip && e.mailingAddressZip?.slice(0, 5) === zip) ?? same[0];
       if (!entity?.taxpayerId) return {};
       const details = await fetchFn(`${base}/franchise-tax/${encodeURIComponent(entity.taxpayerId)}`, { headers });
       if (!details.ok) throw new Error(`Texas Comptroller: HTTP ${details.status}`);

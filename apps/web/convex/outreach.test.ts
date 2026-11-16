@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -595,6 +595,36 @@ const rebuild = async (t: ReturnType<typeof setup>) => {
   await t.finishAllScheduledFunctions(() => {});
   return result;
 };
+
+describe("the Comptroller's filing for a company", () => {
+  const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+  const input: TraceInput = { name: "KOSF II MIDLAND LLC", company: "KOSF II MIDLAND LLC", mailing: { zip: "55305" } };
+
+  test("a name filed with other punctuation is found by its first words, and only the same name is taken", async () => {
+    const asked: string[] = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        asked.push(name);
+        // The search matches a name's start: "KOSF II" finds the filing; the roll's spelling finds nothing.
+        return json({ data: name === "KOSF II" ? [{ name: "KOSF II - MIDLAND, LLC", taxpayerId: "32000000002" }, { name: "KOSF II - ODESSA, LLC", taxpayerId: "32000000003" }] : name === "KOSF" ? [{ name: "KOSF I - GRANBURY, LLC", taxpayerId: "32000000001" }] : [] });
+      }
+      if (url.includes("franchise-tax/32000000002")) return json({ data: { officerInfo: [{ AGNT_NM: "ANDREW FREEMAN", AGNT_TITL_TX: "GOVERNING", CITY_NM: "MINNETONKA", ST_CD: "MN" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace(input);
+    expect(asked).toEqual(["KOSF II MIDLAND LLC", "KOSF II MIDLAND", "KOSF II"]);
+    expect(found.person).toMatchObject({ name: "Andrew Freeman", title: "Governing Person", source: "tx-comptroller" });
+  });
+
+  test("a search that turns up only other companies gives nobody, never the first one it lists", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) return json({ data: [{ name: "KOSF7, LLC", taxpayerId: "32000000009" }] });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    expect(await comptrollerTexas("cpa-key", fetchFn).trace(input)).toEqual({});
+  });
+});
 
 describe("officer titles as the Comptroller files them", () => {
   test("a title cut at ten letters is spelled out; a full one or one not on the list is kept as filed", () => {
@@ -1232,7 +1262,10 @@ describe("a company's lists", () => {
     expect(traced.phoneHitRate).toBe(0.5);
     // The Comptroller was asked by name with the key; BatchData was asked once per contact, for the manager by name.
     const cpa = calls.filter((c) => c.url.includes("comptroller.texas.gov"));
-    expect(cpa.map((c) => c.headers["x-api-key"])).toEqual(["cpa-key", "cpa-key", "cpa-key"]);
+    expect(cpa.every((c) => c.headers["x-api-key"] === "cpa-key")).toBe(true);
+    // City Of Midland, not listed as written, was asked again by its first words ("CITY OF", "CITY"): two more, still nothing.
+    expect(cpa.filter((c) => c.url.includes("franchise-tax-list")).map((c) => decodeURIComponent(c.url.split("name=")[1]))).toEqual(expect.arrayContaining(["CITY OF MIDLAND", "CITY OF", "CITY"]));
+    expect(cpa).toHaveLength(5);
     const bd = calls.filter((c) => c.url === "https://api.batchdata.com/api/v1/property/skip-trace");
     expect(bd).toHaveLength(2);
     const oakAsk = bd.find((c) => (c.body as { requests: Array<{ propertyAddress: { street: string } }> }).requests[0].propertyAddress.street === "12 Midkiff Rd")!;
