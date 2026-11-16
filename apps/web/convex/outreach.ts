@@ -3598,3 +3598,62 @@ export const findOwners = internalAction({
     return { owners: out };
   },
 });
+
+/** One page of a county's sales-tax outlets whose name or taxpayer holds any of the words. */
+export const outletsNamedPage = internalQuery({
+  args: { county: v.string(), words: v.array(v.string()), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { county, words, cursor }) => {
+    const page = await ctx.db.query("outlets").withIndex("by_county_and_address_key", (q) => q.eq("county", county)).paginate({ numItems: 4000, cursor });
+    const ws = words.map((w) => w.toUpperCase());
+    const hits = page.page
+      .filter((o) => ws.some((w) => o.name.toUpperCase().includes(w) || (o.taxpayer ?? "").toUpperCase().includes(w)))
+      .map((o) => ({ name: o.name, taxpayer: o.taxpayer ?? null, address: o.address, addressKey: o.addressKey, naics: o.naics ?? null, storage: isStorageOutlet(o) }));
+    return { hits, cursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+/** The parcels at an address (any kind, retired too): what the app holds there and how it reads it. */
+export const parcelsAtKey = internalQuery({
+  args: { county: v.string(), addressKey: v.string() },
+  handler: async (ctx, { county, addressKey: key }) =>
+    (await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", county).eq("addressKey", key)).take(10)).map((p) => ({
+      cadId: p.cadId,
+      address: p.siteAddress,
+      owner: p.owner,
+      useCode: p.useCode,
+      landUse: p.landUse ?? null,
+      kind: p.kind ?? null,
+      retired: Boolean(p.retiredAt),
+      valueCents: p.marketValueCents ?? null,
+    })),
+});
+
+/**
+ * A storage business checked by hand: its sales-tax locations (by a word of its name or its taxpayer's), what the
+ * app holds at each address and whether it reads it as storage, and the owner rows whose name holds the word.
+ * Nothing is saved. `npx convex run outreach:checkStorage '{"words":["AVID","AVAD"]}'`.
+ */
+export const checkStorage = internalAction({
+  args: { words: v.array(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { words, county = COUNTY }) => {
+    const outlets: Array<{ name: string; taxpayer: string | null; address: string; addressKey: string; naics: string | null; storage: boolean }> = [];
+    let cursor: string | null = null;
+    do {
+      const page: { hits: typeof outlets; cursor: string | null } = await ctx.runQuery(internal.outreach.outletsNamedPage, { county, words, cursor });
+      outlets.push(...page.hits);
+      cursor = page.cursor;
+    } while (cursor);
+    const places = [];
+    for (const o of outlets.slice(0, 20)) places.push({ outlet: o, parcels: o.addressKey ? await ctx.runQuery(internal.outreach.parcelsAtKey, { county, addressKey: o.addressKey }) : [] });
+    const owners: unknown[] = [];
+    for (const word of words) {
+      let c: string | null = null;
+      do {
+        const page: { hits: unknown[]; cursor: string | null } = await ctx.runQuery(internal.outreach.ownersNamedPage, { county, word, cursor: c });
+        owners.push(...page.hits);
+        c = page.cursor;
+      } while (c && owners.length < 30);
+    }
+    return { places, owners };
+  },
+});
