@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, PRACTICE_SKIP, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type TraceInput, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 import { districtOwnerNow, sameOwnerName } from "./lib/district";
 import { displayName } from "./lib/outreach";
@@ -40,8 +40,8 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const input = await ctx.runQuery(internal.outreach.contactForTrace, { contactId });
   if (!input) return;
   const wanted = fields.filter((f): f is Field => input.fields.includes(f));
-  // First, and free: does this owner still own the property? The roll's source runs about a year behind, so about one
-  // house in nine has sold since. A sold one stops here, saying who owns it now, before anything is paid for. Where the
+  // First, and free: does this owner still own the property? The district's roll is posted twice a year, so a sale
+  // since may not be on it yet. A sold one stops here, saying who owns it now, before anything is paid for. Where the
   // owner is the same, the lookup goes out with where the district sends their bill today.
   if (input.stillOwns && !input.sample && wanted.length > 0) {
     await ctx.runMutation(internal.outreach.noteProgress, { contactId, field: wanted[0], asking: "district", tries: [] }).catch(() => {});
@@ -56,35 +56,14 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
     }
     if (now?.mailing.address) input.mailing = { ...now.mailing, ...(now.mailing.zip ? { zip: now.mailing.zip.slice(0, 5) } : {}) };
   }
-  // Until a phone source is connected, every lookup walks the simulated chain instead of stopping at "not connected", so the page can be seen working; it's marked simulated and never charged.
+  // Until a phone source is connected, the phones, emails and research come from the simulated chain, so the page can
+  // be seen working; those are marked simulated and never charged. The person behind a company is looked up for real
+  // all the same, from the free sources: a made-up decision maker is no use to anyone.
   // OUTREACH_SIMULATE=off turns it off (the tests of the real path do).
   const simulate = process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => standsAlone(s, "phone"));
-  if (input.sample || simulate) return await runSample(ctx, contactId, input, wanted, simulate && !input.sample);
-  // Our own records come first and cost nothing: the home the company's mail goes to, and the permits it pulled. Only read when a field they can answer is wanted.
-  const own: Vendor[] = [];
-  if (input.company && wanted.some((f) => f !== "research")) {
-    const home = await ctx.runQuery(internal.outreach.homeAt, { address: input.mailing.address, city: input.mailing.city, zip: input.mailing.zip });
-    own.push({
-      name: "roll",
-      fields: ["person"],
-      connected: true,
-      free: true,
-      authority: 1,
-      applies: () => ("why" in home ? home.why : undefined),
-      trace: async () => ("person" in home ? { person: home.person } : {}),
-    });
-    const permits = input.property ? await ctx.runQuery(internal.outreach.permitContactsAt, { address: input.property.address, company: input.company }) : { found: { phones: [], emails: [] } as Found, permits: 0, matched: 0 };
-    const has: Found = permits.found;
-    own.push({
-      name: "permits",
-      fields: ["person", "phone", "email"],
-      connected: true,
-      free: true,
-      authority: 2,
-      applies: () => (permits.permits === 0 ? "No permits at the property" : permits.matched === 0 ? "No permit names the company" : undefined),
-      trace: async () => has,
-    });
-  }
+  if (input.sample) return await runSample(ctx, contactId, input, wanted, false);
+  const own = await ownRecords(ctx, input, wanted);
+  if (simulate) return await runPractice(ctx, contactId, input, wanted, own);
   const external = vendors(process.env);
   const stack = [...own, ...external];
   // Our own records always get their turn; "not connected" is about the outside sources.
@@ -221,6 +200,70 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
 }
 
 /**
+ * Our own records, first and free: the home the company's mail goes to, and the permits it pulled. Only read when a
+ * field they can answer is wanted.
+ */
+async function ownRecords(ctx: ActionCtx, input: TraceInput, wanted: Field[]): Promise<Vendor[]> {
+  const own: Vendor[] = [];
+  if (!input.company || !wanted.some((f) => f !== "research")) return own;
+  const company = input.company;
+  const home = await ctx.runQuery(internal.outreach.homeAt, { address: input.mailing.address, city: input.mailing.city, zip: input.mailing.zip });
+  own.push({
+    name: "roll",
+    fields: ["person"],
+    connected: true,
+    free: true,
+    authority: 1,
+    applies: () => ("why" in home ? home.why : undefined),
+    trace: async () => ("person" in home ? { person: home.person } : {}),
+  });
+  const permits = input.property ? await ctx.runQuery(internal.outreach.permitContactsAt, { address: input.property.address, company }) : { found: { phones: [], emails: [] } as Found, permits: 0, matched: 0 };
+  const has: Found = permits.found;
+  own.push({
+    name: "permits",
+    fields: ["person", "phone", "email"],
+    connected: true,
+    free: true,
+    authority: 2,
+    applies: () => (permits.permits === 0 ? "No permits at the property" : permits.matched === 0 ? "No permit names the company" : undefined),
+    trace: async () => has,
+  });
+  return own;
+}
+
+/**
+ * Practice mode, for a real owner: the person behind a company is found for real, from our own records and the free
+ * outside sources (a paid one is passed over and says so); then the phones, emails and research are simulated around
+ * that person, or around the company itself when nobody was found, never around someone made up.
+ */
+async function runPractice(ctx: ActionCtx, contactId: TraceArgs["contactId"], input: Parameters<typeof runSample>[2], wanted: Field[], own: Vendor[]) {
+  let person = input.person;
+  let nobody = false;
+  if (wanted.includes("person")) {
+    const free = vendors(process.env)
+      .filter((v) => v.fields.includes("person"))
+      .map((v): Vendor => (v.connected && !v.free ? { ...v, applies: () => PRACTICE_SKIP } : v));
+    const progress: Progress = async (field, tries, asking) => {
+      await ctx.runMutation(internal.outreach.noteProgress, { contactId, field, asking, tries });
+    };
+    const [o] = await waterfall(input, [...own.filter((v) => v.fields.includes("person")), ...free], ["person"], undefined, progress);
+    await ctx.runMutation(internal.outreach.recordEnrichment, {
+      contactId,
+      field: "person",
+      source: o.source,
+      person: o.found.person,
+      error: !o.source && o.errors.length > 0 ? o.errors.join("; ") : undefined,
+      tries: o.tries,
+    });
+    person = o.found.person;
+    nobody = !person;
+  }
+  const rest = wanted.filter((f) => f !== "person");
+  if (rest.length === 0) return;
+  await runSample(ctx, contactId, { ...input, person }, rest, true, nobody && Boolean(input.company));
+}
+
+/**
  * A sample owner's rerun: the same waterfall over a stack that answers from
  * the sample, a moment per source, then the line check, the Do Not Call
  * scrub and the email check, each narrated. Nothing outside is called and
@@ -232,11 +275,12 @@ async function runSample(
   input: { name: string; company?: string; person?: { name: string }; properties: number; question: string } & Parameters<typeof waterfall>[0],
   wanted: Field[],
   simulated = false,
+  noPerson = false,
 ) {
   const step = Number(process.env.SAMPLE_STEP_MS ?? 1100);
   const mark = simulated ? { simulated: true } : {};
   const wait = () => new Promise<void>((resolve) => setTimeout(resolve, step));
-  const s = sampleFor(sampleIndex(input.name), { name: input.name, company: Boolean(input.company), properties: input.properties }, new Date().toISOString(), input.person?.name);
+  const s = sampleFor(sampleIndex(input.name), { name: input.name, company: Boolean(input.company), properties: input.properties }, new Date().toISOString(), input.person?.name, { noPerson });
   const progress: Progress = async (field, tries, asking) => {
     await ctx.runMutation(internal.outreach.noteProgress, { contactId, field, asking, tries });
   };

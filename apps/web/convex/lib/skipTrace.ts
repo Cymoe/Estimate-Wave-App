@@ -662,6 +662,9 @@ export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch 
   ];
 }
 
+/** Why a paid source isn't asked in practice mode (no phone source connected yet): only the free ones run for real. */
+export const PRACTICE_SKIP = "Paid source: not asked until a phone source is connected";
+
 /** The sources that make a field answerable on their own: a follow-up step (the mobile finder) doesn't count. */
 export const standsAlone = (vendor: Vendor, field: Field): boolean => vendor.connected && vendor.fields.includes(field) && !vendor.followUp;
 

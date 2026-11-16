@@ -49,11 +49,12 @@ const NOT_NEEDED = "Not needed, already found";
  * nothing; one in ten fails and waits on Retry, and one in ten is left
  * unlooked so the Look up button still has something to do.
  */
-export function sampleFor(i: number, owner: { name: string; company: boolean; properties: number }, at: string, named?: string): Sample {
-  // The person already on the owner, when there is one, so a rerun keeps the same name.
+export function sampleFor(i: number, owner: { name: string; company: boolean; properties: number }, at: string, named?: string, opts: { noPerson?: boolean } = {}): Sample {
+  // The person already on the owner, when there is one, so a rerun keeps the same name. `noPerson`: a real lookup
+  // found nobody behind the company, so nobody is made up; the sample's numbers are the company's own.
   const parts = named?.trim().split(/\s+/) ?? [];
-  const [first, last] = parts.length >= 2 ? [parts[0], parts[parts.length - 1]] : PEOPLE[i % PEOPLE.length];
-  const who = owner.company ? (parts.length >= 2 ? named!.trim() : `${first} ${last}`) : owner.name;
+  const [first, last] = parts.length >= 2 ? [parts[0], parts[parts.length - 1]] : opts.noPerson ? ["office", owner.name.toLowerCase().replace(/[^a-z0-9]+/g, "")] : PEOPLE[i % PEOPLE.length];
+  const who = owner.company ? (parts.length >= 2 ? named!.trim() : opts.noPerson ? owner.name : `${first} ${last}`) : owner.name;
   const title = TITLES[i % TITLES.length];
   const n = (k: number) => String(4325550100 + ((i * 2 + k) % 100));
   const mail = `${first.toLowerCase()}.${last.toLowerCase()}@example.com`;
@@ -69,7 +70,7 @@ export function sampleFor(i: number, owner: { name: string; company: boolean; pr
     kind === 7 ? { source: "cobalt", outcome: "miss", note: "No officer or agent who is a person" } : skipped("cobalt", NOT_NEEDED),
   ];
   const person: Person | undefined =
-    owner.company && kind !== 7
+    owner.company && kind !== 7 && !opts.noPerson
       ? { name: who, title, address: `${100 + i} W Wall St, Midland, TX, 79701`, source: "tx-comptroller", ...(kind === 2 ? { confirmedBy: ["roll"] } : {}) }
       : undefined;
   if (person && kind === 2) personTries[0] = { source: "roll", outcome: "hit", note: `Also names ${who}` };

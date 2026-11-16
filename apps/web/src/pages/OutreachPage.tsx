@@ -1612,7 +1612,7 @@ const OutreachPage: React.FC = () => {
       {/* Said once here rather than on every row: while no phone source is connected, every result on the page is simulated. */}
       {rows.some(isSimulated) && (
         <p className="text-xs text-gray-500" data-testid="sample-note">
-          Sample results: no phone source is connected yet, so the people, numbers and emails here are made up and nothing was charged. Expect real sources to find fewer.
+          Sample results: no phone source is connected yet, so the numbers and emails here are made up and nothing was charged. Expect real sources to find fewer. The decision makers are real, from public records.
         </p>
       )}
       {lists && lists.length === 0 && data && data.rows.length > 0 && (

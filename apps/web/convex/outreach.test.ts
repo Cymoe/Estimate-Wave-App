@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -1909,10 +1909,16 @@ describe("a company's lists", () => {
     await t.finishAllScheduledFunctions(() => {});
     const after = await read();
     const row = after.rows.find((r) => r.id === real.id)!;
-    // Every source gets its turn, in the real order, and no cell says "not connected".
+    // The person behind the company is looked up for real, from the free sources: with no Comptroller key, our own
+    // records alone, and nobody is made up. Every source still gets its turn in the real order.
     expect(row.enrichment.person.tries!.map((x) => x.source)).toEqual(["roll", "permits", "tx-comptroller", "cobalt"]);
+    expect(row.enrichment.person.tries!.find((x) => x.source === "tx-comptroller")).toMatchObject({ outcome: "skipped", note: "Not connected" });
+    expect(row.enrichment.person.simulated).toBeUndefined();
+    expect(row.enrichment.person.status).toBe("none");
+    expect(row.person).toBeUndefined();
+    // The phones, email and research are the simulated chain's.
     expect(row.enrichment.phone.tries!.map((x) => x.source).slice(0, 4)).toEqual(["permits", "batchdata", "tracerfy", "enformion"]);
-    for (const f of ["person", "phone", "email", "research"] as const) {
+    for (const f of ["phone", "email", "research"] as const) {
       expect(row.enrichment[f]!.status).not.toBe("failed");
       expect(row.enrichment[f]!.simulated).toBe(true);
     }
@@ -1930,7 +1936,74 @@ describe("a company's lists", () => {
     await t.run(async (ctx) => ctx.db.delete(leadId));
     // The sample clear-out takes simulated results too.
     expect(await t.mutation(internal.outreach.seedSampleList, { email: "owner@roof.example", clear: true })).toMatchObject({ done: true, cleared: 1 });
-    expect((await read()).rows.find((r) => r.id === real.id)!.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } });
+    // What was made up goes; the real "nobody found" for the person stays.
+    const clearedCells = (await read()).rows.find((r) => r.id === real.id)!.enrichment;
+    expect(clearedCells).toMatchObject({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "none" }, research: { status: "locked" } });
+  });
+
+  test("practice mode finds the real person behind a company from the free sources; only the phones and email are simulated, around that person", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    vi.stubEnv("SAMPLE_STEP_MS", "0");
+    vi.stubEnv("OUTREACH_SIMULATE", "");
+    for (const k of ["BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME", "HUNTER_API_KEY", "LEADMAGIC_API_KEY", "TRESTLE_API_KEY", "TWILIO_ACCOUNT_SID", "ZEROBOUNCE_API_KEY"]) vi.stubEnv(k, "");
+    // The Comptroller is free; Cobalt is paid, so practice mode passes it over even with its key.
+    vi.stubEnv("TX_COMPTROLLER_API_KEY", "cpa-key");
+    vi.stubEnv("COBALT_API_KEY", "cobalt-key");
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+        asked.push(new URL(url).hostname);
+        if (url.includes("franchise-tax-list")) {
+          const name = decodeURIComponent(url.split("name=")[1]);
+          return json({ success: true, data: name === "OAK PLAZA LLC" ? [{ name: "OAK PLAZA LLC", taxpayerId: "32011111111", mailingAddressZip: "75201" }] : [] });
+        }
+        if (url.includes("franchise-tax/32011111111")) {
+          return json({ success: true, data: { name: "OAK PLAZA LLC", officerInfo: [{ AGNT_NM: "DANA REYES", AGNT_TITL_TX: "MANAGER", AD_STR_POB_TX: "1 MAIN ST STE 400", CITY_NM: "DALLAS", ST_CD: "TX", AD_ZP: "752011234" }] } });
+        }
+        throw new Error(`unexpected call: ${url}`);
+      }),
+    );
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const oak = (await read()).rows.find((r) => r.name === "Oak Plaza LLC")!;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person", "phone", "email"] });
+    await t.finishAllScheduledFunctions(() => {});
+    const row = (await read()).rows.find((r) => r.id === oak.id)!;
+    // The real manager, from the Comptroller's filing: not simulated, not charged.
+    expect(row.person).toMatchObject({ name: "Dana Reyes", title: "Manager", source: "tx-comptroller" });
+    expect(row.enrichment.person).toMatchObject({ status: "found", source: "tx-comptroller" });
+    expect(row.enrichment.person.simulated).toBeUndefined();
+    expect(row.enrichment.person.tries!.find((x) => x.source === "cobalt")).toMatchObject({ outcome: "skipped", note: "Not needed, already found" });
+    // Only the Comptroller was called: nothing paid.
+    expect(new Set(asked)).toEqual(new Set(["api.comptroller.texas.gov"]));
+    // The phones and email are the simulated chain's, made around her.
+    expect(row.enrichment.phone.simulated).toBe(true);
+    expect(row.enrichment.email.simulated).toBe(true);
+    expect(row.phones.every((p) => isSampleNumber(p.number))).toBe(true);
+    expect(row.phones.filter((p) => p.name).every((p) => p.name === "DANA REYES")).toBe(true);
+    expect(row.emails.every((e) => e.email.endsWith("example.com"))).toBe(true);
+    expect((await read()).balanceCents).toBe(500);
+
+    // A company the Comptroller doesn't list: the paid Secretary of State search isn't asked, and nobody is made up.
+    const other = (await read()).rows.find((r) => r.company && r.id !== oak.id)!;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [other.id], fields: ["person", "phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    const none = (await read()).rows.find((r) => r.id === other.id)!;
+    expect(none.enrichment.person).toMatchObject({ status: "none" });
+    expect(none.enrichment.person.tries!.find((x) => x.source === "cobalt")).toMatchObject({ outcome: "skipped", note: PRACTICE_SKIP });
+    expect(none.person).toBeUndefined();
+    expect(none.enrichment.phone.simulated).toBe(true);
+    // Its sample numbers are the company's own, never a made-up person's.
+    expect(none.phones.filter((p) => p.name).every((p) => p.name === other.name.toUpperCase())).toBe(true);
+    expect(new Set(asked)).toEqual(new Set(["api.comptroller.texas.gov"]));
   });
 
   test("running lookups hold what they could charge, so a second batch can't spend the same balance; a hit the balance can't pay for isn't handed over", async () => {

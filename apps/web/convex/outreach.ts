@@ -2800,11 +2800,14 @@ export const contactForTrace = internalQuery({
     // An owner of one property the appraisal district keeps a page for: before anything is paid for, the lookup asks
     // the district whether they still own it (skipTrace.ts). An owner of several is still an owner if one has sold.
     const parcel = c.property && c.properties === 1 && !/^(office|contractor|designer|occupant|realtor|seller):/.test(c.key) ? await ctx.db.get(c.property.parcelId) : null;
+    // A decision maker the simulated chain made up is nobody: the sources aren't told to look for them.
+    const personCell = cellFor(cells, "person");
+    const madeUp = "simulated" in personCell && personCell.simulated === true && !isSampleRun(c);
     return {
       ...(parcel && hasDistrictPage(parcel) && parcel.source !== "batchdata" ? { stillOwns: { cadId: parcel.cadId, owner: parcel.owner, ...(parcel.owner2 ? { owner2: parcel.owner2 } : {}) } } : {}),
       name: c.name,
       company: c.company,
-      person: c.person,
+      person: madeUp ? undefined : c.person,
       ...(c.property ? { property: { address: c.property.address, city: cityOf(await countyOfOwner(ctx, c)), state: "TX", zip: undefined as string | undefined } } : {}),
       mailing: c.mailing,
       // Addresses already on the contact: the mobile finder keys off one.
@@ -3243,9 +3246,12 @@ export const seedSampleList = internalMutation({
       if (clear) {
         let cleared = 0;
         for (const c of contacts.filter(isSample)) {
+          // A decision maker practice mode found for real (skipTrace.ts runPractice) stays: only what was made up goes.
+          const personCell = cellsOf(c).person;
+          const realPerson = !isSampleRun(c) && personCell !== undefined && personCell.status !== "locked" && !personCell.simulated;
           await ctx.db.patch(c._id, {
-            enrichment: { phone: LOCKED, email: LOCKED, person: LOCKED, research: LOCKED },
-            person: undefined,
+            enrichment: { phone: LOCKED, email: LOCKED, person: realPerson ? personCell : LOCKED, research: LOCKED },
+            person: realPerson ? c.person : undefined,
             phones: undefined,
             emails: undefined,
             research: undefined,
