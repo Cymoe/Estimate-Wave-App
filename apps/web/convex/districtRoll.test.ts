@@ -259,4 +259,19 @@ describe("Midland's parcels from the district's roll", () => {
     expect(await t.action(internal.districtRoll.importRoll, { again: true })).toMatchObject({ error: "the district's certified roll has no roll table in it" });
     expect(await t.action(internal.districtRoll.importRoll, { background: true })).toEqual({ scheduled: true });
   });
+
+  test("two imports at once: neither retires what the other read", async () => {
+    const t = setup();
+    const columns = rollColumns(HEADER);
+    const accounts = ACCOUNTS.flatMap((l) => rollAccount(l, columns, Date.parse("2026-11-16")) ?? []);
+    const rows = rollParcels(accounts, () => ["RES"], () => []).map((p) => ({ ...p, ...(p.ownerId ? {} : { ownerId: undefined }) }));
+    const [early, late] = ["2026-11-16T13:52:00.000Z", "2026-11-16T14:00:00.000Z"];
+    // The later import writes first; the earlier one's writes land after it, and the earlier one sweeps last.
+    await t.mutation(internal.parcels.upsertRoll, { rows, stamp: late, fileDate: "2026-08-06" });
+    await t.mutation(internal.parcels.upsertRoll, { rows, stamp: early, fileDate: "2026-08-06" });
+    expect((await t.mutation(internal.parcels.retireSweep, { stamp: early })).retired).toBe(0);
+    expect((await t.mutation(internal.parcels.retireSweep, { stamp: late })).retired).toBe(0);
+    const now = await parcels(t);
+    expect(Object.values(now).every((p) => p.rollAt === late && !p.retiredAt)).toBe(true);
+  });
 });

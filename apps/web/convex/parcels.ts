@@ -1562,7 +1562,9 @@ export const upsertRoll = internalMutation({
         // Mail that came back was to the roll's owner: it says nothing of one who bought since.
         returnedMail: returnedMail && !soldSince ? true : undefined,
         accounts: accounts.length > 1 ? accounts : undefined,
-        rollAt: stamp,
+        // Never back to an older import's stamp: two imports at once (the deploy's and the weekly one) would otherwise
+        // leave the newer one's sweep retiring what the older one wrote last.
+        rollAt: existing?.rollAt && existing.rollAt > stamp ? existing.rollAt : stamp,
         retiredAt: undefined,
         source: undefined,
       };
@@ -1596,7 +1598,8 @@ export const retireSweep = internalMutation({
     const now = nowIso();
     let retired = 0;
     for (const p of page.page) {
-      if (p.rollAt === stamp || p.retiredAt || p.source === "batchdata" || !hasDistrictPage(p)) continue;
+      // In this import, or in one that started after it: not this sweep's to retire.
+      if ((p.rollAt && p.rollAt >= stamp) || p.retiredAt || p.source === "batchdata" || !hasDistrictPage(p)) continue;
       await ctx.db.patch(p._id, { retiredAt: now, ownerKey: "", mailKey: "", kind: undefined });
       retired++;
     }
