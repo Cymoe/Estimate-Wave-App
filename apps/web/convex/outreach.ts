@@ -38,6 +38,7 @@ import {
   DEFAULT_RESEARCH_QUESTION,
   WHO_GUIDE,
   companyKey,
+  rekeyOwner,
   defaultTitle,
   definitionFromArgs,
   displayName,
@@ -91,6 +92,8 @@ export const parcelPage = internalQuery({
       .withIndex("by_county_and_address_key", (q) => q.eq("county", county))
       .paginate({ cursor: cursor ?? null, numItems: PAGE });
     const rows: Condensed[] = page.page
+      // An account the district's roll no longer has as a property isn't anyone's holding.
+      .filter((p) => !p.retiredAt)
       .map((p) => ({
         id: p._id,
         siteAddress: p.siteAddress,
@@ -3487,5 +3490,70 @@ export const clearOwnersOf = internalMutation({
     if (page.length) await ownersRemoved(ctx, organizationId);
     if (page.length === 1000) await ctx.scheduler.runAfter(0, internal.outreach.clearOwnersOf, { organizationId });
     return { removed: page.length };
+  },
+});
+
+// ── One owners rebuild at a time (outreachRebuild.ts) ──
+
+/** A rebuild that claimed its county this long ago and never let go has died (an action runs ten minutes at most). */
+const REBUILD_STALE_MS = 20 * 60 * 1000;
+
+/** Claims the county for a rebuild. False when one is under way: that one is told to run once more when it ends. */
+export const claimRebuild = internalMutation({
+  args: { county: v.string() },
+  handler: async (ctx, { county }) => {
+    const lock = await ctx.db.query("rebuildLocks").withIndex("by_county", (q) => q.eq("county", county)).first();
+    if (lock && Date.now() - lock.startedAt < REBUILD_STALE_MS) {
+      if (!lock.again) await ctx.db.patch(lock._id, { again: true });
+      return false;
+    }
+    if (lock) await ctx.db.replace(lock._id, { county, startedAt: Date.now() });
+    else await ctx.db.insert("rebuildLocks", { county, startedAt: Date.now() });
+    return true;
+  },
+});
+
+/** Lets the county go. True when another rebuild was asked for meanwhile: what it wanted built isn't in this one. */
+export const releaseRebuild = internalMutation({
+  args: { county: v.string() },
+  handler: async (ctx, { county }) => {
+    const lock = await ctx.db.query("rebuildLocks").withIndex("by_county", (q) => q.eq("county", county)).first();
+    if (!lock) return false;
+    await ctx.db.delete(lock._id);
+    return Boolean(lock.again);
+  },
+});
+
+// ── Owner keys written before a hyphen was read as a space (lib/outreach.ts rekeyOwner) ──
+
+const REKEY_PAGE = 400;
+
+/**
+ * Gives each saved owner the key its name has today, a page at a time, so the people and notes a company has on
+ * "KOSF II-MIDLAND LLC" stay with the owner now built as "KOSF II MIDLAND LLC". Where the company already has that
+ * owner too, the two are left as they are. Run by the deploy before the owners are rebuilt; a key already right is
+ * passed over, so it is safe to run again.
+ */
+export const rekeyContacts = internalMutation({
+  args: { cursor: v.optional(v.string()), totals: v.optional(v.object({ read: v.number(), rekeyed: v.number(), kept: v.number() })) },
+  handler: async (ctx, { cursor, totals }): Promise<{ read: number; rekeyed: number; kept: number; done: boolean }> => {
+    const sum = { read: 0, rekeyed: 0, kept: 0, ...(totals ?? {}) };
+    const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: REKEY_PAGE });
+    for (const c of page.page) {
+      sum.read++;
+      const key = rekeyOwner(c.key);
+      if (key === c.key) continue;
+      const taken = await ctx.db
+        .query("outreachContacts")
+        .withIndex("by_organization_and_key", (q) => q.eq("organizationId", c.organizationId).eq("key", key))
+        .first();
+      if (taken) sum.kept++;
+      else {
+        await ctx.db.patch(c._id, { key });
+        sum.rekeyed++;
+      }
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.rekeyContacts, { cursor: page.continueCursor, totals: sum });
+    return { ...sum, done: page.isDone };
   },
 });

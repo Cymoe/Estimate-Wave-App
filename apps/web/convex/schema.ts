@@ -1003,6 +1003,19 @@ export default defineSchema({
     // city's layer runs about a year behind, so from then on the owner, mailing address and deed date are the
     // district's, and the city's read only replaces them with a newer deed.
     districtAt: v.optional(v.string()),
+    // From the appraisal district's certified roll (lib/districtRoll.ts, districtRoll.ts importRoll), the base for
+    // Midland: rollAt is the import that last had this account (one the latest import didn't have is retired);
+    // ownerId the district's own id for the owner; buildings the types of what is built ("RES", "WHSE", "MH");
+    // returnedMail when the district's mail to the owner has come back; accounts every account that is this property
+    // (more than one when the ownership is split across accounts).
+    rollAt: v.optional(v.string()),
+    ownerId: v.optional(v.string()),
+    buildings: v.optional(v.array(v.string())),
+    returnedMail: v.optional(v.boolean()),
+    accounts: v.optional(v.array(v.string())),
+    // The roll no longer has this account as a property to keep (retired, merged into another account, or land now):
+    // left out of the owners' build and every list. Kept, since contacts point at parcels.
+    retiredAt: v.optional(v.string()),
     importedAt: v.string(),
   })
     .index("by_county_and_kind", ["county", "kind"])
@@ -1014,6 +1027,15 @@ export default defineSchema({
     .index("by_county_and_loose_key", ["county", "looseKey"])
     .index("by_county_and_street", ["county", "street"])
     .index("by_county_and_deed", ["county", "deedDate"]),
+
+  // One owners rebuild at a time for a county (outreachRebuild.ts): a dozen jobs ask for one when they finish, and two
+  // at once do the work twice and can leave the older one's rows over the newer's. `again` is set by a request that
+  // found one running: the running one starts one more when it ends.
+  rebuildLocks: defineTable({
+    county: v.string(),
+    startedAt: v.number(),
+    again: v.optional(v.boolean()),
+  }).index("by_county", ["county"]),
 
   // Parcels in the appraisal district's own file (lib/districtFile.ts) that have a building and that the app has no
   // record of: each waits for the owner refresh to read its page at the district, which says what is built there and

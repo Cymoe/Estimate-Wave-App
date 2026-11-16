@@ -18,33 +18,8 @@ export function fileLink(html: string): string | undefined {
   return links.sort((a, b) => b.year - a.year)[0]?.url;
 }
 
-const u16 = (b: Uint8Array, at: number) => b[at] | (b[at + 1] << 8);
-const u32 = (b: Uint8Array, at: number) => (b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (b[at + 3] << 24)) >>> 0;
-
-/** One file inside a zip: how it is packed (0 stored as it is, 8 deflated) and its packed bytes. Undefined when the zip has no such file. */
-export function zipEntry(zip: Uint8Array, name: string): { method: number; data: Uint8Array; size: number } | undefined {
-  // The directory's end record is the last thing in the file, but for a comment after it.
-  let end = -1;
-  for (let i = zip.length - 22; i >= Math.max(0, zip.length - 22 - 65_535); i--) {
-    if (u32(zip, i) === 0x06054b50) {
-      end = i;
-      break;
-    }
-  }
-  if (end < 0) return undefined;
-  let at = u32(zip, end + 16);
-  for (let n = u16(zip, end + 10); n > 0 && u32(zip, at) === 0x02014b50; n--) {
-    const [nameLength, extraLength, commentLength] = [u16(zip, at + 28), u16(zip, at + 30), u16(zip, at + 32)];
-    const entry = new TextDecoder().decode(zip.subarray(at + 46, at + 46 + nameLength));
-    if (entry === name || entry.endsWith(`/${name}`)) {
-      const local = u32(zip, at + 42);
-      const start = local + 30 + u16(zip, local + 26) + u16(zip, local + 28);
-      return { method: u16(zip, at + 10), data: zip.subarray(start, start + u32(zip, at + 20)), size: u32(zip, at + 24) };
-    }
-    at += 46 + nameLength + extraLength + commentLength;
-  }
-  return undefined;
-}
+import { u16, u32 } from "./zip";
+export { zipEntry } from "./zip";
 
 /**
  * Reads a dBase table as it arrives, a piece at a time (the district's is 220 MB unpacked: never held whole), calling

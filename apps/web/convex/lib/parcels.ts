@@ -13,14 +13,14 @@ export const MIDLAND_PARCELS = {
 } as const;
 
 /** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
-export const PARCEL_VERSION = 8;
+export const PARCEL_VERSION = 9;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
 /** Apartments, duplexes and the like (the state's B codes; the layer's exact sub-codes vary, so any B is kept). */
 export const MULTIFAMILY_USE = ["B1", "B2", "B3", "B4"] as const;
-/** Commercial (F1: shops, offices, shopping centers) and industrial (F2: warehouses, shops) buildings. */
-export const COMMERCIAL_USE = ["F1", "F2"] as const;
+/** Commercial (F1: shops, offices, shopping centers), industrial (F2: warehouses, shops) and small commercial improvements (F3) buildings. */
+export const COMMERCIAL_USE = ["F1", "F2", "F3"] as const;
 
 export const isResidentialUse = (code: string | undefined) => (RESIDENTIAL_USE as readonly string[]).includes(code ?? "");
 export const isMultifamilyUse = (code: string | undefined) => /^B\d?$/.test(code ?? "");

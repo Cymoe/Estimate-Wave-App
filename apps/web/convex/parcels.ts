@@ -77,6 +77,15 @@ export const upsert = internalMutation({
         .query("parcels")
         .withIndex("by_cad_id", (q) => q.eq("cadId", read.cadId))
         .first();
+      // The district's own roll is the base for a parcel it has (districtRoll.ts): the city's layer, a year-old copy,
+      // adds only what the roll lacks, the district's land code (what tells mini-storage from a shop) and the PIN.
+      if (existing?.rollAt || existing?.retiredAt) {
+        if ((existing.landUse ?? undefined) === (read.landUse ?? undefined) && (existing.pin ?? undefined) === (read.pin ?? undefined)) continue;
+        const kind = existing.retiredAt ? undefined : await kindOf(ctx, at, { ...existing, landUse: read.landUse });
+        await ctx.db.patch(existing._id, { landUse: read.landUse, pin: read.pin, kind });
+        updated++;
+        continue;
+      }
       // Who owns it, where their bill goes and when they bought are the district's once its page has been read
       // (refreshOwners): the city's layer runs about a year behind, so its word only wins with a newer deed.
       const row =
@@ -87,8 +96,9 @@ export const upsert = internalMutation({
       if (!existing) {
         await ctx.db.insert("parcels", { county: at, ...row, ...filing(row), ...(kind ? { kind } : {}), importedAt: now });
         added++;
-      } else if (!sameParcel(existing, row) || existing.kind !== kind || existing.source) {
-        // The city's own row from here on, if the district had filled it while the city's was blank.
+      } else if (!sameParcel(existing, row) || existing.kind !== kind || existing.source || existing.ownerKey !== filing(row).ownerKey) {
+        // The city's own row from here on, if the district had filled it while the city's was blank. And filed under
+        // its owner as the owner's key is written today (a hyphen in a name is read as a space now).
         await ctx.db.patch(existing._id, { ...row, ...filing(row), kind, source: undefined, importedAt: now });
         updated++;
       }
@@ -213,6 +223,8 @@ async function pullMidlandParcels(ctx: ActionCtx) {
     await ctx.scheduler.runAfter(0, internal.parcels.refreshOwners, {});
     // And the district's own parcel file, for the properties neither read has (it skips a file it has already read).
     await ctx.scheduler.runAfter(0, internal.districtFile.importFile, {});
+    // And the district's certified roll, the base for every Midland parcel (skipped when no new roll is posted).
+    await ctx.scheduler.runAfter(0, internal.districtRoll.importRoll, {});
   }
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,
@@ -1236,7 +1248,7 @@ export const ownersDue = internalQuery({
     const waiting = ctx.db.query("parcels").withIndex("by_county_and_district_at", (q) => q.eq("county", MIDLAND_PARCELS.county).lt("districtAt", before));
     for await (const p of waiting) {
       // A parcel only BatchData has isn't on the district's site under its id.
-      if (!hasDistrictPage(p) || p.source === "batchdata" || skip.includes(p._id)) continue;
+      if (!hasDistrictPage(p) || p.source === "batchdata" || p.retiredAt || skip.includes(p._id)) continue;
       out.push({ id: p._id, cadId: p.cadId, siteAddress: p.siteAddress, owner: p.owner, ...(p.owner2 ? { owner2: p.owner2 } : {}), mailing: p.mailing, ...(p.deedDate ? { deedDate: p.deedDate } : {}) });
       if (out.length >= limit) break;
     }
@@ -1502,5 +1514,112 @@ export const refreshOwners = internalAction({
     if (sum.sold + sum.moved + sum.found > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
     await record({ error });
     return { ...(done ? { done: true as const } : {}), ...sum, ...(error ? { error } : {}) };
+  },
+});
+
+// ── Midland's parcels from the appraisal district's own roll (lib/districtRoll.ts, districtRoll.ts importRoll) ──
+
+const rollRow = v.object({
+  row: parcelRow,
+  deeds: v.array(deedRow),
+  ownerId: v.optional(v.string()),
+  buildings: v.array(v.string()),
+  returnedMail: v.boolean(),
+  accounts: v.array(v.string()),
+});
+
+/**
+ * Keeps one batch of the roll's parcels, by account number: adds the new ones and brings the rest up to the roll.
+ * `stamp` marks each as in this import (what isn't is retired afterwards, retireSweep). `fileDate` is the day the
+ * roll was made: a parcel whose page at the district was read after that keeps what the page said of who owns it,
+ * unless the roll has a newer deed; and where the page found a sale the roll predates, the roll's owner is the one
+ * who sold, so they head the owners before.
+ */
+export const upsertRoll = internalMutation({
+  args: { rows: v.array(rollRow), stamp: v.string(), fileDate: v.string() },
+  handler: async (ctx, { rows, stamp, fileDate }) => {
+    const county = MIDLAND_PARCELS.county;
+    const now = nowIso();
+    let added = 0;
+    let updated = 0;
+    for (const { row: read, deeds: fileDeeds, ownerId, buildings, returnedMail, accounts } of rows) {
+      const existing = await ctx.db.query("parcels").withIndex("by_cad_id", (q) => q.eq("cadId", read.cadId)).first();
+      const live = Boolean(existing?.districtAt && existing.districtAt.slice(0, 10) > fileDate && !((read.deedDate ?? "") > (existing.deedDate ?? "")));
+      const row = live && existing ? { ...read, owner: existing.owner, owner2: existing.owner2, mailing: existing.mailing, deedDate: existing.deedDate, ownerOccupied: existing.ownerOccupied, companyOwned: existing.companyOwned } : read;
+      const soldSince = live && existing && !sameOwnerName(read, existing.owner);
+      const deeds = soldSince ? (existing.deeds?.length ? existing.deeds : [{ seller: read.owner, ...(existing.deedDate ? { date: existing.deedDate } : {}) }, ...fileDeeds]) : fileDeeds;
+      const fields = {
+        ...row,
+        ...filing(row),
+        // The city's layer is where the land code and the PIN come from: the roll has neither.
+        landUse: existing?.landUse,
+        pin: existing?.pin,
+        kind: await kindOf(ctx, county, { ...row, landUse: existing?.landUse, vendorUse: existing?.vendorUse }),
+        deeds,
+        deedsReadFor: row.deedDate ?? "",
+        ownerId,
+        buildings,
+        // Mail that came back was to the roll's owner: it says nothing of one who bought since.
+        returnedMail: returnedMail && !soldSince ? true : undefined,
+        accounts: accounts.length > 1 ? accounts : undefined,
+        rollAt: stamp,
+        retiredAt: undefined,
+        source: undefined,
+      };
+      if (!existing) {
+        await ctx.db.insert("parcels", { county, ...fields, importedAt: now });
+        added++;
+      } else {
+        await ctx.db.patch(existing._id, fields);
+        updated++;
+      }
+    }
+    return { added, updated };
+  },
+});
+
+/** How many parcels one step of the sweep looks at. */
+const SWEEP_PAGE = 600;
+
+/**
+ * After an import: a page of Midland's parcels, and each one under a district account number that the import didn't
+ * have is retired (an account the district closed, one merged into another, land with nothing on it now). A retired
+ * parcel is filed under no owner, so nothing lists it. Returns where to go on from.
+ */
+export const retireSweep = internalMutation({
+  args: { stamp: v.string(), cursor: v.optional(v.string()) },
+  handler: async (ctx, { stamp, cursor }) => {
+    const page = await ctx.db
+      .query("parcels")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", MIDLAND_PARCELS.county))
+      .paginate({ cursor: cursor ?? null, numItems: SWEEP_PAGE });
+    const now = nowIso();
+    let retired = 0;
+    for (const p of page.page) {
+      if (p.rollAt === stamp || p.retiredAt || p.source === "batchdata" || !hasDistrictPage(p)) continue;
+      await ctx.db.patch(p._id, { retiredAt: now, ownerKey: "", mailKey: "", kind: undefined });
+      retired++;
+    }
+    return { retired, cursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** How Midland's parcels stand against the roll: in the latest import, retired, and neither (BatchData's own, or from before a roll was read). */
+export const rollCoverage = internalQuery({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("parcels")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", MIDLAND_PARCELS.county))
+      .paginate({ cursor: cursor ?? null, numItems: 2_000 });
+    const out = { onRoll: 0, retired: 0, other: 0, returnedMail: 0, merged: 0 };
+    for (const p of page.page) {
+      if (p.retiredAt) out.retired++;
+      else if (p.rollAt) out.onRoll++;
+      else out.other++;
+      if (p.returnedMail) out.returnedMail++;
+      if (p.accounts) out.merged++;
+    }
+    return { ...out, cursor: page.continueCursor, isDone: page.isDone };
   },
 });

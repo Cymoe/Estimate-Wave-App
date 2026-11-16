@@ -129,7 +129,7 @@ async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.co
  */
 export const rebuild = internalAction({
   args: { ifStale: v.optional(v.boolean()), background: v.optional(v.boolean()), county: v.optional(v.union(v.literal("Midland"), v.literal("Ector"), v.literal("Lubbock"), v.literal("Taylor"))) },
-  handler: async (ctx, { ifStale, background, county = "Midland" }): Promise<{ skipped?: true; scheduled?: true; fetched?: number; added?: number; updated?: number; error?: string }> => {
+  handler: async (ctx, { ifStale, background, county = "Midland" }): Promise<{ skipped?: true; scheduled?: true; queued?: true; fetched?: number; added?: number; updated?: number; error?: string }> => {
     if (ifStale) {
       const [owners, roll] = await Promise.all([
         ctx.runQuery(internal.permits.sourceState, { source: ownersSource(county) }),
@@ -143,15 +143,31 @@ export const rebuild = internalAction({
       await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county });
       return { scheduled: true };
     }
-    return await rebuildOwners(ctx, county);
+    return await oneAtATime(ctx, county);
   },
 });
+
+/**
+ * Rebuilds a county's owners unless a rebuild of it is under way: then that one is told to run once more when it
+ * ends, and this returns at once. A dozen jobs ask for a rebuild when they finish; two at once do the work twice,
+ * and the one that read the roll first can leave its older rows over the other's.
+ */
+async function oneAtATime(ctx: ActionCtx, county: string): Promise<{ queued?: true; fetched?: number; added?: number; updated?: number; error?: string }> {
+  const claimed: boolean = await ctx.runMutation(internal.outreach.claimRebuild, { county });
+  if (!claimed) return { queued: true };
+  try {
+    return await rebuildOwners(ctx, county);
+  } finally {
+    const again: boolean = await ctx.runMutation(internal.outreach.releaseRebuild, { county });
+    if (again) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county: county as "Midland" | "Ector" | "Lubbock" | "Taylor" });
+  }
+}
 
 /** "Rebuild owners" on the Outreach page, for staff: `npx convex run outreachRebuild:rebuildNow`. */
 export const rebuildNow = action({
   args: {},
   handler: async (ctx) => {
     await ctx.runQuery(internal.permits.assertStaff, {});
-    return await rebuildOwners(ctx);
+    return await oneAtATime(ctx, MIDLAND_PARCELS.county);
   },
 });

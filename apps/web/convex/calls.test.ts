@@ -145,7 +145,7 @@ describe("Midland owners (the appraisal roll)", () => {
     await t.run(async (ctx) => {
       expect((await ctx.db.query("landlords").collect()).map((l) => [l.owner, l.homes])).toEqual([["NUKA HIVA LLC", 7]]);
     });
-    expect(new URL(urls[0]).searchParams.get("where")).toBe("GOV_USE_CO IN ('A1','A2','A3','A4','A5','B1','B2','B3','B4','F1','F2') OR GOV_USE_CO LIKE 'B%'");
+    expect(new URL(urls[0]).searchParams.get("where")).toBe("GOV_USE_CO IN ('A1','A2','A3','A4','A5','B1','B2','B3','B4','F1','F2','F3') OR GOV_USE_CO LIKE 'B%'");
     expect(urls[1]).toContain("resultOffset=2");
 
     // Run again with one owner changed: only that row is written.

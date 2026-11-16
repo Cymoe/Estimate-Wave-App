@@ -209,8 +209,8 @@ const NOT_INVESTOR = /\b(CITY OF|COUNTY OF|STATE OF|ISD|SCHOOL|COLLEGE|UNIVERSIT
 
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();
 
-/** One spelling of an owner, so "SMITH JOHN &", "SMITH JOHN ET AL" and "Smith, John" group together. */
-export function ownerKey(owner: string): string {
+/** An owner's name upper-cased, without its periods, commas and quotes, a trailing "&" or "ET AL". Hyphens stay: a company's numbering ("ALPHA 1-54 LLC") reads off them (familyKey). */
+function plainName(owner: string): string {
   return squash(
     owner
       .toUpperCase()
@@ -218,6 +218,27 @@ export function ownerKey(owner: string): string {
       .replace(/\s*&\s*$/, "")
       .replace(/\s+(ET\s?AL|ETAL|ET\s?UX|ETUX|ET\s?VIR|ETVIR)\b.*$/, ""),
   );
+}
+
+/**
+ * One spelling of an owner, so "SMITH JOHN &", "SMITH JOHN ET AL" and "Smith, John" group together; and with a
+ * hyphen or a slash read as a space, so do "KOSF II MIDLAND LLC" and "KOSF II-MIDLAND LLC" (the district files KO
+ * Storage's largest Midland property under the second).
+ */
+export function ownerKey(owner: string): string {
+  return squash(plainName(owner).replace(/[-/]/g, " "));
+}
+
+/**
+ * A stored owner key as ownerKey would write it today, for the keys saved before hyphens and slashes were read as
+ * spaces: an owner's ("NAME|where the bill goes") and a past owner's ("seller:NAME"). Every other kind of key (an
+ * office, a contractor, a tenant, an agent) isn't made from an owner's name and is returned as it is.
+ */
+export function rekeyOwner(key: string): string {
+  if (key.startsWith("seller:")) return `seller:${ownerKey(key.slice(7))}`;
+  if (/^[a-z]+:/.test(key)) return key;
+  const at = key.indexOf("|");
+  return at < 0 ? ownerKey(key) : `${ownerKey(key.slice(0, at))}${key.slice(at)}`;
 }
 
 const LEGAL_WORDS = new Set(["LLC", "L", "C", "LP", "P", "LLP", "LLLP", "LTD", "INC", "CORP", "CORPORATION", "CO", "COMPANY", "PC", "PLLC"]);
@@ -231,7 +252,7 @@ const NUMBERING = /^(\d+(-\d+)?|#\d+|I|II|III|IV|V|VI|VII|VIII|IX|X)$/;
  * short to tell companies apart ("SMITH", "MIDLAND") forms no family.
  */
 export function familyKey(name: string): string | undefined {
-  const words = ownerKey(name).replace(/[^A-Z0-9#\- ]/g, " ").split(/\s+/).filter(Boolean);
+  const words = plainName(name).replace(/[^A-Z0-9#\- ]/g, " ").split(/\s+/).filter(Boolean);
   while (words.length && (LEGAL_WORDS.has(words[words.length - 1]) || NUMBERING.test(words[words.length - 1]) || (words.length > 2 && words[words.length - 1].length === 1))) words.pop();
   const stem = words.filter((w) => !LEGAL_WORDS.has(w) && !NUMBERING.test(w)).join(" ");
   if (!stem || (stem.split(" ").length < 2 && stem.length < 8)) return undefined;
@@ -295,7 +316,7 @@ export const ownersSource = (county: string) => (county === "Midland" ? OWNERS_S
 /** Where the daily records pass (outreachRefresh.ts) records how it went. */
 export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 12;
+export const OWNERS_VERSION = 13;
 /** A build id for the owners table: the instant it started, then a few random characters, so ids sort by time. */
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */

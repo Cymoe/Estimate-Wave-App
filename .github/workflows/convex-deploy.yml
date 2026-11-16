@@ -227,6 +227,16 @@ jobs:
         # Permits imported before the key existed get theirs; finishes in the background. Safe to re-run.
         run: npx convex run permits:backfillAddressKeys
 
+      - name: Give saved Outreach owners the key their name has today
+        # A hyphen or a slash in an owner's name is read as a space now ("KOSF II-MIDLAND LLC" is "KOSF II MIDLAND
+        # LLC"): the owners a company saved under the old key keep their notes and calls. In the background; a key
+        # already right is passed over, so it is safe to re-run.
+        run: npx convex run outreach:rekeyContacts '{}'
+      - name: Read Midland from the appraisal district's certified roll
+        # Every account with its owner, mailing address, property type and deed history, from the district's own
+        # files. In the background; skipped when the district hasn't posted new files since the last read.
+        run: npx convex run districtRoll:importRoll '{"background":true}'
+
       - name: Group the roll into owners for Outreach
         # One row per owner and per office that gets several owners' tax
         # bills (lib/outreach.ts). Skipped when a clean build is newer than
