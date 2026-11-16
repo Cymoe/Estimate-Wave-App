@@ -1236,8 +1236,8 @@ export type OutreachPhone = { number: string; type: OutreachPhoneType; line?: Ou
 export type EmailLeftOut = { why: string; count: number; owners: Array<{ id: string; name: string; note?: string }> };
 /** nameMatch: whether the address belongs to the named person, by the contact check; grade: its A to F. */
 export type OutreachEmail = { email: string; source: string; verified?: boolean; nameMatch?: boolean; grade?: string };
-/** confirmedBy: other free sources that named the same person. */
-export type OutreachPerson = { name: string; title?: string; address?: string; source: string; confirmedBy?: string[] };
+/** confirmedBy: other free sources that named the same person. via: the sister company whose filing names them, when the owner's own names nobody. */
+export type OutreachPerson = { name: string; title?: string; address?: string; source: string; confirmedBy?: string[]; via?: string };
 export type OutreachField = 'phone' | 'email' | 'person' | 'research';
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
 /** One source's turn in a cell's waterfall, for the sheet's "How we found it". */

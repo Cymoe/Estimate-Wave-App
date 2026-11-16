@@ -585,6 +585,8 @@ export const outreachPerson = v.object({
   source: v.string(),
   /** Other free sources that named the same person. */
   confirmedBy: v.optional(v.array(v.string())),
+  /** Where the person was filed, when not on the owner itself: a sister company of the same family. */
+  via: v.optional(v.string()),
 });
 /** What a contact can be enriched with. */
 export const outreachField = v.union(v.literal("phone"), v.literal("email"), v.literal("person"), v.literal("research"));

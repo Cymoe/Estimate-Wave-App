@@ -617,6 +617,29 @@ describe("the Comptroller's filing for a company", () => {
     expect(found.person).toMatchObject({ name: "Andrew Freeman", title: "Governing Person", source: "tx-comptroller" });
   });
 
+  test("an owner whose own filing names nobody takes the people a sister company of the same family lists, and says so", async () => {
+    const asked: string[] = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      asked.push(url.replace(/^.*\/public\//, ""));
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        return json({
+          data:
+            name === "KOSF II"
+              ? [{ name: "KOSF II - MIDLAND, LLC", taxpayerId: "32000000002" }, { name: "KOSF II - SAN ANGELO, LLC", taxpayerId: "32000000004" }, { name: "KOSF II - CORPUS CHRISTI, LLC", taxpayerId: "32000000005" }]
+              : [],
+        });
+      }
+      if (url.includes("franchise-tax/32000000002")) return json({ data: { officerInfo: [] } });
+      if (url.includes("franchise-tax/32000000004")) return json({ data: { officerInfo: [{ AGNT_NM: "ANDREW FREEMAN", AGNT_TITL_TX: "GOVERNING", CITY_NM: "MINNETONKA", ST_CD: "MN" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace(input);
+    expect(found.person).toMatchObject({ name: "Andrew Freeman", title: "Governing Person", via: "KOSF II - SAN ANGELO, LLC", source: "tx-comptroller" });
+    // The owner's own filing first, then the first sister's: no more than that.
+    expect(asked.filter((u) => u.startsWith("franchise-tax/"))).toEqual(["franchise-tax/32000000002", "franchise-tax/32000000004"]);
+  });
+
   test("a search that turns up only other companies gives nobody, never the first one it lists", async () => {
     const fetchFn = vi.fn(async (url: string) => {
       if (url.includes("franchise-tax-list")) return json({ data: [{ name: "KOSF7, LLC", taxpayerId: "32000000009" }] });

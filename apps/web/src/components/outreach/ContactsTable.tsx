@@ -487,10 +487,11 @@ export const ContactsTable: React.FC<{
           {r.person ? (
             <>
               <span className="text-white">{r.person.name}</span>
-              {r.person.title || r.person.confirmedBy?.length ? (
+              {r.person.title || r.person.confirmedBy?.length || r.person.via ? (
                 <span className="block text-[11px] text-gray-500">
                   {r.person.title}
                   {r.person.confirmedBy?.length ? <span className="text-[#7fb0e0]">{r.person.title ? ' · ' : ''}{r.person.confirmedBy.length + 1} sources agree</span> : null}
+                  {r.person.via ? <span title={`This company's own filing names nobody; the same people run ${r.person.via}.`} data-testid="person-via">{r.person.title || r.person.confirmedBy?.length ? ' · ' : ''}via {r.person.via}</span> : null}
                 </span>
               ) : null}
             </>

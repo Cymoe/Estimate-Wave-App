@@ -44,6 +44,8 @@ export type Person = {
   source: string;
   /** Other free sources that named the same person. */
   confirmedBy?: string[];
+  /** Where the person was filed, when not on the owner itself: a sister company of the same family. */
+  via?: string;
 };
 
 export type TraceInput = {
@@ -378,6 +380,9 @@ export function fullTitle(title: string): string {
   return cut ?? titleCase(filed);
 }
 
+/** How many sister companies are read for their people when the owner's own filing lists nobody. */
+const SISTERS_ASKED = 3;
+
 /** The officer titles that run a company, most useful first. */
 const RUNS_IT = [/MANAG/i, /GOVERN/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
 
@@ -421,12 +426,29 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       const zip = input.mailing.zip?.slice(0, 5);
       const entity = same.find((e) => zip && e.mailingAddressZip?.slice(0, 5) === zip) ?? same[0];
       if (!entity?.taxpayerId) return {};
-      const details = await fetchFn(`${base}/franchise-tax/${encodeURIComponent(entity.taxpayerId)}`, { headers });
-      if (!details.ok) throw new Error(`Texas Comptroller: HTTP ${details.status}`);
-      const body = (await details.json()) as { data?: { officerInfo?: unknown[] } };
-      const officers = (asArray(body.data?.officerInfo) as Array<Record<string, unknown>>)
-        .map((o) => ({ name: str(o.AGNT_NM), title: str(o.AGNT_TITL_TX), street: str(o.AD_STR_POB_TX), city: str(o.CITY_NM), state: str(o.ST_CD), zip: str(o.AD_ZP) }))
-        .filter((o): o is typeof o & { name: string } => Boolean(o.name) && !/\b(LLC|L L C|INC|LTD|LP|CORP|COMPANY|TRUST)\b/i.test(o.name!));
+      const officersOf = async (taxpayerId: string) => {
+        const details = await fetchFn(`${base}/franchise-tax/${encodeURIComponent(taxpayerId)}`, { headers });
+        if (!details.ok) throw new Error(`Texas Comptroller: HTTP ${details.status}`);
+        const body = (await details.json()) as { data?: { officerInfo?: unknown[] } };
+        return (asArray(body.data?.officerInfo) as Array<Record<string, unknown>>)
+          .map((o) => ({ name: str(o.AGNT_NM), title: str(o.AGNT_TITL_TX), street: str(o.AD_STR_POB_TX), city: str(o.CITY_NM), state: str(o.ST_CD), zip: str(o.AD_ZP) }))
+          .filter((o): o is typeof o & { name: string } => Boolean(o.name) && !/\b(LLC|L L C|INC|LTD|LP|CORP|COMPANY|TRUST)\b/i.test(o.name!));
+      };
+      let officers = await officersOf(entity.taxpayerId);
+      let via: string | undefined;
+      // A fund's property companies are filed as one family ("KOSF II - MIDLAND, LLC", "KOSF II - SAN ANGELO, LLC"), and
+      // the one that owns here may list nobody: the people a sister company lists run it too, and say where they're from.
+      const family = entity.name?.match(/^(.+?)\s+-\s+\S/)?.[1];
+      if (officers.length === 0 && family) {
+        const sisters = (await search(family)).filter((e) => e.taxpayerId && e.taxpayerId !== entity.taxpayerId && e.name?.toUpperCase().startsWith(`${family.toUpperCase()} - `));
+        for (const sister of sisters.slice(0, SISTERS_ASKED)) {
+          officers = await officersOf(sister.taxpayerId!);
+          if (officers.length > 0) {
+            via = sister.name!;
+            break;
+          }
+        }
+      }
       if (officers.length === 0) return {};
       const rank = (title?: string) => {
         const i = RUNS_IT.findIndex((re) => title && re.test(title));
@@ -440,6 +462,7 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
           title: best.title ? fullTitle(best.title) : undefined,
           address: address || undefined,
           source: "tx-comptroller",
+          ...(via ? { via } : {}),
         },
       };
     },
@@ -1168,7 +1191,7 @@ export function samePerson(a: Pick<Person, "name">, b: Pick<Person, "name">): bo
 
 /** What a hit says in the ledger: the person's name and title, or how many numbers or addresses. */
 const hitNote = (field: Field, found: Found) => {
-  if (field === "person") return `${found.person!.name}${found.person!.title ? `, ${found.person!.title}` : ""}`;
+  if (field === "person") return `${found.person!.name}${found.person!.title ? `, ${found.person!.title}` : ""}${found.person!.via ? ` (filed on ${found.person!.via})` : ""}`;
   const n = field === "phone" ? rankPhones(found.phones!).length : dedupeEmails(found.emails!).length;
   const what = field === "phone" ? "number" : "email";
   return `${n} ${what}${n === 1 ? "" : "s"}`;
