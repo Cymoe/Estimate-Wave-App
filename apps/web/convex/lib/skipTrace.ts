@@ -81,6 +81,8 @@ export type Vendor = {
   applies?: (input: TraceInput) => string | undefined;
   /** Only ever a second step, working from what another source found (an email); it doesn't make a field "connected" on its own. */
   followUp?: boolean;
+  /** A paid source still asked in practice mode (no phone source yet): the owner chose to pay for it there too. */
+  practiceOk?: boolean;
   trace: (input: TraceInput) => Promise<Found>;
 };
 
@@ -89,6 +91,8 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** How long one call to a source may take before it counts as an error and the next source gets its turn. */
 export const CALL_TIMEOUT_MS = 20_000;
+/** A source that reads a registry live (OpenSOSData) takes minutes; it says to allow five. */
+export const SLOW_CALL_TIMEOUT_MS = 300_000;
 /** The longest a source's "retry after" is honored. */
 const RETRY_WAIT_AT_MOST_MS = 5_000;
 /** Answers worth one more try: rate limits and the server's own trouble. */
@@ -171,6 +175,8 @@ export const PACED_HOSTS: Record<string, { source: string; gapMs: (env: Record<s
   // now and then: one search every second and a half, everywhere.
   "api.comptroller.texas.gov": { source: "tx-comptroller", gapMs: (env) => (env.TX_COMPTROLLER_GAP_MS ? Math.max(0, Number(env.TX_COMPTROLLER_GAP_MS) || 0) : 1500) },
   // The state's open data site cuts off a quick run of searches from one place: one a second.
+  // OpenSOSData allows 10 a minute on its plan: one every 6 seconds, everywhere.
+  "api.opensosdata.com": { source: "opensosdata", gapMs: () => 6000 },
   "data.texas.gov": { source: "tx-open-data", gapMs: (env) => (env.TX_COMPTROLLER_GAP_MS ? Math.max(0, Number(env.TX_COMPTROLLER_GAP_MS) || 0) : 1000) },
 };
 
@@ -709,6 +715,64 @@ export function cobaltSos(key: string | undefined, fetchFn: Fetch = fetch, base 
   };
 }
 
+/** An agent company that files for others ("CT CORPORATION SYSTEM", "NORTHWEST REGISTERED AGENT"): never a decision maker. */
+const AGENT_COMPANY = /REGISTERED AGENT|AGENT SERVICE|AGENTS? INC|CORPORATE CREATIONS|INCORP SERVICES|CORPORATION SERVICE|COGENCY|NATIONAL REGISTERED/i;
+/** "LINDER, HARVEY R." as filed: "Harvey R. Linder". */
+const personName = (name: string) => {
+  const [last, first] = name.split(/\s*,\s*/);
+  return titleCase(first && !/\b(JR|SR|II|III|IV)\b\.?$/i.test(first) ? `${first} ${last}` : name);
+};
+/** A registered agent who is a person, in an officer's place when nobody else is filed: maybe the owner, maybe their lawyer. */
+export const agentAsPerson = (name?: string) => (name && !isCompanyName(name) && !ENTITY.test(name) && !AGENT_COMPANY.test(name) && !NOT_A_NAME.test(name) ? personName(name) : undefined);
+
+/**
+ * OpenSOSData: the state's own business registry, read live, for any state. POST /v1/lookup with the company's name
+ * and a state; the filed name, officers where the state lists them, and the registered agent. Slow (up to a few
+ * minutes) and paid per lookup (charged by OpenSOSData, not from the company's balance). Asked only once the free
+ * sources have named nobody, and, by the owner's choice, in practice mode too. The state asked is the one the mail
+ * goes to when that's outside Texas, else Texas; a foreign address isn't asked about.
+ */
+export function openSosData(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.opensosdata.com"): Vendor {
+  type Officer = { name?: string; title?: string };
+  type Body = { success?: boolean; total_results?: number; error?: string; message?: string; data?: { entityName?: string; officers?: Officer[]; registeredAgentName?: string; registeredAgentCity?: string; registeredAgentState?: string; principalCity?: string; principalState?: string; jurisdiction?: string } };
+  const stateOf = (input: TraceInput) => {
+    const code = (input.mailing.state ?? "TX").toUpperCase().trim().slice(0, 2);
+    return STATE_NAMES[code] ? code : undefined;
+  };
+  return {
+    name: "opensosdata",
+    fields: ["person"],
+    connected: Boolean(key),
+    authority: 2,
+    practiceOk: true,
+    applies: (input) => (!input.company ? "Not a company" : stateOf(input) ? undefined : "The mail goes outside the US"),
+    trace: async (input) => {
+      const state = stateOf(input);
+      if (!input.company || !state) return {};
+      const name = input.company.replace(/[<>]/g, "").trim();
+      const response = await fetchFn(`${base}/v1/lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "x-api-key": key ?? "" },
+        body: JSON.stringify({ entity_name: name, state }),
+      });
+      if (response.status === 402) throw new Error("OpenSOSData: out of credit (add funds on opensosdata.com)");
+      if (response.status === 404) return {};
+      if (!response.ok) throw new Error(`OpenSOSData: HTTP ${response.status}`);
+      const body = (await response.json()) as Body;
+      const data = body.data;
+      // Only the same company: the registry's nearest name is another one more often than not.
+      if (!body.success || !data?.entityName || plainName(data.entityName) !== plainName(name)) return {};
+      const officers = (asArray(data.officers) as Officer[]).filter((o): o is Officer & { name: string } => Boolean(o.name) && !isCompanyName(o.name!) && !ENTITY.test(o.name!) && !NOT_A_NAME.test(o.name!));
+      const best = [...officers].sort((a, b) => rankOf(a.title) - rankOf(b.title))[0];
+      const agent = agentAsPerson(data.registeredAgentName);
+      const where = (city?: string, st?: string) => [city, st].filter(Boolean).join(", ") || undefined;
+      if (best) return { person: { name: personName(best.name), title: best.title ? fullTitle(best.title) : undefined, address: where(data.principalCity, data.principalState), source: "opensosdata" } };
+      if (agent) return { person: { name: agent, title: "Registered agent", address: where(data.registeredAgentCity, data.registeredAgentState), source: "opensosdata" } };
+      return {};
+    },
+  };
+}
+
 /**
  * EnformionGO (Endato): POST /Contact/Enrich with a name and an address
  * answers with the best-matching person's phones (typed, with whether the
@@ -886,9 +950,14 @@ export function leadMagicMobile(key: string | undefined, fetchFn: Fetch = fetch,
  * paid registry; the skip traces by price, then the mobile finder that
  * works from an email; a work-email finder last.
  */
-export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): Vendor[] {
+/** The OpenSOSData key, under the name the owner saved it ("Sosdata") or a conventional one. */
+export const sosDataKey = (env: Record<string, string | undefined>) => env.Sosdata || env.SOSDATA_API_KEY || env.OPENSOSDATA_API_KEY || undefined;
+
+/** slowFetch: for a source that can take minutes to answer (OpenSOSData reads a state's site live). */
+export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch = guarded(), slowFetch: Fetch = guarded(fetch, SLOW_CALL_TIMEOUT_MS)): Vendor[] {
   return [
     comptrollerTexas(env.TX_COMPTROLLER_API_KEY, fetchFn),
+    openSosData(sosDataKey(env), slowFetch),
     cobaltSos(env.COBALT_API_KEY, fetchFn, env.COBALT_API_BASE || undefined),
     batchData(env.BATCHDATA_API_KEY, fetchFn),
     tracerfy(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_API_BASE || undefined),
@@ -1344,7 +1413,7 @@ export function applyEmailCheck(emails: Email[], address: string, check: EmailCh
 
 /** The keys a field's sources need, for the "not connected" note. */
 export const KEY_FOR: Record<Field, string> = {
-  person: "TX_COMPTROLLER_API_KEY or COBALT_API_KEY",
+  person: "TX_COMPTROLLER_API_KEY, Sosdata (OpenSOSData) or COBALT_API_KEY",
   phone: "BATCHDATA_API_KEY, TRACERFY_API_KEY or ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD",
   email: "BATCHDATA_API_KEY, TRACERFY_API_KEY, ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD, HUNTER_API_KEY or LEADMAGIC_API_KEY",
   research: "ANTHROPIC_API_KEY",

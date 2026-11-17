@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, PRACTICE_SKIP, applyEmailCheck, BUSY_RETRY_MS, isBusy, sourceFetch, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type TraceInput, type Try, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, PRACTICE_SKIP, applyEmailCheck, BUSY_RETRY_MS, SLOW_CALL_TIMEOUT_MS, isBusy, sourceFetch, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type TraceInput, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 import { districtOwnerNow, sameOwnerName } from "./lib/district";
 import { displayName } from "./lib/outreach";
@@ -18,7 +18,10 @@ import { sampleFor, sampleIndex, sampleStack } from "./lib/outreachSample";
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[]; attempt?: number };
 
 /** The sources' fetch: calls to a rate-limited source (the Comptroller) wait their turn in one line shared by every lookup. */
-const sourcesFetch = (ctx: ActionCtx) => sourceFetch((source, gapMs) => ctx.runMutation(internal.outreach.paceSlot, { source, gapMs }), process.env);
+const reserveSlot = (ctx: ActionCtx) => (source: string, gapMs: number) => ctx.runMutation(internal.outreach.paceSlot, { source, gapMs });
+const sourcesFetch = (ctx: ActionCtx) => sourceFetch(reserveSlot(ctx), process.env);
+/** For a source that reads a registry live and can take minutes (OpenSOSData). */
+const slowSourcesFetch = (ctx: ActionCtx) => sourceFetch(reserveSlot(ctx), process.env, fetch, { timeoutMs: SLOW_CALL_TIMEOUT_MS });
 
 /**
  * The person wasn't found because a source said "slow down": the lookup goes back in the queue to try again in a few
@@ -85,7 +88,7 @@ async function run(ctx: ActionCtx, { contactId, fields, attempt = 0 }: TraceArgs
   if (input.sample) return await runSample(ctx, contactId, input, wanted, false);
   const own = await ownRecords(ctx, input, wanted);
   if (simulate) return await runPractice(ctx, contactId, input, wanted, own, attempt);
-  const external = vendors(process.env, sourcesFetch(ctx));
+  const external = vendors(process.env, sourcesFetch(ctx), slowSourcesFetch(ctx));
   const stack = [...own, ...external];
   // Our own records always get their turn; "not connected" is about the outside sources.
   const none = (field: Field) => !external.some((s) => standsAlone(s, field));
@@ -263,9 +266,9 @@ async function runPractice(ctx: ActionCtx, contactId: TraceArgs["contactId"], in
   let person = input.person;
   let nobody = false;
   if (wanted.includes("person")) {
-    const free = vendors(process.env, sourcesFetch(ctx))
+    const free = vendors(process.env, sourcesFetch(ctx), slowSourcesFetch(ctx))
       .filter((v) => v.fields.includes("person"))
-      .map((v): Vendor => (v.connected && !v.free ? { ...v, applies: () => PRACTICE_SKIP } : v));
+      .map((v): Vendor => (v.connected && !v.free && !v.practiceOk ? { ...v, applies: () => PRACTICE_SKIP } : v));
     const progress: Progress = async (field, tries, asking) => {
       await ctx.runMutation(internal.outreach.noteProgress, { contactId, field, asking, tries });
     };

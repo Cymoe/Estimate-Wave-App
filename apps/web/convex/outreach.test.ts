@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, openSosData, agentAsPerson, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -861,6 +861,50 @@ describe("the Comptroller's filing for a company", () => {
   });
 });
 
+describe("OpenSOSData, the state registries read live", () => {
+  const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+  const answer = (data: Record<string, unknown>) => json({ success: true, total_results: 1, cost: 0.1, data });
+
+  test("asks the state the mail goes to, takes an officer who is a person, and only for the same company", async () => {
+    const asked: Array<{ entity_name: string; state: string }> = [];
+    const fetchFn = vi.fn(async (_url: string, init?: RequestInit) => {
+      asked.push(JSON.parse(String(init?.body)));
+      return answer({ entityName: "SUNRISE STORAGE, L.L.C.", officers: [{ name: "SUNRISE HOLDINGS LLC", title: "MEMBER" }, { name: "MARIA LOPEZ", title: "MANAGING M" }], registeredAgentName: "NORTHWEST REGISTERED AGENT LLC", principalCity: "Boise", principalState: "ID" });
+    }) as unknown as typeof fetch;
+    const found = await openSosData("sos-key", fetchFn).trace({ name: "SUNRISE STORAGE LLC", company: "SUNRISE STORAGE LLC", mailing: { state: "ID" } });
+    expect(asked).toEqual([{ entity_name: "SUNRISE STORAGE LLC", state: "ID" }]);
+    expect(found.person).toMatchObject({ name: "Maria Lopez", title: "Managing Member", address: "Boise, ID", source: "opensosdata" });
+  });
+
+  test("with no officer who is a person, a registered agent who is a person is taken, labelled; an agent company never", async () => {
+    const reply = (agent: string) => vi.fn(async () => answer({ entityName: "THE SUMMIT OFFICE BUILDING, LLC", officers: [], registeredAgentName: agent, registeredAgentCity: "Atlanta", registeredAgentState: "GA" })) as unknown as typeof fetch;
+    const input = { name: "SUMMIT OFFICE BUILDING LLC", company: "SUMMIT OFFICE BUILDING LLC", mailing: { state: "GA" } };
+    expect((await openSosData("k", reply("Linder, Harvey R.")).trace(input)).person).toMatchObject({ name: "Harvey R. Linder", title: "Registered agent", address: "Atlanta, GA" });
+    expect(await openSosData("k", reply("CT CORPORATION SYSTEM")).trace(input)).toEqual({});
+    expect(await openSosData("k", reply("REGISTERED AGENTS INC.")).trace(input)).toEqual({});
+    expect(agentAsPerson("BRANDON MCCLAIN")).toBe("Brandon Mcclain");
+    expect(agentAsPerson("CORPORATION SERVICE COMPANY")).toBeUndefined();
+  });
+
+  test("its key is read under the name it was saved with, and it's the one paid source asked in practice mode", () => {
+    const stack = vendors({ Sosdata: "sos-key", COBALT_API_KEY: "cobalt-key" });
+    const sos = stack.find((v) => v.name === "opensosdata")!;
+    expect(sos.connected).toBe(true);
+    expect(sos.practiceOk).toBe(true);
+    expect(stack.find((v) => v.name === "cobalt")!.practiceOk).toBeUndefined();
+    // After the Texas filings, before Cobalt.
+    expect(stack.map((v) => v.name).slice(0, 3)).toEqual(["tx-comptroller", "opensosdata", "cobalt"]);
+  });
+
+  test("another company's name, a foreign address, and running out of credit", async () => {
+    const other = vi.fn(async () => answer({ entityName: "SUMMIT OFFICE PARTNERS LLC", officers: [{ name: "JOE SMITH", title: "MEMBER" }] })) as unknown as typeof fetch;
+    expect(await openSosData("k", other).trace({ name: "SUMMIT OFFICE BUILDING LLC", company: "SUMMIT OFFICE BUILDING LLC", mailing: { state: "GA" } })).toEqual({});
+    expect(openSosData("k").applies!({ name: "NUKA HIVA ALPHA 1-54 LLC", company: "NUKA HIVA ALPHA 1-54 LLC", mailing: { state: "BC" } })).toBe("The mail goes outside the US");
+    const broke = vi.fn(async () => json({ success: false, error: "Insufficient balance" }, 402)) as unknown as typeof fetch;
+    await expect(openSosData("k", broke).trace({ name: "A LLC", company: "A LLC", mailing: { state: "GA" } })).rejects.toThrow(/out of credit/);
+  });
+});
+
 describe("officer titles as the Comptroller files them", () => {
   test("a title cut at ten letters is spelled out; a full one or one not on the list is kept as filed", () => {
     expect(fullTitle("MANAGING M")).toBe("Managing Member");
@@ -1372,7 +1416,7 @@ describe("a company's lists", () => {
     vi.stubEnv("BATCHDATA_API_KEY", "");
     await t.finishAllScheduledFunctions(() => {});
     const noKey = (await read()).rows.find((r) => r.id === oak.id)!;
-    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }] });
+    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "skipped", note: "Not connected" }, { source: "opensosdata", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }] });
 
     // With keys: the Comptroller names Oak Plaza's manager, BatchData finds her phones and an email; the city gets nothing.
     await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
@@ -1451,7 +1495,7 @@ describe("a company's lists", () => {
       email: { status: "found", source: "batchdata" },
     });
     // The ledger for the sheet: every source's turn, in order; Tracerfy isn't connected in this test.
-    expect(oakNow.enrichment.person.tries).toEqual([{ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "hit", note: "Dana Reyes, Manager" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
+    expect(oakNow.enrichment.person.tries).toEqual([{ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "hit", note: "Dana Reyes, Manager" }, { source: "opensosdata", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
     expect(oakNow.enrichment.phone.tries).toEqual([
       { source: "permits", outcome: "skipped", note: "No permits at the property" },
       { source: "batchdata", outcome: "hit", note: "3 numbers" },
@@ -1490,7 +1534,7 @@ describe("a company's lists", () => {
     const cityNow = traced.rows.find((r) => r.id === cityHall.id)!;
     // The state has no entity called City Of Midland, and BatchData has nothing for it: three free misses.
     expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
-    expect(cityNow.enrichment.person.tries).toEqual([{ source: "roll", outcome: "skipped", note: "No home owned by a person at the mailing address" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "miss", note: "No match" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
+    expect(cityNow.enrichment.person.tries).toEqual([{ source: "roll", outcome: "skipped", note: "No home owned by a person at the mailing address" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "miss", note: "No match" }, { source: "opensosdata", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
     expect(cityNow.phones).toEqual([]);
     expect(traced.balanceCents).toBe(150);
     expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 }, research: { found: 0, total: 2, sources: 0 } });
@@ -1527,6 +1571,7 @@ describe("a company's lists", () => {
       ["roll", true, [["person", 0, 0, 0]]],
       ["permits", true, [["person", 0, 0, 0], ["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["tx-comptroller", true, [["person", 1, 1, 0]]],
+      ["opensosdata", false, [["person", 0, 0, 0]]],
       ["cobalt", false, [["person", 0, 0, 0]]],
       ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
@@ -2196,7 +2241,7 @@ describe("a company's lists", () => {
     const row = after.rows.find((r) => r.id === real.id)!;
     // The person behind the company is looked up for real, from the free sources: with no Comptroller key, our own
     // records alone, and nobody is made up. Every source still gets its turn in the real order.
-    expect(row.enrichment.person.tries!.map((x) => x.source)).toEqual(["roll", "permits", "tx-comptroller", "cobalt"]);
+    expect(row.enrichment.person.tries!.map((x) => x.source)).toEqual(["roll", "permits", "tx-comptroller", "opensosdata", "cobalt"]);
     expect(row.enrichment.person.tries!.find((x) => x.source === "tx-comptroller")).toMatchObject({ outcome: "skipped", note: "Not connected" });
     expect(row.enrichment.person.simulated).toBeUndefined();
     expect(row.enrichment.person.status).toBe("none");
@@ -2993,6 +3038,7 @@ describe("a company's lists", () => {
       // Free, so still asked to confirm; nothing at the property to ask.
       { source: "permits", outcome: "skipped", note: "No permits at the property" },
       { source: "tx-comptroller", outcome: "skipped", note: "Not connected" },
+      { source: "opensosdata", outcome: "skipped", note: "Not connected" },
       { source: "cobalt", outcome: "skipped", note: "Not connected" },
     ]);
     const oakNow = after.rows.find((r) => r.id === oak.id)!;
@@ -4031,7 +4077,7 @@ describe("the wider stack", () => {
     expect(leadMagicMobile(undefined).connected).toBe(false);
     // In the stack after EnformionGO, and a follow-up: with only its key set, the phone has no source of its own.
     const stack = vendors({ LEADMAGIC_API_KEY: "lm-key" });
-    expect(stack.map((v) => v.name)).toEqual(["tx-comptroller", "cobalt", "batchdata", "tracerfy", "enformion", "leadmagic-mobile", "hunter", "leadmagic"]);
+    expect(stack.map((v) => v.name)).toEqual(["tx-comptroller", "opensosdata", "cobalt", "batchdata", "tracerfy", "enformion", "leadmagic-mobile", "hunter", "leadmagic"]);
     expect(stack.filter((v) => standsAlone(v, "phone")).map((v) => v.name)).toEqual([]);
     expect(stack.filter((v) => standsAlone(v, "email")).map((v) => v.name)).toEqual(["leadmagic"]);
     expect(vendors({ LEADMAGIC_API_KEY: "lm-key", BATCHDATA_API_KEY: "bd" }).filter((v) => standsAlone(v, "phone")).map((v) => v.name)).toEqual(["batchdata"]);
