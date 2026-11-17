@@ -2914,6 +2914,48 @@ export const lookUpPhones = internalMutation({
 });
 
 /**
+ * Looks up a saved list's owners for real: the decision maker (for a company), then the phone and email, for each whose
+ * results aren't real finds yet, through the queue like any lookup. Lists are found by what they're of (`who`, e.g.
+ * "commercial_seller"). Charged to nobody's Outreach balance (no one asked in the app; the sources bill their own
+ * accounts). `dryRun` only counts. `npx convex run outreach:lookUpList '{"who":"commercial_seller","limit":20}'`.
+ */
+export const lookUpList = internalMutation({
+  args: { who: v.string(), limit: v.optional(v.number()), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { who, limit = 500, dryRun = false }) => {
+    const now = nowIso();
+    const asked: string[] = [];
+    for (const org of await ctx.db.query("organizations").take(50)) {
+      const lists = (await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", org._id)).collect()).filter((l) => l.definition.who === who);
+      if (!lists.length) continue;
+      const ids = new Set(lists.map((l) => l._id as string));
+      const contacts = (await contactsOf(ctx, org._id)).filter((c) => c.listIds.some((id) => ids.has(id)));
+      for (const c of contacts) {
+        if (asked.length >= limit) break;
+        if (isSampleRun(c)) continue;
+        const cells = cellsOf(c);
+        const real = (f: "person" | "phone" | "email") => {
+          const cell = cellFor(cells, f);
+          return cell.status === "running" || (cell.status === "found" && !cell.simulated) || (cell.status === "none" && !cell.simulated);
+        };
+        const fields = (["person", "phone", "email"] as const).filter((f) => !(f === "person" && !isCompany(c)) && !real(f));
+        if (!fields.length) continue;
+        const covered = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).length > 0;
+        if (covered) continue;
+        asked.push(c.name);
+        if (dryRun) continue;
+        const next = { ...cells };
+        for (const f of fields) next[f] = { status: "running", at: now };
+        await ctx.db.patch(c._id, { enrichment: next, updatedAt: now });
+        await clearProgress(ctx, c._id, [...fields]);
+        await ctx.db.insert("outreachQueue", { organizationId: org._id, contactId: c._id, fields: [...fields], at: now, notBefore: Date.now(), state: "queued", free: true });
+      }
+    }
+    if (asked.length && !dryRun) await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
+    return { asked: asked.length, dryRun, names: asked.slice(0, 60) };
+  },
+});
+
+/**
  * Clears what practice mode and the sample filler made up, once real sources are connected: a cell marked simulated, a
  * sample-run owner's results, numbers in the 555-01xx range and addresses at example.com go back to locked, and the
  * phones, emails, person or research behind them with them. A real result in another field of the same owner stays.
@@ -3150,6 +3192,7 @@ export const contactForTrace = internalQuery({
       person: madeUp ? undefined : c.person,
       ...(c.property ? { property: { address: c.property.address, city: cityOf(await countyOfOwner(ctx, c)), state: "TX", zip: undefined as string | undefined } } : {}),
       mailing: c.mailing,
+      ...(c.key.startsWith("seller:") ? { seller: true } : {}),
       // Addresses already on the contact: the mobile finder keys off one.
       emails: (c.emails ?? []).map((e) => e.email),
       fields,

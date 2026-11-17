@@ -58,6 +58,8 @@ export type TraceInput = {
   /** Absent when the owner owns nothing here (a realtor): sources that trace from an address skip. */
   property?: { address: string; city: string; state: string; zip?: string };
   mailing: { address?: string; city?: string; state?: string; zip?: string };
+  /** A past owner (a recent sellers' list): the property is the one they sold, so they're looked for where their mail goes. */
+  seller?: boolean;
   /** Addresses already on the contact or found earlier in this lookup: a mobile finder keys off one. */
   emails?: string[];
 };
@@ -359,6 +361,12 @@ export function streetAddress(line: string | undefined): { address: string; city
   return { address: street, city, state, ...(zip ? { zip } : {}) };
 }
 
+/** A mailing address that is a street one (not a PO box), in parts. */
+export function mailingStreet(m: TraceInput["mailing"]): { address: string; city: string; state: string; zip?: string } | undefined {
+  if (!m.address || !m.city || !m.state || !/^\d/.test(m.address.trim()) || /\b(P\.?\s?O\.?\s?BOX|BOX)\b/i.test(m.address)) return undefined;
+  return { address: m.address.trim(), city: m.city, state: m.state, ...(m.zip ? { zip: m.zip.slice(0, 5) } : {}) };
+}
+
 /**
  * Tracerfy's instant lookup: one address, the person to find when we know
  * one (the Comptroller's officer, or the roll's personal name), else the
@@ -369,7 +377,10 @@ export function streetAddress(line: string | undefined): { address: string; city
 export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base = "https://tracerfy.com/v1/api"): Vendor {
   // A company's decision maker is looked for where they live or work, as the state's filings give it, rather than at a
   // building the company owns: nobody lives at a strip center. The property when the filings give no street address.
-  const where = (input: TraceInput) => (input.person ? streetAddress(input.person.address) : undefined) ?? input.property;
+  // A past owner who's a person is looked for at their own mailing address when it's a street one: where they live, not
+  // the building they sold.
+  const where = (input: TraceInput) =>
+    (input.person ? streetAddress(input.person.address) : undefined) ?? (input.seller && !input.company && !input.person ? mailingStreet(input.mailing) : undefined) ?? input.property;
   return {
     name: "tracerfy",
     fields: ["phone", "email"],

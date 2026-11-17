@@ -1048,3 +1048,56 @@ export const soldBy = internalAction({
     return out;
   },
 });
+
+// ---- Spot-checking the recent sellers' lists against the district's live pages ----
+
+const SELLER_LISTS = { commercial_seller: "commercial", multifamily_seller: "multifamily", home_seller: "home" } as const;
+
+/** A few sellers from each recent sellers' list (every 10th of the newest 40), with their newest sale of that kind and its parcel. */
+export const sellersToCheck = internalQuery({
+  args: { perList: v.number() },
+  handler: async (ctx, { perList }) => {
+    const out: Array<{ list: string; seller: string; address: string; to: string; date?: string; cadId: string; ownerToday: string }> = [];
+    for (const [facet, kind] of Object.entries(SELLER_LISTS)) {
+      const rows = await ctx.db
+        .query("ownerFacets")
+        .withIndex("by_facet_and_sort", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("facet", facet))
+        .order("desc")
+        .take(perList * 10);
+      for (const f of rows.filter((_, i) => i % 10 === 0)) {
+        const o = await ctx.db.get(f.ownerId);
+        const sale = o?.sales?.find((s) => s.kind === kind);
+        const p = sale ? await ctx.db.get(sale.parcelId as Doc<"parcels">["_id"]) : null;
+        if (!o || !sale || !p) continue;
+        out.push({ list: facet, seller: o.name, address: sale.address, to: sale.to, date: sale.date, cadId: p.cadId, ownerToday: p.owner });
+      }
+    }
+    return out;
+  },
+});
+
+/**
+ * Reads the live district page of each spot-checked sale and says whether it agrees: a deed row whose seller is the
+ * same name on the same date. A refusal stops it. Saves nothing. `npx convex run parcels:checkSellers '{}'`.
+ */
+export const checkSellers = internalAction({
+  args: { perList: v.optional(v.number()) },
+  handler: async (ctx, { perList = 4 }) => {
+    const picks: Array<{ list: string; seller: string; address: string; to: string; date?: string; cadId: string; ownerToday: string }> = await ctx.runQuery(internal.parcels.sellersToCheck, { perList });
+    const results: Array<Record<string, unknown>> = [];
+    for (const pick of picks) {
+      const page = await deedPage(pick.cadId);
+      if ("refused" in page) return { stopped: page.refused, results };
+      if ("none" in page) {
+        results.push({ ...pick, match: false, why: page.none });
+      } else {
+        const i = page.deeds.findIndex((d) => sameOwnerName({ owner: d.seller }, pick.seller) && d.date === pick.date);
+        const live = page.deeds.map((d) => `${d.seller}${d.date ? ` (${d.date})` : ""}`);
+        results.push({ ...pick, match: i >= 0, buyerLive: i === 0 ? pick.ownerToday : i > 0 ? page.deeds[i - 1].seller : undefined, live });
+      }
+      if (DEED_PACE.waitMs) await new Promise((r) => setTimeout(r, DEED_PACE.waitMs));
+    }
+    const byList = Object.fromEntries(Object.keys(SELLER_LISTS).map((l) => [l, `${results.filter((r) => r.list === l && r.match).length} of ${results.filter((r) => r.list === l).length}`]));
+    return { byList, results };
+  },
+});

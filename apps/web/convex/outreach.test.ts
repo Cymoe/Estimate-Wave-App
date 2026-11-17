@@ -2703,9 +2703,49 @@ describe("a company's lists", () => {
       { address: "4113 RADCLIFF CT", city: "MIDLAND", state: "TX", zip: "79707", find_owner: false, first_name: "Shafik", last_name: "Tejani" },
       { address: "105 N Fort Worth St", city: "Midland", state: "TX", find_owner: false, first_name: "David", last_name: "Tomlin" },
     ]);
+    // A person with no decision maker (a past owner who sold): at their own mailing street address, not the building sold.
+    await tf.trace({ ...base, company: false, seller: true, name: "Garcia Rosa", mailing: { address: "77 ELM ST", city: "MIDLAND", state: "TX", zip: "79705-1234" } } as TraceInput);
+    expect(asked[2]).toMatchObject({ address: "77 ELM ST", city: "MIDLAND", state: "TX", zip: "79705" });
+    // A PO box is no place to find someone: the building, as before.
+    await tf.trace({ ...base, company: false, seller: true, name: "Garcia Rosa", mailing: { address: "PO BOX 5", city: "MIDLAND", state: "TX" } } as TraceInput);
+    expect(asked[3]).toMatchObject({ address: "105 N Fort Worth St" });
     // No building on file, but the person's own address: still asked.
     expect(tf.applies({ ...base, property: undefined, person: { name: "Shafik Tejani", address: "4113 RADCLIFF CT, MIDLAND, TX, 79707", source: "tx-comptroller" } })).toBeUndefined();
     expect(tf.applies({ ...base, property: undefined })).toBe("No property address on file");
+  });
+
+  test("a saved list's owners are looked up for real by what the list is of: decision maker, phone and email, free", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const rows = await read();
+    expect(rows.length).toBeGreaterThan(1);
+    // The list is of another kind: nothing for it.
+    expect((await t.mutation(internal.outreach.lookUpList, { who: "commercial_seller", dryRun: true })).asked).toBe(0);
+    await t.run(async (ctx) => {
+      const l = (await ctx.db.query("outreachLists").collect())[0];
+      await ctx.db.patch(l._id, { definition: { ...l.definition, who: "commercial_seller" } });
+    });
+    const [done, ...rest] = rows;
+    const at = new Date(NOW - 3600_000).toISOString();
+    // One already looked up for real: left alone.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(done.id as Id<"outreachContacts">, { enrichment: { person: { status: "found", at, source: "tx-comptroller" }, phone: { status: "found", at, source: "tracerfy" }, email: { status: "none", at }, research: { status: "locked" } } } as never);
+    });
+    expect((await t.mutation(internal.outreach.lookUpList, { who: "commercial_seller", dryRun: true })).asked).toBe(rest.length);
+    expect((await t.mutation(internal.outreach.lookUpList, { who: "commercial_seller", limit: 1 })).asked).toBe(1);
+    const queued = await t.run(async (ctx) => ctx.db.query("outreachQueue").collect());
+    expect(queued).toHaveLength(1);
+    expect(queued[0].free).toBe(true);
+    const one = rest.find((r) => r.id === queued[0].contactId)!;
+    expect(queued[0].fields).toEqual(one.company ? ["person", "phone", "email"] : ["phone", "email"]);
+    // Already on its way: not asked twice.
+    expect((await t.mutation(internal.outreach.lookUpList, { who: "commercial_seller", dryRun: true })).asked).toBe(rest.length - 1);
   });
 
   test("the Tracerfy key is read under the name it was saved as, and connecting it ends practice mode", () => {
