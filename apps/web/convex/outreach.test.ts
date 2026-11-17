@@ -2559,7 +2559,30 @@ describe("a company's lists", () => {
         phones: [{ number: "4325550110", type: "mobile", source: "batchdata" }],
       } as never);
     });
+    // The check finds them first, and a lead sent with a copied 555 number; it changes nothing.
+    const userId = await t.run(async (ctx) => (await ctx.db.query("users").first())!._id);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("leads", { organizationId: org, userId, name: "Emerald Sky Capital LTD", phone: "4325550116", email: "real@person.net", status: "new", createdAt: at, updatedAt: at });
+      await ctx.db.insert("leads", { organizationId: org, userId, name: "Example Lead", phone: "4325550101", status: "new", isSample: true, createdAt: at, updatedAt: at });
+    });
+    const before = await t.action(internal.outreach.madeUpCheck, {});
+    expect(before.found).toMatchObject({
+      email: { count: 1, names: [a.name] },
+      research: { count: 1 },
+      person: { count: 1, names: [b.name] },
+      phone: { count: 1, names: [b.name] },
+      "lead phone": { count: 1, names: ["Emerald Sky Capital LTD"] },
+      "example lead": { count: 1, names: ["Example Lead"] },
+    });
+    expect(before.found["lead email"]).toBeUndefined();
     expect(await t.mutation(internal.outreach.clearMadeUp, {})).toMatchObject({ cleared: 2 });
+    // The lead loses only its made-up number; an example lead is the Leads page's own, left to its button.
+    expect(await t.mutation(internal.outreach.clearMadeUpLeads, {})).toMatchObject({ cleared: 1 });
+    const leads = await t.run(async (ctx) => ctx.db.query("leads").collect());
+    expect(leads.find((l) => l.name === "Emerald Sky Capital LTD")).toMatchObject({ email: "real@person.net" });
+    expect(leads.find((l) => l.name === "Emerald Sky Capital LTD")!.phone).toBeUndefined();
+    const after = await t.action(internal.outreach.madeUpCheck, {});
+    expect(after.found).toEqual({ "example lead": { count: 1, names: ["Example Lead"] } });
     const rows = await read();
     const ra = rows.find((r) => r.id === a.id)!;
     expect(ra.person).toMatchObject({ name: "Bailey L Haller" });

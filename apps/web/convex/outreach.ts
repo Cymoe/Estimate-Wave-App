@@ -2858,7 +2858,7 @@ export const lookUpPhones = internalMutation({
         if (person.status !== "found" || person.simulated || !c.person?.name || isCompanyName(c.person.name)) continue;
         const phone = cellFor(cells, "phone");
         // Numbers in the 555-01xx range are made up whatever the cell says (copied from a sister's practice run once).
-        const madeUp = (c.phones ?? []).length > 0 && (c.phones ?? []).every((p) => /^\d{3}55501\d{2}$/.test(p.number.replace(/\D/g, "").slice(-10)));
+        const madeUp = (c.phones ?? []).length > 0 && (c.phones ?? []).every((p) => FAKE_NUMBER(p.number));
         if ((phone.status === "found" && !phone.simulated && !madeUp) || phone.status === "running") continue;
         // After a run cut short (the source's credit ran out): only the lookups that failed, not the ones it already answered.
         if (onlyFailed && phone.status !== "failed") continue;
@@ -2868,7 +2868,7 @@ export const lookUpPhones = internalMutation({
         if (dryRun) continue;
         const email = cellFor(cells, "email");
         // Addresses at example.com are made up too (copied from a sister's practice run once).
-        const fakeEmails = (c.emails ?? []).length > 0 && (c.emails ?? []).every((e) => /@([a-z0-9-]+\.)*example\.(com|org|net)$/i.test(e.email));
+        const fakeEmails = (c.emails ?? []).length > 0 && (c.emails ?? []).every((e) => FAKE_EMAIL(e.email));
         const redoEmail = !(email.status === "found" && !email.simulated && !fakeEmails) && email.status !== "running";
         await ctx.db.patch(c._id, {
           enrichment: { ...cells, phone: { status: "running", at: now }, ...(redoEmail ? { email: { status: "running", at: now } } : {}) },
@@ -2898,18 +2898,9 @@ export const clearMadeUp = internalMutation({
     const now = nowIso();
     let cleared = 0;
     for (const c of page.page) {
-      const cells = cellsOf(c);
-      const sample = isSampleRun(c);
-      const fakePhones = (c.phones ?? []).length > 0 && (c.phones ?? []).every((p) => /^\d{3}55501\d{2}$/.test(p.number.replace(/\D/g, "").slice(-10)));
-      const fakeEmails = (c.emails ?? []).length > 0 && (c.emails ?? []).every((e) => /@([a-z0-9-]+\.)*example\.(com|org|net)$/i.test(e.email));
-      const madeUp = (f: "person" | "phone" | "email" | "research") => {
-        const cell = cellFor(cells, f);
-        if (cell.status === "running" || cell.status === "locked") return false;
-        return sample || Boolean(cell.simulated) || (f === "phone" && fakePhones) || (f === "email" && fakeEmails);
-      };
-      const fields = (["person", "phone", "email", "research"] as const).filter(madeUp);
+      const fields = madeUpFields(c);
       if (!fields.length) continue;
-      const next = { ...cells };
+      const next = { ...cellsOf(c) };
       for (const f of fields) next[f] = LOCKED;
       await ctx.db.patch(c._id, {
         enrichment: next,
@@ -2917,12 +2908,105 @@ export const clearMadeUp = internalMutation({
         ...(fields.includes("phone") ? { phones: undefined } : {}),
         ...(fields.includes("email") ? { emails: undefined } : {}),
         ...(fields.includes("research") ? { research: undefined } : {}),
-        ...(sample ? { note: undefined } : {}),
+        ...(isSampleRun(c) ? { note: undefined } : {}),
         updatedAt: now,
       });
       cleared++;
     }
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.clearMadeUp, { cursor: page.continueCursor });
+    return { checked: page.page.length, cleared, more: !page.isDone };
+  },
+});
+
+/** A number in the 555-01xx range, set aside for made-up use. */
+const FAKE_NUMBER = (n: string) => /^\d{3}55501\d{2}$/.test(n.replace(/\D/g, "").slice(-10));
+/** An address at example.com (or .org, .net), set aside for made-up use. */
+const FAKE_EMAIL = (e: string) => /@([a-z0-9-]+\.)*example\.(com|org|net)$/i.test(e.trim());
+
+/**
+ * The fields of an owner whose results were made up: a cell practice mode simulated, any result of a sample-run owner,
+ * phones all in the 555-01xx range, emails all at example.com. A cell still running or locked has nothing to clear.
+ */
+function madeUpFields(c: Doc<"outreachContacts">): Array<"person" | "phone" | "email" | "research"> {
+  const cells = cellsOf(c);
+  const sample = isSampleRun(c);
+  const fakePhones = (c.phones ?? []).length > 0 && (c.phones ?? []).every((p) => FAKE_NUMBER(p.number));
+  const fakeEmails = (c.emails ?? []).length > 0 && (c.emails ?? []).every((e) => FAKE_EMAIL(e.email));
+  return (["person", "phone", "email", "research"] as const).filter((f) => {
+    const cell = cellFor(cells, f);
+    if (cell.status === "running" || cell.status === "locked") return false;
+    return sample || Boolean(cell.simulated) || (f === "phone" && fakePhones) || (f === "email" && fakeEmails);
+  });
+}
+
+/** One page of the made-up check: owners, or leads. Reads only. */
+export const madeUpPage = internalQuery({
+  args: { table: v.union(v.literal("owners"), v.literal("leads")), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { table, cursor }) => {
+    const found: Record<string, string[]> = {};
+    const note = (kind: string, name: string) => (found[kind] ??= []).push(name);
+    if (table === "owners") {
+      const page = await ctx.db.query("outreachContacts").paginate({ numItems: 500, cursor });
+      for (const c of page.page) {
+        for (const f of madeUpFields(c)) note(f, c.name);
+        if (c.person?.name && isCompanyName(c.person.name) && cellFor(cellsOf(c), "person").status === "found") note("company as person", c.name);
+      }
+      return { read: page.page.length, found, cursor: page.continueCursor, done: page.isDone };
+    }
+    const page = await ctx.db.query("leads").paginate({ numItems: 500, cursor });
+    for (const l of page.page) {
+      // The Leads page's own examples are counted apart: they have their own remove button.
+      if (l.isSample) {
+        note("example lead", l.name);
+        continue;
+      }
+      if (l.phone && FAKE_NUMBER(l.phone)) note("lead phone", l.name);
+      if (l.email && FAKE_EMAIL(l.email)) note("lead email", l.name);
+    }
+    return { read: page.page.length, found, cursor: page.continueCursor, done: page.isDone };
+  },
+});
+
+/**
+ * Checks every Outreach owner and every lead for anything made up (practice mode, the sample filler, 555-01xx numbers,
+ * example.com addresses), and counts the example leads the Leads page added. Changes nothing.
+ * `npx convex run outreach:madeUpCheck '{}'`.
+ */
+export const madeUpCheck = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ owners: number; leads: number; found: Record<string, { count: number; names: string[] }> }> => {
+    const totals: Record<string, string[]> = {};
+    const read = { owners: 0, leads: 0 };
+    for (const table of ["owners", "leads"] as const) {
+      let cursor: string | null = null;
+      for (;;) {
+        const page: { read: number; found: Record<string, string[]>; cursor: string; done: boolean } = await ctx.runQuery(internal.outreach.madeUpPage, { table, cursor });
+        read[table] += page.read;
+        for (const [kind, names] of Object.entries(page.found)) (totals[kind] ??= []).push(...names);
+        if (page.done) break;
+        cursor = page.cursor;
+      }
+    }
+    const found = Object.fromEntries(Object.entries(totals).map(([k, names]) => [k, { count: names.length, names: names.slice(0, 10) }]));
+    return { ...read, found };
+  },
+});
+
+/** Clears a 555-01xx phone or an example.com email on a lead (sent from an owner whose copied results were made up). */
+export const clearMadeUpLeads = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("leads").paginate({ numItems: 300, cursor: cursor ?? null });
+    let cleared = 0;
+    for (const l of page.page) {
+      if (l.isSample) continue;
+      const phone = Boolean(l.phone && FAKE_NUMBER(l.phone));
+      const email = Boolean(l.email && FAKE_EMAIL(l.email));
+      if (!phone && !email) continue;
+      await ctx.db.patch(l._id, { ...(phone ? { phone: undefined } : {}), ...(email ? { email: undefined } : {}) });
+      cleared++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.clearMadeUpLeads, { cursor: page.continueCursor });
     return { checked: page.page.length, cleared, more: !page.isDone };
   },
 });
