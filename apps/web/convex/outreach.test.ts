@@ -7,7 +7,7 @@ import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
-import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
+import { FREE_LOOKUPS, AddressCounter, SellerGrouper, recentDeeds, soldKindOf, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, openSosData, agentAsPerson, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, tracerfyKey, phoneScrub, tracerfy, streetAddress, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
@@ -379,6 +379,82 @@ describe("grouping the roll into owners", () => {
     expect(guessDefinition("who sold a warehouse")?.definition).toEqual({ county: "Midland", who: "industrial_seller" });
     // Today's owners are still today's owners.
     expect(guessDefinition("storage unit owners")?.definition).toEqual({ county: "Midland", who: "storage" });
+  });
+
+  test("who sold a commercial building, apartments or a house lately: each its own list, newest sale first", () => {
+    // The deeds within the window only, newest first, up to the first one older (a deed of unknown date ends it too).
+    expect(recentDeeds([{ seller: "A", date: "2026-03-01" }, { seller: "B", date: "2025-01-10" }, { seller: "C", date: "2019-05-01" }, { seller: "D", date: "2025-06-01" }], "2024-11-05")).toEqual([
+      { seller: "A", date: "2026-03-01" },
+      { seller: "B", date: "2025-01-10" },
+    ]);
+    expect(recentDeeds([{ seller: "A" }, { seller: "B", date: "2026-01-01" }], "2024-11-05")).toEqual([]);
+    expect([soldKindOf("F1"), soldKindOf("F2"), soldKindOf("B2"), soldKindOf("A1"), soldKindOf("D1")]).toEqual(["commercial", "commercial", "multifamily", "home", undefined]);
+
+    const sold = new SellerGrouper().addAll([
+      // A shop sold twice inside the window: each seller to the one after them.
+      { parcelId: "c1", address: "2600 W WALL ST", useCode: "F1", valueCents: 120_000_000, kind: "commercial", owner: "WALL STREET RETAIL LLC", deeds: [{ seller: "PERMIAN SHOPS LP", date: "2026-02-10" }, { seller: "GARCIA ROSA", date: "2025-03-01" }] },
+      { parcelId: "m1", address: "1200 N A ST", useCode: "B2", valueCents: 45_000_000, kind: "multifamily", owner: "A ST APARTMENTS LLC", deeds: [{ seller: "GARCIA ROSA", date: "2025-09-15" }] },
+      { parcelId: "h1", address: "4508 ROSEWOOD DR", useCode: "A1", valueCents: 32_000_000, kind: "home", owner: "NGUYEN TAM", deeds: [{ seller: "SMITH JOHN", date: "2026-05-20" }] },
+      { parcelId: "h2", address: "3300 HUMBLE AV", useCode: "A1", valueCents: 21_000_000, kind: "home", owner: "LOPEZ ANA", deeds: [{ seller: "SMITH JOHN", date: "2025-04-02" }] },
+    ]);
+    const roll = new OwnerGrouper(new Set()).addAll([parcel("r1", { owner: "GARCIA ROSA", mailing: { address: "77 ELM", city: "MIDLAND", state: "TX", zip: "79705" } })]);
+    const rows = sold.grouped((name) => roll.holder(name), NOW);
+    const by = Object.fromEntries(rows.map((r) => [r.owner.name, r]));
+    const on = (name: string) => by[name].facets.map((f) => f.facet).sort();
+
+    // One person, a shop and an apartment building sold: on both lists, reached at the roll's address.
+    const rosa = by["Garcia Rosa"].owner;
+    expect(on("Garcia Rosa")).toEqual(["commercial_seller", "multifamily_seller"]);
+    expect(rosa).toMatchObject({ holds: 1, mailing: { address: "77 ELM" }, commercial: 1, multifamily: 1, sold: { commercial: { count: 1, valueCents: 120_000_000, date: "2025-03-01" }, multifamily: { count: 1, valueCents: 45_000_000, date: "2025-09-15" } } });
+    expect(why(rosa, "commercial_seller")).toBe("Sold the commercial building at 2600 W Wall St to Permian Shops LP, Mar 2025; still owns 1 property in Midland County");
+    expect(why(rosa, "multifamily_seller")).toBe("Sold the apartment building at 1200 N A St to A St Apartments LLC, Sep 2025; still owns 1 property in Midland County");
+    expect(propertyFor(rosa, "multifamily_seller")).toMatchObject({ parcelId: "m1" });
+    expect(on("Permian Shops LP")).toEqual(["commercial_seller"]);
+
+    // Two houses sold: the newest first, and nothing held here now.
+    const john = by["Smith John"].owner;
+    expect(on("Smith John")).toEqual(["home_seller"]);
+    expect(john).toMatchObject({ residential: 2, sold: { home: { count: 2, valueCents: 32_000_000, date: "2026-05-20" } } });
+    expect(why(john, "home_seller")).toBe("Sold 2 houses, the newest at 4508 Rosewood Dr to Nguyen Tam, May 2026; owns nothing in Midland County now");
+    expect(propertyFor(john, "home_seller")).toMatchObject({ parcelId: "h1" });
+
+    // Newest sale first; "sold within" works as on the storage list; titles and plain words.
+    const ranked = rows.filter((r) => r.facets.some((f) => f.facet === "commercial_seller")).sort((a, b) => b.facets.find((f) => f.facet === "commercial_seller")!.sort - a.facets.find((f) => f.facet === "commercial_seller")!.sort);
+    expect(ranked.map((r) => r.owner.name)).toEqual(["Permian Shops LP", "Garcia Rosa"]);
+    const lately = { county: "Midland", who: "commercial_seller" as const, withinDays: 365 };
+    expect(facetFor(lately)).toBe("commercial_seller");
+    expect(matches(rosa, lately, "commercial_seller", NOW)).toBe(false);
+    expect(matches(by["Permian Shops LP"].owner, lately, "commercial_seller", NOW)).toBe(true);
+    expect(listOrder({ county: "Midland", who: "home_seller" }).label).toBe("newest sale first");
+    expect(defaultTitle({ county: "Midland", who: "home_seller" })).toBe("Recent home sellers, Midland");
+    expect(defaultTitle({ county: "Midland", who: "multifamily_seller" })).toBe("Past apartment owners, Midland");
+    expect(guessDefinition("who sold a commercial building")?.definition).toEqual({ county: "Midland", who: "commercial_seller" });
+    expect(guessDefinition("past apartment owners")?.definition).toEqual({ county: "Midland", who: "multifamily_seller" });
+    expect(guessDefinition("people who sold their house")?.definition).toEqual({ county: "Midland", who: "home_seller" });
+    // Today's owners and the storage sellers are untouched.
+    expect(guessDefinition("past storage owners")?.definition).toEqual({ county: "Midland", who: "storage_seller" });
+    expect(guessDefinition("apartment owners")?.definition).toEqual({ county: "Midland", who: "multifamily" });
+  });
+
+  test("the rebuild reads the sales within the window off every kind of parcel", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const ids = await addParcels(t, [
+      parcel("s1", { owner: "WALL STREET RETAIL LLC", useCode: "F1", siteAddress: "2600 W WALL ST", marketValueCents: 120_000_000 }),
+      parcel("s2", { owner: "NGUYEN TAM", useCode: "A1", siteAddress: "4508 ROSEWOOD DR" }),
+      parcel("s3", { owner: "OLD OWNER LLC", useCode: "F1", siteAddress: "10 OLD RD" }),
+    ]);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ids.s1, { deeds: [{ seller: "PERMIAN SHOPS LP", date: "2026-02-10" }, { seller: "GARCIA ROSA", date: "2015-03-01" }] });
+      await ctx.db.patch(ids.s2, { deeds: [{ seller: "SMITH JOHN", date: "2026-05-20" }] });
+      // Sold before the window: not a recent seller.
+      await ctx.db.patch(ids.s3, { deeds: [{ seller: "LONG AGO LLC", date: "2019-01-01" }] });
+    });
+    const page = await t.query(internal.outreach.recentSoldPage, { county: "Midland", since: "2024-11-05" });
+    expect(page.rows.map((r) => [r.address, r.kind, r.deeds.map((d) => d.seller)]).sort()).toEqual([
+      ["2600 W WALL ST", "commercial", ["PERMIAN SHOPS LP"]],
+      ["4508 ROSEWOOD DR", "home", ["SMITH JOHN"]],
+    ]);
   });
 
   test("the words alone pick a list while the assistant is away; a stretch is no guess at all", () => {

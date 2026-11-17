@@ -88,6 +88,8 @@ export type OwnerRow = {
   /** Seller: what they sold, newest first (SALES_KEEP at most), and how many properties they still hold on the roll here. */
   sales?: Sale[];
   holds?: number;
+  /** Seller: of the commercial buildings, apartment buildings and houses they sold within SELLER_YEARS, how many, the most valuable, and the newest sale. */
+  sold?: Partial<Record<RecentSold, { count: number; valueCents: number; date?: string }>>;
   ownerOccupied: boolean;
   outOfState: boolean;
   latestDeed?: string;
@@ -118,8 +120,25 @@ export type OwnerRow = {
 export type BoughtFrom = { name: string; date?: string };
 /** How many sellers a row keeps. */
 export const FROM_KEEP = 4;
-/** A storage or industrial building a past owner sold: where, to whom (with the name on the sign when known), and when. */
-export type Sale = { kind: ParcelKind; parcelId: string; address: string; useCode: string; valueCents?: number; to: string; date?: string };
+/**
+ * What a past owner sold: a storage or industrial building (all of their history), or a commercial building, an
+ * apartment building or a house (sales within SELLER_YEARS).
+ */
+export type SoldKind = ParcelKind | "commercial" | "multifamily" | "home";
+/** The kinds of sale kept only within SELLER_YEARS, each its own list. */
+export const RECENT_SOLD = ["commercial", "multifamily", "home"] as const;
+export type RecentSold = (typeof RECENT_SOLD)[number];
+/** How far back a commercial, apartment or house sale counts. */
+export const SELLER_YEARS = 2;
+/** The kind a parcel's sale is, by the state's use code: a storage or industrial building counts as commercial too. */
+export function soldKindOf(useCode: string): RecentSold | undefined {
+  if (isCommercialUse(useCode)) return "commercial";
+  if (isMultifamilyUse(useCode)) return "multifamily";
+  if (isResidentialUse(useCode)) return "home";
+  return undefined;
+}
+/** A building a past owner sold: where, to whom (with the name on the sign when known), and when. */
+export type Sale = { kind: SoldKind; parcelId: string; address: string; useCode: string; valueCents?: number; to: string; date?: string };
 /** How many sales a past owner's row keeps. */
 export const SALES_KEEP = 8;
 
@@ -135,10 +154,10 @@ export type RealtorLicense = {
   supervisor: boolean;
 };
 
-export const FACETS = ["investor", "builder", "office", "commercial", "portfolio", "multifamily", "storage", "industrial", "homeowner", "absentee", "out_of_state", "buyer", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller"] as const;
+export const FACETS = ["investor", "builder", "office", "commercial", "portfolio", "multifamily", "storage", "industrial", "homeowner", "absentee", "out_of_state", "buyer", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller", "commercial_seller", "multifamily_seller", "home_seller"] as const;
 export type Facet = (typeof FACETS)[number];
 
-export const WHO = ["investor", "builder", "manager", "commercial", "portfolio", "multifamily", "storage", "industrial", "wealthy", "recent_buyer", "absentee", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller", "custom"] as const;
+export const WHO = ["investor", "builder", "manager", "commercial", "portfolio", "multifamily", "storage", "industrial", "wealthy", "recent_buyer", "absentee", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller", "commercial_seller", "multifamily_seller", "home_seller", "custom"] as const;
 export type Who = (typeof WHO)[number];
 
 export type Definition = {
@@ -316,7 +335,7 @@ export const ownersSource = (county: string) => (county === "Midland" ? OWNERS_S
 /** Where the daily records pass (outreachRefresh.ts) records how it went. */
 export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 13;
+export const OWNERS_VERSION = 14;
 /** A build id for the owners table: the instant it started, then a few random characters, so ids sort by time. */
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
@@ -534,6 +553,10 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
     for (const k of ["storage", "industrial"] as const) {
       const at = row[`${k}Deed`];
       if (row[k]) out.push({ facet: `${k}_seller`, sort: at ? Date.parse(`${at}T12:00:00Z`) : 0 });
+    }
+    for (const k of RECENT_SOLD) {
+      const at = row.sold?.[k]?.date;
+      if (row.sold?.[k]) out.push({ facet: `${k}_seller`, sort: at ? Date.parse(`${at}T12:00:00Z`) : 0 });
     }
   } else if (row.kind === "office") {
     out.push({ facet: "office", sort: row.parcels });
@@ -1151,10 +1174,32 @@ export class ContractorGrouper {
   }
 }
 
-// ---- Past owners: who sold a storage or industrial building ----
+// ---- Past owners: who sold a storage or industrial building, or (lately) a commercial building, apartments or a house ----
+
+/** A recent sellers' list. */
+export const isRecentSeller = (facet: Facet): facet is "commercial_seller" | "multifamily_seller" | "home_seller" =>
+  facet === "commercial_seller" || facet === "multifamily_seller" || facet === "home_seller";
+/** The kind of sale a recent sellers' list is about. */
+export const sellerKind = (facet: "commercial_seller" | "multifamily_seller" | "home_seller"): RecentSold =>
+  facet === "commercial_seller" ? "commercial" : facet === "multifamily_seller" ? "multifamily" : "home";
+const SOLD_WORDS: Record<RecentSold, [string, string]> = {
+  commercial: ["commercial building", "commercial buildings"],
+  multifamily: ["apartment building", "apartment buildings"],
+  home: ["house", "houses"],
+};
+
+/** The sales within the window on a parcel's deed history (newest first): the deeds up to the first one older than `since`. */
+export function recentDeeds<T extends { date?: string }>(deeds: T[], since: string): T[] {
+  const out: T[] = [];
+  for (const d of deeds) {
+    if (!d.date || d.date < since) break;
+    out.push(d);
+  }
+  return out;
+}
 
 /** One storage or industrial parcel with the owners before it, as the rebuild reads it (parcels.deeds, newest first). */
-export type CondensedSold = { parcelId: string; address: string; useCode: string; valueCents?: number; kind: ParcelKind; owner: string; deeds: Array<{ seller: string; date?: string }> };
+export type CondensedSold = { parcelId: string; address: string; useCode: string; valueCents?: number; kind: SoldKind; owner: string; deeds: Array<{ seller: string; date?: string }> };
 
 
 /**
@@ -1199,12 +1244,13 @@ export class SellerGrouper {
     const out: GroupedRow[] = [];
     for (const [sk, s] of this.bySeller) {
       const sales = [...s.sales].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.address.localeCompare(b.address));
-      const of = (kind: ParcelKind) => sales.filter((x) => x.kind === kind);
+      const of = (kind: SoldKind) => sales.filter((x) => x.kind === kind);
       const sold = new Map(sales.map((x) => [x.parcelId, x]));
       const holds = holder(s.name);
       const mailing = holds?.mailing ?? {};
       const top = (x: Sale | undefined): Property | undefined => (x ? { parcelId: x.parcelId, address: x.address, useCode: x.useCode, valueCents: x.valueCents } : undefined);
       const [storage, industrial] = [of("storage"), of("industrial")];
+      const recent = RECENT_SOLD.map((k) => [k, of(k)] as const).filter(([, xs]) => xs.length > 0);
       const values = [...sold.values()].map((x) => x.valueCents ?? 0);
       const owner: OwnerRow = {
         key: `seller:${sk}`,
@@ -1213,9 +1259,9 @@ export class SellerGrouper {
         company: isCompanyOwner(s.name),
         mailing,
         parcels: sold.size,
-        residential: 0,
-        multifamily: 0,
-        commercial: sold.size,
+        residential: new Set(sales.filter((x) => x.kind === "home").map((x) => x.parcelId)).size,
+        multifamily: new Set(sales.filter((x) => x.kind === "multifamily").map((x) => x.parcelId)).size,
+        commercial: new Set(sales.filter((x) => x.kind !== "multifamily" && x.kind !== "home").map((x) => x.parcelId)).size,
         totalValueCents: values.reduce((a, b) => a + b, 0),
         maxValueCents: Math.max(0, ...values),
         ...(storage.length ? { storage: new Set(storage.map((x) => x.parcelId)).size, storageValueCents: Math.max(0, ...storage.map((x) => x.valueCents ?? 0)), storageDeed: storage[0].date } : {}),
@@ -1224,7 +1270,15 @@ export class SellerGrouper {
         outOfState: outOfState(mailing),
         useCodes: [...new Set(sales.map((x) => x.useCode))].sort(),
         streets: [],
-        tops: { all: top(sales[0])!, ...(storage.length ? { storage: top(storage[0])! } : {}), ...(industrial.length ? { industrial: top(industrial[0])! } : {}) },
+        tops: {
+          all: top(sales[0])!,
+          ...(storage.length ? { storage: top(storage[0])! } : {}),
+          ...(industrial.length ? { industrial: top(industrial[0])! } : {}),
+          ...Object.fromEntries(recent.map(([k, xs]) => [k, top(xs[0])!])),
+        },
+        ...(recent.length
+          ? { sold: Object.fromEntries(recent.map(([k, xs]) => [k, { count: new Set(xs.map((x) => x.parcelId)).size, valueCents: Math.max(0, ...xs.map((x) => x.valueCents ?? 0)), ...(xs[0].date ? { date: xs[0].date } : {}) }])) }
+          : {}),
         ...(sales[0].date ? { latestAt: sales[0].date } : {}),
         sales: sales.slice(0, SALES_KEEP),
         ...(holds ? { holds: holds.parcels } : {}),
@@ -1366,6 +1420,10 @@ export function facetFor(def: Definition): Facet {
       return "storage_seller";
     case "industrial_seller":
       return "industrial_seller";
+    case "commercial_seller":
+    case "multifamily_seller":
+    case "home_seller":
+      return def.who;
     case "custom": {
       const codes = def.useCodes ?? [];
       if (codes.some((c) => c.startsWith("F"))) return "commercial";
@@ -1405,6 +1463,10 @@ export function facetValue(row: OwnerRow, facet: Facet): number {
     case "industrial":
     case "industrial_seller":
       return row.industrialValueCents ?? 0;
+    case "commercial_seller":
+    case "multifamily_seller":
+    case "home_seller":
+      return row.sold?.[sellerKind(facet)]?.valueCents ?? 0;
     default:
       return row.maxValueCents;
   }
@@ -1412,7 +1474,7 @@ export function facetValue(row: OwnerRow, facet: Facet): number {
 
 /** The property shown for a row on a list: the one the facet is about. */
 export function propertyFor(row: OwnerRow, facet: Facet): Property | undefined {
-  const pick = { homeowner: "home", long_owned: "home", absentee: "rental", out_of_state: "rental", commercial: "commercial", portfolio: "commercial", multifamily: "multifamily", storage: "storage", industrial: "industrial", storage_seller: "storage", industrial_seller: "industrial", violation: "signal", stalled: "signal" } as Partial<Record<Facet, string>>;
+  const pick = { homeowner: "home", long_owned: "home", absentee: "rental", out_of_state: "rental", commercial: "commercial", portfolio: "commercial", multifamily: "multifamily", storage: "storage", industrial: "industrial", storage_seller: "storage", industrial_seller: "industrial", commercial_seller: "commercial", multifamily_seller: "multifamily", home_seller: "home", violation: "signal", stalled: "signal" } as Partial<Record<Facet, string>>;
   return row.tops[pick[facet] ?? "all"] ?? row.tops.all;
 }
 
@@ -1427,6 +1489,7 @@ export function recordDate(row: OwnerRow, facet: Facet): string | undefined {
   // A past owner's newest sale of that kind.
   if (facet === "storage_seller") return row.storageDeed;
   if (facet === "industrial_seller") return row.industrialDeed;
+  if (isRecentSeller(facet)) return row.sold?.[sellerKind(facet)]?.date;
   return undefined;
 }
 
@@ -1442,7 +1505,7 @@ export function underFloor(row: OwnerRow, def: Definition, facet: Facet): boolea
   // Longest owned first: once a home was bought after the cutoff, every one after it was too.
   if (facet === "long_owned") return def.ownedForDays !== undefined && Boolean(row.homeDeed) && Date.parse(`${row.homeDeed}T12:00:00Z`) > Date.now() - def.ownedForDays * DAY_MS;
   // Newest record first: once one is older than the window, the rest are too.
-  if (facet === "violation" || facet === "stalled" || facet === "occupant" || facet === "storage_seller" || facet === "industrial_seller") {
+  if (facet === "violation" || facet === "stalled" || facet === "occupant" || facet === "storage_seller" || facet === "industrial_seller" || isRecentSeller(facet)) {
     const at = recordDate(row, facet);
     return def.withinDays !== undefined && at !== undefined && Date.parse(at) < Date.now() - def.withinDays * DAY_MS;
   }
@@ -1455,7 +1518,7 @@ export const rentalHomes = (row: Pick<OwnerRow, "residential" | "ownerOccupied">
 
 /** What minParcels counts on a facet: commercial buildings for portfolio owners, storage or industrial ones on those lists, else the row's parcels (permits for a contractor or designer). */
 export const holdings = (row: OwnerRow, facet: Facet) =>
-  facet === "portfolio" ? row.commercial : facet === "storage" || facet === "storage_seller" ? (row.storage ?? 0) : facet === "industrial" || facet === "industrial_seller" ? (row.industrial ?? 0) : row.parcels;
+  facet === "portfolio" ? row.commercial : facet === "storage" || facet === "storage_seller" ? (row.storage ?? 0) : facet === "industrial" || facet === "industrial_seller" ? (row.industrial ?? 0) : isRecentSeller(facet) ? (row.sold?.[sellerKind(facet)]?.count ?? 0) : row.parcels;
 /** The deed a "bought within" filter reads: on the storage and industrial lists, the newest of those buildings; else the owner's newest of all. */
 export const buyDeed = (row: OwnerRow, facet: Facet) => (facet === "storage" ? row.storageDeed : facet === "industrial" ? row.industrialDeed : row.latestDeed);
 
@@ -1513,7 +1576,7 @@ export function listOrder(def: Definition): { label: string; key: (row: { proper
   if (facet === "violation" || facet === "stalled") return { label: "newest record first", key: () => 0 };
   if (facet === "occupant") return { label: "newest arrival first", key: () => 0 };
   if (facet === "realtor") return { label: "sponsoring brokers first, then longest licensed", key: () => 0 };
-  if (facet === "storage_seller" || facet === "industrial_seller") return { label: "newest sale first", key: () => 0 };
+  if (facet === "storage_seller" || facet === "industrial_seller" || isRecentSeller(facet)) return { label: "newest sale first", key: () => 0 };
   return { label: "highest value first", key: (r) => r.property?.valueCents ?? r.totalValueCents };
 }
 
@@ -1589,6 +1652,19 @@ export function why(row: OwnerRow, facet: Facet, county = "Midland"): string {
       // How they're reached: someone still on the roll has an address; someone who isn't is a name to look up.
       return `${sold}; ${row.holds ? `still owns ${plural(row.holds, "property", "properties")} in ${county} County` : `owns nothing in ${county} County now`}`;
     }
+    case "commercial_seller":
+    case "multifamily_seller":
+    case "home_seller": {
+      const kind = sellerKind(facet);
+      const [one, many] = SOLD_WORDS[kind];
+      const sales = (row.sales ?? []).filter((x) => x.kind === kind);
+      const n = row.sold?.[kind]?.count ?? sales.length;
+      const last = sales[0];
+      const sold = !last
+        ? `Sold ${plural(n, one, many)}`
+        : `${n === 1 ? `Sold the ${one}` : `Sold ${n} ${many}, the newest`} at ${ownerName(last.address)} to ${last.to}${last.date ? `, ${monthYear(last.date)}` : ""}`;
+      return `${sold}; ${row.holds ? `still owns ${plural(row.holds, "property", "properties")} in ${county} County` : `owns nothing in ${county} County now`}`;
+    }
     case "contractor": {
       const mix = [row.residential ? plural(row.residential, "residential") : "", row.commercial ? plural(row.commercial, "commercial") : ""].filter(Boolean).join(", ");
       const trades = row.trades?.length ? `; ${row.trades.map(tradeLabel).join(", ")}` : "";
@@ -1635,6 +1711,9 @@ export const WHO_GUIDE = `Pick exactly one who:
 - storage: owns a self-storage property (mini-storage, self-storage, RV and boat storage), whoever holds the most first; min_parcels is how many storage properties. "Storage unit owners", "self storage", "mini storage", "storage facilities". For who has been buying them, set deed_within_days (e.g. 1826 for the last 5 years).
 - storage_seller: NOT today's owners: everyone who used to own a self-storage property and sold it, from the deed history (Midland only so far), with what they sold, to whom and when, the newest sale first. "Past storage owners", "who sold a storage facility", "previous owners of storage units". within_days keeps sales that recent.
 - industrial_seller: the same for industrial buildings and warehouses. "Past industrial owners", "who sold a warehouse".
+- commercial_seller: NOT today's owners: who sold a commercial building (shops, offices, warehouses) in the last ${SELLER_YEARS} years (Midland only), newest sale first: people with cash from a sale. "Past commercial owners", "who sold a building", "recent commercial sellers".
+- multifamily_seller: the same for apartment buildings and duplexes. "Past apartment owners", "who sold apartments".
+- home_seller: the same for houses. "Recent home sellers", "who sold their house", "people who just sold".
 - industrial: owns an industrial building or warehouse (the state's F2, and the appraisal district's industrial and warehouse land codes), whoever holds the most first; min_parcels is how many. "Industrial buildings", "warehouses", "shops and yards", "industrial parks". For who has been buying them, set deed_within_days.
 - wealthy: owner-occupied homes worth at least min_value (default $1,000,000). "Wealthy", "rich", "luxury", "high-end homes", "homes worth over $X".
 - recent_buyer: deed within deed_within_days (default 90). "Just bought", "new homeowners", "recently moved".
@@ -1809,6 +1888,10 @@ export function guessDefinition(ask: string, county = "Midland"): { definition: 
   // Who used to own them, before who owns them: "past storage owners", "who sold a warehouse".
   else if (has(/\b(past|previous|former|prior|earlier)\b|\bsellers?\b|\bsold\b|owned (it |them )?before/) && has(/storage|warehouse|industrial/))
     definition = { county, who: has(/storage/) ? "storage_seller" : "industrial_seller" };
+  // Who sold a building, apartments or a house lately: people with cash from a sale.
+  else if (has(/\b(past|previous|former|prior|recent)\b|\bsellers?\b|\bsold\b/) && has(/apartment|multi-?family|duplex|fourplex|complex/)) definition = { county, who: "multifamily_seller" };
+  else if (has(/\b(past|previous|former|prior|recent)\b|\bsellers?\b|\bsold\b/) && has(/commercial|retail|office|shopping|strip|building/)) definition = { county, who: "commercial_seller" };
+  else if (has(/\bsellers?\b|\bsold\b|\b(past|previous|former|prior) (home|house)/) && has(/\bhomes?\b|\bhouses?\b|homeowners?/)) definition = { county, who: "home_seller" };
   // Storage comes before the warehouses it would otherwise read as ("mini warehouse" is storage).
   else if (has(/self[- ]?storage|mini[- ]?(storage|warehouse)|storage (unit|facilit|propert|building|owner)|\bstorage\b/)) definition = { county, who: "storage" };
   else if (has(/\bwarehouse|industrial\b/)) definition = { county, who: "industrial" };
@@ -1909,6 +1992,9 @@ export function defaultTitle(def: Definition): string {
     industrial: "Industrial building owners",
     storage_seller: "Past storage owners",
     industrial_seller: "Past industrial owners",
+    commercial_seller: "Past commercial owners",
+    multifamily_seller: "Past apartment owners",
+    home_seller: "Recent home sellers",
     wealthy: "Wealthy homeowners",
     recent_buyer: "Recent buyers",
     absentee: "Absentee owners",
@@ -1953,6 +2039,9 @@ export const WHO_LABEL: Record<Who, string> = {
   industrial: "Industrial owners",
   storage_seller: "Past storage owners",
   industrial_seller: "Past industrial owners",
+  commercial_seller: "Past commercial owners",
+  multifamily_seller: "Past apartment owners",
+  home_seller: "Recent home sellers",
   wealthy: "Wealthy homeowners",
   recent_buyer: "Recent buyers",
   absentee: "Absentee owners",

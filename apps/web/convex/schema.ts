@@ -464,6 +464,9 @@ export const outreachWho = v.union(
   v.literal("realtor"),
   v.literal("storage_seller"),
   v.literal("industrial_seller"),
+  v.literal("commercial_seller"),
+  v.literal("multifamily_seller"),
+  v.literal("home_seller"),
   v.literal("custom"),
 );
 
@@ -1330,10 +1333,12 @@ export default defineSchema({
     // A seller (a past owner, from the deed history): what they sold, newest first, and how many properties they still hold here.
     sales: v.optional(
       v.array(
-        v.object({ kind: v.union(v.literal("storage"), v.literal("industrial")), parcelId: v.string(), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), to: v.string(), date: v.optional(v.string()) }),
+        v.object({ kind: v.union(v.literal("storage"), v.literal("industrial"), v.literal("commercial"), v.literal("multifamily"), v.literal("home")), parcelId: v.string(), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), to: v.string(), date: v.optional(v.string()) }),
       ),
     ),
     holds: v.optional(v.number()),
+    // A seller of commercial buildings, apartments or houses within lib/outreach.ts SELLER_YEARS: how many, the most valuable, the newest sale.
+    sold: v.optional(v.object({ commercial: v.optional(v.object({ count: v.number(), valueCents: v.number(), date: v.optional(v.string()) })), multifamily: v.optional(v.object({ count: v.number(), valueCents: v.number(), date: v.optional(v.string()) })), home: v.optional(v.object({ count: v.number(), valueCents: v.number(), date: v.optional(v.string()) })) })),
     // A storage owner's name on the sign ("KO Storage"), when the roll's name is only the LLC behind it.
     brand: v.optional(v.string()),
     ownerOccupied: v.boolean(),

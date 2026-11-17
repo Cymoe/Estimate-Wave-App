@@ -1203,7 +1203,7 @@ export const reportAPI = {
 
 // ---- Outreach ----
 
-export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'portfolio' | 'multifamily' | 'storage' | 'industrial' | 'wealthy' | 'recent_buyer' | 'absentee' | 'long_owned' | 'violation' | 'stalled' | 'contractor' | 'designer' | 'occupant' | 'realtor' | 'storage_seller' | 'industrial_seller' | 'custom';
+export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'portfolio' | 'multifamily' | 'storage' | 'industrial' | 'wealthy' | 'recent_buyer' | 'absentee' | 'long_owned' | 'violation' | 'stalled' | 'contractor' | 'designer' | 'occupant' | 'realtor' | 'storage_seller' | 'industrial_seller' | 'commercial_seller' | 'multifamily_seller' | 'home_seller' | 'custom';
 export type OutreachDefinition = {
   county: string;
   who: OutreachWho;

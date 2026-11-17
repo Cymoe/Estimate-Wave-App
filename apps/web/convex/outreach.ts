@@ -47,6 +47,8 @@ import {
   type CondensedOccupant,
   type CondensedRealtor,
   type CondensedSold,
+  recentDeeds,
+  soldKindOf,
   facetFor,
   facetsOf,
   familyKey,
@@ -280,8 +282,33 @@ export const soldPage = internalQuery({
   },
 });
 
+/**
+ * One page of the county's parcels sold within the window, any kind the recent sellers' lists cover (commercial,
+ * apartments, houses: lib/outreach.ts soldKindOf), each with only the deeds within it, so the deed chain still names
+ * who each seller sold to.
+ */
+export const recentSoldPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()), since: v.string() },
+  handler: async (ctx, { cursor, county = COUNTY, since }) => {
+    const page = await ctx.db
+      .query("parcels")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", county))
+      .paginate({ cursor: cursor ?? null, numItems: PAGE });
+    const rows: CondensedSold[] = [];
+    for (const p of page.page) {
+      if (p.retiredAt || !p.deeds?.length) continue;
+      const kind = soldKindOf(p.useCode);
+      const deeds = kind ? recentDeeds(p.deeds, since) : [];
+      if (!kind || !deeds.length) continue;
+      rows.push({ parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, kind, owner: p.owner, deeds: deeds.map((d) => ({ seller: d.seller, date: d.date })) });
+    }
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
 const boughtFrom = v.object({ name: v.string(), date: v.optional(v.string()) });
-const sale = v.object({ kind: v.union(v.literal("storage"), v.literal("industrial")), parcelId: v.string(), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), to: v.string(), date: v.optional(v.string()) });
+const sale = v.object({ kind: v.union(v.literal("storage"), v.literal("industrial"), v.literal("commercial"), v.literal("multifamily"), v.literal("home")), parcelId: v.string(), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), to: v.string(), date: v.optional(v.string()) });
+const soldTally = v.object({ count: v.number(), valueCents: v.number(), date: v.optional(v.string()) });
 const ownerRow = v.object({
   key: v.string(),
   kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor"), v.literal("seller")),
@@ -310,6 +337,7 @@ const ownerRow = v.object({
   industrialFrom: v.optional(v.array(boughtFrom)),
   sales: v.optional(v.array(sale)),
   holds: v.optional(v.number()),
+  sold: v.optional(v.object({ commercial: v.optional(soldTally), multifamily: v.optional(soldTally), home: v.optional(soldTally) })),
   brand: v.optional(v.string()),
   ownerOccupied: v.boolean(),
   outOfState: v.boolean(),

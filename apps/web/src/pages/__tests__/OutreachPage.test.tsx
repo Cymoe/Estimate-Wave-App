@@ -559,7 +559,7 @@ describe('the Outreach page', () => {
     await render();
     const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
     const cards = Array.from(empty.querySelectorAll('[data-testid="starter-list"]'));
-    expect(cards).toHaveLength(23);
+    expect(cards).toHaveLength(26);
     expect(cards[1].textContent).toBe('Shopping center ownersOwners of commercial buildings, biggest holdings first');
     // A card opens the sheet straight to that list's count and first look.
     await act(async () => (cards[1] as HTMLButtonElement).click());
@@ -608,7 +608,7 @@ describe('the Outreach page', () => {
       ['Taylor County, TX (Abilene)Coming soon', 'true'],
     ]);
     await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
-    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(23);
+    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(26);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     clearPage();
@@ -806,11 +806,12 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach');
     const dialog = document.body.querySelector('[role="dialog"][aria-label="New list"]')!;
     expect(dialog).not.toBeNull();
-    // Four closed rows, not one pile of chips; a row opens to its lists, one row at a time.
+    // Closed rows, not one pile of chips; a row opens to its lists, one row at a time.
     const headings = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button[aria-expanded]')).map((b) => [b.textContent, b.getAttribute('aria-expanded')]);
     expect(headings()).toEqual([
       ['Commercial and investors6 lists', 'false'],
       ['Storage and industrial6 lists', 'false'],
+      ['Recent sellers3 lists', 'false'],
       ['Homeowners7 lists', 'false'],
       ['People who bring work4 lists', 'false'],
     ]);

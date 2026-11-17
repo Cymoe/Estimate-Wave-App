@@ -56,6 +56,14 @@ export const GROUPS: Array<{ heading: string; presets: Preset[] }> = [
     ],
   },
   {
+    heading: 'Recent sellers',
+    presets: [
+      { label: 'Past commercial owners', blurb: 'Who sold a commercial building in the last 2 years', needsRecords: true, definition: { county: COUNTY, who: 'commercial_seller' }, explanation: `Everyone the deed records show sold a commercial building (shops, offices, warehouses) in the last 2 years: what they sold, who bought it and when, the newest sale first. People with cash from a sale, often looking for the next one. One who still owns property in the county comes with a mailing address; one who doesn't is a name to look up. ${NO_PHONES}` },
+      { label: 'Past apartment owners', blurb: 'Who sold apartments in the last 2 years', needsRecords: true, definition: { county: COUNTY, who: 'multifamily_seller' }, explanation: `Everyone the deed records show sold an apartment building or duplex in the last 2 years: what they sold, who bought it and when, the newest sale first. One who still owns property in the county comes with a mailing address; one who doesn't is a name to look up. ${NO_PHONES}` },
+      { label: 'Recent home sellers', blurb: 'Who sold a house in the last 2 years', needsRecords: true, definition: { county: COUNTY, who: 'home_seller' }, explanation: `Everyone the deed records show sold a house in the last 2 years: which house, who bought it and when, the newest sale first. Mostly people who moved; the ones who still own property here (a landlord, or a new home in town) come with a mailing address. ${NO_PHONES}` },
+    ],
+  },
+  {
     heading: 'Homeowners',
     presets: [
       { label: 'Code violations', blurb: 'Owners the city cited in the last two years', needsRecords: true, definition: { county: COUNTY, who: 'violation' }, explanation: `Owners the city cited in the last two years, newest case first, with the trade each case calls for. ${NO_PHONES}` },

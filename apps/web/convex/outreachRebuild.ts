@@ -6,7 +6,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { AddressCounter, ContractorGrouper, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, RealtorGrouper, SellerGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type CondensedRealtor, type CondensedSold, type GroupedRow, type Property, ownersSource } from "./lib/outreach";
+import { AddressCounter, ContractorGrouper, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, RealtorGrouper, SELLER_YEARS, SellerGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type CondensedRealtor, type CondensedSold, type GroupedRow, type Property, ownersSource } from "./lib/outreach";
 import { COUNTY_ROLLS, MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
@@ -84,6 +84,9 @@ async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.co
     // at the roll's address when they still hold something here.
     const sold = new SellerGrouper();
     for (const kind of ["storage", "industrial"] as const) await readAll<CondensedSold>((cursor) => ctx.runQuery(internal.outreach.soldPage, { cursor, county, kind }), sold);
+    // And who sold a commercial building, apartments or a house within SELLER_YEARS: people with cash from a sale.
+    const soldSince = new Date(Date.now() - SELLER_YEARS * 365.25 * 24 * 3600_000).toISOString().slice(0, 10);
+    await readAll<CondensedSold>((cursor) => ctx.runQuery(internal.outreach.recentSoldPage, { cursor, county, since: soldSince }), sold);
     const sellers = sold.grouped((name) => grouper.holder(name));
     // The agents and brokers licensed here, with their brokerages: rows with no property at all.
     const realtors = new RealtorGrouper();
