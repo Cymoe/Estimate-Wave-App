@@ -343,29 +343,50 @@ export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base 
 }
 
 /**
- * Tracerfy's instant lookup: one property, the person to find when we know
+ * A street address written on one line ("771 TYLER DRIVE, AUBURN, CA, 95603"; "7201 W County Rd 46, Midland, TX"), in
+ * parts; a PO box, a line with no city or one with no state that isn't a Texas zip, nothing.
+ */
+export function streetAddress(line: string | undefined): { address: string; city: string; state: string; zip?: string } | undefined {
+  if (!line) return undefined;
+  const parts = line.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return undefined;
+  const [street, city, ...rest] = parts;
+  if (!/^\d/.test(street) || /\b(P\.?\s?O\.?\s?BOX|BOX)\b/i.test(street) || /\d/.test(city)) return undefined;
+  const words = rest.join(" ").split(/\s+/).filter(Boolean);
+  const zip = words.find((w) => /^\d{5}(-\d{4})?$/.test(w))?.slice(0, 5);
+  const state = words.find((w) => /^[A-Za-z]{2}$/.test(w))?.toUpperCase() ?? (zip && /^(7[5-9]|885)/.test(zip) ? "TX" : undefined);
+  if (!state) return undefined;
+  return { address: street, city, state, ...(zip ? { zip } : {}) };
+}
+
+/**
+ * Tracerfy's instant lookup: one address, the person to find when we know
  * one (the Comptroller's officer, or the roll's personal name), else the
  * owner. Up to 8 phones ranked 1 first, each with a type and DNC/TCPA
  * flags; 5 credits (about 10¢) a lookup. TRACERFY_API_BASE can point at the
  * sandbox (mock.tracerfy.com) for a free dry run.
  */
 export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base = "https://tracerfy.com/v1/api"): Vendor {
+  // A company's decision maker is looked for where they live or work, as the state's filings give it, rather than at a
+  // building the company owns: nobody lives at a strip center. The property when the filings give no street address.
+  const where = (input: TraceInput) => (input.person ? streetAddress(input.person.address) : undefined) ?? input.property;
   return {
     name: "tracerfy",
     fields: ["phone", "email"],
     connected: Boolean(key),
-    applies: needsProperty,
+    applies: (input) => (where(input) ? undefined : "No property address on file"),
     trace: async (input) => {
       const who = input.person ? splitName(input.person.name, "person") : input.company ? {} : splitName(input.name);
       const byName = Boolean(who.first && who.last);
+      const at = where(input)!;
       const response = await fetchFn(`${base.replace(/\/$/, "")}/trace/lookup/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
-          address: input.property!.address,
-          city: input.property!.city,
-          state: input.property!.state,
-          ...(input.property!.zip ? { zip: input.property!.zip } : {}),
+          address: at.address,
+          city: at.city,
+          state: at.state,
+          ...(at.zip ? { zip: at.zip } : {}),
           find_owner: !byName,
           ...(byName ? { first_name: who.first, last_name: who.last } : {}),
         }),

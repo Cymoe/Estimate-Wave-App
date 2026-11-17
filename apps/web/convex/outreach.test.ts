@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, openSosData, agentAsPerson, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, tracerfyKey, phoneScrub, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, openSosData, agentAsPerson, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, tracerfyKey, phoneScrub, tracerfy, streetAddress, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -1948,6 +1948,14 @@ describe("a company's lists", () => {
     expect(copied.enrichment.phone.tries![0]).toEqual({ source: "shared", outcome: "hit", note: `Same decision maker as ${first.name}; copied, no charge` });
     expect(copied.enrichment.phone.tries).toContainEqual({ source: "batchdata", outcome: "skipped", note: "Not needed, already found" });
     expect(batchdata).toHaveLength(asked);
+    // Phones practice mode made up on the sister are nobody's to copy.
+    const kai = { name: "Kai Moana", source: "tx-comptroller" };
+    expect(await t.query(internal.outreach.sharedLookup, { contactId: second.id as Id<"outreachContacts">, person: kai })).toMatchObject({ from: first.name });
+    await t.run(async (ctx) => {
+      const c = (await ctx.db.get(first.id as Id<"outreachContacts">))!;
+      await ctx.db.patch(c._id, { enrichment: { ...c.enrichment, phone: { ...c.enrichment!.phone, simulated: true } } } as never);
+    });
+    expect(await t.query(internal.outreach.sharedLookup, { contactId: second.id as Id<"outreachContacts">, person: kai })).toBeNull();
     // Two phones paid for, not three; the copy is not a source hit on the scorecard.
     const after = await co.as.query(api.outreach.contacts, { organizationId: org });
     expect(after.balanceCents).toBe(800);
@@ -2504,10 +2512,40 @@ describe("a company's lists", () => {
     await t.run(async (ctx) => {
       for (const q of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(q._id);
     });
-    await set(real.id, { phone: { status: "found", at: earlier, source: "tracerfy" }, email: { status: "none", at: earlier } }, { phones: [fakePhone] });
+    // A sister's practice numbers once copied as found (555-01xx): made up all the same, asked again.
+    await set(real.id, { phone: { status: "found", at: earlier, source: "shared" }, email: { status: "none", at: earlier } }, { phones: [fakePhone] });
+    expect((await t.mutation(internal.outreach.lookUpPhones, { dryRun: true })).names).toEqual([real.name]);
+    const realPhone = { number: "4326827788", type: "mobile", source: "tracerfy" };
+    await set(real.id, { phone: { status: "found", at: earlier, source: "tracerfy" } }, { phones: [realPhone] });
     await set(madeUp.id, { person: { status: "found", at: earlier, source: "tx-comptroller" }, phone: { status: "none", at: earlier } });
-    expect((await t.mutation(internal.outreach.lookUpPhones, { limit: 5 })).names).toEqual([madeUp.name]);
-    expect((await read()).rows.find((r) => r.id === real.id)!.phones).toEqual([fakePhone]);
+    expect((await t.mutation(internal.outreach.lookUpPhones, { limit: 1 })).names).toEqual([madeUp.name]);
+    expect((await read()).rows.find((r) => r.id === real.id)!.phones).toEqual([realPhone]);
+  });
+
+  test("Tracerfy looks for a company's decision maker at their own address from the filings, not at the building", async () => {
+    expect(streetAddress("771 TYLER DRIVE, AUBURN, CA, 95603")).toEqual({ address: "771 TYLER DRIVE", city: "AUBURN", state: "CA", zip: "95603" });
+    expect(streetAddress("7201 W County Rd 46, Midland, TX")).toEqual({ address: "7201 W County Rd 46", city: "Midland", state: "TX" });
+    // No state, but a Texas zip.
+    expect(streetAddress("5628 E COUNTY RD 97, MIDLAND, 79706")).toEqual({ address: "5628 E COUNTY RD 97", city: "MIDLAND", state: "TX", zip: "79706" });
+    expect(streetAddress("PO BOX 2641, MIDLAND, TX, 79702")).toBeUndefined();
+    expect(streetAddress("4113 RADCLIFF CT")).toBeUndefined();
+    expect(streetAddress(undefined)).toBeUndefined();
+    const asked: Array<Record<string, unknown>> = [];
+    const tf = tracerfy("tf", async (_url, init) => {
+      asked.push(JSON.parse(String(init!.body)));
+      return new Response(JSON.stringify({ hit: false }), { status: 200 });
+    });
+    const base = { name: "Quadriga Investments INC", company: true, mailing: {}, property: { address: "105 N Fort Worth St", city: "Midland", state: "TX" } } as unknown as TraceInput;
+    await tf.trace({ ...base, person: { name: "Shafik Tejani", address: "4113 RADCLIFF CT, MIDLAND, TX, 79707", source: "tx-comptroller" } });
+    // Filings with only a PO box: the building, as before.
+    await tf.trace({ ...base, person: { name: "David L Tomlin", address: "PO BOX 2641, MIDLAND, TX, 79702", source: "tx-comptroller" } });
+    expect(asked).toEqual([
+      { address: "4113 RADCLIFF CT", city: "MIDLAND", state: "TX", zip: "79707", find_owner: false, first_name: "Shafik", last_name: "Tejani" },
+      { address: "105 N Fort Worth St", city: "Midland", state: "TX", find_owner: false, first_name: "David", last_name: "Tomlin" },
+    ]);
+    // No building on file, but the person's own address: still asked.
+    expect(tf.applies({ ...base, property: undefined, person: { name: "Shafik Tejani", address: "4113 RADCLIFF CT, MIDLAND, TX, 79707", source: "tx-comptroller" } })).toBeUndefined();
+    expect(tf.applies({ ...base, property: undefined })).toBe("No property address on file");
   });
 
   test("the Tracerfy key is read under the name it was saved as, and connecting it ends practice mode", () => {

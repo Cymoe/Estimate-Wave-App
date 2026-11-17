@@ -2856,7 +2856,9 @@ export const lookUpPhones = internalMutation({
         const person = cellFor(cells, "person");
         if (person.status !== "found" || person.simulated || !c.person?.name || isCompanyName(c.person.name)) continue;
         const phone = cellFor(cells, "phone");
-        if ((phone.status === "found" && !phone.simulated) || phone.status === "running") continue;
+        // Numbers in the 555-01xx range are made up whatever the cell says (copied from a sister's practice run once).
+        const madeUp = (c.phones ?? []).length > 0 && (c.phones ?? []).every((p) => /^\d{3}55501\d{2}$/.test(p.number.replace(/\D/g, "").slice(-10)));
+        if ((phone.status === "found" && !phone.simulated && !madeUp) || phone.status === "running") continue;
         const covered = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).some((r) => r.fields.includes("phone"));
         if (covered) continue;
         asked.push(c.name);
@@ -3035,7 +3037,9 @@ export const sharedLookup = internalQuery({
     const mail = mailKey(me.mailing);
     const home = person.address?.trim().toUpperCase();
     for (const c of await peersOf(ctx, me, undefined, home)) {
-      if (c._id === contactId || !c.person || !(c.phones?.length) || cellFor(cellsOf(c), "phone").status !== "found") continue;
+      // Made-up phones (practice mode, a sample run) are nobody's to copy.
+      const phone = cellFor(cellsOf(c), "phone");
+      if (c._id === contactId || !c.person || !(c.phones?.length) || phone.status !== "found" || phone.simulated || isSampleRun(c)) continue;
       if (!samePerson(person, c.person)) continue;
       const tied =
         (family !== undefined && isCompany(c) && familyKey(c.name) === family) ||
