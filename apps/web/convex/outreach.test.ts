@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -712,6 +712,50 @@ describe("the Comptroller's filing for a company", () => {
     }) as unknown as typeof fetch;
     const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "EMERALD SKY CAPITAL LTD", company: "EMERALD SKY CAPITAL LTD", mailing: {} });
     expect(found.person).toMatchObject({ name: "Mark Shipton", title: "Manager", via: "M. P. SHIPTON XIV, L.L.C." });
+  });
+
+  test("'L.P.' is 'LP' and 'LIMITED' is 'LTD': a company filed with periods or long forms is still the same name", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        return json({ data: name === "ENDEAVOR ENERGY RESOURCES" ? [{ name: "ENDEAVOR ENERGY RESOURCES, L.P.", taxpayerId: "32000000030" }, { name: "ENDEAVOR ENERGY RESOURCES", taxpayerId: "32000000031" }] : [] });
+      }
+      if (url.includes("franchise-tax/32000000030")) return json({ data: { officerInfo: [{ AGNT_NM: "LANCE ROBERTSON", AGNT_TITL_TX: "PRESIDENT" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "ENDEAVOR ENERGY RESOURCES LP", company: "ENDEAVOR ENERGY RESOURCES LP", mailing: {} });
+    expect(found.person).toMatchObject({ name: "Lance Robertson", title: "President" });
+    expect(plainName("ACME LIMITED")).toBe(plainName("Acme, Ltd."));
+    expect(plainName("THE GRAHAM BUILDING, L.L.C.")).toBe(plainName("GRAHAM BUILDING LLC THE"));
+    // Not the same company: the letters still have to match.
+    expect(plainName("ENDEAVOR ENERGY RESOURCES")).not.toBe(plainName("ENDEAVOR ENERGY RESOURCES LP"));
+  });
+
+  test("a filing whose details won't open (400) gives way to another filing of the same name", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) return json({ data: [{ name: "FASKEN OIL AND RANCH LTD", taxpayerId: "BAD" }, { name: "FASKEN OIL AND RANCH, LTD.", taxpayerId: "17520000001" }] });
+      if (url.includes("franchise-tax/BAD")) return new Response("Bad Request", { status: 400 });
+      if (url.includes("franchise-tax/17520000001")) return json({ data: { officerInfo: [{ AGNT_NM: "NORBERT DICKMAN", AGNT_TITL_TX: "PRESIDENT" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "FASKEN OIL AND RANCH LTD", company: "FASKEN OIL AND RANCH LTD", mailing: {} });
+    expect(found.person).toMatchObject({ name: "Norbert Dickman", title: "President" });
+  });
+
+  test("a name the roll writes with 'THE' last is searched the way it's filed, with 'THE' first", async () => {
+    const asked: string[] = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        asked.push(name);
+        return json({ data: name === "THE GRAHAM BUILDING LLC" ? [{ name: "THE GRAHAM BUILDING, LLC", taxpayerId: "32000000040" }] : [] });
+      }
+      if (url.includes("franchise-tax/32000000040")) return json({ data: { officerInfo: [{ AGNT_NM: "SUE GRAHAM", AGNT_TITL_TX: "MANAGER" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "GRAHAM BUILDING LLC THE", company: "GRAHAM BUILDING LLC THE", mailing: {} });
+    expect(asked[0]).toBe("THE GRAHAM BUILDING LLC");
+    expect(found.person).toMatchObject({ name: "Sue Graham" });
   });
 
   test("officers filed by a company's name are told from people", () => {
@@ -2182,10 +2226,10 @@ describe("a company's lists", () => {
     // The first goes now, the second a second later; the other source never waits.
     expect(waited).toEqual([1000]);
     expect(inner).toHaveBeenCalledTimes(3);
-    // Left unset, one a second.
+    // Left unset, one every second and a half.
     const gaps: number[] = [];
     await paced(inner as unknown as typeof fetch, async (_s, gap) => (gaps.push(gap), 0))("https://api.comptroller.texas.gov/x");
-    expect(gaps).toEqual([1000]);
+    expect(gaps).toEqual([1500]);
   });
 
   test("the wait in line doesn't count against a call's time limit: a search far back in the line still goes out", async () => {

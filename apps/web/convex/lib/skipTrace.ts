@@ -167,8 +167,9 @@ export function guarded(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, wai
 
 /** The hosts whose calls are spaced out across every lookup running at once, and the gap between two calls. */
 export const PACED_HOSTS: Record<string, { source: string; gapMs: (env: Record<string, string | undefined>) => number }> = {
-  // The Comptroller turns away a crowd ("Too Many Requests") and publishes no rate: one search a second, everywhere.
-  "api.comptroller.texas.gov": { source: "tx-comptroller", gapMs: (env) => (env.TX_COMPTROLLER_GAP_MS ? Math.max(0, Number(env.TX_COMPTROLLER_GAP_MS) || 0) : 1000) },
+  // The Comptroller turns away a crowd ("Too Many Requests") and publishes no rate. One a second was still turned away
+  // now and then: one search every second and a half, everywhere.
+  "api.comptroller.texas.gov": { source: "tx-comptroller", gapMs: (env) => (env.TX_COMPTROLLER_GAP_MS ? Math.max(0, Number(env.TX_COMPTROLLER_GAP_MS) || 0) : 1500) },
 };
 
 /**
@@ -435,6 +436,24 @@ export function fullTitle(title: string): string {
 
 /** How many sister companies are read for their people when the owner's own filing lists nobody. */
 const SISTERS_ASKED = 3;
+/** How many filings of the same name are opened, at most, before giving up on finding its officers. */
+const FILINGS_ASKED = 3;
+
+/**
+ * A company's name reduced to compare it with another's: letters and numbers only, periods dropped so "L.P." is "LP",
+ * the usual long and short forms made one ("LIMITED" is "LTD", "CORPORATION" "CORP"), and "THE" left out.
+ */
+const SAME_WORD: Record<string, string> = { LIMITED: "LTD", COMPANY: "CO", CORPORATION: "CORP", INCORPORATED: "INC" };
+export const plainName = (s?: string) =>
+  (s ?? "")
+    .toUpperCase()
+    .replace(/\./g, "")
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => w && w !== "THE")
+    .map((w) => SAME_WORD[w] ?? w)
+    .join(" ");
 
 /** An officer filed by a company's name rather than a person's: "TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV, L.L.C.", "GLATNER PROPERTIES". */
 export const isCompanyName = (name: string) =>
@@ -480,14 +499,16 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       const listed = (found: Entity[] | "too many") => (found === "too many" ? [] : found);
       // The name as filed may be punctuated differently from the roll's ("KOSF II - MIDLAND, LLC" for "KOSF II MIDLAND
       // LLC"): names are compared by their letters and numbers alone, and only the same name is ever taken.
-      const plain = (s?: string) => (s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+      const plain = plainName;
       const wanted = plain(name);
-      let same = listed(await search(name)).filter((e) => plain(e.name) === wanted);
+      // The roll puts "THE" last ("GRAHAM BUILDING LLC THE"); the name is filed, and searched, with it first.
+      const asFiled = /\sTHE$/.test(name) ? `THE ${name.replace(/\s+THE$/, "")}` : name;
+      let same = listed(await search(asFiled)).filter((e) => plain(e.name) === wanted);
       // Not found as written: asked again by its first words (the search matches a name's start), longest first. The
       // words keep their own marks ("HINCKLEY & SCHMITT", "7-ELEVEN"), as names are filed; only a trailing comma or
       // period goes. Once a start is too common to list, a shorter one would be too: the asking stops there.
-      const words = name.split(/\s+/).map((w) => w.replace(/[,.]+$/, "")).filter(Boolean);
-      let asked = name;
+      const words = asFiled.split(/\s+/).map((w) => w.replace(/[,.]+$/, "")).filter(Boolean);
+      let asked = asFiled;
       for (let n = Math.min(words.length - 1, 3); same.length === 0 && n >= 1; n--) {
         const term = words.slice(0, n).join(" ").replace(/[\s&-]+$/, "");
         if (term.length < 3) break;
@@ -498,21 +519,32 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
         same = found.filter((e) => plain(e.name) === wanted);
       }
       const zip = input.mailing.zip?.slice(0, 5);
-      const entity = same.find((e) => zip && e.mailingAddressZip?.slice(0, 5) === zip) ?? same[0];
-      if (!entity?.taxpayerId) return {};
+      // The same name can be filed more than once ("FASKEN OIL AND RANCH LTD" and "FASKEN OIL AND RANCH, LTD."): the one
+      // at the owner's zip first, then the rest.
+      const atZip = (e: Entity) => Boolean(zip) && e.mailingAddressZip?.slice(0, 5) === zip;
+      const candidates = [...same.filter(atZip), ...same.filter((e) => !atZip(e))].filter((e): e is Entity & { taxpayerId: string } => Boolean(e.taxpayerId));
+      if (candidates.length === 0) return {};
+      // null: a filing whose details the Comptroller won't open (400, 404); the next filing of the same name is tried.
       const officersOf = async (taxpayerId: string) => {
         const details = await fetchFn(`${base}/franchise-tax/${encodeURIComponent(taxpayerId)}`, { headers });
+        if (details.status === 400 || details.status === 404) return null;
         if (!details.ok) throw new Error(`Texas Comptroller: HTTP ${details.status}`);
         const body = (await details.json()) as { data?: { officerInfo?: unknown[] } };
         return (asArray(body.data?.officerInfo) as Array<Record<string, unknown>>)
           .map((o) => ({ name: str(o.AGNT_NM), title: str(o.AGNT_TITL_TX), street: str(o.AD_STR_POB_TX), city: str(o.CITY_NM), state: str(o.ST_CD), zip: str(o.AD_ZP) }))
           .filter((o): o is typeof o & { name: string } => Boolean(o.name));
       };
-      const peopleOf = async (taxpayerId: string) => {
-        const all = await officersOf(taxpayerId);
-        return { people: all.filter((o) => !isCompanyName(o.name)), companies: all.filter((o) => isCompanyName(o.name)) };
-      };
-      const first = await peopleOf(entity.taxpayerId);
+      const split = (all: Awaited<ReturnType<typeof officersOf>>) => ({ people: (all ?? []).filter((o) => !isCompanyName(o.name)), companies: (all ?? []).filter((o) => isCompanyName(o.name)) });
+      const peopleOf = async (taxpayerId: string) => split(await officersOf(taxpayerId));
+      let entity = candidates[0];
+      let first = split([]);
+      for (const candidate of candidates.slice(0, FILINGS_ASKED)) {
+        const all = await officersOf(candidate.taxpayerId);
+        if (!all) continue;
+        entity = candidate;
+        first = split(all);
+        if (all.length > 0) break;
+      }
       let officers = first.people;
       let via: string | undefined;
       // Run by another company (its member or general partner is "TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV,
