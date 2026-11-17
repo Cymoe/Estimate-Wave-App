@@ -2531,6 +2531,51 @@ describe("a company's lists", () => {
     expect((await read()).rows.find((r) => r.id === real.id)!.phones).toEqual([realPhone]);
   });
 
+  test("what practice mode made up is cleared; real results on the same owner stay", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const [a, b] = (await read()).filter((r) => r.company);
+    const at = new Date(NOW - 3600_000).toISOString();
+    const realPhone = { number: "4326827788", type: "mobile", source: "tracerfy" };
+    await t.run(async (ctx) => {
+      // A real person and phone; a made-up email copied from a sister, and a simulated research answer.
+      await ctx.db.patch(a.id as Id<"outreachContacts">, {
+        enrichment: { person: { status: "found", at, source: "tx-comptroller" }, phone: { status: "found", at, source: "tracerfy" }, email: { status: "found", at, source: "shared" }, research: { status: "found", at, source: "claude", simulated: true } },
+        person: { name: "Bailey L Haller", source: "tx-comptroller" },
+        phones: [realPhone],
+        emails: [{ email: "office.haller@example.com", source: "batchdata" }],
+        research: { question: "Who manages it?", answer: "Sample: made up", sources: [], at },
+      } as never);
+      // All of it made up: a simulated person and a 555 phone.
+      await ctx.db.patch(b.id as Id<"outreachContacts">, {
+        enrichment: { person: { status: "found", at, source: "tx-comptroller", simulated: true }, phone: { status: "found", at, source: "batchdata", simulated: true }, email: { status: "locked" }, research: { status: "locked" } },
+        person: { name: "Jill Navarro", source: "tx-comptroller" },
+        phones: [{ number: "4325550110", type: "mobile", source: "batchdata" }],
+      } as never);
+    });
+    expect(await t.mutation(internal.outreach.clearMadeUp, {})).toMatchObject({ cleared: 2 });
+    const rows = await read();
+    const ra = rows.find((r) => r.id === a.id)!;
+    expect(ra.person).toMatchObject({ name: "Bailey L Haller" });
+    expect(ra.phones).toEqual([realPhone]);
+    expect(ra.enrichment.phone.status).toBe("found");
+    expect(ra.emails ?? []).toEqual([]);
+    expect(ra.enrichment.email.status).toBe("locked");
+    expect(ra.enrichment.research.status).toBe("locked");
+    const rb = rows.find((r) => r.id === b.id)!;
+    expect(rb.person).toBeUndefined();
+    expect(rb.phones ?? []).toEqual([]);
+    expect([rb.enrichment.person.status, rb.enrichment.phone.status]).toEqual(["locked", "locked"]);
+    // Nothing left to clear.
+    expect(await t.mutation(internal.outreach.clearMadeUp, {})).toMatchObject({ cleared: 0 });
+  });
+
   test("Tracerfy looks for a company's decision maker at their own address from the filings, not at the building", async () => {
     expect(streetAddress("771 TYLER DRIVE, AUBURN, CA, 95603")).toEqual({ address: "771 TYLER DRIVE", city: "AUBURN", state: "CA", zip: "95603" });
     expect(streetAddress("7201 W County Rd 46, Midland, TX")).toEqual({ address: "7201 W County Rd 46", city: "Midland", state: "TX" });

@@ -2886,6 +2886,48 @@ export const lookUpPhones = internalMutation({
 });
 
 /**
+ * Clears what practice mode and the sample filler made up, once real sources are connected: a cell marked simulated, a
+ * sample-run owner's results, numbers in the 555-01xx range and addresses at example.com go back to locked, and the
+ * phones, emails, person or research behind them with them. A real result in another field of the same owner stays.
+ * A page of owners at a time. `npx convex run outreach:clearMadeUp '{}'`.
+ */
+export const clearMadeUp = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("outreachContacts").paginate({ numItems: 300, cursor: cursor ?? null });
+    const now = nowIso();
+    let cleared = 0;
+    for (const c of page.page) {
+      const cells = cellsOf(c);
+      const sample = isSampleRun(c);
+      const fakePhones = (c.phones ?? []).length > 0 && (c.phones ?? []).every((p) => /^\d{3}55501\d{2}$/.test(p.number.replace(/\D/g, "").slice(-10)));
+      const fakeEmails = (c.emails ?? []).length > 0 && (c.emails ?? []).every((e) => /@([a-z0-9-]+\.)*example\.(com|org|net)$/i.test(e.email));
+      const madeUp = (f: "person" | "phone" | "email" | "research") => {
+        const cell = cellFor(cells, f);
+        if (cell.status === "running" || cell.status === "locked") return false;
+        return sample || Boolean(cell.simulated) || (f === "phone" && fakePhones) || (f === "email" && fakeEmails);
+      };
+      const fields = (["person", "phone", "email", "research"] as const).filter(madeUp);
+      if (!fields.length) continue;
+      const next = { ...cells };
+      for (const f of fields) next[f] = LOCKED;
+      await ctx.db.patch(c._id, {
+        enrichment: next,
+        ...(fields.includes("person") ? { person: undefined } : {}),
+        ...(fields.includes("phone") ? { phones: undefined } : {}),
+        ...(fields.includes("email") ? { emails: undefined } : {}),
+        ...(fields.includes("research") ? { research: undefined } : {}),
+        ...(sample ? { note: undefined } : {}),
+        updatedAt: now,
+      });
+      cleared++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.clearMadeUp, { cursor: page.continueCursor });
+    return { checked: page.page.length, cleared, more: !page.isDone };
+  },
+});
+
+/**
  * Spells out a decision maker's title saved before titles were spelled out ("Mbr" → "Member", "Mgr" → "Manager"), a page
  * of owners at a time. Changes nothing else. `npx convex run outreach:respellTitles '{}'`.
  */
