@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -666,6 +666,8 @@ describe("the Comptroller's filing for a company", () => {
   test("a start of a name too common to list stops the shortening instead of failing the lookup", async () => {
     const asked: string[] = [];
     const fetchFn = vi.fn(async (url: string) => {
+      // Not on the state's list either.
+      if (url.startsWith(TX_TAXPAYER_LIST)) return json([]);
       const name = decodeURIComponent(url.split("name=")[1]);
       asked.push(name);
       // "TEXAS ARMS" is too common for the Comptroller to list: 413.
@@ -790,6 +792,40 @@ describe("the Comptroller's filing for a company", () => {
     const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "GRAHAM BUILDING LLC THE", company: "GRAHAM BUILDING LLC THE", mailing: {} });
     expect(asked[0]).toBe("THE GRAHAM BUILDING LLC");
     expect(found.person).toMatchObject({ name: "Sue Graham" });
+  });
+
+  test("the state's whole taxpayer list finds a name the Comptroller's search can't ('THE PARK AT 1788 SOUTH, LLC'), and a name the roll cut short", async () => {
+    const listAsked: string[] = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.startsWith(TX_TAXPAYER_LIST)) {
+        const q = new URL(url).searchParams.get("$q")!;
+        listAsked.push(q);
+        if (q === "PARK AT 1788 SOUTH") return json([{ taxpayer_number: "32000000070", taxpayer_name: "THE PARK AT 1788 SOUTH, LLC", taxpayer_zip: "77079" }, { taxpayer_number: "32000000071", taxpayer_name: "THE PARK AT 1788 SOUTH II, LLC", taxpayer_zip: "77079" }]);
+        if (q === "GREENWOOD COUNTRY MESQUITE PROPERTIES") return json([{ taxpayer_number: "32000000072", taxpayer_name: "GREENWOOD COUNTRY MESQUITE PROPERTIES, LLC", taxpayer_zip: "78741" }]);
+        return json([]);
+      }
+      if (url.includes("franchise-tax-list")) return json({ data: [] });
+      if (url.includes("franchise-tax/32000000070")) return json({ data: { officerInfo: [{ AGNT_NM: "DETAILS AVAIL UPON REQUEST", AGNT_TITL_TX: "OFFICER" }, { AGNT_NM: "GIL DE LA MORA", AGNT_TITL_TX: "MANAGER" }] } });
+      if (url.includes("franchise-tax/32000000072")) return json({ data: { officerInfo: [{ AGNT_NM: "JASON C BETHKE", AGNT_TITL_TX: "MEMBER" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const cpa = comptrollerTexas("cpa-key", fetchFn);
+    const park = await cpa.trace({ name: "PARK AT 1788 SOUTH LLC", company: "PARK AT 1788 SOUTH LLC", mailing: { zip: "77079" } });
+    // Only the same name: "...SOUTH II" is another company; a filler in an officer's place is nobody.
+    expect(park.person).toMatchObject({ name: "Gil De La Mora", title: "Manager" });
+    expect(listAsked[0]).toBe("PARK AT 1788 SOUTH");
+    const cut = await cpa.trace({ name: "GREENWOOD COUNTRY MESQUITE PROPERTIES, L", company: "GREENWOOD COUNTRY MESQUITE PROPERTIES, L", mailing: {} });
+    expect(cut.person).toMatchObject({ name: "Jason C Bethke" });
+  });
+
+  test("when the state's list can't be read, the Comptroller's own search is used as before", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.startsWith(TX_TAXPAYER_LIST)) return new Response("busy", { status: 503 });
+      if (url.includes("franchise-tax-list")) return json({ data: [{ name: "OAK PLAZA LLC", taxpayerId: "32011111111" }] });
+      if (url.includes("franchise-tax/32011111111")) return json({ data: { officerInfo: [{ AGNT_NM: "DANA REYES", AGNT_TITL_TX: "MANAGER" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    expect((await comptrollerTexas("cpa-key", fetchFn).trace({ name: "OAK PLAZA LLC", company: "OAK PLAZA LLC", mailing: {} })).person).toMatchObject({ name: "Dana Reyes" });
   });
 
   test("officers filed by a company's name are told from people", () => {
@@ -2213,7 +2249,7 @@ describe("a company's lists", () => {
     expect(row.enrichment.person.simulated).toBeUndefined();
     expect(row.enrichment.person.tries!.find((x) => x.source === "cobalt")).toMatchObject({ outcome: "skipped", note: "Not needed, already found" });
     // Only the Comptroller was called: nothing paid.
-    expect(new Set(asked)).toEqual(new Set(["api.comptroller.texas.gov"]));
+    expect(new Set(asked)).toEqual(new Set(["data.texas.gov", "api.comptroller.texas.gov"]));
     // The phones and email are the simulated chain's, made around her.
     expect(row.enrichment.phone.simulated).toBe(true);
     expect(row.enrichment.email.simulated).toBe(true);
@@ -2233,7 +2269,7 @@ describe("a company's lists", () => {
     expect(none.enrichment.phone.simulated).toBe(true);
     // Its sample numbers are the company's own, never a made-up person's.
     expect(none.phones.filter((p) => p.name).every((p) => p.name === other.name.toUpperCase())).toBe(true);
-    expect(new Set(asked)).toEqual(new Set(["api.comptroller.texas.gov"]));
+    expect(new Set(asked)).toEqual(new Set(["data.texas.gov", "api.comptroller.texas.gov"]));
   });
 
   test("the Comptroller's searches wait their turn in one line; other sources go straight through", async () => {

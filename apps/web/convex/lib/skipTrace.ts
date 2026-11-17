@@ -170,6 +170,8 @@ export const PACED_HOSTS: Record<string, { source: string; gapMs: (env: Record<s
   // The Comptroller turns away a crowd ("Too Many Requests") and publishes no rate. One a second was still turned away
   // now and then: one search every second and a half, everywhere.
   "api.comptroller.texas.gov": { source: "tx-comptroller", gapMs: (env) => (env.TX_COMPTROLLER_GAP_MS ? Math.max(0, Number(env.TX_COMPTROLLER_GAP_MS) || 0) : 1500) },
+  // The state's open data site cuts off a quick run of searches from one place: one a second.
+  "data.texas.gov": { source: "tx-open-data", gapMs: (env) => (env.TX_COMPTROLLER_GAP_MS ? Math.max(0, Number(env.TX_COMPTROLLER_GAP_MS) || 0) : 1000) },
 };
 
 /**
@@ -421,7 +423,7 @@ const FULL_TITLES = [
 const SHORT_TITLES: Record<string, string> = {
   VP: "Vice President", EVP: "Executive Vice President", SVP: "Senior Vice President", CEO: "Chief Executive Officer",
   CFO: "Chief Financial Officer", COO: "Chief Operating Officer", MGR: "Manager", MGMR: "Managing Member", MM: "Managing Member",
-  PRES: "President", SEC: "Secretary", TREAS: "Treasurer", DIR: "Director", GP: "General Partner", MBR: "Member", MEM: "Member",
+  PRES: "President", SEC: "Secretary", TREAS: "Treasurer", DIR: "Director", GP: "General Partner", MBR: "Member", MEM: "Member", P: "President",
 };
 /** "MANAGING M" → "Managing Member"; "VICE PRESI" → "Vice President"; a full title or one not on the list, in title case. */
 export function fullTitle(title: string): string {
@@ -436,6 +438,10 @@ export function fullTitle(title: string): string {
 
 /** How many sister companies are read for their people when the owner's own filing lists nobody. */
 const SISTERS_ASKED = 3;
+/** Words that say what kind of entity a name is, not which one: left out of a search by words. */
+const ENTITY_WORDS = new Set(["LLC", "LP", "LTD", "INC", "CO", "CORP", "CORPORATION", "COMPANY", "THE", "LLP", "PLLC", "PC", "PA", "L", "C", "P"]);
+/** What the Comptroller files in an officer's place when it names nobody. */
+const NOT_A_NAME = /DETAILS? AVAIL|UPON REQUEST|NOT APPLICABLE|^N\/?A$|^NONE$|^UNKNOWN$/i;
 /** How many filings of the same name are opened, at most, before giving up on finding its officers. */
 const FILINGS_ASKED = 3;
 
@@ -474,7 +480,15 @@ const RUNS_IT = [/MANAG/i, /GOVERN/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBE
  * Report. Free with a registered key, so it runs first and gives the paid
  * trace a person to find.
  */
-export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.comptroller.texas.gov/public-data/v1/public"): Vendor {
+/** The state's open list of every active franchise taxpayer (data.texas.gov, "Active Franchise Taxpayers"): free, no key. */
+export const TX_TAXPAYER_LIST = "https://data.texas.gov/resource/9cir-efmm.json";
+
+export function comptrollerTexas(
+  key: string | undefined,
+  fetchFn: Fetch = fetch,
+  base = "https://api.comptroller.texas.gov/public-data/v1/public",
+  taxpayerList: string | undefined = TX_TAXPAYER_LIST,
+): Vendor {
   const headers = { Accept: "application/json", "x-api-key": key ?? "" };
   return {
     name: "tx-comptroller",
@@ -497,13 +511,35 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
         return asArray(found.data) as Entity[];
       };
       const listed = (found: Entity[] | "too many") => (found === "too many" ? [] : found);
+      // The state's whole list of taxpayers, searched by the name's words in any order and with any punctuation: the
+      // Comptroller's own search only finds a name by its exact start ("PARK AT 1788" misses "THE PARK AT 1788 SOUTH,
+      // LLC"). undefined when the list can't be read: the Comptroller's search is used alone, as before.
+      const fromList = async (term: string): Promise<Entity[] | undefined> => {
+        if (!taxpayerList) return undefined;
+        const words = term.replace(/[^A-Z0-9&'-]+/g, " ").split(" ").filter((w) => w && !ENTITY_WORDS.has(w) && w !== "&");
+        if (words.length === 0) return undefined;
+        try {
+          const params = new URLSearchParams({ $q: words.join(" "), $limit: "50", $select: "taxpayer_number,taxpayer_name,taxpayer_zip" });
+          const res = await fetchFn(`${taxpayerList}?${params}`, { headers: { Accept: "application/json" } });
+          if (!res.ok) return undefined;
+          const rows = asArray(await res.json()) as Array<Record<string, unknown>>;
+          return rows.map((r) => ({ name: str(r.taxpayer_name), taxpayerId: str(r.taxpayer_number), mailingAddressZip: str(r.taxpayer_zip) }));
+        } catch {
+          return undefined;
+        }
+      };
       // The name as filed may be punctuated differently from the roll's ("KOSF II - MIDLAND, LLC" for "KOSF II MIDLAND
       // LLC"): names are compared by their letters and numbers alone, and only the same name is ever taken.
       const plain = plainName;
       const wanted = plain(name);
       // The roll puts "THE" last ("GRAHAM BUILDING LLC THE"); the name is filed, and searched, with it first.
       const asFiled = /\sTHE$/.test(name) ? `THE ${name.replace(/\s+THE$/, "")}` : name;
-      let same = listed(await search(asFiled)).filter((e) => plain(e.name) === wanted);
+      // A roll name cut short at the county's width ("GREENWOOD COUNTRY MESQUITE PROPERTIES, L") is the start of the
+      // filed name; it's taken only from the list, where the other words have to match too.
+      const cut = name.length >= 38;
+      const fromTheList = await fromList(asFiled);
+      let same = (fromTheList ?? []).filter((e) => plain(e.name) === wanted || (cut && plain(e.name).startsWith(wanted)));
+      if (same.length === 0) same = listed(await search(asFiled)).filter((e) => plain(e.name) === wanted);
       // Not found as written: asked again by its first words (the search matches a name's start), longest first. The
       // words keep their own marks ("HINCKLEY & SCHMITT", "N & T PAREDES"), as names are filed, but a mark isn't a word
       // of its own when counting them; only a trailing comma or period goes. Once a start is too common to list, a
@@ -535,7 +571,7 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
         const body = (await details.json()) as { data?: { officerInfo?: unknown[] } };
         return (asArray(body.data?.officerInfo) as Array<Record<string, unknown>>)
           .map((o) => ({ name: str(o.AGNT_NM), title: str(o.AGNT_TITL_TX), street: str(o.AD_STR_POB_TX), city: str(o.CITY_NM), state: str(o.ST_CD), zip: str(o.AD_ZP) }))
-          .filter((o): o is typeof o & { name: string } => Boolean(o.name));
+          .filter((o): o is typeof o & { name: string } => Boolean(o.name) && !NOT_A_NAME.test(o.name!));
       };
       const split = (all: Awaited<ReturnType<typeof officersOf>>) => ({ people: (all ?? []).filter((o) => !isCompanyName(o.name)), companies: (all ?? []).filter((o) => isCompanyName(o.name)) });
       const peopleOf = async (taxpayerId: string) => split(await officersOf(taxpayerId));
@@ -568,7 +604,9 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       if (officers.length === 0 && first.companies.length > 0) {
         const parent = [...first.companies].sort((a, b) => rankOf(a.title) - rankOf(b.title))[0];
         const parentName = plain(parent.name);
-        const found = listed(await search(parent.name.toUpperCase().replace(/[<>]/g, "").slice(0, 50))).find((e) => plain(e.name) === parentName && e.taxpayerId);
+        const parentTerm = parent.name.toUpperCase().replace(/[<>]/g, "").slice(0, 50);
+        const isParent = (e: Entity) => plain(e.name) === parentName && Boolean(e.taxpayerId);
+        const found = ((await fromList(parentTerm)) ?? []).find(isParent) ?? listed(await search(parentTerm)).find(isParent);
         if (found?.taxpayerId) {
           officers = (await peopleOf(found.taxpayerId)).people;
           if (officers.length > 0) via = found.name ?? parent.name;

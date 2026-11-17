@@ -170,7 +170,8 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void; noneText?: str
       // The sources refresh monthly: once a month has gone by, the owner can be tried again, free unless something turns up.
       const from = tryAgainFrom(cell);
       return (
-        <span className="flex items-center gap-2 min-w-0">
+        // In words, the button goes under them when the column is narrow, rather than being cut off beside them.
+        <span className={noneText ? 'flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0' : 'flex items-center gap-2 min-w-0'}>
           {noneText ? (
             <span className="text-gray-500 whitespace-nowrap" data-testid="nothing-found">
               {noneText}
