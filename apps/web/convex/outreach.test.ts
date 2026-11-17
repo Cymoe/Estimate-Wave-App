@@ -2581,6 +2581,13 @@ describe("a company's lists", () => {
     const leads = await t.run(async (ctx) => ctx.db.query("leads").collect());
     expect(leads.find((l) => l.name === "Emerald Sky Capital LTD")).toMatchObject({ email: "real@person.net" });
     expect(leads.find((l) => l.name === "Emerald Sky Capital LTD")!.phone).toBeUndefined();
+    // A demo lead (the Lead Market's 555 number) is deleted whole; a real lead and the page's own examples stay.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("leads", { organizationId: org, userId, name: "Hector Salinas", phone: "(432) 555-0141", status: "new", createdAt: at, updatedAt: at });
+    });
+    expect(await t.mutation(internal.outreach.removeDemoLeads, { dryRun: true })).toEqual({ removed: 1, dryRun: true, names: ["Hector Salinas"] });
+    expect((await t.mutation(internal.outreach.removeDemoLeads, {})).names).toEqual(["Hector Salinas"]);
+    expect((await t.run(async (ctx) => ctx.db.query("leads").collect())).map((l) => l.name).sort()).toEqual(["Emerald Sky Capital LTD", "Example Lead"]);
     const after = await t.action(internal.outreach.madeUpCheck, {});
     expect(after.found).toEqual({ "example lead": { count: 1, names: ["Example Lead"] } });
     const rows = await read();

@@ -3012,6 +3012,31 @@ export const clearMadeUpLeads = internalMutation({
 });
 
 /**
+ * Deletes the leads the Lead Market and intake demos made (a 555-01xx number or an example.com address), as deleting a
+ * lead by hand does: an Outreach owner sent to it goes back to New. The Leads page's own examples (isSample) are left to
+ * their button. `dryRun` only lists them. `npx convex run outreach:removeDemoLeads '{"dryRun":true}'`.
+ */
+export const removeDemoLeads = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { dryRun = false }) => {
+    const now = nowIso();
+    const removed: string[] = [];
+    for await (const l of ctx.db.query("leads")) {
+      if (l.isSample) continue;
+      const demo = Boolean((l.phone && FAKE_NUMBER(l.phone)) || (l.email && FAKE_EMAIL(l.email)));
+      if (!demo) continue;
+      removed.push(l.name);
+      if (dryRun) continue;
+      await ctx.db.delete(l._id);
+      for (const c of await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", l._id)).collect()) {
+        await ctx.db.patch(c._id, { status: "new", leadId: undefined, updatedAt: now });
+      }
+    }
+    return { removed: removed.length, dryRun, names: removed };
+  },
+});
+
+/**
  * Spells out a decision maker's title saved before titles were spelled out ("Mbr" → "Member", "Mgr" → "Manager"), a page
  * of owners at a time. Changes nothing else. `npx convex run outreach:respellTitles '{}'`.
  */
