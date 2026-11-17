@@ -3657,3 +3657,43 @@ export const checkStorage = internalAction({
     return { places, owners };
   },
 });
+
+/**
+ * The lookups run lately, newest first, across the companies: who was looked up, what each field found and from
+ * where, to check them by hand. Nothing is saved. `npx convex run outreach:recentLookups '{"limit":40}'`.
+ */
+export const recentLookups = internalQuery({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit = 40 }) => {
+    const out = [];
+    for (const org of await ctx.db.query("organizations").take(50)) {
+      const rows = await ctx.db
+        .query("outreachContacts")
+        .withIndex("by_organization_and_updated", (q) => q.eq("organizationId", org._id))
+        .order("desc")
+        .take(400);
+      for (const c of rows) {
+        const cells = cellsOf(c);
+        const looked = (["person", "phone", "email", "research"] as const).filter((f) => cells[f] && cells[f]!.status !== "locked");
+        if (looked.length === 0) continue;
+        out.push({
+          organization: org.name,
+          name: c.name,
+          company: c.company ?? null,
+          property: c.property?.address ?? null,
+          updatedAt: c.updatedAt ?? null,
+          person: c.person ?? null,
+          cells: Object.fromEntries(
+            looked.map((f) => {
+              const cell = cells[f]!;
+              return [f, { status: cell.status, source: "source" in cell ? (cell.source ?? null) : null, simulated: "simulated" in cell ? Boolean(cell.simulated) : false, error: "error" in cell ? (cell.error ?? null) : null, tries: "tries" in cell ? (cell.tries ?? []).map((t) => `${t.source}:${t.outcome}${t.note ? ` (${t.note})` : ""}`) : [] }];
+            }),
+          ),
+          phones: (c.phones ?? []).map((p) => `${p.number}${p.name ? ` ${p.name}` : ""}`),
+          emails: (c.emails ?? []).map((e) => e.email),
+        });
+      }
+    }
+    return out.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")).slice(0, limit);
+  },
+});
