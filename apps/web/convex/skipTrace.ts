@@ -367,6 +367,38 @@ async function runSample(
  * Nothing is saved and nothing is charged.
  * `npx convex run skipTrace:tryPerson '{"company":"KOSF II MIDLAND LLC"}'`.
  */
+/**
+ * A hand check of the Comptroller's search: for each term, its status, how many it lists, the first few names, and the
+ * start of any error body. Only reads; a second apart. `npx convex run skipTrace:probeComptroller '{"terms":["ENDEAVOR"]}'`.
+ */
+export const probeComptroller = internalAction({
+  args: { terms: v.array(v.string()) },
+  handler: async (_ctx, { terms }) => {
+    const key = process.env.TX_COMPTROLLER_API_KEY;
+    if (!key) return { error: "TX_COMPTROLLER_API_KEY isn't set" };
+    const base = "https://api.comptroller.texas.gov/public-data/v1/public";
+    const out = [];
+    for (const term of terms.slice(0, 12)) {
+      const url = `${base}/franchise-tax-list?name=${encodeURIComponent(term)}`;
+      const started = Date.now();
+      const res = await fetch(url, { headers: { Accept: "application/json", "x-api-key": key } });
+      const text = await res.text();
+      let count: number | undefined;
+      let names: string[] = [];
+      try {
+        const data = (JSON.parse(text) as { data?: Array<{ name?: string }> }).data ?? [];
+        count = data.length;
+        names = data.slice(0, 5).map((e) => e.name ?? "");
+      } catch {
+        // Not JSON: the body's start is shown instead.
+      }
+      out.push({ term, url: url.replace(base, ""), status: res.status, ms: Date.now() - started, count, names, body: count === undefined ? text.slice(0, 300) : undefined });
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return out;
+  },
+});
+
 export const tryPerson = internalAction({
   args: { company: v.string(), zip: v.optional(v.string()), raw: v.optional(v.boolean()) },
   handler: async (_ctx, { company, zip, raw }) => {
