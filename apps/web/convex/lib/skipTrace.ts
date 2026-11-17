@@ -420,7 +420,7 @@ const FULL_TITLES = [
 const SHORT_TITLES: Record<string, string> = {
   VP: "Vice President", EVP: "Executive Vice President", SVP: "Senior Vice President", CEO: "Chief Executive Officer",
   CFO: "Chief Financial Officer", COO: "Chief Operating Officer", MGR: "Manager", MGMR: "Managing Member", MM: "Managing Member",
-  PRES: "President", SEC: "Secretary", TREAS: "Treasurer", DIR: "Director", GP: "General Partner",
+  PRES: "President", SEC: "Secretary", TREAS: "Treasurer", DIR: "Director", GP: "General Partner", MBR: "Member", MEM: "Member",
 };
 /** "MANAGING M" → "Managing Member"; "VICE PRESI" → "Vice President"; a full title or one not on the list, in title case. */
 export function fullTitle(title: string): string {
@@ -435,6 +435,16 @@ export function fullTitle(title: string): string {
 
 /** How many sister companies are read for their people when the owner's own filing lists nobody. */
 const SISTERS_ASKED = 3;
+
+/** An officer filed by a company's name rather than a person's: "TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV, L.L.C.", "GLATNER PROPERTIES". */
+export const isCompanyName = (name: string) =>
+  /\b(L\.?\s?L\.?\s?C|L\.?\s?L\.?\s?P|INC|LTD|L\.?P|CORP(ORATION)?|COMPANY|CO|TRUST|PROPERTIES|HOLDINGS|PARTNERS(HIP)?|INVESTMENTS?|ENTERPRISES|MANAGEMENT|GROUP|FUND|CAPITAL|VENTURES)\b\.?/i.test(name);
+
+/** Who runs a company first (RUNS_IT), for picking one officer of several. */
+const rankOf = (title?: string) => {
+  const i = RUNS_IT.findIndex((re) => title && re.test(title));
+  return i === -1 ? RUNS_IT.length : i;
+};
 
 /** The officer titles that run a company, most useful first. */
 const RUNS_IT = [/MANAG/i, /GOVERN/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
@@ -458,23 +468,34 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       const name = input.company.toUpperCase().replace(/[<>]/g, "").replace(/\s*&\s*$/, "").trim().slice(0, 50);
       if (name.length < 2) return {};
       type Entity = { name?: string; taxpayerId?: string; mailingAddressZip?: string };
-      const search = async (term: string): Promise<Entity[]> => {
+      // "too many": the start of a name so common ("TEXAS", "PERMIAN") that the Comptroller won't list its matches (413),
+      // or a search it can't take (400). Neither is a failure of the lookup: that search just finds nothing.
+      const search = async (term: string): Promise<Entity[] | "too many"> => {
         const list = await fetchFn(`${base}/franchise-tax-list?name=${encodeURIComponent(term)}`, { headers });
+        if (list.status === 413 || list.status === 400) return "too many";
         if (!list.ok) throw new Error(`Texas Comptroller: HTTP ${list.status}`);
         const found = (await list.json()) as { data?: Entity[] };
         return asArray(found.data) as Entity[];
       };
+      const listed = (found: Entity[] | "too many") => (found === "too many" ? [] : found);
       // The name as filed may be punctuated differently from the roll's ("KOSF II - MIDLAND, LLC" for "KOSF II MIDLAND
       // LLC"): names are compared by their letters and numbers alone, and only the same name is ever taken.
       const plain = (s?: string) => (s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
       const wanted = plain(name);
-      let same = (await search(name)).filter((e) => plain(e.name) === wanted);
-      // Not found as written: asked again by its first words (the search matches a name's start), longest first.
-      const words = wanted.split(" ");
+      let same = listed(await search(name)).filter((e) => plain(e.name) === wanted);
+      // Not found as written: asked again by its first words (the search matches a name's start), longest first. The
+      // words keep their own marks ("HINCKLEY & SCHMITT", "7-ELEVEN"), as names are filed; only a trailing comma or
+      // period goes. Once a start is too common to list, a shorter one would be too: the asking stops there.
+      const words = name.split(/\s+/).map((w) => w.replace(/[,.]+$/, "")).filter(Boolean);
+      let asked = name;
       for (let n = Math.min(words.length - 1, 3); same.length === 0 && n >= 1; n--) {
-        const term = words.slice(0, n).join(" ");
+        const term = words.slice(0, n).join(" ").replace(/[\s&-]+$/, "");
         if (term.length < 3) break;
-        same = (await search(term)).filter((e) => plain(e.name) === wanted);
+        if (term === asked) continue;
+        asked = term;
+        const found = await search(term);
+        if (found === "too many") break;
+        same = found.filter((e) => plain(e.name) === wanted);
       }
       const zip = input.mailing.zip?.slice(0, 5);
       const entity = same.find((e) => zip && e.mailingAddressZip?.slice(0, 5) === zip) ?? same[0];
@@ -485,17 +506,33 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
         const body = (await details.json()) as { data?: { officerInfo?: unknown[] } };
         return (asArray(body.data?.officerInfo) as Array<Record<string, unknown>>)
           .map((o) => ({ name: str(o.AGNT_NM), title: str(o.AGNT_TITL_TX), street: str(o.AD_STR_POB_TX), city: str(o.CITY_NM), state: str(o.ST_CD), zip: str(o.AD_ZP) }))
-          .filter((o): o is typeof o & { name: string } => Boolean(o.name) && !/\b(LLC|L L C|INC|LTD|LP|CORP|COMPANY|TRUST)\b/i.test(o.name!));
+          .filter((o): o is typeof o & { name: string } => Boolean(o.name));
       };
-      let officers = await officersOf(entity.taxpayerId);
+      const peopleOf = async (taxpayerId: string) => {
+        const all = await officersOf(taxpayerId);
+        return { people: all.filter((o) => !isCompanyName(o.name)), companies: all.filter((o) => isCompanyName(o.name)) };
+      };
+      const first = await peopleOf(entity.taxpayerId);
+      let officers = first.people;
       let via: string | undefined;
+      // Run by another company (its member or general partner is "TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV,
+      // L.L.C."): the people that company files are the ones to talk to, and the lookup says whose they are.
+      if (officers.length === 0 && first.companies.length > 0) {
+        const parent = [...first.companies].sort((a, b) => rankOf(a.title) - rankOf(b.title))[0];
+        const parentName = plain(parent.name);
+        const found = listed(await search(parent.name.toUpperCase().replace(/[<>]/g, "").slice(0, 50))).find((e) => plain(e.name) === parentName && e.taxpayerId);
+        if (found?.taxpayerId) {
+          officers = (await peopleOf(found.taxpayerId)).people;
+          if (officers.length > 0) via = found.name ?? parent.name;
+        }
+      }
       // A fund's property companies are filed as one family ("KOSF II - MIDLAND, LLC", "KOSF II - SAN ANGELO, LLC"), and
       // the one that owns here may list nobody: the people a sister company lists run it too, and say where they're from.
       const family = entity.name?.match(/^(.+?)\s+-\s+\S/)?.[1];
       if (officers.length === 0 && family) {
-        const sisters = (await search(family)).filter((e) => e.taxpayerId && e.taxpayerId !== entity.taxpayerId && e.name?.toUpperCase().startsWith(`${family.toUpperCase()} - `));
+        const sisters = listed(await search(family)).filter((e) => e.taxpayerId && e.taxpayerId !== entity.taxpayerId && e.name?.toUpperCase().startsWith(`${family.toUpperCase()} - `));
         for (const sister of sisters.slice(0, SISTERS_ASKED)) {
-          officers = await officersOf(sister.taxpayerId!);
+          officers = (await peopleOf(sister.taxpayerId!)).people;
           if (officers.length > 0) {
             via = sister.name!;
             break;
@@ -503,11 +540,7 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
         }
       }
       if (officers.length === 0) return {};
-      const rank = (title?: string) => {
-        const i = RUNS_IT.findIndex((re) => title && re.test(title));
-        return i === -1 ? RUNS_IT.length : i;
-      };
-      const best = [...officers].sort((a, b) => rank(a.title) - rank(b.title))[0];
+      const best = [...officers].sort((a, b) => rankOf(a.title) - rankOf(b.title))[0];
       const address = [best.street, [best.city, best.state].filter(Boolean).join(", "), best.zip?.slice(0, 5)].filter(Boolean).join(", ");
       return {
         person: {

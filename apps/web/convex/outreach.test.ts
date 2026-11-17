@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -661,6 +661,62 @@ describe("the Comptroller's filing for a company", () => {
     expect(found.person).toMatchObject({ name: "Andrew Freeman", title: "Governing Person", via: "KOSF II - SAN ANGELO, LLC", source: "tx-comptroller" });
     // The owner's own filing first, then the first sister's: no more than that.
     expect(asked.filter((u) => u.startsWith("franchise-tax/"))).toEqual(["franchise-tax/32000000002", "franchise-tax/32000000004"]);
+  });
+
+  test("a start of a name too common to list stops the shortening instead of failing the lookup", async () => {
+    const asked: string[] = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      const name = decodeURIComponent(url.split("name=")[1]);
+      asked.push(name);
+      // "TEXAS ARMS" is too common for the Comptroller to list: 413.
+      return name === "TEXAS ARMS" ? new Response("Request Entity Too Large", { status: 413 }) : json({ data: [] });
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "TEXAS ARMS OF LOVE INC", company: "TEXAS ARMS OF LOVE INC", mailing: {} });
+    expect(found).toEqual({});
+    // Nothing shorter is asked once one start is too common.
+    expect(asked).toEqual(["TEXAS ARMS OF LOVE INC", "TEXAS ARMS OF", "TEXAS ARMS"]);
+  });
+
+  test("the first words keep their marks as filed: '7-ELEVEN', 'HINCKLEY & SCHMITT'", async () => {
+    const asked: string[] = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        asked.push(name);
+        if (name === "7-ELEVEN") return json({ data: [{ name: "7-ELEVEN, INC.", taxpayerId: "17000000001" }] });
+        if (name === "HINCKLEY & SCHMITT") return json({ data: [{ name: "HINCKLEY & SCHMITT, INC.", taxpayerId: "17000000002" }] });
+        return json({ data: [] });
+      }
+      if (url.includes("franchise-tax/17000000001")) return json({ data: { officerInfo: [{ AGNT_NM: "JOSEPH DEPINTO", AGNT_TITL_TX: "PRESIDENT" }] } });
+      if (url.includes("franchise-tax/17000000002")) return json({ data: { officerInfo: [{ AGNT_NM: "ANNE HINCKLEY", AGNT_TITL_TX: "MBR" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const cpa = comptrollerTexas("cpa-key", fetchFn);
+    expect((await cpa.trace({ name: "7-ELEVEN INC", company: "7-ELEVEN INC", mailing: {} })).person).toMatchObject({ name: "Joseph Depinto", title: "President" });
+    expect((await cpa.trace({ name: "HINCKLEY & SCHMITT INC", company: "HINCKLEY & SCHMITT INC", mailing: {} })).person).toMatchObject({ name: "Anne Hinckley", title: "Member" });
+    // "HINCKLEY &" is asked as "HINCKLEY" once, not twice.
+    expect(asked).toEqual(["7-ELEVEN INC", "7-ELEVEN", "HINCKLEY & SCHMITT INC", "HINCKLEY & SCHMITT"]);
+  });
+
+  test("a company run by another company gives that company's people, and says whose they are", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        if (name === "EMERALD SKY CAPITAL LTD") return json({ data: [{ name: "EMERALD SKY CAPITAL, LTD.", taxpayerId: "32000000020" }] });
+        if (name === "M. P. SHIPTON XIV, L.L.C.") return json({ data: [{ name: "M. P. SHIPTON XIV, L.L.C.", taxpayerId: "32000000021" }] });
+        return json({ data: [] });
+      }
+      if (url.includes("franchise-tax/32000000020")) return json({ data: { officerInfo: [{ AGNT_NM: "M. P. SHIPTON XIV, L.L.C.", AGNT_TITL_TX: "GENERAL PA" }] } });
+      if (url.includes("franchise-tax/32000000021")) return json({ data: { officerInfo: [{ AGNT_NM: "MARK SHIPTON", AGNT_TITL_TX: "MANAGER", CITY_NM: "LUBBOCK", ST_CD: "TX" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "EMERALD SKY CAPITAL LTD", company: "EMERALD SKY CAPITAL LTD", mailing: {} });
+    expect(found.person).toMatchObject({ name: "Mark Shipton", title: "Manager", via: "M. P. SHIPTON XIV, L.L.C." });
+  });
+
+  test("officers filed by a company's name are told from people", () => {
+    for (const n of ["TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV, L.L.C.", "GLATNER PROPERTIES", "ACME HOLDINGS", "SMITH FAMILY TRUST", "KOSF7, LLC"]) expect(isCompanyName(n)).toBe(true);
+    for (const n of ["ANDREW FREEMAN", "JOHN C SCHARBAUER", "CAROL VAN ZANDT JONES", "DALE A BROWN"]) expect(isCompanyName(n)).toBe(false);
   });
 
   test("a search that turns up only other companies gives nobody, never the first one it lists", async () => {
