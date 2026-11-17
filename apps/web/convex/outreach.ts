@@ -2864,7 +2864,9 @@ export const lookUpPhones = internalMutation({
         asked.push(c.name);
         if (dryRun) continue;
         const email = cellFor(cells, "email");
-        const redoEmail = !(email.status === "found" && !email.simulated) && email.status !== "running";
+        // Addresses at example.com are made up too (copied from a sister's practice run once).
+        const fakeEmails = (c.emails ?? []).length > 0 && (c.emails ?? []).every((e) => /@([a-z0-9-]+\.)*example\.(com|org|net)$/i.test(e.email));
+        const redoEmail = !(email.status === "found" && !email.simulated && !fakeEmails) && email.status !== "running";
         await ctx.db.patch(c._id, {
           enrichment: { ...cells, phone: { status: "running", at: now }, ...(redoEmail ? { email: { status: "running", at: now } } : {}) },
           phones: undefined,

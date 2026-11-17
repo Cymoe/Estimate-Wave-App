@@ -2513,8 +2513,13 @@ describe("a company's lists", () => {
       for (const q of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(q._id);
     });
     // A sister's practice numbers once copied as found (555-01xx): made up all the same, asked again.
-    await set(real.id, { phone: { status: "found", at: earlier, source: "shared" }, email: { status: "none", at: earlier } }, { phones: [fakePhone] });
+    await set(real.id, { phone: { status: "found", at: earlier, source: "shared" }, email: { status: "found", at: earlier, source: "shared" } }, { phones: [fakePhone], emails: [{ email: "office.crimson@example.com", source: "batchdata" }] });
     expect((await t.mutation(internal.outreach.lookUpPhones, { dryRun: true })).names).toEqual([real.name]);
+    await t.mutation(internal.outreach.lookUpPhones, {});
+    expect(await t.run(async (ctx) => (await ctx.db.query("outreachQueue").collect()).map((q) => q.fields))).toEqual([["phone", "email"]]);
+    await t.run(async (ctx) => {
+      for (const q of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(q._id);
+    });
     const realPhone = { number: "4326827788", type: "mobile", source: "tracerfy" };
     await set(real.id, { phone: { status: "found", at: earlier, source: "tracerfy" } }, { phones: [realPhone] });
     await set(madeUp.id, { person: { status: "found", at: earlier, source: "tx-comptroller" }, phone: { status: "none", at: earlier } });
