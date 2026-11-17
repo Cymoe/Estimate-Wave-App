@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, openSosData, agentAsPerson, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, openSosData, agentAsPerson, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, tracerfyKey, phoneScrub, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -2460,6 +2460,64 @@ describe("a company's lists", () => {
     const queued = await t.run(async (ctx) => ctx.db.query("outreachQueue").collect());
     expect(queued.map((q) => [q.fields, q.free])).toEqual([[["person"], true], [["person"], true]]);
     expect((await t.mutation(internal.outreach.retryNobody, { before: new Date(NOW - 60_000).toISOString() })).asked).toBe(0);
+  });
+
+  test("once a phone source is in, the decision makers found for real get their phone looked up: made-up phones go, real ones stay", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const [real, madeUp] = (await read()).rows.filter((r) => r.company);
+    const earlier = new Date(NOW - 3600_000).toISOString();
+    const fakePhone = { number: "4325550142", type: "mobile", source: "tracerfy" };
+    const set = async (id: string, patch: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+      await t.run(async (ctx) => {
+        const c = (await ctx.db.get(id as Id<"outreachContacts">))!;
+        await ctx.db.patch(c._id, { enrichment: { phone: { status: "locked" }, email: { status: "locked" }, research: { status: "locked" }, person: { status: "locked" }, ...c.enrichment, ...patch }, ...extra } as never);
+      });
+    await set(
+      real.id,
+      { person: { status: "found", at: earlier, source: "tx-comptroller" }, phone: { status: "found", at: earlier, source: "tracerfy", simulated: true }, email: { status: "found", at: earlier, source: "tracerfy", simulated: true } },
+      { person: { name: "Bailey L Haller", title: "Member", source: "tx-comptroller" }, phones: [fakePhone], emails: [{ email: "made@up.example", source: "tracerfy" }] },
+    );
+    // A person practice mode made up is nobody to look for.
+    await set(madeUp.id, { person: { status: "found", at: earlier, source: "tx-comptroller", simulated: true } }, { person: { name: "Mark Ellison", source: "tx-comptroller" } });
+    // Counting changes nothing.
+    expect(await t.mutation(internal.outreach.lookUpPhones, { dryRun: true })).toMatchObject({ asked: 1, dryRun: true });
+    expect(await t.run(async (ctx) => ctx.db.query("outreachQueue").collect())).toEqual([]);
+    expect((await t.mutation(internal.outreach.lookUpPhones, {})).asked).toBe(1);
+    const row = (await read()).rows.find((r) => r.id === real.id)!;
+    expect(row.enrichment.phone.status).toBe("running");
+    expect(row.enrichment.email.status).toBe("running");
+    expect(row.phones ?? []).toEqual([]);
+    // Free, and asked for by nobody, so nothing is charged to the company's balance when it lands.
+    const queued = await t.run(async (ctx) => ctx.db.query("outreachQueue").collect());
+    expect(queued.map((q) => [q.fields, q.free])).toEqual([[["phone", "email"], true]]);
+    expect((row.enrichment.phone as { requestedBy?: string }).requestedBy).toBeUndefined();
+    // Already on its way: not asked twice.
+    expect((await t.mutation(internal.outreach.lookUpPhones, {})).asked).toBe(0);
+    // A real phone already found is left alone; a limit is kept.
+    await t.run(async (ctx) => {
+      for (const q of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(q._id);
+    });
+    await set(real.id, { phone: { status: "found", at: earlier, source: "tracerfy" }, email: { status: "none", at: earlier } }, { phones: [fakePhone] });
+    await set(madeUp.id, { person: { status: "found", at: earlier, source: "tx-comptroller" }, phone: { status: "none", at: earlier } });
+    expect((await t.mutation(internal.outreach.lookUpPhones, { limit: 5 })).names).toEqual([madeUp.name]);
+    expect((await read()).rows.find((r) => r.id === real.id)!.phones).toEqual([fakePhone]);
+  });
+
+  test("the Tracerfy key is read under the name it was saved as, and connecting it ends practice mode", () => {
+    expect(tracerfyKey({ Tracerfy: "tf" })).toBe("tf");
+    expect(tracerfyKey({ TRACERFY_API_KEY: "tf2" })).toBe("tf2");
+    expect(tracerfyKey({})).toBeUndefined();
+    const stack = vendors({ Tracerfy: "tf" });
+    expect(stack.find((v) => v.name === "tracerfy")!.connected).toBe(true);
+    expect(stack.some((v) => standsAlone(v, "phone"))).toBe(true);
+    expect(phoneScrub({ Tracerfy: "tf" }).connected).toBe(true);
   });
 
   test("a person lookup the Comptroller turns away with 'slow down' is asked again on its own, a few times, before it fails", async () => {

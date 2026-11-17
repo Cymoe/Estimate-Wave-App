@@ -346,7 +346,7 @@ export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base 
  * Tracerfy's instant lookup: one property, the person to find when we know
  * one (the Comptroller's officer, or the roll's personal name), else the
  * owner. Up to 8 phones ranked 1 first, each with a type and DNC/TCPA
- * flags; 2¢ a hit, a miss free. TRACERFY_API_BASE can point at the
+ * flags; 5 credits (about 10¢) a lookup. TRACERFY_API_BASE can point at the
  * sandbox (mock.tracerfy.com) for a free dry run.
  */
 export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base = "https://tracerfy.com/v1/api"): Vendor {
@@ -952,6 +952,8 @@ export function leadMagicMobile(key: string | undefined, fetchFn: Fetch = fetch,
  */
 /** The OpenSOSData key, under the name the owner saved it ("Sosdata") or a conventional one. */
 export const sosDataKey = (env: Record<string, string | undefined>) => env.Sosdata || env.SOSDATA_API_KEY || env.OPENSOSDATA_API_KEY || undefined;
+/** The Tracerfy key, under the name the owner saved it ("Tracerfy") or the conventional one. */
+export const tracerfyKey = (env: Record<string, string | undefined>) => env.Tracerfy || env.TRACERFY_API_KEY || undefined;
 
 /** slowFetch: for a source that can take minutes to answer (OpenSOSData reads a state's site live). */
 export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch = guarded(), slowFetch: Fetch = guarded(fetch, SLOW_CALL_TIMEOUT_MS)): Vendor[] {
@@ -960,7 +962,7 @@ export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch 
     openSosData(sosDataKey(env), slowFetch),
     cobaltSos(env.COBALT_API_KEY, fetchFn, env.COBALT_API_BASE || undefined),
     batchData(env.BATCHDATA_API_KEY, fetchFn),
-    tracerfy(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_API_BASE || undefined),
+    tracerfy(tracerfyKey(env), fetchFn, env.TRACERFY_API_BASE || undefined),
     enformion(env.ENFORMION_AP_NAME, env.ENFORMION_AP_PASSWORD, fetchFn, env.ENFORMION_API_BASE || undefined),
     leadMagicMobile(env.LEADMAGIC_API_KEY, fetchFn),
     hunter(env.HUNTER_API_KEY, fetchFn),
@@ -1233,7 +1235,7 @@ export function tracerfyDnc(key: string | undefined, fetchFn: Fetch = fetch, bas
 }
 
 export function phoneScrub(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): PhoneScrub {
-  return tracerfyDnc(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_DNC_API_BASE || undefined);
+  return tracerfyDnc(tracerfyKey(env), fetchFn, env.TRACERFY_DNC_API_BASE || undefined);
 }
 
 /**
@@ -1414,8 +1416,8 @@ export function applyEmailCheck(emails: Email[], address: string, check: EmailCh
 /** The keys a field's sources need, for the "not connected" note. */
 export const KEY_FOR: Record<Field, string> = {
   person: "TX_COMPTROLLER_API_KEY, Sosdata (OpenSOSData) or COBALT_API_KEY",
-  phone: "BATCHDATA_API_KEY, TRACERFY_API_KEY or ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD",
-  email: "BATCHDATA_API_KEY, TRACERFY_API_KEY, ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD, HUNTER_API_KEY or LEADMAGIC_API_KEY",
+  phone: "BATCHDATA_API_KEY, Tracerfy (TRACERFY_API_KEY) or ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD",
+  email: "BATCHDATA_API_KEY, Tracerfy (TRACERFY_API_KEY), ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD, HUNTER_API_KEY or LEADMAGIC_API_KEY",
   research: "ANTHROPIC_API_KEY",
 };
 

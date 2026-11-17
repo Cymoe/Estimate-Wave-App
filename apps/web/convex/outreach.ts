@@ -2833,6 +2833,52 @@ export const retryNobody = internalMutation({
 });
 
 /**
+ * Looks up the phone and email of each company's decision maker found for real, once a phone source is connected: the
+ * phones practice mode made up are cleared and asked for again. A real phone already found is left alone. Charged to
+ * nobody's Outreach balance (no one asked for it in the app; the source bills its own account), and it goes through the
+ * queue like any lookup. `dryRun` only counts. `npx convex run outreach:lookUpPhones '{"limit":10}'`.
+ */
+export const lookUpPhones = internalMutation({
+  args: { limit: v.optional(v.number()), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { limit = 300, dryRun = false }) => {
+    const now = nowIso();
+    const asked: string[] = [];
+    for (const org of await ctx.db.query("organizations").take(50)) {
+      const rows = await ctx.db
+        .query("outreachContacts")
+        .withIndex("by_organization_and_updated", (q) => q.eq("organizationId", org._id))
+        .order("desc")
+        .take(1000);
+      for (const c of rows) {
+        if (asked.length >= limit) break;
+        if (!isCompany(c) || isSampleRun(c)) continue;
+        const cells = cellsOf(c);
+        const person = cellFor(cells, "person");
+        if (person.status !== "found" || person.simulated || !c.person?.name || isCompanyName(c.person.name)) continue;
+        const phone = cellFor(cells, "phone");
+        if ((phone.status === "found" && !phone.simulated) || phone.status === "running") continue;
+        const covered = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).some((r) => r.fields.includes("phone"));
+        if (covered) continue;
+        asked.push(c.name);
+        if (dryRun) continue;
+        const email = cellFor(cells, "email");
+        const redoEmail = !(email.status === "found" && !email.simulated) && email.status !== "running";
+        await ctx.db.patch(c._id, {
+          enrichment: { ...cells, phone: { status: "running", at: now }, ...(redoEmail ? { email: { status: "running", at: now } } : {}) },
+          phones: undefined,
+          ...(redoEmail ? { emails: undefined } : {}),
+          updatedAt: now,
+        });
+        await clearProgress(ctx, c._id, redoEmail ? ["phone", "email"] : ["phone"]);
+        await ctx.db.insert("outreachQueue", { organizationId: org._id, contactId: c._id, fields: redoEmail ? ["phone", "email"] : ["phone"], at: now, notBefore: Date.now(), state: "queued", free: true });
+      }
+    }
+    if (asked.length && !dryRun) await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
+    return { asked: asked.length, dryRun, names: asked.slice(0, 60) };
+  },
+});
+
+/**
  * Spells out a decision maker's title saved before titles were spelled out ("Mbr" → "Member", "Mgr" → "Manager"), a page
  * of owners at a time. Changes nothing else. `npx convex run outreach:respellTitles '{}'`.
  */
