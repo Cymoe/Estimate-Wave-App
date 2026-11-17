@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -2130,6 +2130,15 @@ describe("a company's lists", () => {
     const gaps: number[] = [];
     await paced(inner as unknown as typeof fetch, async (_s, gap) => (gaps.push(gap), 0))("https://api.comptroller.texas.gov/x");
     expect(gaps).toEqual([1000]);
+  });
+
+  test("the wait in line doesn't count against a call's time limit: a search far back in the line still goes out", async () => {
+    const inner = vi.fn(async () => new Response("{}", { status: 200 }));
+    // In line for 80ms, with 30ms allowed for the call itself.
+    const fetchFn = sourceFetch(async () => 80, {}, inner as unknown as typeof fetch, { timeoutMs: 30, wait: (ms) => new Promise((r) => setTimeout(r, ms)) });
+    const res = await fetchFn("https://api.comptroller.texas.gov/public-data/v1/public/franchise-tax-list?name=A");
+    expect(res.status).toBe(200);
+    expect(inner).toHaveBeenCalledTimes(1);
   });
 
   test("the next free moment is shared by every lookup: each call takes the one after the last", async () => {

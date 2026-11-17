@@ -2764,7 +2764,7 @@ export const paceSlot = internalMutation({
   },
 });
 
-export const busyNote = (source: string, ms: number) => `${source} asked us to slow down; trying again in ${Math.round(ms / 60_000)} min`;
+export const busyNote = (source: string, ms: number) => `${source} didn't answer or asked us to slow down; trying again in ${Math.round(ms / 60_000)} min`;
 
 /**
  * A field whose sources said "slow down": its cell stays running, under a fresh stamp (the first try's watchdog leaves it

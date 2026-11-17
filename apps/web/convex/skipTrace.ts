@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, PRACTICE_SKIP, applyEmailCheck, BUSY_RETRY_MS, guarded, isBusy, paced, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type TraceInput, type Try, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, PRACTICE_SKIP, applyEmailCheck, BUSY_RETRY_MS, isBusy, sourceFetch, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type TraceInput, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 import { districtOwnerNow, sameOwnerName } from "./lib/district";
 import { displayName } from "./lib/outreach";
@@ -18,7 +18,7 @@ import { sampleFor, sampleIndex, sampleStack } from "./lib/outreachSample";
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[]; attempt?: number };
 
 /** The sources' fetch: calls to a rate-limited source (the Comptroller) wait their turn in one line shared by every lookup. */
-const sourceFetch = (ctx: ActionCtx) => guarded(paced(fetch, (source, gapMs) => ctx.runMutation(internal.outreach.paceSlot, { source, gapMs }), process.env));
+const sourcesFetch = (ctx: ActionCtx) => sourceFetch((source, gapMs) => ctx.runMutation(internal.outreach.paceSlot, { source, gapMs }), process.env);
 
 /**
  * The person wasn't found because a source said "slow down": the lookup goes back in the queue to try again in a few
@@ -29,12 +29,12 @@ const errorOf = (o: { source?: string; errors: string[] }, field: Field) =>
   o.source || o.errors.length === 0
     ? undefined
     : field === "person" && isBusy(o.errors)
-      ? `Still turned away after ${BUSY_RETRY_MS.length} more tries a few minutes apart (too many searches at once, or the month's allowance is used up). Try again later. (${o.errors.join("; ")})`
+      ? `Still turned away after ${BUSY_RETRY_MS.length} more tries a few minutes apart (no answer in time, too many searches at once, or the month's allowance used up). Try again later. (${o.errors.join("; ")})`
       : o.errors.join("; ");
 
 async function retryWhenBusy(ctx: ActionCtx, contactId: TraceArgs["contactId"], attempt: number, o: { source?: string; errors: string[]; tries: Try[] }) {
   if (o.source || !isBusy(o.errors)) return false;
-  const busy = o.tries.find((t) => t.outcome === "error" && /HTTP 429\b/.test(t.note ?? ""))?.source ?? "A source";
+  const busy = o.tries.find((t) => t.outcome === "error" && /HTTP 429\b|No answer after/.test(t.note ?? ""))?.source ?? "A source";
   return await ctx.runMutation(internal.outreach.tryAgainLater, { contactId, field: "person", attempt, source: busy, tries: o.tries });
 }
 
@@ -85,7 +85,7 @@ async function run(ctx: ActionCtx, { contactId, fields, attempt = 0 }: TraceArgs
   if (input.sample) return await runSample(ctx, contactId, input, wanted, false);
   const own = await ownRecords(ctx, input, wanted);
   if (simulate) return await runPractice(ctx, contactId, input, wanted, own, attempt);
-  const external = vendors(process.env, sourceFetch(ctx));
+  const external = vendors(process.env, sourcesFetch(ctx));
   const stack = [...own, ...external];
   // Our own records always get their turn; "not connected" is about the outside sources.
   const none = (field: Field) => !external.some((s) => standsAlone(s, field));
@@ -263,7 +263,7 @@ async function runPractice(ctx: ActionCtx, contactId: TraceArgs["contactId"], in
   let person = input.person;
   let nobody = false;
   if (wanted.includes("person")) {
-    const free = vendors(process.env, sourceFetch(ctx))
+    const free = vendors(process.env, sourcesFetch(ctx))
       .filter((v) => v.fields.includes("person"))
       .map((v): Vendor => (v.connected && !v.free ? { ...v, applies: () => PRACTICE_SKIP } : v));
     const progress: Progress = async (field, tries, asking) => {

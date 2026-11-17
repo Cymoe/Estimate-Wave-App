@@ -201,8 +201,22 @@ export function paced(
 /** How long a lookup turned away with "slow down" waits before it's asked again, each time; past the last, it fails. */
 export const BUSY_RETRY_MS = [2, 10, 30].map((m) => m * 60 * 1000);
 
-/** A source said "slow down" (or its monthly allowance ran out): worth asking again later rather than calling it a miss. */
-export const isBusy = (errors: string[]) => errors.some((e) => /HTTP 429\b/.test(e));
+/** A source said "slow down" (or its monthly allowance ran out), or didn't answer in time: worth asking again later rather than calling it a miss. */
+export const isBusy = (errors: string[]) => errors.some((e) => /HTTP 429\b|No answer after/.test(e));
+
+/**
+ * The sources' fetch: a call to a paced host first waits its turn in the shared line, and only then is timed and retried
+ * (`guarded`). The wait in line never counts against the call's time: counted, a lookup's second search sat behind
+ * every other lookup's first and ran out of time before it was sent.
+ */
+export function sourceFetch(
+  reserve: (source: string, gapMs: number) => Promise<number>,
+  env: Record<string, string | undefined> = {},
+  fetchFn: Fetch = fetch,
+  opts: { timeoutMs?: number; wait?: (ms: number) => Promise<void> } = {},
+): Fetch {
+  return paced(guarded(fetchFn, opts.timeoutMs ?? CALL_TIMEOUT_MS), reserve, env, opts.wait);
+}
 
 /** "SMITH JOHN & MARY" → first "John", last "Smith"; the roll writes last name first. A person found by name is "First Last". */
 export function splitName(name: string, order: "roll" | "person" = "roll"): { first?: string; last?: string } {
