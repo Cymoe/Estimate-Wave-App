@@ -2836,11 +2836,12 @@ export const retryNobody = internalMutation({
  * Looks up the phone and email of each company's decision maker found for real, once a phone source is connected: the
  * phones practice mode made up are cleared and asked for again. A real phone already found is left alone. Charged to
  * nobody's Outreach balance (no one asked for it in the app; the source bills its own account), and it goes through the
- * queue like any lookup. `dryRun` only counts. `npx convex run outreach:lookUpPhones '{"limit":10}'`.
+ * queue like any lookup. `dryRun` only counts; `onlyFailed` asks again only for lookups that failed (credit ran out).
+ * `npx convex run outreach:lookUpPhones '{"limit":10}'`.
  */
 export const lookUpPhones = internalMutation({
-  args: { limit: v.optional(v.number()), dryRun: v.optional(v.boolean()) },
-  handler: async (ctx, { limit = 300, dryRun = false }) => {
+  args: { limit: v.optional(v.number()), dryRun: v.optional(v.boolean()), onlyFailed: v.optional(v.boolean()) },
+  handler: async (ctx, { limit = 300, dryRun = false, onlyFailed = false }) => {
     const now = nowIso();
     const asked: string[] = [];
     for (const org of await ctx.db.query("organizations").take(50)) {
@@ -2859,6 +2860,8 @@ export const lookUpPhones = internalMutation({
         // Numbers in the 555-01xx range are made up whatever the cell says (copied from a sister's practice run once).
         const madeUp = (c.phones ?? []).length > 0 && (c.phones ?? []).every((p) => /^\d{3}55501\d{2}$/.test(p.number.replace(/\D/g, "").slice(-10)));
         if ((phone.status === "found" && !phone.simulated && !madeUp) || phone.status === "running") continue;
+        // After a run cut short (the source's credit ran out): only the lookups that failed, not the ones it already answered.
+        if (onlyFailed && phone.status !== "failed") continue;
         const covered = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).some((r) => r.fields.includes("phone"));
         if (covered) continue;
         asked.push(c.name);

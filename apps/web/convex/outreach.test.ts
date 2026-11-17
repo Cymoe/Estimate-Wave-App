@@ -2523,6 +2523,10 @@ describe("a company's lists", () => {
     const realPhone = { number: "4326827788", type: "mobile", source: "tracerfy" };
     await set(real.id, { phone: { status: "found", at: earlier, source: "tracerfy" } }, { phones: [realPhone] });
     await set(madeUp.id, { person: { status: "found", at: earlier, source: "tx-comptroller" }, phone: { status: "none", at: earlier } });
+    // Only the failed ones, after the credit ran out: a miss already answered isn't paid for twice.
+    expect((await t.mutation(internal.outreach.lookUpPhones, { onlyFailed: true, dryRun: true })).asked).toBe(0);
+    await set(madeUp.id, { phone: { status: "failed", at: earlier, error: "tracerfy: Tracerfy: HTTP 402 (Insufficient credits.)" } });
+    expect((await t.mutation(internal.outreach.lookUpPhones, { onlyFailed: true, dryRun: true })).names).toEqual([madeUp.name]);
     expect((await t.mutation(internal.outreach.lookUpPhones, { limit: 1 })).names).toEqual([madeUp.name]);
     expect((await read()).rows.find((r) => r.id === real.id)!.phones).toEqual([realPhone]);
   });
