@@ -828,8 +828,27 @@ describe("the Comptroller's filing for a company", () => {
     expect((await comptrollerTexas("cpa-key", fetchFn).trace({ name: "OAK PLAZA LLC", company: "OAK PLAZA LLC", mailing: {} })).person).toMatchObject({ name: "Dana Reyes" });
   });
 
+  test("an officer that is a company cut short at the Comptroller's width ('GF ELITE REAL ESTATE HOLD') is followed to its people", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.startsWith(TX_TAXPAYER_LIST)) {
+        const q = new URL(url).searchParams.get("$q")!;
+        if (q === "PARK AT 1788 SOUTH") return json([{ taxpayer_number: "32000000070", taxpayer_name: "THE PARK AT 1788 SOUTH, LLC", taxpayer_zip: "77079" }]);
+        // The cut word isn't asked for; "GF" is filed "G F".
+        if (q === "GF ELITE REAL ESTATE") return json([{ taxpayer_number: "32000000080", taxpayer_name: "G F ELITE REAL ESTATE HOLDINGS, LTD.", taxpayer_zip: "77079" }]);
+        return json([]);
+      }
+      if (url.includes("franchise-tax-list")) return json({ data: [] });
+      if (url.includes("franchise-tax/32000000070")) return json({ data: { officerInfo: [{ AGNT_NM: "GF ELITE REAL ESTATE HOLD", AGNT_TITL_TX: "MEMBER" }] } });
+      if (url.includes("franchise-tax/32000000080")) return json({ data: { officerInfo: [{ AGNT_NM: "GIL DE LA MORA", AGNT_TITL_TX: "PRESIDENT" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "PARK AT 1788 SOUTH LLC", company: "PARK AT 1788 SOUTH LLC", mailing: {} });
+    expect(found.person).toMatchObject({ name: "Gil De La Mora", title: "President", via: "G F ELITE REAL ESTATE HOLDINGS, LTD." });
+  });
+
   test("officers filed by a company's name are told from people", () => {
     for (const n of ["TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV, L.L.C.", "GLATNER PROPERTIES", "ACME HOLDINGS", "SMITH FAMILY TRUST", "KOSF7, LLC"]) expect(isCompanyName(n)).toBe(true);
+    for (const n of ["GF ELITE REAL ESTATE HOLD", "SMITH REALTY", "JONES REAL ESTATE", "ACME PROP"]) expect(isCompanyName(n)).toBe(true);
     for (const n of ["ANDREW FREEMAN", "JOHN C SCHARBAUER", "CAROL VAN ZANDT JONES", "DALE A BROWN"]) expect(isCompanyName(n)).toBe(false);
   });
 
@@ -2353,6 +2372,21 @@ describe("a company's lists", () => {
     });
     const out = await t.mutation(internal.outreach.retryNobody, { before: new Date(NOW - 60_000).toISOString() });
     expect(out.asked).toBe(2);
+    // A lookup that failed earlier (the state turned it away) is asked again the same way.
+    await t.run(async (ctx) => {
+      for (const q of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(q._id);
+      const c = (await ctx.db.get(empty.id as Id<"outreachContacts">))!;
+      await ctx.db.patch(c._id, { enrichment: { ...c.enrichment, person: { status: "failed", at: earlier, error: "tx-comptroller: Texas Comptroller: HTTP 429" } } } as never);
+    });
+    expect((await t.mutation(internal.outreach.retryNobody, { before: new Date(NOW - 60_000).toISOString() })).asked).toBe(1);
+    await t.run(async (ctx) => {
+      for (const q of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(q._id);
+      const c = (await ctx.db.get(empty.id as Id<"outreachContacts">))!;
+      await ctx.db.patch(c._id, { enrichment: { ...c.enrichment, person: { status: "none", at: earlier } } } as never);
+      const d = (await ctx.db.get(asCompany.id as Id<"outreachContacts">))!;
+      await ctx.db.patch(d._id, { enrichment: { ...d.enrichment, person: { status: "found", at: earlier, source: "tx-comptroller" } }, person: { name: "Ocb Properties Management, LLC", source: "tx-comptroller" } } as never);
+    });
+    expect((await t.mutation(internal.outreach.retryNobody, { before: new Date(NOW - 60_000).toISOString() })).asked).toBe(2);
     const rows = (await read()).rows;
     expect(rows.find((r) => r.id === empty.id)!.enrichment.person.status).toBe("running");
     const company = rows.find((r) => r.id === asCompany.id)!;

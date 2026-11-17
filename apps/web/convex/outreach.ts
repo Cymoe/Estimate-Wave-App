@@ -2796,8 +2796,8 @@ export const tryAgainLater = internalMutation({
 });
 
 /**
- * Asks the state's filings again, once, for each company whose decision maker came up empty before `before` (an ISO
- * time), or came back as a company's name ("OCB PROPERTIES MANAGEMENT, LLC"): the search has learned to find more since.
+ * Asks the state's filings again, once, for each company whose decision maker came up empty or failed before `before`
+ * (an ISO time), or came back as a company's name ("OCB PROPERTIES MANAGEMENT, LLC"): the search has learned to find more since.
  * Free; goes through the queue like any lookup, a few at a time. `npx convex run outreach:retryNobody '{"before":"…"}'`.
  */
 export const retryNobody = internalMutation({
@@ -2815,7 +2815,8 @@ export const retryNobody = internalMutation({
         if (asked.length >= limit) break;
         if (!isCompany(c) || isSampleRun(c)) continue;
         const cell = cellFor(cellsOf(c), "person");
-        const nobody = cell.status === "none" && (cell.at ?? "") < before;
+        // Nobody found, or the lookup failed (the first batch the state turned away), before the cutoff.
+        const nobody = (cell.status === "none" || cell.status === "failed") && (cell.at ?? "") < before;
         const aCompany = cell.status === "found" && Boolean(c.person?.name && isCompanyName(c.person.name));
         if (!nobody && !aCompany) continue;
         const covered = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).some((r) => r.fields.includes("person"));

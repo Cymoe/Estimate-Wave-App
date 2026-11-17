@@ -463,7 +463,7 @@ export const plainName = (s?: string) =>
 
 /** An officer filed by a company's name rather than a person's: "TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV, L.L.C.", "GLATNER PROPERTIES". */
 export const isCompanyName = (name: string) =>
-  /\b(L\.?\s?L\.?\s?C|L\.?\s?L\.?\s?P|INC|LTD|L\.?P|CORP(ORATION)?|COMPANY|CO|TRUST|PROPERTIES|HOLDINGS|PARTNERS(HIP)?|INVESTMENTS?|ENTERPRISES|MANAGEMENT|GROUP|FUND|CAPITAL|VENTURES)\b\.?/i.test(name);
+  /\b(L\.?\s?L\.?\s?C|L\.?\s?L\.?\s?P|INC|LTD|L\.?P|CORP(ORATION)?|COMPANY|CO|TRUST|PROP(ERTY|ERTIES)?|HOLD(ING|INGS)?|PARTNERS(HIP)?|INVEST(MENT|MENTS)?|ENTERPRISES|MANAGEMENT|GROUP|FUND|CAPITAL|VENTURES|REALTY|REAL ESTATE|ASSOCIATES)\b\.?/i.test(name);
 
 /** Who runs a company first (RUNS_IT), for picking one officer of several. */
 const rankOf = (title?: string) => {
@@ -603,9 +603,13 @@ export function comptrollerTexas(
       // L.L.C."): the people that company files are the ones to talk to, and the lookup says whose they are.
       if (officers.length === 0 && first.companies.length > 0) {
         const parent = [...first.companies].sort((a, b) => rankOf(a.title) - rankOf(b.title))[0];
-        const parentName = plain(parent.name);
-        const parentTerm = parent.name.toUpperCase().replace(/[<>]/g, "").slice(0, 50);
-        const isParent = (e: Entity) => plain(e.name) === parentName && Boolean(e.taxpayerId);
+        // An officer's name is cut at the Comptroller's width ("GF ELITE REAL ESTATE HOLD" for "G F ELITE REAL ESTATE
+        // HOLDINGS, LTD."): then the cut word isn't searched for, and the filed name only has to start with the letters.
+        const squash = (n?: string) => plain(n).replace(/ /g, "");
+        const lastWord = plain(parent.name.split(/\s+/).pop()).replace(/ /g, "");
+        const parentCut = parent.name.length >= 24 && !ENTITY_WORDS.has(lastWord);
+        const parentTerm = (parentCut ? parent.name.replace(/\s+\S+$/, "") : parent.name).toUpperCase().replace(/[<>]/g, "").slice(0, 50);
+        const isParent = (e: Entity) => Boolean(e.taxpayerId) && (squash(e.name) === squash(parent.name) || (parentCut && squash(e.name).startsWith(squash(parent.name))));
         const found = ((await fromList(parentTerm)) ?? []).find(isParent) ?? listed(await search(parentTerm)).find(isParent);
         if (found?.taxpayerId) {
           officers = (await peopleOf(found.taxpayerId)).people;
