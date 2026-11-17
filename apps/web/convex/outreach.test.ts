@@ -906,6 +906,25 @@ describe("OpenSOSData, the state registries read live", () => {
 });
 
 describe("officer titles as the Comptroller files them", () => {
+  test("titles saved before they were spelled out are spelled out once; titles in words are left alone", async () => {
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const rows = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const [a, b] = rows;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(a.id as Id<"outreachContacts">, { person: { name: "Bailey L Haller", title: "Mbr", source: "tx-comptroller" } });
+      await ctx.db.patch(b.id as Id<"outreachContacts">, { person: { name: "Mark Ellison", title: "Owns the home the mail goes to", source: "roll" } });
+    });
+    await t.mutation(internal.outreach.respellTitles, {});
+    const after = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    expect(after.find((r) => r.id === a.id)!.person).toMatchObject({ name: "Bailey L Haller", title: "Member" });
+    expect(after.find((r) => r.id === b.id)!.person!.title).toBe("Owns the home the mail goes to");
+  });
+
   test("a title cut at ten letters is spelled out; a full one or one not on the list is kept as filed", () => {
     expect(fullTitle("MANAGING M")).toBe("Managing Member");
     expect(fullTitle("VICE PRESI")).toBe("Vice President");

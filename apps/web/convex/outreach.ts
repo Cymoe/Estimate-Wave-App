@@ -70,7 +70,7 @@ import { hasDistrictPage } from "./lib/district";
 import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
-import { BUSY_RETRY_MS, isCompanyName, needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { BUSY_RETRY_MS, fullTitle, isCompanyName, needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY: string = MIDLAND_PARCELS.county;
@@ -2829,6 +2829,30 @@ export const retryNobody = internalMutation({
     }
     if (asked.length) await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
     return { asked: asked.length, names: asked.slice(0, 60) };
+  },
+});
+
+/**
+ * Spells out a decision maker's title saved before titles were spelled out ("Mbr" → "Member", "Mgr" → "Manager"), a page
+ * of owners at a time. Changes nothing else. `npx convex run outreach:respellTitles '{}'`.
+ */
+export const respellTitles = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("outreachContacts").paginate({ numItems: 500, cursor: cursor ?? null });
+    let fixed = 0;
+    for (const c of page.page) {
+      const title = c.person?.title;
+      if (!c.person || !title) continue;
+      const spelled = fullTitle(title);
+      // Only a short form spelled out; a title in words ("Owns the home the mail goes to") keeps its own capitals.
+      if (spelled.toUpperCase() !== title.toUpperCase()) {
+        await ctx.db.patch(c._id, { person: { ...c.person, title: spelled } });
+        fixed++;
+      }
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.respellTitles, { cursor: page.continueCursor });
+    return { checked: page.page.length, fixed, more: !page.isDone };
   },
 });
 
