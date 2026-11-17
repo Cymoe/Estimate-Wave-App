@@ -399,6 +399,33 @@ export const probeComptroller = internalAction({
   },
 });
 
+/**
+ * A hand check of OpenSOSData: one live lookup of a company in a state, the answer as it comes (the key is never in it).
+ * Costs one lookup. `npx convex run skipTrace:probeSosData '{"name":"ACME LLC","state":"GA"}'`.
+ */
+export const probeSosData = internalAction({
+  args: { name: v.string(), state: v.string() },
+  handler: async (_ctx, { name, state }) => {
+    const key = process.env.Sosdata ?? process.env.SOSDATA_API_KEY ?? process.env.OPENSOSDATA_API_KEY;
+    if (!key) return { error: "The Sosdata key isn't set on the Convex deployment" };
+    const started = Date.now();
+    const res = await fetch("https://api.opensosdata.com/v1/lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "x-api-key": key },
+      body: JSON.stringify({ entity_name: name, state }),
+      signal: AbortSignal.timeout(300_000),
+    });
+    const text = await res.text();
+    let body: unknown = text.slice(0, 4000);
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // Not JSON: its start, as text.
+    }
+    return { status: res.status, seconds: Math.round((Date.now() - started) / 1000), body };
+  },
+});
+
 export const tryPerson = internalAction({
   args: { company: v.string(), zip: v.optional(v.string()), raw: v.optional(v.boolean()) },
   handler: async (_ctx, { company, zip, raw }) => {
