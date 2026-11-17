@@ -505,25 +505,28 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       const asFiled = /\sTHE$/.test(name) ? `THE ${name.replace(/\s+THE$/, "")}` : name;
       let same = listed(await search(asFiled)).filter((e) => plain(e.name) === wanted);
       // Not found as written: asked again by its first words (the search matches a name's start), longest first. The
-      // words keep their own marks ("HINCKLEY & SCHMITT", "7-ELEVEN"), as names are filed; only a trailing comma or
-      // period goes. Once a start is too common to list, a shorter one would be too: the asking stops there.
+      // words keep their own marks ("HINCKLEY & SCHMITT", "N & T PAREDES"), as names are filed, but a mark isn't a word
+      // of its own when counting them; only a trailing comma or period goes. Once a start is too common to list, a
+      // shorter one would be too: the asking stops there.
       const words = asFiled.split(/\s+/).map((w) => w.replace(/[,.]+$/, "")).filter(Boolean);
+      const real = words.flatMap((w, i) => (/[A-Z0-9]/.test(w) ? [i] : []));
       let asked = asFiled;
-      for (let n = Math.min(words.length - 1, 3); same.length === 0 && n >= 1; n--) {
-        const term = words.slice(0, n).join(" ").replace(/[\s&-]+$/, "");
-        if (term.length < 3) break;
-        if (term === asked) continue;
-        asked = term;
-        const found = await search(term);
-        if (found === "too many") break;
-        same = found.filter((e) => plain(e.name) === wanted);
-      }
+      const shorter = async (enough: (matches: Entity[]) => boolean): Promise<Entity[]> => {
+        for (let n = Math.min(real.length - 1, 3); n >= 1; n--) {
+          const term = words.slice(0, real[n - 1] + 1).join(" ");
+          if (term.length < 3) break;
+          if (term === asked) continue;
+          asked = term;
+          const found = await search(term);
+          if (found === "too many") break;
+          const matches = found.filter((e) => plain(e.name) === wanted);
+          if (enough(matches)) return matches;
+        }
+        return [];
+      };
+      if (same.length === 0) same = await shorter((m) => m.length > 0);
       const zip = input.mailing.zip?.slice(0, 5);
-      // The same name can be filed more than once ("FASKEN OIL AND RANCH LTD" and "FASKEN OIL AND RANCH, LTD."): the one
-      // at the owner's zip first, then the rest.
       const atZip = (e: Entity) => Boolean(zip) && e.mailingAddressZip?.slice(0, 5) === zip;
-      const candidates = [...same.filter(atZip), ...same.filter((e) => !atZip(e))].filter((e): e is Entity & { taxpayerId: string } => Boolean(e.taxpayerId));
-      if (candidates.length === 0) return {};
       // null: a filing whose details the Comptroller won't open (400, 404); the next filing of the same name is tried.
       const officersOf = async (taxpayerId: string) => {
         const details = await fetchFn(`${base}/franchise-tax/${encodeURIComponent(taxpayerId)}`, { headers });
@@ -536,15 +539,28 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
       };
       const split = (all: Awaited<ReturnType<typeof officersOf>>) => ({ people: (all ?? []).filter((o) => !isCompanyName(o.name)), companies: (all ?? []).filter((o) => isCompanyName(o.name)) });
       const peopleOf = async (taxpayerId: string) => split(await officersOf(taxpayerId));
-      let entity = candidates[0];
-      let first = split([]);
-      for (const candidate of candidates.slice(0, FILINGS_ASKED)) {
-        const all = await officersOf(candidate.taxpayerId);
-        if (!all) continue;
-        entity = candidate;
-        first = split(all);
-        if (all.length > 0) break;
-      }
+      // The same name can be filed more than once ("FASKEN OIL AND RANCH LTD" and "FASKEN OIL AND RANCH, LTD."): the one
+      // at the owner's zip first, then the rest; the first that opens and names someone.
+      const tried = new Set<string>();
+      const openFirst = async (list: Entity[]) => {
+        const ordered = [...list.filter(atZip), ...list.filter((e) => !atZip(e))].filter((e): e is Entity & { taxpayerId: string } => Boolean(e.taxpayerId) && !tried.has(e.taxpayerId!));
+        let opened: { entity: Entity & { taxpayerId: string }; all: NonNullable<Awaited<ReturnType<typeof officersOf>>> } | undefined;
+        for (const candidate of ordered.slice(0, FILINGS_ASKED)) {
+          tried.add(candidate.taxpayerId);
+          const all = await officersOf(candidate.taxpayerId);
+          if (!all) continue;
+          opened ??= { entity: candidate, all };
+          if (all.length > 0) return { entity: candidate, all };
+        }
+        return opened;
+      };
+      let opened = await openFirst(same);
+      // Found as written, but no filing of it would open ("NNN REIT LP"): the name's other filings ("NNN REIT, LP") are
+      // asked for by its first words.
+      if (!opened && same.length > 0 && asked === asFiled) opened = await openFirst(await shorter((m) => m.some((e) => e.taxpayerId && !tried.has(e.taxpayerId))));
+      if (!opened) return {};
+      const entity = opened.entity;
+      const first = split(opened.all);
       let officers = first.people;
       let via: string | undefined;
       // Run by another company (its member or general partner is "TEXAS PACIFIC LAND CORPORATION", "M. P. SHIPTON XIV,

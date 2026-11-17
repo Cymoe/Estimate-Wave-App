@@ -156,9 +156,11 @@ const Nothing: React.FC<{ title?: string }> = ({ title = 'None found' }) => (
 
 /**
  * A cell that hasn't a value: the lock, the wait, the miss, or the failure with its reason and a retry.
- * noneText says the miss in words where a dash would read as "not asked yet" (the research column).
+ * noneText says the miss in words where a dash would read as "not asked yet" (the research and decision maker columns).
+ * againNow: a miss can be asked again at once, not after the month the paid sources take to refresh (the decision
+ * maker comes from the state's free filings).
  */
-const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void; noneText?: string }> = ({ cell, onRetry, noneText }) => {
+const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void; noneText?: string; againNow?: boolean }> = ({ cell, onRetry, noneText, againNow }) => {
   switch (cell.status) {
     case 'running':
       return <Live cell={cell} />;
@@ -176,7 +178,7 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void; noneText?: str
           ) : (
             <Nothing title={from && !dueAgain(cell) ? `None found. Can be tried again from ${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : undefined} />
           )}
-          {onRetry && dueAgain(cell) && (
+          {onRetry && (againNow || dueAgain(cell)) && (
             <button
               type="button"
               onClick={(e) => {
@@ -496,7 +498,7 @@ export const ContactsTable: React.FC<{
               ) : null}
             </>
           ) : r.company ? (
-            <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} />
+            <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} noneText="No one in state filings" againNow />
           ) : (
             dash
           )}

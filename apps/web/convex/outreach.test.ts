@@ -742,6 +742,40 @@ describe("the Comptroller's filing for a company", () => {
     expect(found.person).toMatchObject({ name: "Norbert Dickman", title: "President" });
   });
 
+  test("'&' isn't counted as a word when the name is shortened: 'N & T PAREDES', not 'N & T'", async () => {
+    const asked: string[] = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        asked.push(name);
+        return json({ data: name === "N & T PAREDES" ? [{ name: "N & T PAREDES PROPERTIES, LLC", taxpayerId: "32000000050" }] : [] });
+      }
+      if (url.includes("franchise-tax/32000000050")) return json({ data: { officerInfo: [{ AGNT_NM: "NOE PAREDES", AGNT_TITL_TX: "MANAGING M" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "N & T PAREDES PROPERTIES LLC", company: "N & T PAREDES PROPERTIES LLC", mailing: {} });
+    expect(asked).toEqual(["N & T PAREDES PROPERTIES LLC", "N & T PAREDES"]);
+    expect(found.person).toMatchObject({ name: "Noe Paredes", title: "Managing Member" });
+  });
+
+  test("a name found as written whose filing won't open looks for its other filings ('NNN REIT LP', then 'NNN REIT, LP')", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("franchise-tax-list")) {
+        const name = decodeURIComponent(url.split("name=")[1]);
+        if (name === "NNN REIT LP") return json({ data: [{ name: "NNN REIT LP", taxpayerId: "BAD" }] });
+        if (name === "NNN REIT") return json({ data: [{ name: "NNN REIT, INC.", taxpayerId: "32000000060" }, { name: "NNN REIT, LP", taxpayerId: "32000000061" }, { name: "NNN REIT LP", taxpayerId: "BAD" }] });
+        return json({ data: [] });
+      }
+      if (url.includes("franchise-tax/BAD")) return new Response("Bad Request", { status: 400 });
+      if (url.includes("franchise-tax/32000000061")) return json({ data: { officerInfo: [{ AGNT_NM: "STEPHEN HORN", AGNT_TITL_TX: "PRESIDENT" }] } });
+      throw new Error(`unexpected call: ${url}`);
+    }) as unknown as typeof fetch;
+    const found = await comptrollerTexas("cpa-key", fetchFn).trace({ name: "NNN REIT LP", company: "NNN REIT LP", mailing: {} });
+    expect(found.person).toMatchObject({ name: "Stephen Horn", title: "President" });
+    // NNN REIT, INC. is another company: never opened.
+    expect((fetchFn as unknown as { mock: { calls: string[][] } }).mock.calls.map((c) => c[0]).some((u) => u.includes("32000000060"))).toBe(false);
+  });
+
   test("a name the roll writes with 'THE' last is searched the way it's filed, with 'THE' first", async () => {
     const asked: string[] = [];
     const fetchFn = vi.fn(async (url: string) => {
@@ -2252,6 +2286,46 @@ describe("a company's lists", () => {
     // Once the line has passed, the next goes at once.
     vi.setSystemTime(NOW + 10_000);
     expect(await t.mutation(internal.outreach.paceSlot, { source: "tx-comptroller", gapMs: 1000 })).toBe(0);
+  });
+
+  test("companies whose decision maker came up empty earlier, or came back as a company's name, are asked again once, free", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const companies = (await read()).rows.filter((r) => r.company);
+    const [empty, asCompany] = companies;
+    const earlier = new Date(NOW - 3600_000).toISOString();
+    await t.run(async (ctx) => {
+      const set = async (id: string, person: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+        const c = (await ctx.db.get(id as Id<"outreachContacts">))!;
+        await ctx.db.patch(c._id, { enrichment: { phone: { status: "locked" }, email: { status: "locked" }, research: { status: "locked" }, ...c.enrichment, person }, ...extra } as never);
+      };
+      await set(empty.id, { status: "none", at: earlier });
+      await set(asCompany.id, { status: "found", at: earlier, source: "tx-comptroller" }, { person: { name: "Ocb Properties Management, LLC", source: "tx-comptroller" } });
+    });
+    // Looked up after the cutoff: left alone.
+    expect((await t.mutation(internal.outreach.retryNobody, { before: new Date(NOW - 7200_000).toISOString() })).asked).toBe(1);
+    await t.run(async (ctx) => {
+      for (const q of await ctx.db.query("outreachQueue").collect()) await ctx.db.delete(q._id);
+      const c = (await ctx.db.get(asCompany.id as Id<"outreachContacts">))!;
+      await ctx.db.patch(c._id, { enrichment: { ...c.enrichment, person: { status: "found", at: earlier, source: "tx-comptroller" } }, person: { name: "Ocb Properties Management, LLC", source: "tx-comptroller" } } as never);
+    });
+    const out = await t.mutation(internal.outreach.retryNobody, { before: new Date(NOW - 60_000).toISOString() });
+    expect(out.asked).toBe(2);
+    const rows = (await read()).rows;
+    expect(rows.find((r) => r.id === empty.id)!.enrichment.person.status).toBe("running");
+    const company = rows.find((r) => r.id === asCompany.id)!;
+    expect(company.enrichment.person.status).toBe("running");
+    expect(company.person).toBeUndefined();
+    // Queued as free lookups of the person alone; asking twice doesn't queue twice.
+    const queued = await t.run(async (ctx) => ctx.db.query("outreachQueue").collect());
+    expect(queued.map((q) => [q.fields, q.free])).toEqual([[["person"], true], [["person"], true]]);
+    expect((await t.mutation(internal.outreach.retryNobody, { before: new Date(NOW - 60_000).toISOString() })).asked).toBe(0);
   });
 
   test("a person lookup the Comptroller turns away with 'slow down' is asked again on its own, a few times, before it fails", async () => {

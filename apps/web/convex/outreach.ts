@@ -70,7 +70,7 @@ import { hasDistrictPage } from "./lib/district";
 import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
-import { BUSY_RETRY_MS, needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { BUSY_RETRY_MS, isCompanyName, needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY: string = MIDLAND_PARCELS.county;
@@ -2792,6 +2792,42 @@ export const tryAgainLater = internalMutation({
     if (row) await ctx.db.patch(row._id, progress);
     else await ctx.db.insert("outreachProgress", { organizationId: c.organizationId, contactId, field, ...progress });
     return true;
+  },
+});
+
+/**
+ * Asks the state's filings again, once, for each company whose decision maker came up empty before `before` (an ISO
+ * time), or came back as a company's name ("OCB PROPERTIES MANAGEMENT, LLC"): the search has learned to find more since.
+ * Free; goes through the queue like any lookup, a few at a time. `npx convex run outreach:retryNobody '{"before":"…"}'`.
+ */
+export const retryNobody = internalMutation({
+  args: { before: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { before, limit = 300 }) => {
+    const now = nowIso();
+    const asked: string[] = [];
+    for (const org of await ctx.db.query("organizations").take(50)) {
+      const rows = await ctx.db
+        .query("outreachContacts")
+        .withIndex("by_organization_and_updated", (q) => q.eq("organizationId", org._id))
+        .order("desc")
+        .take(1000);
+      for (const c of rows) {
+        if (asked.length >= limit) break;
+        if (!isCompany(c) || isSampleRun(c)) continue;
+        const cell = cellFor(cellsOf(c), "person");
+        const nobody = cell.status === "none" && (cell.at ?? "") < before;
+        const aCompany = cell.status === "found" && Boolean(c.person?.name && isCompanyName(c.person.name));
+        if (!nobody && !aCompany) continue;
+        const covered = (await ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", c._id)).collect()).some((r) => r.fields.includes("person"));
+        if (covered) continue;
+        await ctx.db.patch(c._id, { enrichment: { ...cellsOf(c), person: { status: "running", at: now, requestedBy: cell.requestedBy } }, ...(aCompany ? { person: undefined } : {}), updatedAt: now });
+        await clearProgress(ctx, c._id, ["person"]);
+        await ctx.db.insert("outreachQueue", { organizationId: org._id, contactId: c._id, fields: ["person"], at: now, notBefore: Date.now(), state: "queued", free: true });
+        asked.push(c.name);
+      }
+    }
+    if (asked.length) await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
+    return { asked: asked.length, names: asked.slice(0, 60) };
   },
 });
 

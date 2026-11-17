@@ -1421,6 +1421,22 @@ describe('the Outreach page', () => {
     expect(enrich).toHaveBeenLastCalledWith('o1', ['r2'], ['phone', 'email'], undefined);
   });
 
+  it("a decision maker nobody was found for says so in words, and can be asked again at once (the state's filings are free)", async () => {
+    lists = [list];
+    const recent = new Date().toISOString();
+    const nobody = { status: 'none', at: recent, source: undefined, tries: [{ source: 'tx-comptroller', outcome: 'miss', note: 'No match' }] };
+    contacts = { ...twoContacts(), balanceCents: 500, rows: [contact('r2', { name: 'City Of Midland', company: 'City Of Midland', enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: nobody, research: { status: 'locked' } } })] };
+    await render('/outreach/l1');
+    const row = document.body.querySelector('[data-testid="contact-row"]')!;
+    const personCell = row.querySelectorAll('td')[1];
+    expect(personCell.querySelector('[data-testid="nothing-found"]')!.textContent).toBe('No one in state filings');
+    // Not a month's wait, as for a phone: Try again is there straight away.
+    const again = Array.from(personCell.querySelectorAll('button')).find((b) => b.textContent === 'Try again') as HTMLButtonElement;
+    await act(async () => again.click());
+    await flush();
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r2'], ['person'], undefined);
+  });
+
   it('a capped list says how many it reaches and loads the next page on request', async () => {
     lists = [{ ...list, title: 'Real estate investors', who: 'investor', definition: { county: 'Midland', who: 'investor' }, rowCount: 500, total: 2340 }];
     contacts = twoContacts();
@@ -2190,10 +2206,11 @@ describe('the Outreach page', () => {
     expect([related(3)!.textContent, related(5)!.textContent]).toEqual(['+1 related', '+1 related']);
     expect([related(1), related(6)]).toEqual([null, null]);
     // Looked up, and nobody to call or write to: the row goes quiet, each miss a dash, the mailing address what it has.
+    // The decision maker's miss says so in words, with Try again (the state's filings are free to ask again).
     const cells = (row: Element) => Array.from(row.querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
     const quiet = owners()[6];
     expect(quiet.getAttribute('data-quiet')).toBe('true');
-    expect(cells(quiet).slice(1, 6)).toEqual(['—', '—', '—', '—', '600 Illinois AveMidland, TX 79701']);
+    expect(cells(quiet).slice(1, 6)).toEqual(['No one in state filingsTry again', '—', '—', '—', '600 Illinois AveMidland, TX 79701']);
     expect(quiet.querySelectorAll('td')[5].className).toContain('text-gray-100');
     // Not looked up is not the same as nothing found: it keeps its padlock.
     expect(owners()[1].getAttribute('data-quiet')).toBeNull();
