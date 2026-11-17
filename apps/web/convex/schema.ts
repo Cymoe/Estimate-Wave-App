@@ -1649,6 +1649,8 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     // A sample run: free, so it holds none of the balance.
     free: v.optional(v.boolean()),
+    // What the phone costs if found ($1 a person, $2 a company), so the held amount needs no read of the owner.
+    phoneCents: v.optional(v.number()),
     // A lookup tried again on its own after a source said "slow down": how many times so far.
     attempt: v.optional(v.number()),
   })

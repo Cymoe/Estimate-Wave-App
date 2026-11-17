@@ -830,14 +830,17 @@ const OutreachPage: React.FC = () => {
   const needsPhone = (r: OutreachContact) => openToLook(r.enrichment.phone);
   const hasLock = (r: OutreachContact) => needsPhone(r) || Boolean(r.company && openToLook(r.enrichment.person));
   const unlockCents = data?.unlockCents ?? 100;
+  const companyUnlockCents = data?.companyUnlockCents ?? 200;
+  /** What a phone costs, in words: "$1 a phone for a person, $2 for a company's decision maker". */
+  const priceWords =
+    companyUnlockCents === unlockCents ? `${dollars(unlockCents)} a phone` : `${dollars(unlockCents)} a phone for a person, ${dollars(companyUnlockCents)} for a company's decision maker`;
   const balanceCents = data?.balanceCents ?? 0;
   const hitRate = data?.phoneHitRate;
   const researchCents = data?.researchCents ?? 25;
   const needsResearch = (r: OutreachContact) => r.enrichment.research?.status !== 'found' && r.enrichment.research?.status !== 'running';
-  /** "up to $200; about $136 at your 68% hit rate so far" */
-  const estimate = (phones: number) => {
-    const most = phones * unlockCents;
-    if (hitRate === undefined || phones === 0) return `up to ${dollars(most)}`;
+  /** "up to $200; about $136 at your 68% hit rate so far", for the most these phones could cost. */
+  const estimate = (most: number) => {
+    if (hitRate === undefined || most === 0) return `up to ${dollars(most)}`;
     return `up to ${dollars(most)}, about ${dollars(Math.round(most * hitRate))} at your ${Math.round(hitRate * 100)}% hit rate so far`;
   };
   // The header's buttons act on what the page is showing: the whole list (or every contact), or with a tab, a status, a
@@ -847,21 +850,28 @@ const OutreachPage: React.FC = () => {
   const filterOn = show !== 'all' || status !== 'all' || countyNow !== 'all' || query.trim() !== '' || justNew;
   const scope = filterOn ? rows : (data?.rows ?? []);
   const listOpen = scope.filter((r) => hasLock(r) && !r.known);
-  const listPhones = listOpen.filter(needsPhone).length;
+  const listNeeding = listOpen.filter(needsPhone);
+  const listPhones = listNeeding.length;
   const listResearch = scope.filter(needsResearch);
   // Nobody on the page has been looked up or researched yet (every cell still locked).
   const untouched = (data?.rows ?? []).every((r) => (['phone', 'email', 'person', 'research'] as const).every((f) => (r.enrichment[f]?.status ?? 'locked') === 'locked'));
   const researchCost = listResearch.length * researchCents;
   // The company's first phones found are free: they come off what a lookup needs, and with no balance they can still be tried.
   const freeLeft = data?.freeLookups ?? 0;
-  const paidPhones = (phones: number) => Math.max(0, phones - freeLeft);
-  const short = paidPhones(listPhones) * unlockCents > balanceCents;
+  /** The most these owners' phones could cost: each its own price ($2 a company, $1 a person), the free ones on the cheapest first, as the server counts. */
+  const paidCents = (owners: OutreachContact[]) =>
+    owners
+      .map((r) => r.phoneCents ?? unlockCents)
+      .sort((a, b) => a - b)
+      .slice(freeLeft)
+      .reduce((sum, c) => sum + c, 0);
+  const short = paidCents(listNeeding) > balanceCents;
   const freeTry = short && freeLeft > 0 ? Math.min(freeLeft, listPhones) : 0;
   /** What finding these phones costs, in words: free while the free ones cover them. */
-  const costOf = (phones: number) =>
-    paidPhones(phones) === 0
-      ? `free (${phones === 1 ? 'one' : phones} of your ${freeLeft} free ${freeLeft === 1 ? 'lookup' : 'lookups'})`
-      : `${estimate(paidPhones(phones))}${freeLeft > 0 ? `, after your ${freeLeft} free ${freeLeft === 1 ? 'one' : 'ones'}` : ''}`;
+  const costOf = (owners: OutreachContact[]) =>
+    paidCents(owners) === 0
+      ? `free (${owners.length === 1 ? 'one' : owners.length} of your ${freeLeft} free ${freeLeft === 1 ? 'lookup' : 'lookups'})`
+      : `${estimate(paidCents(owners))}${freeLeft > 0 ? `, after your ${freeLeft} free ${freeLeft === 1 ? 'one' : 'ones'}` : ''}`;
 
   const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
@@ -1001,7 +1011,8 @@ const OutreachPage: React.FC = () => {
     const open = rows.filter((r) => hasLock(r) && !r.known);
     if (open.length === 0) return;
     const known = rows.filter((r) => hasLock(r) && r.known).length;
-    const phones = open.filter(needsPhone).length;
+    const needing = open.filter(needsPhone);
+    const phones = needing.length;
     const count = `${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'owner' : 'owners'}`;
     const who = filterOn ? `the ${count} showing` : list ? `the ${count} on “${list.title}”` : `all ${open.length.toLocaleString('en-US')} ${open.length === 1 ? 'contact' : 'contacts'}`;
     // With a filter on: who is left out, so nobody thinks the whole list was covered.
@@ -1009,7 +1020,7 @@ const OutreachPage: React.FC = () => {
     const narrowed = filterOn ? `Only the owners the page is showing now (${rows.length.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}${list ? ' on this list' : ''}). ` : '';
     const ok = await confirm({
       title: `Find phones & emails for ${who}?`,
-      message: `${narrowed}${phones} ${phones === 1 ? 'phone' : 'phones'} to find: ${costOf(phones)}. Charged only for phones found; the person behind each company and emails are free.${
+      message: `${narrowed}${phones} ${phones === 1 ? 'phone' : 'phones'} to find: ${costOf(needing)}. Charged only for phones found; the person behind each company and emails are free.${
         known ? ` ${known} you already have as ${known === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
       }`,
       confirmLabel: 'Find them',
@@ -1036,7 +1047,7 @@ const OutreachPage: React.FC = () => {
     if (first.length === 0) return;
     const ok = await confirm({
       title: `Find ${first.length === 1 ? 'a phone' : `${first.length} phones`} free?`,
-      message: `Your first ${FREE_LOOKUPS} phone numbers are on us. The first ${first.length === 1 ? 'owner' : `${first.length} owners`} ${filterOn ? 'showing' : 'on this list'} ${first.length === 1 ? 'is' : 'are'} looked up now; a free one is used only when a phone is found. After those it's ${dollars(unlockCents)} a phone, only when found.`,
+      message: `Your first ${FREE_LOOKUPS} phone numbers are on us. The first ${first.length === 1 ? 'owner' : `${first.length} owners`} ${filterOn ? 'showing' : 'on this list'} ${first.length === 1 ? 'is' : 'are'} looked up now; a free one is used only when a phone is found. After those it's ${priceWords}, only when found.`,
       confirmLabel: 'Find them',
       tone: 'default',
     });
@@ -1354,7 +1365,7 @@ const OutreachPage: React.FC = () => {
                 onClick={() => (freeTry ? void tryFree() : short ? addFunds() : void enrichAll())}
                 disabled={busy || extending || Boolean(data.partial)}
                 className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`}
-                title={freeTry ? 'Your first phones found are free' : short ? `Your balance is ${dollars(balanceCents)}; finding these costs ${costOf(listPhones)}` : costOf(listPhones)}
+                title={freeTry ? 'Your first phones found are free' : short ? `Your balance is ${dollars(balanceCents)}; finding these costs ${costOf(listNeeding)}` : costOf(listNeeding)}
                 data-testid="find-all"
               >
                 {/* On a phone the short-of-funds label is cut down, so the button is two lines at most, not three. */}
@@ -1530,7 +1541,7 @@ const OutreachPage: React.FC = () => {
       {/* A list nobody has looked anyone up on yet: what's already here, and what a phone costs, so the padlocks don't read as an empty list. */}
       {list && data && data.rows.length > 0 && untouched && (
         <p className="border border-[#333333] bg-[#161616] px-3 py-2 text-sm text-gray-300" data-testid="fresh-note">
-          Every owner comes with their name, mailing address and property. Phone numbers are looked up when you ask: {dollars(unlockCents)} each, only when one is found
+          Every owner comes with their name, mailing address and property. Phone numbers are looked up when you ask: {priceWords}, only when one is found
           {freeLeft === FREE_LOOKUPS ? `, and your first ${FREE_LOOKUPS} are free` : freeLeft > 0 ? `, and you have ${freeLeft} free ${freeLeft === 1 ? 'one' : 'ones'} left` : ''}. Emails and the person behind a company are free.
         </p>
       )}

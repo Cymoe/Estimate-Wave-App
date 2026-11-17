@@ -7,6 +7,7 @@
 import type { Infer } from "convex/values";
 import type { outreachEmail, outreachPerson, outreachPhone, outreachResearch, outreachTry } from "../schema";
 import type { Found, Vendor } from "./skipTrace";
+import { COMPANY_UNLOCK_CENTS, UNLOCK_CENTS } from "./outreach";
 
 export const SAMPLE_NOTE = "Sample data to show the layout, not a real lookup.";
 /** How many owners one run fills at most. */
@@ -126,7 +127,7 @@ export function sampleFor(i: number, owner: { name: string; company: boolean; pr
       status: "found",
       at,
       source: via,
-      chargedCents: 100,
+      chargedCents: owner.company ? COMPANY_UNLOCK_CENTS : UNLOCK_CENTS,
       tries: [
         ...phoneVendors(via, phones.length),
         { source: "trestle", outcome: "hit", note: `${phones.length} of ${phones.length} live · ${phones.filter((p) => p.name).length} in the owner's name · ${lineNote(phones)}` },

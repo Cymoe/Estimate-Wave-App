@@ -1201,7 +1201,10 @@ export const ContactSheet: React.FC<{
   const research = row.enrichment.research ?? { status: 'locked' as const };
   const contactOpen = phone.status !== 'found' && phone.status !== 'running' && email.status !== 'running';
   const free = freeLookups > 0;
-  const canPay = free || balanceCents >= unlockCents;
+  // This owner's price: $2 for a company's decision maker, $1 for a person.
+  const price = row.phoneCents ?? unlockCents;
+  const perPhone = price > unlockCents ? `${dollars(price)} a phone for a company` : `${dollars(price)} a phone`;
+  const canPay = free || balanceCents >= price;
   const canResearch = balanceCents >= researchCents;
   const when = (c: OutreachCell) => (c.at ? ` ${new Date(c.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '');
   // The buttons: the best number not on the Do Not Call list; a text only to a mobile.
@@ -1363,7 +1366,7 @@ export const ContactSheet: React.FC<{
             ) : phone.status === 'none' ? (
               <div className="space-y-2">
                 <p className="text-sm text-gray-500">No phone or email found for this owner. Nothing was charged. The mailing address below still reaches them.</p>
-                <TryAgain cell={phone} onClick={() => enrich(['phone', 'email'])} disabled={busy || !canPay} note={free ? 'free' : `${dollars(unlockCents)} only if a phone is found`} className={quiet} />
+                <TryAgain cell={phone} onClick={() => enrich(['phone', 'email'])} disabled={busy || !canPay} note={free ? 'free' : `${dollars(price)} only if a phone is found`} className={quiet} />
               </div>
             ) : (
               <div className="space-y-2 pt-1">
@@ -1375,13 +1378,13 @@ export const ContactSheet: React.FC<{
                   disabled={busy || !contactOpen}
                   className={primary}
                 >
-                  <Lock className="w-4 h-4" /> {canPay ? 'Unlock phone & email' : 'Add funds to unlock'} · {free ? 'free' : dollars(unlockCents)}
+                  <Lock className="w-4 h-4" /> {canPay ? 'Unlock phone & email' : 'Add funds to unlock'} · {free ? 'free' : dollars(price)}
                 </button>
                 <p className="text-xs text-gray-500" data-testid="unlock-terms">
                   {free
                     ? freeLookups === 1
-                      ? `Your last free lookup, used only if a phone is found. After it, ${dollars(unlockCents)} a phone.`
-                      : `One of your ${freeLookups} free lookups, used only if a phone is found. After those, ${dollars(unlockCents)} a phone.`
+                      ? `Your last free lookup, used only if a phone is found. After it, ${perPhone}.`
+                      : `One of your ${freeLookups} free lookups, used only if a phone is found. After those, ${perPhone}.`
                     : `Charged only when a phone is found. Balance ${dollars(balanceCents)}.`}
                 </p>
               </div>

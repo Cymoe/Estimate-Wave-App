@@ -1597,7 +1597,7 @@ describe('the Outreach page', () => {
     await render('/outreach/l1');
     // Nobody looked up yet: the note in place of a wall of padlocks with no word.
     expect(document.body.querySelector('[data-testid="fresh-note"]')!.textContent).toBe(
-      'Every owner comes with their name, mailing address and property. Phone numbers are looked up when you ask: $1 each, only when one is found, and your first 5 are free. Emails and the person behind a company are free.',
+      `Every owner comes with their name, mailing address and property. Phone numbers are looked up when you ask: $1 a phone for a person, $2 for a company's decision maker, only when one is found, and your first 5 are free. Emails and the person behind a company are free.`,
     );
     // No balance, but not "Add funds": the free ones cover both owners.
     const find = document.body.querySelector('[data-testid="find-all"]') as HTMLButtonElement;
@@ -1628,7 +1628,37 @@ describe('the Outreach page', () => {
     contacts = { ...twoContacts(), balanceCents: 0, freeLookups: 0 };
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="find-all"]')!.textContent).toBe('Add funds to find phones & emails (2)');
-    expect(document.body.querySelector('[data-testid="fresh-note"]')!.textContent).toContain('$1 each, only when one is found. Emails');
+    expect(document.body.querySelector('[data-testid="fresh-note"]')!.textContent).toContain("$2 for a company's decision maker, only when one is found. Emails");
+  });
+
+  it("a company's phone is $2 and a person's $1: the estimate adds each owner's price, the free ones go to the cheapest, and the sheet shows the owner's own", async () => {
+    lists = [list];
+    const two = twoContacts();
+    const priced = { ...two, ...money, companyUnlockCents: 200, rows: [{ ...two.rows[0], phoneCents: 200 }, { ...two.rows[1], name: 'Jane Doe', company: undefined, phoneCents: 100 }] };
+    contacts = { ...priced, balanceCents: 500, freeLookups: 0 };
+    await render('/outreach/l1');
+    expect(button('Find phones & emails (2)').title).toBe('up to $3');
+    // One free lookup left: it covers the $1 person, so the company's $2 is what's left.
+    clearPage();
+    contacts = { ...priced, balanceCents: 500, freeLookups: 1 };
+    await render('/outreach/l1');
+    expect(button('Find phones & emails (2)').title).toBe('up to $2, after your 1 free one');
+    // Not enough for the company's $2: add funds.
+    clearPage();
+    contacts = { ...priced, balanceCents: 100, freeLookups: 0 };
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="find-all"]')!.textContent).toBe('Add funds to find phones & emails (2)');
+    // The company's sheet: $2, and with $1 on the balance it asks for funds.
+    await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[0] as HTMLElement).click());
+    await flush();
+    expect(document.body.textContent).toContain('Add funds to unlock · $2');
+    // The person's sheet: $1, which the balance covers.
+    clearPage();
+    contacts = { ...priced, balanceCents: 100, freeLookups: 0 };
+    await render('/outreach/l1');
+    await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[1] as HTMLElement).click());
+    await flush();
+    expect(document.body.textContent).toContain('Unlock phone & email · $1');
   });
 
   it('finding phones & emails on a list with owners not loaded yet asks to load them first, or covers just the loaded ones', async () => {

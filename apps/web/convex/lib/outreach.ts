@@ -340,6 +340,14 @@ export const OWNERS_VERSION = 14;
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
 export const UNLOCK_CENTS = 100;
+/** A company owner's phone: the person behind it is found in the filings first, then traced, so it costs more. */
+export const COMPANY_UNLOCK_CENTS = 200;
+/**
+ * The most a batch of phones can charge once the free ones are used: the free lookups go to the cheapest first, so a
+ * balance check never asks for less than the run could cost.
+ */
+export const phonesCost = (prices: number[], free: number) =>
+  [...prices].sort((a, b) => a - b).slice(Math.max(0, free)).reduce((sum, c) => sum + c, 0);
 /** Every company's first phones found are free, so a new one sees a real number before paying for any. */
 export const FREE_LOOKUPS = 5;
 /** How many of them a company has left. */

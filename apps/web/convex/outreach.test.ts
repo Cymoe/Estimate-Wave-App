@@ -7,7 +7,7 @@ import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
-import { FREE_LOOKUPS, AddressCounter, SellerGrouper, recentDeeds, soldKindOf, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
+import { FREE_LOOKUPS, COMPANY_UNLOCK_CENTS, UNLOCK_CENTS, phonesCost, AddressCounter, SellerGrouper, recentDeeds, soldKindOf, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, sourceFetch, isCompanyName, plainName, TX_TAXPAYER_LIST, openSosData, agentAsPerson, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, tracerfyKey, phoneScrub, tracerfy, streetAddress, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
@@ -1487,7 +1487,7 @@ describe("a company's lists", () => {
     expect(await t.mutation(internal.outreach.migrateRows, {})).toEqual({ moved: 0, more: false });
   });
 
-  test("enriching a contact runs the stack per field: the person behind an LLC free, a found phone for $1, emails and misses free", async () => {
+  test("enriching a contact runs the stack per field: the person behind an LLC free, a found phone for a company $2, emails and misses free", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
     await addParcels(t, ROLL);
@@ -1503,7 +1503,7 @@ describe("a company's lists", () => {
     expect((await read()).coverage).toEqual({ phone: { found: 0, total: 2, sources: 0 }, email: { found: 0, total: 2, sources: 0 }, person: { found: 0, total: 2, sources: 0 }, research: { found: 0, total: 2, sources: 0 } });
 
     // No balance: refused before anything is queued. The person lookup alone is free.
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available/);
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).rejects.toThrow(/Balance too low: \$2\.00 needed for 1 phone, \$0\.00 available/);
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person"] })).resolves.toMatchObject({ queued: 1, costCents: 0 });
     expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.person.status).toBe("running");
     // No key for it: a failed cell that says so, nothing charged, and not counted as a source attempt.
@@ -1514,7 +1514,7 @@ describe("a company's lists", () => {
     expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "skipped", note: "Not connected" }, { source: "opensosdata", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }] });
 
     // With keys: the Comptroller names Oak Plaza's manager, BatchData finds her phones and an email; the city gets nothing.
-    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 450 }));
     vi.stubEnv("TX_COMPTROLLER_API_KEY", "cpa-key");
     vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
     vi.stubEnv("TRESTLE_API_KEY", "tr-key");
@@ -1573,7 +1573,7 @@ describe("a company's lists", () => {
         });
       }),
     );
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id, oak.id] })).resolves.toMatchObject({ queued: 2, costCents: 200 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id, oak.id] })).resolves.toMatchObject({ queued: 2, costCents: 400 });
     const running = (await read()).rows;
     expect(running.find((r) => r.id === oak.id)!.enrichment).toMatchObject({ person: { status: "running" }, phone: { status: "running" }, email: { status: "running" } });
     expect(running.find((r) => r.id === cityHall.id)!.enrichment).toMatchObject({ person: { status: "running" }, phone: { status: "running" } });
@@ -1586,7 +1586,7 @@ describe("a company's lists", () => {
     expect(oakNow.person).toEqual({ name: "Dana Reyes", title: "Manager", address: "1 MAIN ST STE 400, DALLAS, TX, 75201", source: "tx-comptroller" });
     expect(oakNow.enrichment).toMatchObject({
       person: { status: "found", source: "tx-comptroller" },
-      phone: { status: "found", source: "batchdata", chargedCents: 100 },
+      phone: { status: "found", source: "batchdata", chargedCents: 200 },
       email: { status: "found", source: "batchdata" },
     });
     // The ledger for the sheet: every source's turn, in order; Tracerfy isn't connected in this test.
@@ -1631,7 +1631,7 @@ describe("a company's lists", () => {
     expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
     expect(cityNow.enrichment.person.tries).toEqual([{ source: "roll", outcome: "skipped", note: "No home owned by a person at the mailing address" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "miss", note: "No match" }, { source: "opensosdata", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
     expect(cityNow.phones).toEqual([]);
-    expect(traced.balanceCents).toBe(150);
+    expect(traced.balanceCents).toBe(250);
     expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 }, research: { found: 0, total: 2, sources: 0 } });
     expect(traced.phoneHitRate).toBe(0.5);
     // The Comptroller was asked by name with the key; BatchData was asked once per contact, for the manager by name.
@@ -1646,11 +1646,11 @@ describe("a company's lists", () => {
     expect((oakAsk.body as { requests: Array<{ name: unknown }> }).requests[0].name).toEqual({ first: "Dana", last: "Reyes" });
     await t.run(async (ctx) => {
       const charges = await ctx.db.query("walletTransactions").collect();
-      expect(charges.map((c) => [c.type, c.amountCents, c.balanceAfterCents, c.contactId, c.note])).toEqual([["unlock", -100, 150, oak.id, "Phone for Oak Plaza LLC via BatchData"]]);
+      expect(charges.map((c) => [c.type, c.amountCents, c.balanceAfterCents, c.contactId, c.note])).toEqual([["unlock", -200, 250, oak.id, "Phone for Oak Plaza LLC via BatchData"]]);
       const stats = (await ctx.db.query("dataSourceStats").collect()).map((s) => [s.source, s.field, s.attempts, s.hits, s.chargedCents]).sort();
       expect(stats).toEqual([
         ["batchdata", "email", 1, 1, 0],
-        ["batchdata", "phone", 1, 1, 100],
+        ["batchdata", "phone", 1, 1, 200],
         ["none", "email", 1, 0, 0],
         ["none", "person", 1, 0, 0],
         ["none", "phone", 1, 0, 0],
@@ -1668,7 +1668,7 @@ describe("a company's lists", () => {
       ["tx-comptroller", true, [["person", 1, 1, 0]]],
       ["opensosdata", false, [["person", 0, 0, 0]]],
       ["cobalt", false, [["person", 0, 0, 0]]],
-      ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
+      ["batchdata", true, [["phone", 1, 1, 200], ["email", 1, 1, 0]]],
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["enformion", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["leadmagic-mobile", false, [["phone", 0, 0, 0]]],
@@ -1682,7 +1682,7 @@ describe("a company's lists", () => {
     await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
     // A found field isn't traced again; a failed one can be. A deleted list keeps its paid contact.
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toMatchObject({ queued: 0, costCents: 0 });
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 200 });
     await t.finishAllScheduledFunctions(() => {});
     const lists = await listsNow(t, co);
     expect(lists[0].deletable).toBe(false);
@@ -2004,11 +2004,11 @@ describe("a company's lists", () => {
         });
       }),
     );
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [first.id, second.id, brazos.id] })).resolves.toMatchObject({ queued: 3, costCents: 300 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [first.id, second.id, brazos.id] })).resolves.toMatchObject({ queued: 3, costCents: 600 });
     // The first of the family and the unrelated company run now; the sister waits its turn.
     await t.finishAllScheduledFunctions(() => {});
-    expect((await byName("Nuka Hiva Alpha 1-54")).enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 100 });
-    expect((await byName("Brazos")).enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 100 });
+    expect((await byName("Nuka Hiva Alpha 1-54")).enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 200 });
+    expect((await byName("Brazos")).enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 200 });
     expect((await byName("Nuka Hiva Alpha 55-106")).enrichment.phone.status).toBe("running");
     const asked = batchdata.length;
     expect(asked).toBeGreaterThan(0);
@@ -2034,7 +2034,7 @@ describe("a company's lists", () => {
     expect(await t.query(internal.outreach.sharedLookup, { contactId: second.id as Id<"outreachContacts">, person: kai })).toBeNull();
     // Two phones paid for, not three; the copy is not a source hit on the scorecard.
     const after = await co.as.query(api.outreach.contacts, { organizationId: org });
-    expect(after.balanceCents).toBe(800);
+    expect(after.balanceCents).toBe(600);
     const stats = await t.run(async (ctx) => ctx.db.query("dataSourceStats").collect());
     expect(stats.some((s) => s.source === "shared")).toBe(false);
 
@@ -2224,7 +2224,7 @@ describe("a company's lists", () => {
     expect(gaveUp.enrichment.person).toMatchObject({ status: "failed", error: GIVE_UP_ERROR });
     expect(GIVE_UP_ERROR).toBe("Took longer than 10 minutes and was stopped.");
     expect((await read()).balanceCents).toBe(500);
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 200 });
     // The lookup runs and writes its answer (no keys: a failed cell that says so); the watchdog then finds nothing left to fail.
     for (const k of ["BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME"]) vi.stubEnv(k, "");
     const again = (await read()).rows.find((r) => r.id === oak.id)!.enrichment.phone.at!;
@@ -2236,7 +2236,7 @@ describe("a company's lists", () => {
   test("seedSampleList fills a list's first owners with a run's worth of sample results, skips real ones, charges nothing, and clears them all", async () => {
     // The mix, one owner at a time: found, found the hard way, found with a mismatch, a person but no phone, DNC only, found, not looked up, nothing, a litigator, failed.
     const s = (i: number) => sampleFor(i, { name: "Oak Plaza LLC", company: true, properties: 3 }, "2026-11-07T12:00:00.000Z");
-    expect(s(0)).toMatchObject({ person: { name: "Mark Ellison", source: "tx-comptroller" }, cells: { phone: { status: "found", source: "batchdata", chargedCents: 100 }, research: { status: "found", chargedCents: 25 } } });
+    expect(s(0)).toMatchObject({ person: { name: "Mark Ellison", source: "tx-comptroller" }, cells: { phone: { status: "found", source: "batchdata", chargedCents: 200 }, research: { status: "found", chargedCents: 25 } } });
     expect(s(0).phones!.every((p) => isSampleNumber(p.number))).toBe(true);
     expect(s(0).emails![0].email).toBe("mark.ellison@example.com");
     expect(s(1).cells.phone).toMatchObject({ status: "found", source: "tracerfy" });
@@ -2269,7 +2269,7 @@ describe("a company's lists", () => {
     expect(await t.mutation(internal.outreach.seedSampleList, { email: "owner@roof.example", count: 5 })).toEqual({ done: true, organization: expect.any(String), list: "Real estate investors, Midland", filled: 2, shared: 0 });
     const rows = await read();
     const nuka = rows.find((r) => r.name === "Nuka Hiva LLC")!;
-    expect(nuka).toMatchObject({ person: { name: "Mark Ellison" }, note: "Sample data to show the layout, not a real lookup.", enrichment: { phone: { status: "found", chargedCents: 100 } } });
+    expect(nuka).toMatchObject({ person: { name: "Mark Ellison" }, note: "Sample data to show the layout, not a real lookup.", enrichment: { phone: { status: "found", chargedCents: 200 } } });
     expect(nuka.phones.length).toBe(2);
     expect(rows.find((r) => r.name === "Oak Plaza LLC")!.enrichment.phone).toMatchObject({ status: "found", source: "tracerfy" });
     expect(rows.find((r) => r.name === "Park Holdings LP")!.person).toEqual({ name: "Real Person", source: "tx-comptroller" });
@@ -2837,17 +2837,17 @@ describe("a company's lists", () => {
     await rebuild(t);
     const co = await proCompany(t);
     const org = co.organizationId;
-    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 100 }));
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 200 }));
     await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
     const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
     const rows = (await read()).rows;
     const oak = rows.find((r) => r.name === "Oak Plaza LLC")!;
     const cityHall = rows.find((r) => r.name === "City Of Midland")!;
 
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
-    // Nothing charged yet, but the dollar is spoken for.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 200 });
+    // Nothing charged yet, but the two dollars are spoken for.
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).rejects.toThrow(
-      /Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available \(\$1\.00 held for lookups still running\)/,
+      /Balance too low: \$2\.00 needed for 1 phone, \$0\.00 available \(\$2\.00 held for lookups still running\)/,
     );
     // Free fields still go.
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["person"] })).resolves.toMatchObject({ queued: 1, costCents: 0 });
@@ -2863,7 +2863,7 @@ describe("a company's lists", () => {
     expect(await t.run(async (ctx) => ctx.db.query("walletTransactions").collect())).toEqual([]);
   });
 
-  test("a company's first five phones found are free: no balance needed, nothing charged, a miss uses none, and the sixth is $1", async () => {
+  test("a company's first five phones found are free: no balance needed, nothing charged, a miss uses none, and the sixth is $2 for a company", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
     await addParcels(t, ROLL);
@@ -2892,22 +2892,80 @@ describe("a company's lists", () => {
     expect(after.freeLookups).toBe(FREE_LOOKUPS - 1);
     expect(await t.run(async (ctx) => ctx.db.query("walletTransactions").collect())).toEqual([]);
 
-    // The last free one is spoken for by a running lookup: the next owner needs a dollar.
+    // The last free one is spoken for by a running lookup: the next owner needs two dollars.
     await t.run(async (ctx) => ctx.db.patch(org, { outreachFreeUsed: FREE_LOOKUPS - 1 }));
     await t.run(async (ctx) => ctx.db.patch(oak.id as Id<"outreachContacts">, { enrichment: { ...oakNow.enrichment, phone: { status: "locked" } }, phones: [] }));
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 0 });
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available/);
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$2\.00 needed for 1 phone, \$0\.00 available/);
     await t.mutation(internal.outreach.recordEnrichment, { contactId: cityHall.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550101", type: "mobile", source: "batchdata" }] });
     expect((await read()).freeLookups).toBe(0);
     expect(await t.run(async (ctx) => ctx.db.query("walletTransactions").collect())).toEqual([]);
 
-    // All five used: a phone found now is $1 from the balance.
-    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 100 }));
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+    // All five used: a phone found now is $2 from the balance for a company.
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 200 }));
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 200 });
     await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550100", type: "mobile", source: "batchdata" }] });
     const paid = await read();
-    expect(paid.rows.find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "found", chargedCents: 100 });
+    expect(paid.rows.find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "found", chargedCents: 200 });
     expect(paid.balanceCents).toBe(0);
+  });
+
+  test("a phone found for a person is $1 and for a company's decision maker $2; a mixed batch's free lookups go to the cheapest first, and the queue holds each one's price", async () => {
+    expect([UNLOCK_CENTS, COMPANY_UNLOCK_CENTS]).toEqual([100, 200]);
+    expect(phonesCost([200, 100, 200], 0)).toBe(500);
+    expect(phonesCost([200, 100, 200], 1)).toBe(400);
+    expect(phonesCost([200, 100], 5)).toBe(0);
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const first = await read();
+    expect([first.unlockCents, first.companyUnlockCents]).toEqual([100, 200]);
+    const oak = first.rows.find((r) => r.name === "Oak Plaza LLC")!;
+    // Owners of the same shape: two people (no company), one more company.
+    const [jane, joe, birch] = await t.run(async (ctx) => {
+      const { _id, _creationTime, company, ...owner } = (await ctx.db.get(oak.id as Id<"outreachContacts">))!;
+      void _id, _creationTime, company;
+      const fresh = { ...owner, enrichment: { phone: { status: "locked" as const }, email: { status: "locked" as const }, person: { status: "locked" as const }, research: { status: "locked" as const } }, phones: [], emails: [] };
+      return [
+        await ctx.db.insert("outreachContacts", { ...fresh, key: "owner:JANE DOE", name: "Jane Doe" }),
+        await ctx.db.insert("outreachContacts", { ...fresh, key: "owner:JOE DOE", name: "Joe Doe" }),
+        await ctx.db.insert("outreachContacts", { ...fresh, key: "owner:BIRCHWOOD", name: "Birchwood Partners", company: "Birchwood Partners" }),
+      ];
+    });
+    const rows = (await read()).rows;
+    expect(rows.find((r) => r.id === jane)!.company).toBeUndefined();
+    expect(rows.find((r) => r.id === birch)!.company).toBe("Birchwood Partners");
+    expect([rows.find((r) => r.id === jane)!.phoneCents, rows.find((r) => r.id === birch)!.phoneCents]).toEqual([100, 200]);
+
+    // No free ones left: a person and a company cost $3, and the queue holds each price.
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 300 }));
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [jane, oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 2, costCents: 300 });
+    const queued = await t.run(async (ctx) => ctx.db.query("outreachQueue").collect());
+    expect(queued.map((r) => [r.contactId, r.phoneCents]).sort()).toEqual([[jane, 100], [oak.id, 200]].sort());
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [birch], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$2\.00 needed for 1 phone, \$0\.00 available \(\$3\.00 held for lookups still running\)/);
+    const phone = [{ number: "4325550100", type: "mobile" as const, source: "batchdata" }];
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: jane, field: "phone", source: "batchdata", phones: phone });
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: phone });
+    const paid = await read();
+    expect(paid.rows.find((r) => r.id === jane)!.enrichment.phone).toMatchObject({ status: "found", chargedCents: 100 });
+    expect(paid.rows.find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "found", chargedCents: 200 });
+    expect(paid.balanceCents).toBe(0);
+    const charges = await t.run(async (ctx) => (await ctx.db.query("walletTransactions").collect()).map((c) => [c.amountCents, c.note]));
+    expect(charges).toEqual([
+      [-100, "Phone for Jane Doe via BatchData"],
+      [-200, "Phone for Oak Plaza LLC via BatchData"],
+    ]);
+
+    // One free lookup left: it goes to the $1 person, so a person and a company need $2.
+    await t.run(async (ctx) => ctx.db.patch(org, { outreachFreeUsed: FREE_LOOKUPS - 1, walletBalanceCents: 100 }));
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [joe, birch], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$2\.00 needed for 2 phones, \$1\.00 available/);
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 200 }));
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [joe, birch], fields: ["phone"] })).resolves.toMatchObject({ queued: 2, costCents: 200 });
   });
 
   test("lookups wait their turn: only so many run at once, companies share the room, the next starts as one ends, and the watchdog counts from the start", async () => {
@@ -2977,17 +3035,17 @@ describe("a company's lists", () => {
     expect(Math.max(...latest)).toBe(NOW + 2 * GIVE_UP_AFTER_MS);
 
     // What's waiting or running holds the balance, from the queue alone; a field that has landed holds nothing more.
-    await t.run(async (ctx) => ctx.db.patch(a.organizationId, { walletBalanceCents: 500 }));
+    await t.run(async (ctx) => ctx.db.patch(a.organizationId, { walletBalanceCents: 1000 }));
     const spare = await t.run(async (ctx) => {
       const { _id, _creationTime, ...owner } = (await ctx.db.get(ids[0]))!;
       void _id, _creationTime;
       return await ctx.db.insert("outreachContacts", { ...owner, key: "owner:Ironwood", name: "Ironwood Partners", company: "Ironwood Partners", enrichment: { phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } } });
     });
-    // Five still to land at $1 each against $5: no room for a sixth.
-    await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: [spare], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available \(\$5\.00 held for lookups still running\)/);
+    // Five still to land at $2 each against $10: no room for a sixth.
+    await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: [spare], fields: ["phone"] })).rejects.toThrow(/Balance too low: \$2\.00 needed for 1 phone, \$0\.00 available \(\$10\.00 held for lookups still running\)/);
     const landed = rows.find((r) => r.mine && r.state === "active")!;
     await t.mutation(internal.outreach.recordEnrichment, { contactId: landed.contactId, field: "phone", source: "batchdata" });
-    await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: [spare], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+    await expect(a.as.mutation(api.outreach.enrich, { organizationId: a.organizationId, contactIds: [spare], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 200 });
   });
 
   test("asking for more on an owner whose lookup is waiting keeps its place; a cell left running with nothing behind it can be asked again, and the repair fails it", async () => {
@@ -3180,7 +3238,7 @@ describe("a company's lists", () => {
     await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550100", type: "mobile", source: "batchdata" }] });
     const landed = await feed(one.upTo);
     expect(landed.rows.map((r) => [r.enrichment.phone.status, r.phones.length])).toEqual([["found", 1]]);
-    expect(landed.balanceCents).toBe(200);
+    expect(landed.balanceCents).toBe(100);
     // Email outreach's own stamps come through too.
     vi.setSystemTime(NOW + 240_000);
     await t.run(async (ctx) => {
@@ -3269,7 +3327,7 @@ describe("a company's lists", () => {
     expect(oak.note).toBe("Sample data to show the layout, not a real lookup.");
     expect(oak.enrichment).toMatchObject({
       person: { status: "found", source: "tx-comptroller", tries: [{ source: "tx-comptroller", outcome: "hit", note: "Mark Ellison, Managing member" }] },
-      phone: { status: "found", source: "tracerfy", chargedCents: 100, tries: [{ source: "batchdata", outcome: "miss" }, { source: "tracerfy", outcome: "hit", note: "2 numbers" }] },
+      phone: { status: "found", source: "tracerfy", chargedCents: 200, tries: [{ source: "batchdata", outcome: "miss" }, { source: "tracerfy", outcome: "hit", note: "2 numbers" }] },
       email: { status: "found", source: "tracerfy" },
       research: { status: "found", source: "claude", chargedCents: 25 },
     });
@@ -3361,7 +3419,7 @@ describe("a company's lists", () => {
     // The applicant's number, confirmed live, mobile and in her name by the carrier, so her own line rather than the office's the permit implied; the roofer's number never appears.
     expect(oakNow.phones).toEqual([{ number: "4325550100", type: "mobile", line: "personal", verified: true, score: 100, source: "permits", name: "REYES DANA" }]);
     expect(oakNow.emails).toEqual([{ email: "dana@oakplaza.com", source: "permits" }]);
-    expect(oakNow.enrichment.phone).toMatchObject({ status: "found", source: "permits", chargedCents: 100 });
+    expect(oakNow.enrichment.phone).toMatchObject({ status: "found", source: "permits", chargedCents: 200 });
     expect(oakNow.enrichment.phone.tries).toEqual([
       { source: "permits", outcome: "hit", note: "1 number" },
       { source: "batchdata", outcome: "skipped", note: "Not connected" },
@@ -3375,7 +3433,7 @@ describe("a company's lists", () => {
     expect(oakNow.enrichment.person.tries[0]).toEqual({ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" });
     expect(oakNow.enrichment.person.tries[1]).toEqual({ source: "permits", outcome: "hit", note: "Dana Reyes, Applicant on permit P-1" });
     expect(urls).toEqual(["https://lookups.twilio.com/v2/PhoneNumbers/%2B14325550100?Fields=line_type_intelligence,caller_name"]);
-    expect(after.balanceCents).toBe(400);
+    expect(after.balanceCents).toBe(300);
     await t.run(async (ctx) => {
       const stats = (await ctx.db.query("dataSourceStats").collect()).map((s) => [s.source, s.field, s.attempts, s.hits]).sort();
       expect(stats).toEqual([
@@ -3470,7 +3528,7 @@ describe("a company's lists", () => {
     expect(guessDefinition("realtors who can send me work")?.definition).toEqual({ county: "Midland", who: "realtor" });
   });
 
-  test("a mobile from an email: the work email found first, LeadMagic's finder keys off it, the carrier says it's hers, and the row shows a personal mobile for $1", async () => {
+  test("a mobile from an email: the work email found first, LeadMagic's finder keys off it, the carrier says it's hers, and the row shows a personal mobile for $2 (a company)", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
     await addParcels(t, ROLL);
@@ -3511,7 +3569,7 @@ describe("a company's lists", () => {
     expect(calls).toEqual(["batchdata", "hunter", 'mobile:{"work_email":"dana@oakplaza.com"}', "twilio"]);
     expect(now.emails).toEqual([{ email: "dana@oakplaza.com", source: "hunter", verified: true }]);
     expect(now.phones).toEqual([{ number: "4325550142", type: "mobile", line: "personal", verified: true, score: 100, name: "REYES DANA", source: "leadmagic-mobile" }]);
-    expect(now.enrichment.phone).toMatchObject({ status: "found", source: "leadmagic-mobile", chargedCents: 100 });
+    expect(now.enrichment.phone).toMatchObject({ status: "found", source: "leadmagic-mobile", chargedCents: 200 });
     expect(now.enrichment.phone.tries).toEqual([
       { source: "permits", outcome: "skipped", note: "No permits at the property" },
       { source: "batchdata", outcome: "miss", note: "No match" },
@@ -3523,11 +3581,11 @@ describe("a company's lists", () => {
       { source: "tracerfy-dnc", outcome: "skipped", note: "Not connected" },
     ]);
     expect(now.enrichment.email).toMatchObject({ status: "found", source: "hunter" });
-    expect((await read()).balanceCents).toBe(400);
+    expect((await read()).balanceCents).toBe(300);
     // The ledger on the Sources page: the finder's one try, one hit, the dollar.
     const ops = await signUp(t, "ops@webb.example", { role: "staff" });
     const stack = await ops.as.query(api.outreach.sources, { organizationId: org });
-    expect(stack.find((s) => s.name === "leadmagic-mobile")).toMatchObject({ connected: true, stats: [{ field: "phone", attempts: 1, hits: 1, chargedCents: 100 }] });
+    expect(stack.find((s) => s.name === "leadmagic-mobile")).toMatchObject({ connected: true, stats: [{ field: "phone", attempts: 1, hits: 1, chargedCents: 200 }] });
   });
 
   test("research reads the web about an owner through Claude: an answer with sources for 25¢, nothing found free", async () => {

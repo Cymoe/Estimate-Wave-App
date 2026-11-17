@@ -1255,6 +1255,8 @@ export type OutreachContact = {
   key: string;
   name: string;
   company?: string;
+  /** What a phone found for this owner costs: $2 for a company's decision maker, $1 for a person. The page's unlockCents when absent. */
+  phoneCents?: number;
   mailing: OutreachMailing;
   /** Absent for a realtor, who owns nothing here. */
   property?: { parcelId: string; address: string; useCode: string; valueCents?: number };
@@ -1327,6 +1329,8 @@ export type OutreachContacts = {
   /** Phones the company can still find free: its first five found are on the house. */
   freeLookups?: number;
   unlockCents: number;
+  /** A company owner's phone: the decision maker is found first, so it costs more. */
+  companyUnlockCents?: number;
   researchCents: number;
   researchQuestion: string;
   /** The company's own phone hit rate so far, 0–1; undefined until it has tried. */
