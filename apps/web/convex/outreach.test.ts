@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { syncContactSignals } from "./lib/contactSignals";
 import { FREE_LOOKUPS, AddressCounter, SellerGrouper, facetFor, propertyFor, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, comptrollerTexas, enformion, expectedNames, fullTitle, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, PRACTICE_SKIP, lineOwner, paced, BUSY_RETRY_MS, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { CHANGES_MAX, GIVE_UP_AFTER_MS, GIVE_UP_ERROR, OWNER_CAP, OWNER_CAP_ERROR, CANCELLED_ERROR, SAMPLE_LEFT_OUT, STUCK_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -2100,6 +2100,121 @@ describe("a company's lists", () => {
     // Its sample numbers are the company's own, never a made-up person's.
     expect(none.phones.filter((p) => p.name).every((p) => p.name === other.name.toUpperCase())).toBe(true);
     expect(new Set(asked)).toEqual(new Set(["api.comptroller.texas.gov"]));
+  });
+
+  test("the Comptroller's searches wait their turn in one line; other sources go straight through", async () => {
+    const reserved: Array<[string, number]> = [];
+    const waited: number[] = [];
+    let next = 0;
+    const reserve = async (source: string, gap: number) => {
+      reserved.push([source, gap]);
+      const wait = next;
+      next += gap;
+      return wait;
+    };
+    const inner = vi.fn(async () => new Response("{}", { status: 200 }));
+    const fetchFn = paced(inner as unknown as typeof fetch, reserve, { TX_COMPTROLLER_GAP_MS: "1000" }, async (ms) => {
+      waited.push(ms);
+    });
+    await fetchFn("https://api.comptroller.texas.gov/public-data/v1/public/franchise-tax-list?name=A");
+    await fetchFn("https://api.comptroller.texas.gov/public-data/v1/public/franchise-tax-list?name=B");
+    await fetchFn("https://api.cobaltintelligence.com/v1/search");
+    expect(reserved).toEqual([
+      ["tx-comptroller", 1000],
+      ["tx-comptroller", 1000],
+    ]);
+    // The first goes now, the second a second later; the other source never waits.
+    expect(waited).toEqual([1000]);
+    expect(inner).toHaveBeenCalledTimes(3);
+    // Left unset, one a second.
+    const gaps: number[] = [];
+    await paced(inner as unknown as typeof fetch, async (_s, gap) => (gaps.push(gap), 0))("https://api.comptroller.texas.gov/x");
+    expect(gaps).toEqual([1000]);
+  });
+
+  test("the next free moment is shared by every lookup: each call takes the one after the last", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const a = await t.mutation(internal.outreach.paceSlot, { source: "tx-comptroller", gapMs: 1000 });
+    const b = await t.mutation(internal.outreach.paceSlot, { source: "tx-comptroller", gapMs: 1000 });
+    const c = await t.mutation(internal.outreach.paceSlot, { source: "tx-comptroller", gapMs: 1000 });
+    const other = await t.mutation(internal.outreach.paceSlot, { source: "elsewhere", gapMs: 1000 });
+    expect([a, b, c, other]).toEqual([0, 1000, 2000, 0]);
+    // Once the line has passed, the next goes at once.
+    vi.setSystemTime(NOW + 10_000);
+    expect(await t.mutation(internal.outreach.paceSlot, { source: "tx-comptroller", gapMs: 1000 })).toBe(0);
+  });
+
+  test("a person lookup the Comptroller turns away with 'slow down' is asked again on its own, a few times, before it fails", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    vi.stubEnv("SAMPLE_STEP_MS", "0");
+    vi.stubEnv("OUTREACH_SIMULATE", "");
+    for (const k of ["BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME", "HUNTER_API_KEY", "LEADMAGIC_API_KEY", "TRESTLE_API_KEY", "TWILIO_ACCOUNT_SID", "ZEROBOUNCE_API_KEY", "COBALT_API_KEY"]) vi.stubEnv(k, "");
+    vi.stubEnv("TX_COMPTROLLER_API_KEY", "cpa-key");
+    let busy = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", "Retry-After": "0.001" } });
+        if (busy) return json({ message: "Too Many Requests" }, 429);
+        if (url.includes("franchise-tax-list")) return json({ data: [{ name: "OAK PLAZA LLC", taxpayerId: "32011111111" }] });
+        if (url.includes("franchise-tax/32011111111")) return json({ data: { officerInfo: [{ AGNT_NM: "DANA REYES", AGNT_TITL_TX: "MANAGER" }] } });
+        throw new Error(`unexpected call: ${url}`);
+      }),
+    );
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const oak = (await read()).rows.find((r) => r.name === "Oak Plaza LLC")!;
+    const queue = async () => await t.run(async (ctx) => ctx.db.query("outreachQueue").withIndex("by_contact", (q) => q.eq("contactId", oak.id as Id<"outreachContacts">)).collect());
+    const first = await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person", "phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    let row = (await read()).rows.find((r) => r.id === oak.id)!;
+    // Still going: back in line for two minutes from now. The phone went ahead (around the company).
+    expect(row.enrichment.person).toMatchObject({ status: "running" });
+    expect(row.enrichment.phone.simulated).toBe(true);
+    let [waiting] = await queue();
+    expect(waiting).toMatchObject({ fields: ["person"], attempt: 1, state: "queued", notBefore: NOW + BUSY_RETRY_MS[0] });
+    // The first try's watchdog leaves the retried cell alone.
+    await t.mutation(internal.outreach.giveUp, { contactId: oak.id as Id<"outreachContacts">, fields: ["person"], at: first.at });
+    expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.person.status).toBe("running");
+
+    // Its turn comes and the Comptroller answers: the real manager.
+    busy = false;
+    vi.setSystemTime(NOW + BUSY_RETRY_MS[0] + 1);
+    await t.mutation(internal.outreach.pump, {});
+    await t.finishAllScheduledFunctions(() => {});
+    row = (await read()).rows.find((r) => r.id === oak.id)!;
+    expect(row.enrichment.person).toMatchObject({ status: "found", source: "tx-comptroller" });
+    expect(row.person).toMatchObject({ name: "Dana Reyes" });
+    expect(await queue()).toEqual([]);
+
+    // Turned away every time: three more tries, then it fails with the reason, and Retry is offered as before.
+    busy = true;
+    await t.run(async (ctx) => {
+      const c = (await ctx.db.get(oak.id as Id<"outreachContacts">))!;
+      await ctx.db.patch(c._id, { enrichment: { ...c.enrichment, person: { status: "locked" } }, person: undefined });
+    });
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person"] });
+    let clock = NOW + BUSY_RETRY_MS[0] + 1;
+    for (const wait of BUSY_RETRY_MS) {
+      await t.finishAllScheduledFunctions(() => {});
+      [waiting] = await queue();
+      expect(waiting).toMatchObject({ state: "queued", notBefore: clock + wait });
+      clock += wait + 1;
+      vi.setSystemTime(clock);
+      await t.mutation(internal.outreach.pump, {});
+    }
+    await t.finishAllScheduledFunctions(() => {});
+    row = (await read()).rows.find((r) => r.id === oak.id)!;
+    expect(row.enrichment.person.status).toBe("failed");
+    expect(row.enrichment.person.error).toMatch(/^Still turned away after 3 more tries .*HTTP 429/);
+    expect(await queue()).toEqual([]);
   });
 
   test("running lookups hold what they could charge, so a second batch can't spend the same balance; a hit the balance can't pay for isn't handed over", async () => {

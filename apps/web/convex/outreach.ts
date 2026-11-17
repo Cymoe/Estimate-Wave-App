@@ -70,7 +70,7 @@ import { hasDistrictPage } from "./lib/district";
 import { operatorGroups, operatorName, type OperatorOwner } from "./lib/operators";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
-import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { BUSY_RETRY_MS, needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY: string = MIDLAND_PARCELS.county;
@@ -2642,7 +2642,7 @@ async function pumpQueue(ctx: MutationCtx) {
           continue;
         }
         await ctx.db.patch(row._id, { state: "active", startedAt: nowMs });
-        await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: row.contactId, fields: row.fields, queueId: row._id });
+        await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: row.contactId, fields: row.fields, queueId: row._id, ...(row.attempt ? { attempt: row.attempt } : {}) });
         // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
         await ctx.scheduler.runAfter(GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: row.contactId, fields: row.fields, at: row.at, queueId: row._id });
         running.set(w.organizationId, (running.get(w.organizationId) ?? 0) + 1);
@@ -2745,6 +2745,53 @@ export const lookupDone = internalMutation({
     }
     await ctx.scheduler.runAfter(0, internal.outreach.pump, {});
     return null;
+  },
+});
+
+/**
+ * The next free moment to call a rate-limited source (PACED_HOSTS in lib/skipTrace.ts), taken for one call, and how long
+ * the caller waits for it. One row per source, so every lookup running at once shares the same line.
+ */
+export const paceSlot = internalMutation({
+  args: { source: v.string(), gapMs: v.number() },
+  handler: async (ctx, { source, gapMs }) => {
+    const now = Date.now();
+    const row = await ctx.db.query("sourcePace").withIndex("by_source", (q) => q.eq("source", source)).unique();
+    const at = Math.max(now, row?.nextAt ?? 0);
+    if (row) await ctx.db.patch(row._id, { nextAt: at + gapMs });
+    else await ctx.db.insert("sourcePace", { source, nextAt: at + gapMs });
+    return at - now;
+  },
+});
+
+export const busyNote = (source: string, ms: number) => `${source} asked us to slow down; trying again in ${Math.round(ms / 60_000)} min`;
+
+/**
+ * A field whose sources said "slow down": its cell stays running, under a fresh stamp (the first try's watchdog leaves it
+ * alone), and the lookup goes back in the queue to start again after the wait. False when it has been tried enough.
+ */
+export const tryAgainLater = internalMutation({
+  args: { contactId: v.id("outreachContacts"), field: outreachField, attempt: v.number(), source: v.string(), tries: v.array(outreachTry) },
+  handler: async (ctx, { contactId, field, attempt, source, tries }) => {
+    const wait = BUSY_RETRY_MS[attempt];
+    const c = await ctx.db.get(contactId);
+    if (wait === undefined || !c) return false;
+    const cells = { ...cellsOf(c) };
+    const cell = cellFor(cells, field);
+    if (cell.status !== "running") return false;
+    // Always later than the first try's stamp, so its watchdog can't take this one for its own.
+    const at = new Date(Math.max(Date.now(), (Date.parse(cell.at ?? "") || 0) + 1)).toISOString();
+    cells[field] = { ...cell, at };
+    await ctx.db.patch(contactId, { enrichment: cells, updatedAt: at });
+    await ctx.db.insert("outreachQueue", { organizationId: c.organizationId, contactId, fields: [field], at, notBefore: Date.now() + wait, state: "queued", attempt: attempt + 1 });
+    await ctx.scheduler.runAfter(wait, internal.outreach.pump, {});
+    // The page says why it's still going.
+    const note = busyNote(source, wait);
+    const progress = { asking: undefined, tries: [...tries, { source, outcome: "error" as const, note }] };
+    const row = await progressOf(ctx, contactId, field);
+    if (row) await ctx.db.patch(row._id, progress);
+    else await ctx.db.insert("outreachProgress", { organizationId: c.organizationId, contactId, field, ...progress });
+    return true;
   },
 });
 

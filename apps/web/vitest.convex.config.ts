@@ -10,6 +10,6 @@ export default defineConfig({
     include: ["convex/**/*.test.ts"],
     server: { deps: { inline: ["convex-test"] } },
     // The real lookup path by default; the simulated chain (no phone source connected) is tested on its own.
-    env: { OUTREACH_SIMULATE: "off" },
+    env: { OUTREACH_SIMULATE: "off", TX_COMPTROLLER_GAP_MS: "0" },
   },
 });

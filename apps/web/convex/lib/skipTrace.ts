@@ -165,6 +165,45 @@ export function guarded(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, wai
   };
 }
 
+/** The hosts whose calls are spaced out across every lookup running at once, and the gap between two calls. */
+export const PACED_HOSTS: Record<string, { source: string; gapMs: (env: Record<string, string | undefined>) => number }> = {
+  // The Comptroller turns away a crowd ("Too Many Requests") and publishes no rate: one search a second, everywhere.
+  "api.comptroller.texas.gov": { source: "tx-comptroller", gapMs: (env) => (env.TX_COMPTROLLER_GAP_MS ? Math.max(0, Number(env.TX_COMPTROLLER_GAP_MS) || 0) : 1000) },
+};
+
+/**
+ * A fetch whose calls to a paced host each wait for their own moment: `reserve` hands out the next free one (a Convex
+ * mutation, so every lookup running at once shares one line) and says how long to wait for it. Other hosts go straight
+ * through.
+ */
+export function paced(
+  fetchFn: Fetch,
+  reserve: (source: string, gapMs: number) => Promise<number>,
+  env: Record<string, string | undefined> = {},
+  wait: (ms: number) => Promise<void> = pause,
+): Fetch {
+  return async (url, init) => {
+    let host = "";
+    try {
+      host = new URL(typeof url === "string" ? url : url instanceof URL ? url.href : url.url).host;
+    } catch {
+      // Not a URL we can read: sent as is.
+    }
+    const pace = PACED_HOSTS[host];
+    if (pace) {
+      const ms = await reserve(pace.source, pace.gapMs(env));
+      if (ms > 0) await wait(ms);
+    }
+    return fetchFn(url, init);
+  };
+}
+
+/** How long a lookup turned away with "slow down" waits before it's asked again, each time; past the last, it fails. */
+export const BUSY_RETRY_MS = [2, 10, 30].map((m) => m * 60 * 1000);
+
+/** A source said "slow down" (or its monthly allowance ran out): worth asking again later rather than calling it a miss. */
+export const isBusy = (errors: string[]) => errors.some((e) => /HTTP 429\b/.test(e));
+
 /** "SMITH JOHN & MARY" → first "John", last "Smith"; the roll writes last name first. A person found by name is "First Last". */
 export function splitName(name: string, order: "roll" | "person" = "roll"): { first?: string; last?: string } {
   const clean = name

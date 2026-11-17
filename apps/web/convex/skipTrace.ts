@@ -9,17 +9,38 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, PRACTICE_SKIP, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type TraceInput, type Try, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, PRACTICE_SKIP, applyEmailCheck, BUSY_RETRY_MS, guarded, isBusy, paced, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type TraceInput, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 import { districtOwnerNow, sameOwnerName } from "./lib/district";
 import { displayName } from "./lib/outreach";
 import { sampleFor, sampleIndex, sampleStack } from "./lib/outreachSample";
 
-type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
+type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[]; attempt?: number };
+
+/** The sources' fetch: calls to a rate-limited source (the Comptroller) wait their turn in one line shared by every lookup. */
+const sourceFetch = (ctx: ActionCtx) => guarded(paced(fetch, (source, gapMs) => ctx.runMutation(internal.outreach.paceSlot, { source, gapMs }), process.env));
+
+/**
+ * The person wasn't found because a source said "slow down": the lookup goes back in the queue to try again in a few
+ * minutes (true), rather than ending as a failure the owner has to retry by hand. False once it has been tried enough.
+ */
+/** Why nothing was found, when a source errored; a source still saying "slow down" after the retries is said plainly. */
+const errorOf = (o: { source?: string; errors: string[] }, field: Field) =>
+  o.source || o.errors.length === 0
+    ? undefined
+    : field === "person" && isBusy(o.errors)
+      ? `Still turned away after ${BUSY_RETRY_MS.length} more tries a few minutes apart (too many searches at once, or the month's allowance is used up). Try again later. (${o.errors.join("; ")})`
+      : o.errors.join("; ");
+
+async function retryWhenBusy(ctx: ActionCtx, contactId: TraceArgs["contactId"], attempt: number, o: { source?: string; errors: string[]; tries: Try[] }) {
+  if (o.source || !isBusy(o.errors)) return false;
+  const busy = o.tries.find((t) => t.outcome === "error" && /HTTP 429\b/.test(t.note ?? ""))?.source ?? "A source";
+  return await ctx.runMutation(internal.outreach.tryAgainLater, { contactId, field: "person", attempt, source: busy, tries: o.tries });
+}
 
 export const trace = internalAction({
   /** queueId: the lookup's place in the queue (outreach.ts pump), freed when it ends so the next one waiting starts. */
-  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), queueId: v.optional(v.id("outreachQueue")) },
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), queueId: v.optional(v.id("outreachQueue")), attempt: v.optional(v.number()) },
   handler: async (ctx, { queueId, ...args }) => {
     try {
       await run(ctx, args);
@@ -36,7 +57,7 @@ export const trace = internalAction({
   },
 });
 
-async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
+async function run(ctx: ActionCtx, { contactId, fields, attempt = 0 }: TraceArgs) {
   const input = await ctx.runQuery(internal.outreach.contactForTrace, { contactId });
   if (!input) return;
   const wanted = fields.filter((f): f is Field => input.fields.includes(f));
@@ -63,8 +84,8 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const simulate = process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => standsAlone(s, "phone"));
   if (input.sample) return await runSample(ctx, contactId, input, wanted, false);
   const own = await ownRecords(ctx, input, wanted);
-  if (simulate) return await runPractice(ctx, contactId, input, wanted, own);
-  const external = vendors(process.env);
+  if (simulate) return await runPractice(ctx, contactId, input, wanted, own, attempt);
+  const external = vendors(process.env, sourceFetch(ctx));
   const stack = [...own, ...external];
   // Our own records always get their turn; "not connected" is about the outside sources.
   const none = (field: Field) => !external.some((s) => standsAlone(s, field));
@@ -102,6 +123,8 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   for (const field of [...wanted].sort((a, b) => order.indexOf(a) - order.indexOf(b))) {
     if (field === "research") continue;
     const o = outcomes.find((x) => x.field === field)!;
+    // The person turned away for now ("slow down"): asked again in a few minutes instead of failed.
+    if (field === "person" && (await retryWhenBusy(ctx, contactId, attempt, o))) continue;
     if (!o.source && none(field)) {
       await ctx.runMutation(internal.outreach.recordEnrichment, {
         contactId,
@@ -158,7 +181,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       phones,
       emails,
       person: field === "person" ? o.found.person : undefined,
-      error: !o.source && o.errors.length > 0 ? o.errors.join("; ") : undefined,
+      error: errorOf(o, field),
       tries,
     });
   }
@@ -236,23 +259,29 @@ async function ownRecords(ctx: ActionCtx, input: TraceInput, wanted: Field[]): P
  * outside sources (a paid one is passed over and says so); then the phones, emails and research are simulated around
  * that person, or around the company itself when nobody was found, never around someone made up.
  */
-async function runPractice(ctx: ActionCtx, contactId: TraceArgs["contactId"], input: Parameters<typeof runSample>[2], wanted: Field[], own: Vendor[]) {
+async function runPractice(ctx: ActionCtx, contactId: TraceArgs["contactId"], input: Parameters<typeof runSample>[2], wanted: Field[], own: Vendor[], attempt = 0) {
   let person = input.person;
   let nobody = false;
   if (wanted.includes("person")) {
-    const free = vendors(process.env)
+    const free = vendors(process.env, sourceFetch(ctx))
       .filter((v) => v.fields.includes("person"))
       .map((v): Vendor => (v.connected && !v.free ? { ...v, applies: () => PRACTICE_SKIP } : v));
     const progress: Progress = async (field, tries, asking) => {
       await ctx.runMutation(internal.outreach.noteProgress, { contactId, field, asking, tries });
     };
     const [o] = await waterfall(input, [...own.filter((v) => v.fields.includes("person")), ...free], ["person"], undefined, progress);
+    // Turned away for now: the person is asked again in a few minutes; the rest goes ahead around the company.
+    if (await retryWhenBusy(ctx, contactId, attempt, o)) {
+      const rest = wanted.filter((f) => f !== "person");
+      if (rest.length > 0) await runSample(ctx, contactId, input, rest, true, Boolean(input.company));
+      return;
+    }
     await ctx.runMutation(internal.outreach.recordEnrichment, {
       contactId,
       field: "person",
       source: o.source,
       person: o.found.person,
-      error: !o.source && o.errors.length > 0 ? o.errors.join("; ") : undefined,
+      error: errorOf(o, "person"),
       tries: o.tries,
     });
     person = o.found.person;

@@ -1644,9 +1644,18 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     // A sample run: free, so it holds none of the balance.
     free: v.optional(v.boolean()),
+    // A lookup tried again on its own after a source said "slow down": how many times so far.
+    attempt: v.optional(v.number()),
   })
     .index("by_state_and_organization", ["state", "organizationId", "notBefore"])
     .index("by_contact", ["contactId"]),
+
+  // When a rate-limited source may next be called, shared by every lookup running at once (the Texas Comptroller turns
+  // away a crowd of searches at once): each call takes the next free moment.
+  sourcePace: defineTable({
+    source: v.string(),
+    nextAt: v.number(),
+  }).index("by_source", ["source"]),
 
   // How each data source has done for a company, per field: the hit rate
   // on the Data sources panel and behind the "about $136" estimate is the
