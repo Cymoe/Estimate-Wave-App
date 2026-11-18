@@ -1766,6 +1766,27 @@ export const recentCreatives = internalQuery({
   },
 });
 
+/**
+ * Renders any Shotstack edit and gives back the file's link, to look at a
+ * layout before an ad kind uses it. Nothing is stored and no ad is made.
+ */
+export const renderSample = internalAction({
+  args: { edit: v.any() },
+  handler: async (_ctx, { edit }): Promise<{ url: string }> => {
+    const headers = { "content-type": "application/json", "x-api-key": process.env.SHOTSTACK_API_KEY! };
+    const sent = await readJson(await fetch(`${shotstackBase()}/render`, { method: "POST", headers, body: JSON.stringify(edit) }), "Shotstack");
+    const renderId = sent?.response?.id;
+    if (!renderId) throw new Error("Shotstack gave no render id");
+    for (let tries = 0; tries < 90; tries++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const body = await readJson(await fetch(`${shotstackBase()}/render/${renderId}`, { headers }), "Shotstack");
+      if (body?.response?.status === "done" && body.response.url) return { url: body.response.url };
+      if (body?.response?.status === "failed") throw new Error(`Shotstack: ${body.response.error ?? "render failed"}`);
+    }
+    throw new Error("Shotstack: the sample took more than 7 minutes");
+  },
+});
+
 /** Once every creative in a batch has reached a resting state, the batch is ready and staff hear about it. */
 export const finishIfDone = internalMutation({
   args: { batchId: v.id("adBatches") },

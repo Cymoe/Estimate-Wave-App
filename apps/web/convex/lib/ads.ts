@@ -143,10 +143,16 @@ export function pickAssets<A extends AssetRow>(
 }
 
 /** "WL_k57abc_916_20261103": the ad's name in Meta and the creative's name here, so a lead's adName joins back. */
-export function creativeName(hookId: string, ratio: "9x16" | "4x5", date: Date): string {
+export function creativeName(hookId: string, ratio: "9x16" | "4x5", date: Date, kind: AdKind = "video"): string {
   const day = date.toISOString().slice(0, 10).replace(/-/g, "");
-  return `WL_${shortId(hookId)}_${ratio === "9x16" ? "916" : "45"}_${day}`;
+  const mark = kind === "image" ? "_img" : kind === "graphic" ? "_gfx" : "";
+  return `WL_${shortId(hookId)}_${ratio === "9x16" ? "916" : "45"}_${day}${mark}`;
 }
+
+/** What an ad is made of: a voiced video cut from footage, one photo with words on it, or voiced moving text. */
+export const AD_KINDS = ["video", "image", "graphic"] as const;
+export type AdKind = (typeof AD_KINDS)[number];
+export const AD_KIND_LABELS: Record<AdKind, string> = { video: "Video from photos", image: "Image ad", graphic: "Animated graphic" };
 
 /** Six letters and digits that stand for an id (a hash, so the same id always gives the same six). */
 export function shortId(id: string): string {
@@ -634,6 +640,181 @@ export function shotstackEdit(input: {
       ],
     },
     output: { format: "mp4", fps: 25, size: SIZES[ratio] },
+  };
+}
+
+// --------------------------------------------------------------- Image ads
+
+export const IMAGE_HEADLINE_MAX = 36;
+export const IMAGE_SUPPORT_MAX = 70;
+
+/** The text before the photos for an image ad: the hook, the photos on offer, the rules and the shape to answer in. */
+export function imageAdPrompt(
+  hook: { textEn: string; family: Family; scope: string },
+  brand: string,
+  photos: Candidate[],
+  inScope: boolean,
+  town = "your town",
+  playbook?: string,
+): string {
+  const list = photos.map((f, i) =>
+    [`Photo ${i + 1}`, f.tags.length ? `tags: ${f.tags.join(", ")}` : "", f.description ? `looks like: ${f.description}` : "", "(attached below)"]
+      .filter(Boolean)
+      .join(" · "),
+  );
+  return [
+    `You write one Facebook and Instagram image ad for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
+    `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
+    "",
+    "The ad is one photo with a headline and a short support line printed under it, and a Get a quote button. Each attached photo is labelled with its number.",
+    ...list,
+    inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with one of them.`,
+    "",
+    ...(playbook ? ["What works in this category, from competitor ads that have run for months. Follow the angle; never their claims:", playbook.trim(), ""] : []),
+    "Choose the one photo that carries the hook best: finished, well lit work a homeowner would want. Then write:",
+    `- imageHeadline: the words printed on the ad. At most 6 words and ${IMAGE_HEADLINE_MAX} characters. It must be true of the photo you chose.`,
+    `- support: one line under it, at most ${IMAGE_SUPPORT_MAX} characters, that says what ${brand} does for the homeowner.`,
+    `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the image.`,
+    "- Do not name colours, rooms, materials or details you cannot see in the photo.",
+    ...RULES(brand, town).slice(0, 3),
+    "- If none of the photos can carry the hook honestly, don't force it.",
+    "",
+    "Return only JSON, one of:",
+    '{"fits":true,"photo":1,"imageHeadline":"...","support":"...","headline":"<=40 chars","primaryText":"<=125 chars"}',
+    '{"fits":false,"reason":"why none of the photos fits"}',
+  ]
+    .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+    .join("\n");
+}
+
+export interface ImagePlan {
+  fits?: boolean;
+  reason?: string;
+  photo?: number;
+  imageHeadline?: string;
+  support?: string;
+  headline?: string;
+  primaryText?: string;
+}
+
+/** What's wrong with an image ad Claude returned, against the photos it was offered. */
+export function imagePlanProblems(plan: ImagePlan, photoCount: number): string[] {
+  const out: string[] = [];
+  const n = plan.photo;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photoCount) out.push(`names photo ${n ?? "nothing"}`);
+  const on = plan.imageHeadline?.trim() ?? "";
+  if (!on) out.push("no headline for the image");
+  else if (on.length > IMAGE_HEADLINE_MAX) out.push(`image headline over ${IMAGE_HEADLINE_MAX} characters`);
+  else if (on.split(/\s+/).length > 6) out.push("image headline over 6 words");
+  const support = plan.support?.trim() ?? "";
+  if (!support) out.push("no support line");
+  else if (support.length > IMAGE_SUPPORT_MAX) out.push(`support line over ${IMAGE_SUPPORT_MAX} characters`);
+  if (!plan.headline?.trim()) out.push("no headline");
+  else if (plan.headline.trim().length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
+  if (!plan.primaryText?.trim()) out.push("no primary text");
+  else if (plan.primaryText.trim().length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
+  const text = [on, support, plan.headline, plan.primaryText].filter(Boolean).join(" ");
+  for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
+  return out;
+}
+
+/** An image ad as the script stored on the creative: no voice; the two printed lines are the on-screen lines, over the one photo. */
+export function composeImageScript(plan: ImagePlan, assetIds: string[]): Script {
+  const on = (plan.imageHeadline ?? "").trim();
+  return {
+    voice: "",
+    onScreen: [on, (plan.support ?? "").trim()],
+    headline: (plan.headline ?? "").trim(),
+    primaryText: (plan.primaryText ?? "").trim(),
+    shots: [{ assetId: assetIds[(plan.photo ?? 1) - 1], voice: "", onScreen: on }],
+  };
+}
+
+/** How tall the words' band is in each size; the photo has the rest. */
+const BAND = { "9x16": 600, "4x5": 430 } as const;
+const BAND_COLOR = "#0e1621";
+
+/**
+ * A photo in a frame without stretching it: the whole photo inside its box,
+ * over a blurred, darkened copy of itself that fills the box. Lowest layer
+ * last, as Shotstack stacks tracks.
+ */
+export function framedPhoto(src: string, box: { width: number; height: number }, at: { start: number; length: number }, type: "image" | "video" = "image") {
+  const asset = type === "video" ? { type, src, volume: 0 } : { type, src };
+  return [
+    { asset, ...at, fit: "contain", width: box.width, height: box.height, position: "top" },
+    { asset: { type: "shape", shape: "rectangle", rectangle: { width: box.width, height: box.height }, fill: { color: "#000000", opacity: 0.45 } }, ...at, position: "top" },
+    { asset, ...at, fit: "crop", width: box.width, height: box.height, position: "top", filters: [{ type: "blur", value: 40 }] },
+  ];
+}
+
+/**
+ * The Shotstack edit for an image ad, rendered as one JPEG: the photo whole
+ * in the upper part of the frame, and a dark band under it with the headline,
+ * the support line and the ask. Nothing is printed in the middle of the
+ * frame, where a trial key stamps its watermark.
+ */
+export function imageEdit(input: { photoUrl: string; headline: string; support: string; brand: Brand; ratio: "9x16" | "4x5" }) {
+  const { brand, ratio } = input;
+  const size = SIZES[ratio];
+  const band = BAND[ratio];
+  const at = { start: 0, length: 1 };
+  const up = (px: number) => round(px / size.height);
+  const button = { width: 460, height: 112 };
+  const pad = ratio === "9x16" ? 96 : 56;
+  const words = { width: 960, height: band - button.height - pad - 60 };
+  const single = (clip: unknown) => ({ clips: [clip] });
+  return {
+    timeline: {
+      background: BAND_COLOR,
+      tracks: [
+        single({
+          asset: {
+            type: "html",
+            html: `<p>${escapeHtml(brand.name)}</p>`,
+            css: `p{font-family:'Montserrat ExtraBold';font-size:34px;color:#ffffff;text-align:center}`,
+            width: 300,
+            height: 72,
+            background: BAND_COLOR,
+          },
+          ...at,
+          position: "topLeft",
+          offset: { x: 0.04, y: -up(44) },
+        }),
+        single({
+          asset: {
+            type: "html",
+            html: "<p>Get a quote</p>",
+            css: `p{font-family:'Montserrat ExtraBold';font-size:44px;color:#ffffff;text-align:center}`,
+            width: button.width,
+            height: button.height,
+            background: brand.primaryColor,
+          },
+          ...at,
+          position: "bottom",
+          offset: { x: 0, y: up(pad) },
+        }),
+        single({
+          asset: {
+            type: "html",
+            html: `<p class="a">${escapeHtml(input.headline)}</p><p class="b">${escapeHtml(input.support)}</p>`,
+            css: `.a{font-family:'Montserrat ExtraBold';font-size:${input.headline.length > 24 ? 64 : 76}px;line-height:1.1;color:#ffffff;text-align:center}.b{font-family:'Open Sans';font-size:36px;line-height:1.3;color:${brand.accentColor};text-align:center;margin-top:18px}`,
+            width: words.width,
+            height: words.height,
+          },
+          ...at,
+          position: "bottom",
+          offset: { x: 0, y: up(pad + button.height + 30) },
+        }),
+        single({
+          asset: { type: "shape", shape: "rectangle", rectangle: { width: size.width, height: band }, fill: { color: BAND_COLOR, opacity: 1 } },
+          ...at,
+          position: "bottom",
+        }),
+        ...framedPhoto(input.photoUrl, { width: size.width, height: size.height - band }, at).map(single),
+      ],
+    },
+    output: { format: "jpg", quality: "high", size },
   };
 }
 
