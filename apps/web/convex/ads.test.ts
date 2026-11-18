@@ -340,8 +340,9 @@ describe("a checklist ad's pure parts", () => {
       const photos = clips.filter((c) => c.asset.type === "image" && c.fit === "contain");
       expect(photos.map((c) => [c.start, c.length])).toEqual([[0, 22]]);
       // The photo's box spans the middle line of the frame; every piece of text is wholly above or wholly below it.
-      const top = Math.round(-photos[0].offset!.y * height);
-      const bottom = top + (photos[0] as unknown as { height: number }).height;
+      const boxHeight = (photos[0] as unknown as { height: number }).height;
+      const top = Math.round((0.5 - photos[0].offset!.y) * height - boxHeight / 2);
+      const bottom = top + boxHeight;
       expect(top).toBeLessThan(height / 2 - 100);
       expect(bottom).toBeGreaterThan(height / 2 + 100);
       for (const w of clips.filter((c) => c.asset.type === "html")) {
@@ -372,6 +373,9 @@ describe("an image ad's pure parts", () => {
       const clips = edit.timeline.tracks.map((t) => t.clips[0] as LooseClip);
       const photos = clips.filter((c) => c.asset.type === "image");
       expect(photos.map((c) => c.fit)).toEqual(["contain", "crop"]);
+      // Placed by the middle of its box, so a wide photo sits in the middle of the space, not at its top.
+      expect(photos[0].position).toBe("center");
+      expect(Math.round((0.5 - photos[0].offset.y) * height)).toBe(photos[0].height / 2);
       expect(photos[1].filters).toEqual([{ type: "blur", value: 40 }]);
       // Every piece of text is anchored to the top or the bottom edge and ends short of the middle.
       const words = clips.filter((c) => c.asset.type === "html");
@@ -1440,6 +1444,17 @@ describe("the weekly run", () => {
     expect(row.videoStorageId).toBeUndefined();
     // From outside the app, the ad's file is its image.
     expect((await t.query(internal.ads.recentCreatives, { limit: 1 }))[0]).toMatchObject({ kind: "image", file: expect.stringContaining("/api/storage/") });
+    // After a layout fix, the same ad is rendered again from the words it has: nothing is rewritten.
+    const before = { asks: calls.filter((c) => c.url.includes("anthropic")).length, renders: calls.filter((c) => c.url.endsWith("/render")).length };
+    vi.useFakeTimers();
+    expect(await t.mutation(internal.ads.rerender, { names: [tall.name, "WL_nobody"] })).toEqual({ sent: [tall.name] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    const again = (await owner.as.query(api.ads.batches, {}))[0].creatives[0];
+    expect(again).toMatchObject({ status: "rendered", script: tall.script });
+    expect(again.imageUrl).toContain("/api/storage/");
+    expect(calls.filter((c) => c.url.includes("anthropic")).length).toBe(before.asks);
+    expect(calls.filter((c) => c.url.endsWith("/render")).length).toBe(before.renders + 1);
     // The hook and the photo were used once.
     expect((await owner.as.query(api.ads.listHooks, {})).filter((h) => h.uses === 1).length).toBe(1);
     expect((await owner.as.query(api.ads.listAssets, {})).find((a) => a.fileName === "before.jpg")!.uses).toBe(1);

@@ -1800,6 +1800,38 @@ export const recentCreatives = internalQuery({
   },
 });
 
+/**
+ * Renders ads again from the words and voice they already have, after a
+ * layout fix: nothing is rewritten or re-read. The old file goes; the new
+ * one takes its place when the render is back.
+ */
+export const rerender = internalMutation({
+  args: { names: v.array(v.string()) },
+  handler: async (ctx, { names }) => {
+    const sent: string[] = [];
+    for (const name of names) {
+      const c = await ctx.db
+        .query("adCreatives")
+        .withIndex("by_name", (q) => q.eq("name", name))
+        .first();
+      // Only one still waiting for review: an ad in Meta keeps the file Meta has.
+      if (!c || c.status !== "rendered" || (c.kind !== "image" && !c.audioStorageId)) continue;
+      if (c.videoStorageId) await ctx.storage.delete(c.videoStorageId);
+      if (c.imageStorageId) await ctx.storage.delete(c.imageStorageId);
+      await ctx.db.patch(c._id, {
+        status: c.kind === "image" ? "draft" : "voiced",
+        videoStorageId: undefined,
+        imageStorageId: undefined,
+        renderId: undefined,
+        error: undefined,
+      });
+      await ctx.scheduler.runAfter(sent.length * 1000, internal.ads.render, { id: c._id });
+      sent.push(name);
+    }
+    return { sent };
+  },
+});
+
 /** A voiced ad's voice track and photos, to try another layout on them. */
 export const sampleSource = internalQuery({
   args: { name: v.string() },

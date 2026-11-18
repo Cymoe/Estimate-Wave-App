@@ -758,20 +758,28 @@ export function lineCount(text: string, perLine: number): number {
 }
 
 /**
- * A photo in a frame without stretching it: the whole photo inside its box,
- * over a blurred, darkened copy of itself that fills the box. Lowest layer
- * last, as Shotstack stacks tracks.
+ * A photo in a frame without stretching it: the whole photo in the middle of
+ * its box, over a blurred, darkened copy of itself that fills the box. A wide
+ * photo in a tall box gets the blur above and below it; a tall one, at its
+ * sides. Each layer is placed by the middle of the box, which holds whichever
+ * way the photo is fitted. Lowest layer last, as Shotstack stacks tracks.
  */
 export function framedPhoto(
   src: string,
-  box: { width: number; height: number },
+  /** The box, and how far below the frame's top edge it starts, in pixels. */
+  box: { width: number; height: number; top?: number },
+  frame: { width: number; height: number },
   at: { start: number; length: number },
-  opts: { type?: "image" | "video"; down?: number; fadeIn?: boolean } = {},
+  opts: { type?: "image" | "video"; fadeIn?: boolean } = {},
 ) {
   const type = opts.type ?? "image";
   const asset = type === "video" ? { type, src, volume: 0 } : { type, src };
-  // `down` is how far below the top edge the box starts, as a share of the frame's height.
-  const place = { position: "top", ...(opts.down ? { offset: { x: 0, y: -opts.down } } : {}), ...(opts.fadeIn ? { transition: { in: "fade" } } : {}) };
+  const middle = (box.top ?? 0) + box.height / 2;
+  const place = {
+    position: "center",
+    offset: { x: 0, y: Math.round(((frame.height / 2 - middle) / frame.height) * 10000) / 10000 },
+    ...(opts.fadeIn ? { transition: { in: "fade" } } : {}),
+  };
   return [
     { asset, ...at, fit: "contain", width: box.width, height: box.height, ...place },
     { asset: block(box.width, box.height, "#000000", 0.45), ...at, ...place },
@@ -853,7 +861,7 @@ export function imageEdit(input: { photoUrl: string; headline: string; support: 
         words(input.headline, `font-family:'Montserrat ExtraBold';font-size:${headSize}px;line-height:${headLine}px;color:#ffffff`, head, supportAt + support + gap),
         words(input.support, `font-family:'Open Sans';font-size:${supportSize}px;line-height:${supportLine}px;color:${brand.accentColor}`, support, supportAt),
         single({ asset: block(size.width, band, BAND_COLOR), ...at, position: "bottom" }),
-        ...framedPhoto(input.photoUrl, { width: size.width, height: size.height - band }, at).map(single),
+        ...framedPhoto(input.photoUrl, { width: size.width, height: size.height - band }, size, at).map(single),
       ],
     },
     output: { format: "jpg", quality: "high", size },
@@ -1029,7 +1037,7 @@ export function graphicEdit(input: {
     .flatMap((run) => {
       const first = run === runs[0];
       const length = round(Math.min(total, run.until + CROSSFADE_SEC) - run.start);
-      return framedPhoto(run.url, { width: size.width, height: zone.photo }, { start: round(run.start), length }, { type: run.type, down: share(zone.top), fadeIn: !first });
+      return framedPhoto(run.url, { width: size.width, height: zone.photo, top: zone.top }, size, { start: round(run.start), length }, { type: run.type, fadeIn: !first });
     })
     .map(single);
 
