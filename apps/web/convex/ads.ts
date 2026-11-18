@@ -1736,6 +1736,36 @@ export const creativeInput = internalQuery({
   },
 });
 
+/**
+ * The latest ads with links to their files, to look at a render from outside
+ * the app: each ad's finished file, and the footage it was cut from.
+ */
+export const recentCreatives = internalQuery({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit = 12 }) => {
+    const rows = await ctx.db.query("adCreatives").order("desc").take(Math.max(1, Math.min(40, limit)));
+    return await Promise.all(
+      rows.map(async (c) => ({
+        name: c.name,
+        ratio: c.ratio,
+        status: c.status,
+        createdAt: c.createdAt,
+        error: c.error,
+        headline: c.script.headline,
+        onScreen: c.script.onScreen,
+        shots: (c.script.shots ?? []).length,
+        file: c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : undefined,
+        footage: await Promise.all(
+          c.assetIds.map(async (id) => {
+            const a = await ctx.db.get(id);
+            return a ? { fileName: a.fileName, kind: a.kind, url: await lookUrl(ctx, a) } : null;
+          }),
+        ),
+      })),
+    );
+  },
+});
+
 /** Once every creative in a batch has reached a resting state, the batch is ready and staff hear about it. */
 export const finishIfDone = internalMutation({
   args: { batchId: v.id("adBatches") },

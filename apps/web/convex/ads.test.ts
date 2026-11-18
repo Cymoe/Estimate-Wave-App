@@ -1147,6 +1147,12 @@ describe("the weekly run", () => {
       ["<p>Shot 2</p>", cabinets.shots[1].start],
     ]);
 
+    // From outside the app: each ad with a link to its file and to what it was cut from, newest first.
+    const recent = await t.query(internal.ads.recentCreatives, { limit: 2 });
+    expect(recent).toHaveLength(2);
+    expect(recent[0]).toMatchObject({ ratio: expect.stringMatching(/^(9x16|4x5)$/), file: expect.stringContaining("/api/storage/") });
+    expect(recent[0].footage.length).toBe(recent[0].shots);
+
     // Approve one: live here, ACTIVE in Meta.
     vi.useFakeTimers();
     await owner.as.mutation(api.ads.activate, { id: tall.id });
