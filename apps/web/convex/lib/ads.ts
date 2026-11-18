@@ -731,8 +731,31 @@ export function composeImageScript(plan: ImagePlan, assetIds: string[]): Script 
 }
 
 /** How tall the words' band is in each size; the photo has the rest. */
-const BAND = { "9x16": 600, "4x5": 430 } as const;
+const BAND = { "9x16": 620, "4x5": 450 } as const;
 const BAND_COLOR = "#0e1621";
+
+/** A filled rectangle. Its box is its own size, so `position` moves it; without one Shotstack centres it in the frame. */
+const block = (width: number, height: number, color: string, opacity = 1) => ({
+  type: "shape",
+  shape: "rectangle",
+  width,
+  height,
+  rectangle: { width, height },
+  fill: { color, opacity },
+});
+
+/** How many lines a text takes at about `perLine` characters a line, breaking between words. */
+export function lineCount(text: string, perLine: number): number {
+  let lines = 1;
+  let length = 0;
+  for (const word of text.trim().split(/\s+/)) {
+    if (length > 0 && length + 1 + word.length > perLine) {
+      lines += 1;
+      length = word.length;
+    } else length += (length > 0 ? 1 : 0) + word.length;
+  }
+  return lines;
+}
 
 /**
  * A photo in a frame without stretching it: the whole photo inside its box,
@@ -743,7 +766,7 @@ export function framedPhoto(src: string, box: { width: number; height: number },
   const asset = type === "video" ? { type, src, volume: 0 } : { type, src };
   return [
     { asset, ...at, fit: "contain", width: box.width, height: box.height, position: "top" },
-    { asset: { type: "shape", shape: "rectangle", rectangle: { width: box.width, height: box.height }, fill: { color: "#000000", opacity: 0.45 } }, ...at, position: "top" },
+    { asset: block(box.width, box.height, "#000000", 0.45), ...at, position: "top" },
     { asset, ...at, fit: "crop", width: box.width, height: box.height, position: "top", filters: [{ type: "blur", value: 40 }] },
   ];
 }
@@ -751,19 +774,40 @@ export function framedPhoto(src: string, box: { width: number; height: number },
 /**
  * The Shotstack edit for an image ad, rendered as one JPEG: the photo whole
  * in the upper part of the frame, and a dark band under it with the headline,
- * the support line and the ask. Nothing is printed in the middle of the
- * frame, where a trial key stamps its watermark.
+ * the support line and the ask. Each line of words has a box of its own,
+ * sized to the lines it takes, so two never print over each other. Nothing
+ * is printed in the middle of the frame, where a trial key stamps its
+ * watermark.
  */
 export function imageEdit(input: { photoUrl: string; headline: string; support: string; brand: Brand; ratio: "9x16" | "4x5" }) {
   const { brand, ratio } = input;
   const size = SIZES[ratio];
   const band = BAND[ratio];
+  const tall = ratio === "9x16";
   const at = { start: 0, length: 1 };
-  const up = (px: number) => round(px / size.height);
-  const button = { width: 460, height: 112 };
-  const pad = ratio === "9x16" ? 96 : 56;
-  const words = { width: 960, height: band - button.height - pad - 60 };
+  const up = (px: number) => Math.round((px / size.height) * 10000) / 10000;
   const single = (clip: unknown) => ({ clips: [clip] });
+  const width = 960;
+  // Sizes in pixels; a letter of the bold face is about 0.62 of its size wide, of the plain face about 0.52.
+  const headSize = tall ? 72 : 60;
+  const supportSize = tall ? 38 : 32;
+  const headLines = lineCount(input.headline, Math.floor(width / (headSize * 0.62)));
+  const supportLines = lineCount(input.support, Math.floor(width / (supportSize * 0.52)));
+  const head = Math.round(headLines * headSize * 1.18 + 16);
+  const support = Math.round(supportLines * supportSize * 1.4 + 12);
+  const button = { width: 460, height: 108 };
+  const pad = tall ? 110 : 52;
+  const gap = 14;
+  // The two lines sit together, centred in what the band has above the button.
+  const room = band - pad - button.height;
+  const supportAt = pad + button.height + Math.max(24, Math.round((room - head - gap - support) / 2));
+  const words = (text: string, css: string, height: number, from: number) =>
+    single({
+      asset: { type: "html", html: `<p>${escapeHtml(text)}</p>`, css: `p{${css};text-align:center}`, width, height },
+      ...at,
+      position: "bottom",
+      offset: { x: 0, y: up(from) },
+    });
   return {
     timeline: {
       background: BAND_COLOR,
@@ -785,7 +829,7 @@ export function imageEdit(input: { photoUrl: string; headline: string; support: 
           asset: {
             type: "html",
             html: "<p>Get a quote</p>",
-            css: `p{font-family:'Montserrat ExtraBold';font-size:44px;color:#ffffff;text-align:center}`,
+            css: `p{font-family:'Montserrat ExtraBold';font-size:42px;color:#ffffff;text-align:center}`,
             width: button.width,
             height: button.height,
             background: brand.primaryColor,
@@ -794,23 +838,9 @@ export function imageEdit(input: { photoUrl: string; headline: string; support: 
           position: "bottom",
           offset: { x: 0, y: up(pad) },
         }),
-        single({
-          asset: {
-            type: "html",
-            html: `<p class="a">${escapeHtml(input.headline)}</p><p class="b">${escapeHtml(input.support)}</p>`,
-            css: `.a{font-family:'Montserrat ExtraBold';font-size:${input.headline.length > 24 ? 64 : 76}px;line-height:1.1;color:#ffffff;text-align:center}.b{font-family:'Open Sans';font-size:36px;line-height:1.3;color:${brand.accentColor};text-align:center;margin-top:18px}`,
-            width: words.width,
-            height: words.height,
-          },
-          ...at,
-          position: "bottom",
-          offset: { x: 0, y: up(pad + button.height + 30) },
-        }),
-        single({
-          asset: { type: "shape", shape: "rectangle", rectangle: { width: size.width, height: band }, fill: { color: BAND_COLOR, opacity: 1 } },
-          ...at,
-          position: "bottom",
-        }),
+        words(input.headline, `font-family:'Montserrat ExtraBold';font-size:${headSize}px;line-height:1.18;color:#ffffff`, head, supportAt + support + gap),
+        words(input.support, `font-family:'Open Sans';font-size:${supportSize}px;line-height:1.4;color:${brand.accentColor}`, support, supportAt),
+        single({ asset: block(size.width, band, BAND_COLOR), ...at, position: "bottom" }),
         ...framedPhoto(input.photoUrl, { width: size.width, height: size.height - band }, at).map(single),
       ],
     },

@@ -5,12 +5,17 @@ import {
   PLAYBOOK_MARK,
   TAG_MARK,
   apifyInput,
+  composeImageScript,
   composeScript,
   creativeName,
   familyOfAngle,
   fromApifyItem,
+  imageAdPrompt,
+  imageEdit,
+  imagePlanProblems,
   isFatigued,
   isLocal,
+  lineCount,
   mergeSwipeCsvs,
   parseCsv,
   parseJson,
@@ -249,6 +254,81 @@ describe("the pure parts", () => {
     });
     expect(swapped.output.size).toEqual({ width: 1080, height: 1350 });
     expect((swapped.timeline.tracks as Array<{ clips: any[] }>)[3].clips.some((c) => c.transition)).toBe(false);
+  });
+});
+
+/** A clip of an image ad's edit, as far as these tests read it. */
+type LooseClip = {
+  asset: { type: string; width: number; height: number; rectangle?: { height: number } };
+  position?: string;
+  offset: { y: number };
+  fit?: string;
+  filters?: unknown;
+  height: number;
+};
+
+describe("an image ad's pure parts", () => {
+  const brand = { name: "Webb Leads", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland"] };
+
+  test("the photo is whole and unstretched over a blurred copy, and no words sit in the middle of the frame", () => {
+    for (const ratio of ["9x16", "4x5"] as const) {
+      const edit = imageEdit({ photoUrl: "https://files.example/p.jpg", headline: "Paint them <now>", support: "A free quote", brand, ratio });
+      const height = ratio === "9x16" ? 1920 : 1350;
+      expect(edit.output).toMatchObject({ format: "jpg", size: { width: 1080, height } });
+      const clips = edit.timeline.tracks.map((t) => t.clips[0] as LooseClip);
+      const photos = clips.filter((c) => c.asset.type === "image");
+      expect(photos.map((c) => c.fit)).toEqual(["contain", "crop"]);
+      expect(photos[1].filters).toEqual([{ type: "blur", value: 40 }]);
+      // Every piece of text is anchored to the top or the bottom edge and ends short of the middle.
+      const words = clips.filter((c) => c.asset.type === "html");
+      expect(words.length).toBe(4);
+      // The headline's box starts above where the support line's box ends, and that one above the button.
+      const fromBottom = words.filter((w) => w.position === "bottom").map((w) => ({ from: Math.round(w.offset.y * height), to: Math.round(w.offset.y * height) + w.asset.height }));
+      const [button, headline, support] = fromBottom;
+      expect(support.from).toBeGreaterThanOrEqual(button.to);
+      expect(headline.from).toBeGreaterThanOrEqual(support.to);
+      // The dark band is at the bottom edge and as wide as the frame; the photo's box is everything above it.
+      const band = clips.find((c) => c.asset.type === "shape" && c.position === "bottom")!;
+      expect(band.asset).toMatchObject({ width: 1080, height: band.asset.rectangle.height });
+      expect(photos[0].height + band.asset.height).toBe(height);
+      expect(headline.to).toBeLessThanOrEqual(band.asset.height);
+      for (const w of words) {
+        const fromEdge = Math.abs(w.offset.y) * height + w.asset.height;
+        expect(["topLeft", "bottom"]).toContain(w.position);
+        expect(fromEdge).toBeLessThan(height / 2 - 60);
+      }
+      expect(JSON.stringify(edit)).toContain("Paint them &lt;now&gt;");
+      expect(JSON.stringify(edit)).toContain("Get a quote");
+    }
+  });
+
+  test("the rules: one of the photos offered, short printed lines, and none of the claims a video can't make either", () => {
+    const good = { fits: true, photo: 2, imageHeadline: "Cabinets, painted", support: "One vetted local painter.", headline: "Cabinets, painted", primaryText: "Get a free quote." };
+    expect(imagePlanProblems(good, 2)).toEqual([]);
+    expect(imagePlanProblems({ ...good, photo: 3 }, 2)).toEqual(["names photo 3"]);
+    expect(imagePlanProblems({ ...good, imageHeadline: "One two three four five six seven" }, 2)).toEqual(["image headline over 6 words"]);
+    expect(imagePlanProblems({ ...good, imageHeadline: "x".repeat(37) }, 2)).toEqual(["image headline over 36 characters"]);
+    expect(imagePlanProblems({ ...good, support: "" }, 2)).toEqual(["no support line"]);
+    expect(imagePlanProblems({ ...good, support: "10-year warranty included" }, 2)).toEqual(["mentions a warranty or guarantee"]);
+    expect(composeImageScript(good, ["a", "b"])).toMatchObject({ voice: "", onScreen: ["Cabinets, painted", "One vetted local painter."], shots: [{ assetId: "b" }] });
+    const prompt = imageAdPrompt({ textEn: "Paint them", family: "before_after", scope: "cabinets" }, "Webb Leads", [{ kind: "photo", tags: ["cabinets"] }], false, "Midland");
+    expect(prompt).toContain("Photo 1 · tags: cabinets");
+    expect(prompt).toContain("None of these photos is tagged cabinets");
+    expect(prompt).toContain("never as a homeowner or customer");
+  });
+
+  test("a long headline gets a taller box, never a shared one", () => {
+    expect(lineCount("Paint them", 20)).toBe(1);
+    expect(lineCount("Paint them, don't replace them", 20)).toBe(2);
+    expect(lineCount("One two three four five six seven eight nine ten", 12)).toBe(5);
+    const boxes = (headline: string) =>
+      imageEdit({ photoUrl: "https://files.example/p.jpg", headline, support: "A free quote", brand, ratio: "4x5" }).timeline.tracks.map((t) => (t.clips[0] as LooseClip).asset.height);
+    expect(boxes("Paint them, don't replace them")[2]).toBeGreaterThan(boxes("Paint them")[2]);
+  });
+
+  test("an image ad's name says so", () => {
+    expect(creativeName("hook1", "4x5", new Date("2026-11-03T12:00:00Z"), "image")).toMatch(/^WL_[a-z0-9]{6}_45_20261103_img$/);
+    expect(creativeName("hook1", "4x5", new Date("2026-11-03T12:00:00Z"))).toMatch(/^WL_[a-z0-9]{6}_45_20261103$/);
   });
 });
 
@@ -711,7 +791,24 @@ function shotListFor(prompt: string, primaryText = GOOD.primaryText) {
   };
 }
 
+/** Settings for the tests that are about the videos: image ads off. */
+const VIDEO_ONLY = { kinds: { video: true, image: false, graphic: false } };
+
+/** A valid image ad: the first photo offered, with words that are true of any job photo. */
+function imagePlanFor(headline = "Paint them, don't replace them") {
+  return {
+    fits: true,
+    photo: 1,
+    imageHeadline: headline,
+    support: "One vetted Midland painter. The quote is free.",
+    headline: GOOD.headline,
+    primaryText: GOOD.primaryText,
+  };
+}
+
 type StubOpts = {
+  /** Every image ad prints a price. */
+  imagesFail?: boolean;
   /** Claude answers this scope's hook in words, with no shot list; "cut off" stops mid-answer instead. */
   notJson?: { scope: string; cutOff?: boolean };
   /** Every shot list carries a price. */
@@ -836,6 +933,7 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
         let reply: unknown;
         if (prompt.includes(TAG_MARK)) reply = tagReplyFor(prompt);
         else if (prompt.includes(PLAYBOOK_MARK)) reply = PLAYBOOK_REPLY;
+        else if (prompt.includes("image ad for")) reply = imagePlanFor(opts.imagesFail ? "Only $999 this week" : undefined);
         else if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`))
           reply = { fits: false, reason: `no ${opts.passOnScope} in this footage` };
         else if (opts.notJson && prompt.includes(`Scope: ${opts.notJson.scope}.`))
@@ -888,8 +986,11 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
           }),
         );
       if (url.includes("cdn.shotstack.io")) return new Response(new Blob(["mp4"], { type: "video/mp4" }));
+      // A stored file read back by its link (an image ad's JPEG on its way to Meta).
+      if (url.includes("/api/storage/")) return new Response(new Blob(["jpg"], { type: "image/jpeg" }));
       if (url.includes("graph.facebook.com")) {
         const path = new URL(url).pathname;
+        if (path.endsWith("/adimages")) return new Response(JSON.stringify({ images: { "ad.jpg": { hash: "h1", url: "https://scontent.example/ad.jpg" } } }));
         return new Response(
           JSON.stringify({
             id: path.endsWith("/advideos") ? "vid1" : path.endsWith("/adcreatives") ? "cr1" : path.endsWith("/ads") ? "ad1" : "ok",
@@ -1071,6 +1172,7 @@ describe("the weekly run", () => {
       weeklyEnabled: true,
       hooksPerWeek: 2,
       liveTarget: 6,
+      ...VIDEO_ONLY,
     });
     const calls: Array<{ url: string; body?: string }> = [];
     stubServices(calls);
@@ -1170,15 +1272,15 @@ describe("the weekly run", () => {
     expect(plan.hooks.some((h) => h.family === tall.hook!.family)).toBe(false);
   });
 
-  /** One hook a week, no Meta account, on a fresh backend. */
-  async function noMeta() {
+  /** One hook a week, no Meta account, on a fresh backend. Videos only unless told otherwise. */
+  async function noMeta(kinds = VIDEO_ONLY.kinds) {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     await library(t, owner);
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
     vi.stubEnv("ELEVENLABS_API_KEY", "e");
     vi.stubEnv("SHOTSTACK_API_KEY", "s");
-    await owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", weeklyEnabled: false, hooksPerWeek: 1, liveTarget: 6 });
+    await owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", weeklyEnabled: false, hooksPerWeek: 1, liveTarget: 6, kinds });
     const calls: Array<{ url: string; body?: string }> = [];
     const draft = async () => {
       vi.useFakeTimers();
@@ -1190,6 +1292,99 @@ describe("the weekly run", () => {
     };
     return { t, owner, calls, draft };
   }
+
+  test("an image ad: Claude picks one photo and writes the words, it renders as a JPEG in two sizes with no voice, and waits here without Meta", async () => {
+    const { t, owner, calls, draft } = await noMeta({ video: false, image: true, graphic: false });
+    stubServices(calls);
+    const batch = await draft();
+    expect(batch.creatives.map((c) => `${c.kind} ${c.ratio} ${c.status}`)).toEqual(["image 9x16 rendered", "image 4x5 rendered"]);
+    expect(batch.status).toBe("ready");
+    const [tall] = batch.creatives;
+    expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}_img$/);
+    expect(tall.imageUrl).toContain("/api/storage/");
+    expect(tall.videoUrl).toBeUndefined();
+    // The printed words are the on-screen lines; the one photo is the only shot.
+    expect(tall.script).toMatchObject({ voice: "", onScreen: ["Paint them, don't replace them", "One vetted Midland painter. The quote is free."], headline: GOOD.headline });
+    expect(tall.shots.map((x) => x.fileName)).toEqual(["before.jpg"]);
+    // Claude was shown the photos only (the roller clip is a video), each after its "Photo N" label.
+    const asks = calls
+      .filter((c) => c.url.includes("anthropic"))
+      .map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string; source?: { type: string } }>);
+    expect(asks.length).toBe(1);
+    expect(asks[0][0].text).toContain("image ad for");
+    expect(asks[0].slice(1).map((b) => (b.type === "text" ? b.text : b.source?.type))).toEqual(["Photo 1:", "url", "Photo 2:", "url"]);
+    // No voice was read, and each size was rendered as a still.
+    expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(0);
+    const renders = calls.filter((c) => c.url.endsWith("/render")).map((c) => JSON.parse(c.body!));
+    expect(renders.map((r) => [r.output.format, r.output.size.height])).toEqual([
+      ["jpg", 1920],
+      ["jpg", 1350],
+    ]);
+    expect(JSON.stringify(renders[0])).not.toContain('"audio"');
+    // The file is kept as the ad's image, not as a video.
+    const row = await t.run(async (ctx) => (await ctx.db.query("adCreatives").take(1))[0]);
+    expect(row.imageStorageId).toBeDefined();
+    expect(row.videoStorageId).toBeUndefined();
+    // From outside the app, the ad's file is its image.
+    expect((await t.query(internal.ads.recentCreatives, { limit: 1 }))[0]).toMatchObject({ kind: "image", file: expect.stringContaining("/api/storage/") });
+    // The hook and the photo were used once.
+    expect((await owner.as.query(api.ads.listHooks, {})).filter((h) => h.uses === 1).length).toBe(1);
+    expect((await owner.as.query(api.ads.listAssets, {})).find((a) => a.fileName === "before.jpg")!.uses).toBe(1);
+  });
+
+  test("an image ad that prints a price is passed over with the reason", async () => {
+    const { calls, draft } = await noMeta({ video: false, image: true, graphic: false });
+    stubServices(calls, { imagesFail: true });
+    const batch = await draft();
+    expect(batch.status).toBe("failed");
+    expect(batch.error).toContain("(image ad): the image ad still broke the rules: mentions a price or discount");
+    expect(calls.filter((c) => c.url.endsWith("/render")).length).toBe(0);
+  });
+
+  test("with both kinds on, a hook is made as a video and as an image, and counts as used once", async () => {
+    const { owner, calls, draft } = await noMeta({ video: true, image: true, graphic: false });
+    stubServices(calls);
+    const batch = await draft();
+    expect(batch.creatives.map((c) => c.kind)).toEqual(["video", "video", "image", "image"]);
+    expect(batch.creatives.every((c) => c.status === "rendered")).toBe(true);
+    expect(new Set(batch.creatives.map((c) => c.hook!.id)).size).toBe(1);
+    expect((await owner.as.query(api.ads.listHooks, {})).map((h) => h.uses).filter(Boolean)).toEqual([1]);
+    // The image ad may show a photo the video also uses.
+    expect(batch.creatives[2].shots[0].fileName).toBe("before.jpg");
+    expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(1);
+  });
+
+  test("an image ad goes to Meta by its bytes and is created PAUSED with the lead form", async () => {
+    const { t, owner, calls, draft } = await noMeta({ video: false, image: true, graphic: false });
+    vi.stubEnv("META_ACCESS_TOKEN", "m");
+    await owner.as.mutation(api.ads.saveSettings, {
+      adAccountId: "123",
+      pageId: "77",
+      leadFormId: "f1",
+      adsetId: "900",
+      voiceId: "ven",
+      weeklyEnabled: false,
+      hooksPerWeek: 1,
+      liveTarget: 6,
+      kinds: { video: false, image: true, graphic: false },
+    });
+    stubServices(calls);
+    const batch = await draft();
+    expect(batch.creatives.map((c) => `${c.status}${c.error ? `: ${c.error}` : ""}`)).toEqual(["paused", "paused"]);
+    expect(batch.creatives[0].meta).toMatchObject({ imageHash: "h1", creativeId: "cr1", adId: "ad1", adsetId: "900" });
+    const upload = new URLSearchParams(calls.find((c) => c.url.endsWith("/adimages"))!.body);
+    expect(upload.get("bytes")).toBe(btoa("jpg"));
+    expect(calls.some((c) => c.url.endsWith("/advideos"))).toBe(false);
+    const story = JSON.parse(new URLSearchParams(calls.find((c) => c.url.endsWith("/adcreatives"))!.body).get("object_story_spec")!);
+    expect(story.link_data).toMatchObject({
+      image_hash: "h1",
+      link: "http://fb.me/",
+      name: GOOD.headline,
+      call_to_action: { type: "GET_QUOTE", value: { lead_gen_form_id: "f1" } },
+    });
+    expect(new URLSearchParams(calls.find((c) => c.url.endsWith("/ads"))!.body).get("status")).toBe("PAUSED");
+    void t;
+  });
 
   test("a bad script fails the batch with the reason, and Monday with the switch off does nothing", async () => {
     const { t, owner, calls, draft } = await noMeta();
@@ -1594,6 +1789,7 @@ describe("niche research", () => {
       hooksPerWeek: 2,
       liveTarget: 6,
       researchMarkets: ["Odessa", "Midland"],
+      ...VIDEO_ONLY,
     });
     const calls: Array<{ url: string; body?: string }> = [];
     stubServices(calls);

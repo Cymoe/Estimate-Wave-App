@@ -2511,8 +2511,11 @@ export default defineSchema({
     batchId: v.id("adBatches"),
     hookId: v.id("adHooks"),
     ratio: v.union(v.literal("9x16"), v.literal("4x5")),
+    // What it's made of. Absent on ads from before there was a choice: a voiced video cut from footage.
+    kind: v.optional(v.union(v.literal("video"), v.literal("image"), v.literal("graphic"))),
     // Also the ad's name in Meta, so a lead's adName joins back here.
     name: v.string(),
+    // An image ad has no voice: script.onScreen is its printed headline and support line.
     script: adScript,
     // Shot order; the same assets as script.shots.
     assetIds: v.array(v.id("adAssets")),
@@ -2520,6 +2523,8 @@ export default defineSchema({
     // How long ElevenLabs' read runs; the edit is cut to it.
     audioDurationSec: v.optional(v.number()),
     videoStorageId: v.optional(v.id("_storage")),
+    // The finished JPEG of an image ad.
+    imageStorageId: v.optional(v.id("_storage")),
     renderId: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
@@ -2533,7 +2538,7 @@ export default defineSchema({
       v.literal("failed"),
     ),
     error: v.optional(v.string()),
-    meta: v.optional(v.object({ videoId: v.optional(v.string()), creativeId: v.optional(v.string()), adId: v.optional(v.string()), adsetId: v.optional(v.string()) })),
+    meta: v.optional(v.object({ videoId: v.optional(v.string()), imageHash: v.optional(v.string()), creativeId: v.optional(v.string()), adId: v.optional(v.string()), adsetId: v.optional(v.string()) })),
     createdAt: v.string(),
     activatedAt: v.optional(v.string()),
     retiredAt: v.optional(v.string()),
@@ -2658,6 +2663,8 @@ export default defineSchema({
     researchMonthly: v.optional(v.boolean()),
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
+    // Which kinds of ad a batch makes for each hook. Absent: videos only.
+    kinds: v.optional(v.object({ video: v.boolean(), image: v.boolean(), graphic: v.boolean() })),
     updatedAt: v.string(),
   }),
 });

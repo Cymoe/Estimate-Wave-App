@@ -62,6 +62,9 @@ const FAMILIES: Array<[string, string]> = [
   ['seasonal', 'Season and timing'],
 ];
 
+export type AdKind = 'video' | 'image' | 'graphic';
+const KIND_LABELS: Record<AdKind, string> = { video: 'Video', image: 'Image', graphic: 'Animated graphic' };
+
 export interface AdCreative {
   id: string;
   batchId: string;
@@ -73,7 +76,10 @@ export interface AdCreative {
   error?: string;
   script: { voice: string; onScreen: string[]; headline: string; primaryText: string };
   hook: { id: string; family: string; familyLabel: string; scope: string; textEn: string } | null;
+  /** What it's made of. An image ad has no voice: script.onScreen is its printed headline and support line. */
+  kind?: AdKind;
   videoUrl?: string;
+  imageUrl?: string;
   meta?: { videoId?: string; creativeId?: string; adId?: string; adsetId?: string };
   week?: { at: string; spendCents: number; impressions: number; clicks: number; frequency: number; ctr: number; leadsMeta: number };
   baselineCtr?: number;
@@ -149,6 +155,8 @@ export interface AdSettings {
   weeklyEnabled: boolean;
   hooksPerWeek: number;
   liveTarget: number;
+  /** Which kinds of ad a batch makes for each hook. */
+  kinds: Record<AdKind, boolean>;
   researchKeywords: string[];
   researchMarkets: string[];
   researchMinDays: number;
@@ -345,11 +353,11 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
   );
 };
 
-/** A batch's creatives, two sizes to a hook, in the order they were drafted. */
+/** A batch's creatives, two sizes to a hook and kind, in the order they were drafted. */
 function groupByHook(creatives: AdCreative[]): Array<{ key: string; hook: AdCreative['hook']; items: AdCreative[] }> {
   const groups: Array<{ key: string; hook: AdCreative['hook']; items: AdCreative[] }> = [];
   for (const c of creatives) {
-    const key = c.hook?.id ?? c.id;
+    const key = `${c.hook?.id ?? c.id}:${c.kind ?? 'video'}`;
     const g = groups.find((x) => x.key === key);
     if (g) g.items.push(c);
     else groups.push({ key, hook: c.hook, items: [c] });
@@ -362,12 +370,13 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
   const reviewable = group.items.filter((c) => (c.status === 'paused' || c.status === 'rendered') && c.meta?.adId);
   const rejectable = group.items.filter((c) => c.status === 'paused' || c.status === 'rendered');
   const first = group.items[0];
+  const image = first.kind === 'image';
   return (
     <li className="border border-[#2A2A2A] rounded p-3 space-y-3" data-testid="hook-group">
       {group.hook && (
         <p className="text-sm text-white">
           <span className="text-xs text-gray-500">
-            {group.hook.familyLabel} · {scopeLabel(group.hook.scope)} ·{' '}
+            {KIND_LABELS[first.kind ?? 'video']} · {group.hook.familyLabel} · {scopeLabel(group.hook.scope)} ·{' '}
           </span>
           {group.hook.textEn}
         </p>
@@ -378,8 +387,16 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
         ))}
       </ul>
       <details className="text-xs text-gray-500">
-        <summary className="cursor-pointer">Shots</summary>
-        {first.shots && first.shots.length > 0 ? (
+        <summary className="cursor-pointer">{image ? 'Words on the image' : 'Shots'}</summary>
+        {image ? (
+          <p className="mt-1">
+            <span className="text-gray-300">{first.shots?.[0]?.fileName}</span>
+            <br />
+            Headline: {first.script.onScreen[0]}
+            <br />
+            Under it: {first.script.onScreen[1]}
+          </p>
+        ) : first.shots && first.shots.length > 0 ? (
           <ol className="mt-1 space-y-1.5" aria-label="Shot list">
             {first.shots.map((shot, i) => (
               <li key={i}>
@@ -418,7 +435,11 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
 
 const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
   <li className="border border-[#2A2A2A] rounded bg-[#121212] flex flex-col" data-testid="creative">
-    {c.videoUrl ? (
+    {c.imageUrl ? (
+      <a href={c.imageUrl} target="_blank" rel="noreferrer">
+        <img src={c.imageUrl} alt={c.script.onScreen[0] ?? c.script.headline} className={`w-full bg-black ${c.ratio === '9x16' ? 'aspect-[9/16]' : 'aspect-[4/5]'}`} />
+      </a>
+    ) : c.videoUrl ? (
       <video src={c.videoUrl} controls preload="metadata" className={`w-full bg-black ${c.ratio === '9x16' ? 'aspect-[9/16]' : 'aspect-[4/5]'}`} />
     ) : (
       <div className={`w-full bg-[#0c0c0c] flex items-center justify-center text-gray-600 ${c.ratio === '9x16' ? 'aspect-[9/16]' : 'aspect-[4/5]'}`}>
@@ -428,6 +449,7 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
     <div className="p-3 space-y-2 flex-1">
       <p className="flex flex-wrap gap-1 items-center">
         <span className={chip}>{c.ratio}</span>
+        {c.kind && c.kind !== 'video' && <span className={chip}>{KIND_LABELS[c.kind]}</span>}
         <span
           className={`${chip} ${c.status === 'live' ? 'text-emerald-300 border-emerald-900' : c.status === 'failed' ? 'text-red-300 border-red-900' : ''}`}
         >
@@ -1363,6 +1385,32 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         />{' '}
         Draft a batch every Monday
       </label>
+      <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-2">
+        <legend className="text-sm text-gray-300 px-1">What a batch makes</legend>
+        <p className="text-xs text-gray-500">Each ad idea is made in every kind switched on, in both sizes.</p>
+        {(
+          [
+            ['video', 'Videos from photos', 'A voiced video cut from your job photos'],
+            ['image', 'Image ads', 'One job photo with a headline and Get a quote on it'],
+          ] as Array<[AdKind, string, string]>
+        ).map(([kind, label, hint]) => (
+          <label key={kind} className="text-sm text-gray-300 flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={form.kinds[kind]}
+              onChange={(e) => setForm({ ...form, kinds: { ...form.kinds, [kind]: e.target.checked } })}
+              disabled={!owner}
+              aria-label={label}
+            />
+            <span>
+              {label}
+              <span className="block text-xs text-gray-500">{hint}</span>
+            </span>
+          </label>
+        ))}
+        <p className="text-xs text-gray-500">Animated graphic ads are being tried out and aren't switched on yet.</p>
+      </fieldset>
       <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-3">
         <legend className="text-sm text-gray-300 px-1">Niche research</legend>
         <p className="text-xs text-gray-500">

@@ -140,6 +140,7 @@ beforeEach(() => {
     weeklyEnabled: false,
     hooksPerWeek: 2,
     liveTarget: 6,
+    kinds: { video: true, image: false, graphic: false },
     researchKeywords: ['cabinet painting', 'house painter'],
     researchMarkets: ['Midland', 'Odessa'],
     researchMinDays: 90,
@@ -610,6 +611,54 @@ describe('Ops → Ads', () => {
     expect(Array.from(document.body.querySelectorAll('[role="status"]')).map((s) => s.textContent)).toContain(
       '1 ads read from 2 files: 1 added, 1 updated.',
     );
+  });
+
+  it("an image ad shows as its picture with the words printed on it, in a group of its own beside the same idea's video", async () => {
+    const words = { voice: '', onScreen: ['Paint them, do not replace them', 'One vetted Midland painter.'], headline: 'Cabinets painted', primaryText: 'A fresh finish.' };
+    const photo = [{ fileName: 'kitchen-after.jpg', voice: '', onScreen: 'Paint them, do not replace them' }];
+    batches = [
+      {
+        id: 'b1',
+        weekOf: '2026-11-02',
+        status: 'ready',
+        createdAt: new Date().toISOString(),
+        creatives: [
+          creative({ id: 'v1', kind: 'video' }),
+          creative({ id: 'i1', kind: 'image', name: 'WL_abc123_916_20261102_img', videoUrl: undefined, imageUrl: 'https://cdn.example/i1.jpg', script: words, shots: photo }),
+          creative({ id: 'i2', kind: 'image', ratio: '4x5', name: 'WL_abc123_45_20261102_img', videoUrl: undefined, imageUrl: 'https://cdn.example/i2.jpg', script: words, shots: photo }),
+        ],
+      },
+    ];
+    await render();
+    const groups = Array.from(document.body.querySelectorAll('[data-testid="hook-group"]'));
+    expect(groups.length).toBe(2);
+    expect(groups[0].querySelectorAll('video').length).toBe(1);
+    expect(groups[0].textContent).toContain('Video · Before / after');
+    const image = groups[1];
+    expect(image.textContent).toContain('Image · Before / after');
+    expect(Array.from(image.querySelectorAll('img')).map((i) => i.getAttribute('src'))).toEqual(['https://cdn.example/i1.jpg', 'https://cdn.example/i2.jpg']);
+    expect(image.querySelector('img')!.getAttribute('alt')).toBe('Paint them, do not replace them');
+    expect(image.querySelectorAll('video').length).toBe(0);
+    expect(image.querySelector('summary')!.textContent).toBe('Words on the image');
+    expect(image.textContent).toContain('Under it: One vetted Midland painter.');
+    expect(image.textContent).toContain('kitchen-after.jpg');
+    // Both sizes are approved together, like a video's.
+    expect(Array.from(image.querySelectorAll('button')).some((b) => b.textContent === 'Approve both')).toBe(true);
+  });
+
+  it('Settings: the owner switches image ads on beside the videos', async () => {
+    await render();
+    await tab('Settings');
+    expect(document.body.textContent).toContain('What a batch makes');
+    const image = document.body.querySelector('input[aria-label="Image ads"]') as HTMLInputElement;
+    expect(image.checked).toBe(false);
+    expect((document.body.querySelector('input[aria-label="Videos from photos"]') as HTMLInputElement).checked).toBe(true);
+    await act(async () => image.click());
+    await act(async () =>
+      document.body.querySelector('form[aria-label="Ad settings"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    await flush();
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ kinds: { video: true, image: true, graphic: false } }));
   });
 
   it('Settings shows which keys are set, and the owner saves the ids and the Monday switch', async () => {
