@@ -979,8 +979,12 @@ const GRAPHIC = {
 /** How long the ask stays up after the voice has finished. */
 export const GRAPHIC_HOLD_SEC = 2;
 const CROSSFADE_SEC = 0.6;
-const tick = (color: string) =>
-  `<svg width="56" height="56" viewBox="0 0 56 56"><path d="M5 30 L13 22 L23 32 L43 10 L51 18 L23 48 Z" fill="${color}"/></svg>`;
+/** A tick's two strokes inside its 56-pixel square: where each one's middle is, how long it is, and how far it leans. */
+const TICK = [
+  { x: 15, y: 37, length: 24, angle: 45 },
+  { x: 36, y: 29, length: 44, angle: -45 },
+] as const;
+const TICK_SIZE = 56;
 
 /**
  * The Shotstack edit for a checklist ad, cut to the voice-over. The title is
@@ -1032,8 +1036,20 @@ export function graphicEdit(input: {
     const start = round(p.start);
     const length = round(Math.max(0.5, closeAt - start));
     const y = -share(under + zone.rowsFrom + i * zone.row);
+    // The tick is two plain strokes (Shotstack refuses a drawn SVG here). A stroke with no box of its own sits at the
+    // middle of the frame and turns about its own middle, so each is placed by how far its middle is from the frame's.
+    const tickTop = under + zone.rowsFrom + i * zone.row + (zone.row - TICK_SIZE) / 2;
+    const strokes = TICK.map((t) => ({
+      asset: { type: "shape", shape: "line", line: { length: t.length, thickness: 10 }, fill: { color: brand.accentColor, opacity: 1 } },
+      start,
+      length,
+      position: "center",
+      offset: { x: across(84 + t.x - size.width / 2), y: share(size.height / 2 - (tickTop + t.y)) },
+      transform: { rotate: { angle: t.angle } },
+      transition: { in: "fade", out: "fade" },
+    }));
     return [
-      { asset: { type: "svg", src: tick(brand.accentColor) }, start, length, position: "topLeft", offset: { x: across(84), y: Math.round((y - share((zone.row - 56) / 2)) * 10000) / 10000 }, transition: { in: "fade", out: "fade" } },
+      ...strokes,
       {
         asset: {
           type: "html",

@@ -1470,9 +1470,9 @@ describe("the weekly run", () => {
     expect(tall.shots[1].start!).toBeLessThan(tall.shots[2].start!);
     expect(words("Get a quote").start).toBe(closeAt);
     expect(words("Before you hire a painter").start).toBe(0);
-    // Three ticks, one per point, each with its point.
-    const ticks = clips.filter((c) => c.asset.type === "svg");
-    expect(ticks.map((c) => c.start)).toEqual(tall.shots.slice(1, 4).map((x) => x.start));
+    // Three ticks, two strokes each, each with its point.
+    const strokes = clips.filter((c) => c.asset.type === "shape" && (c.asset as { shape?: string }).shape === "line");
+    expect(strokes.map((c) => c.start)).toEqual(tall.shots.slice(1, 4).flatMap((x) => [x.start, x.start]));
     // Nothing slides or zooms, and there is no music.
     expect(JSON.stringify(render)).not.toMatch(/"effect"|slide|zoom|soundtrack/);
     expect(render.output.format).toBe("mp4");

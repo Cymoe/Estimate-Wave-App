@@ -1835,7 +1835,7 @@ export const renderSample = internalAction({
     images: v.optional(v.array(v.object({ ratio: sampleRatio, photoUrl: v.string(), headline: v.string(), support: v.string() }))),
     graphics: v.optional(v.array(v.object({ ratio: sampleRatio, voiceFrom: v.string(), title: v.string(), points: v.array(v.string()) }))),
   },
-  handler: async (ctx, { edits = [], images = [], graphics = [] }): Promise<{ urls: string[] }> => {
+  handler: async (ctx, { edits = [], images = [], graphics = [] }): Promise<{ results: string[] }> => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     const all: unknown[] = [...edits, ...images.map((i) => imageEdit({ ...i, brand: cfg.brand }))];
     for (const g of graphics) {
@@ -1874,7 +1874,9 @@ export const renderSample = internalAction({
       }
       throw new Error("Shotstack: the sample took more than 8 minutes");
     };
-    return { urls: await Promise.all(all.slice(0, 6).map(one)) };
+    // Each on its own: one refused edit says why and doesn't hide the others.
+    const settled = await Promise.allSettled(all.slice(0, 6).map(one));
+    return { results: settled.map((r) => (r.status === "fulfilled" ? r.value : `failed: ${errText(r.reason)}`)) };
   },
 });
 
