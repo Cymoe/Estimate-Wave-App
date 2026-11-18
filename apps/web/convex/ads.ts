@@ -12,10 +12,14 @@ import {
   PAINTING_HOOKS,
   SCOPES,
   apifyInput,
+  composeGraphicScript,
   composeImageScript,
   composeScript,
   creativeName,
   fromApifyItem,
+  graphicEdit,
+  graphicPlanProblems,
+  graphicPrompt,
   imageAdPrompt,
   imageEdit,
   imagePlanProblems,
@@ -43,6 +47,7 @@ import {
   type Candidate,
   type Example,
   type Family,
+  type GraphicPlan,
   type ImagePlan,
   type Playbook,
   type ScrapedAd,
@@ -1643,7 +1648,8 @@ export const addCreatives = internalMutation({
     again: v.optional(v.boolean()),
   },
   handler: async (ctx, { batchId, hookId, script, kind = "video", again }) => {
-    const assetIds = (script.shots ?? []).map((s) => s.assetId);
+    // Each file once, in the order it first appears (a checklist ad may show one photo for several lines).
+    const assetIds = [...new Set((script.shots ?? []).map((s) => s.assetId))];
     const now = new Date();
     const ids: Id<"adCreatives">[] = [];
     for (const ratio of ["9x16", "4x5"] as const) {
@@ -1780,6 +1786,9 @@ export const recentCreatives = internalQuery({
         onScreen: c.script.onScreen,
         shots: (c.script.shots ?? []).length,
         file: c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : c.imageStorageId ? await ctx.storage.getUrl(c.imageStorageId) : undefined,
+        voice: c.audioStorageId ? await ctx.storage.getUrl(c.audioStorageId) : undefined,
+        voiceSec: c.audioDurationSec,
+        lines: (c.script.shots ?? []).map((x) => ({ onScreen: x.onScreen, start: x.start, end: x.end })),
         footage: await Promise.all(
           c.assetIds.map(async (id) => {
             const a = await ctx.db.get(id);
@@ -1791,27 +1800,81 @@ export const recentCreatives = internalQuery({
   },
 });
 
+/** A voiced ad's voice track and photos, to try another layout on them. */
+export const sampleSource = internalQuery({
+  args: { name: v.string() },
+  handler: async (ctx, { name }) => {
+    const c = await ctx.db
+      .query("adCreatives")
+      .withIndex("by_name", (q) => q.eq("name", name))
+      .first();
+    if (!c?.audioStorageId) return null;
+    const photos: string[] = [];
+    for (const id of c.assetIds) {
+      const a = await ctx.db.get(id);
+      const url = a && a.kind === "photo" ? await lookUrl(ctx, a) : undefined;
+      if (url) photos.push(url);
+    }
+    return { audioUrl: await ctx.storage.getUrl(c.audioStorageId), audioDurationSec: c.audioDurationSec ?? 20, photos };
+  },
+});
+
+const sampleRatio = v.union(v.literal("9x16"), v.literal("4x5"));
+
 /**
- * Renders any Shotstack edit and gives back the file's link, to look at a
- * layout before an ad kind uses it. Nothing is stored and no ad is made.
+ * Renders layouts and gives back the files' links, to look at one before an
+ * ad kind uses it. Nothing is stored and no ad is made. `images` are image
+ * ads from the words given; `graphics` are checklist ads from the words
+ * given, over the voice and photos of an ad already made (so the words on
+ * screen won't match what is said: it is the look being tried); `edits` are
+ * raw Shotstack edits.
  */
 export const renderSample = internalAction({
-  args: { edits: v.array(v.any()) },
-  handler: async (_ctx, { edits }): Promise<{ urls: string[] }> => {
+  args: {
+    edits: v.optional(v.array(v.any())),
+    images: v.optional(v.array(v.object({ ratio: sampleRatio, photoUrl: v.string(), headline: v.string(), support: v.string() }))),
+    graphics: v.optional(v.array(v.object({ ratio: sampleRatio, voiceFrom: v.string(), title: v.string(), points: v.array(v.string()) }))),
+  },
+  handler: async (ctx, { edits = [], images = [], graphics = [] }): Promise<{ urls: string[] }> => {
+    const cfg = await ctx.runQuery(internal.ads.config, {});
+    const all: unknown[] = [...edits, ...images.map((i) => imageEdit({ ...i, brand: cfg.brand }))];
+    for (const g of graphics) {
+      const from: { audioUrl: string | null; audioDurationSec: number; photos: string[] } | null = await ctx.runQuery(internal.ads.sampleSource, {
+        name: g.voiceFrom,
+      });
+      if (!from?.audioUrl || from.photos.length === 0) throw new Error(`${g.voiceFrom} has no voice or no photos to borrow`);
+      // Five lines spread evenly over the borrowed voice: the title, the points, the ask.
+      const lines = [g.title, ...g.points, "Get a quote"];
+      const each = from.audioDurationSec / lines.length;
+      all.push(
+        graphicEdit({
+          shots: lines.map((onScreen, i) => ({
+            asset: { url: from.photos[Math.min(from.photos.length - 1, Math.floor((i * from.photos.length) / lines.length))], kind: "photo" as const, tags: [] },
+            onScreen,
+            start: Math.round(i * each * 100) / 100,
+            end: Math.round((i + 1) * each * 100) / 100,
+          })),
+          audioUrl: from.audioUrl,
+          audioDurationSec: from.audioDurationSec,
+          brand: cfg.brand,
+          ratio: g.ratio,
+        }),
+      );
+    }
     const headers = { "content-type": "application/json", "x-api-key": process.env.SHOTSTACK_API_KEY! };
     const one = async (edit: unknown): Promise<string> => {
       const sent = await readJson(await fetch(`${shotstackBase()}/render`, { method: "POST", headers, body: JSON.stringify(edit) }), "Shotstack");
       const renderId = sent?.response?.id;
       if (!renderId) throw new Error("Shotstack gave no render id");
-      for (let tries = 0; tries < 90; tries++) {
+      for (let tries = 0; tries < 100; tries++) {
         await new Promise((r) => setTimeout(r, 5000));
         const body = await readJson(await fetch(`${shotstackBase()}/render/${renderId}`, { headers }), "Shotstack");
         if (body?.response?.status === "done" && body.response.url) return body.response.url;
         if (body?.response?.status === "failed") throw new Error(`Shotstack: ${body.response.error ?? "render failed"}`);
       }
-      throw new Error("Shotstack: the sample took more than 7 minutes");
+      throw new Error("Shotstack: the sample took more than 8 minutes");
     };
-    return { urls: await Promise.all(edits.slice(0, 6).map(one)) };
+    return { urls: await Promise.all(all.slice(0, 6).map(one)) };
   },
 });
 
@@ -1894,8 +1957,14 @@ const SHOT_LIST_TOKENS = 4000;
  * still breaks a rule after one retry, is passed over with the reason.
  */
 export const weeklyRun = internalAction({
-  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()), kinds: v.optional(v.array(adKind)) },
-  handler: async (ctx, { startedBy, force, kinds }) => {
+  args: {
+    startedBy: v.optional(v.id("users")),
+    force: v.optional(v.boolean()),
+    // For a one-off run: the kinds to make and how many hooks, whatever Settings says.
+    kinds: v.optional(v.array(adKind)),
+    hooks: v.optional(v.number()),
+  },
+  handler: async (ctx, { startedBy, force, kinds, hooks: hookCount }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     // The kinds this batch makes: Settings' switches, or the ones named for a one-off run.
@@ -1916,7 +1985,7 @@ export const weeklyRun = internalAction({
       let made = 0;
       let delay = 0;
       for (const hook of hooks) {
-        if (made >= cfg.hooksPerWeek) break;
+        if (made >= (hookCount ?? cfg.hooksPerWeek)) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
         const playbook = playbooks[hook.scope] ?? playbooks.general;
         // Both kinds choose from the footage as it stood before this hook, so the image ad may show a photo the video also uses.
@@ -1945,7 +2014,16 @@ export const weeklyRun = internalAction({
           if (picked.assets.length === 0) skipped.push(`${label} (image ad): no photo tagged ${hook.scope}, and no process or crew photo left`);
           else
             try {
-              const script = await writeImageAd(hook, cfg.brand.name, picked.assets, picked.inScope, town, playbook?.text);
+              const plan = await writePlan<ImagePlan>(
+                imageAdPrompt(hook, cfg.brand.name, picked.assets, picked.inScope, town, playbook?.text),
+                picked.assets,
+                "image ad",
+                (p) => imagePlanProblems(p, picked.assets.length),
+              );
+              const script = composeImageScript(
+                plan,
+                picked.assets.map((a) => a._id),
+              );
               script.shots!.forEach((s) => usedNow.push(s.assetId));
               const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, {
                 batchId,
@@ -1962,6 +2040,38 @@ export const weeklyRun = internalAction({
               kindsMade += 1;
             } catch (e) {
               skipped.push(`${label} (image ad): ${errText(e)}`);
+            }
+        }
+        if (on("graphic")) {
+          const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
+          const picked = pickAssets(photos, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
+          if (picked.assets.length === 0) skipped.push(`${label} (animated graphic): no photo tagged ${hook.scope}, and no process or crew photo left`);
+          else
+            try {
+              const plan = await writePlan<GraphicPlan>(
+                graphicPrompt(hook, cfg.brand.name, picked.assets, picked.inScope, town, playbook?.text),
+                picked.assets,
+                "animated graphic",
+                (p) => graphicPlanProblems(p, picked.assets.length),
+              );
+              const script = composeGraphicScript(
+                plan,
+                picked.assets.map((a) => a._id),
+              );
+              script.shots!.forEach((s) => usedNow.push(s.assetId));
+              const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, {
+                batchId,
+                hookId: hook._id,
+                script: script as never,
+                kind: "graphic",
+                again: kindsMade > 0,
+              });
+              // Voiced like a video: one read, shared by the two sizes.
+              await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
+              delay += 1500;
+              kindsMade += 1;
+            } catch (e) {
+              skipped.push(`${label} (animated graphic): ${errText(e)}`);
             }
         }
         usedNow.forEach((id) => used.add(id));
@@ -2023,16 +2133,18 @@ async function writeShotList(
   throw new Error(`the shot list still broke the rules: ${problems.join("; ")}`);
 }
 
-/** Claude looks at the candidate photos, picks one and writes the words printed on it. One retry with the problems named. */
-async function writeImageAd(
-  hook: Doc<"adHooks">,
-  brand: string,
+/**
+ * Asks Claude for a plan about some photos and checks it. The photos go in
+ * as image blocks, each after a "Photo N" label so the numbers in the reply
+ * point at the right one. One retry with the problems named.
+ */
+async function writePlan<P extends { fits?: boolean; reason?: string }>(
+  prompt: string,
   photos: Array<Candidate & { _id: string }>,
-  inScope: boolean,
-  town: string,
-  playbook?: string,
-): Promise<Script> {
-  const content: unknown[] = [{ type: "text", text: imageAdPrompt(hook, brand, photos, inScope, town, playbook) }];
+  what: string,
+  problemsOf: (plan: P) => string[],
+): Promise<P> {
+  const content: unknown[] = [{ type: "text", text: prompt }];
   photos.forEach((f, i) => content.push({ type: "text", text: `Photo ${i + 1}:` }, { type: "image", source: { type: "url", url: f.imageUrl } }));
   let problems: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -2041,21 +2153,17 @@ async function writeImageAd(
         ? content
         : [...content, { type: "text", text: `Your last answer had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` }];
     const reply = await claudeReply(ask, SHOT_LIST_TOKENS);
-    const plan = parseJson<ImagePlan>(reply.text);
+    const plan = parseJson<P>(reply.text);
     if (!plan) {
       const began = reply.text.replace(/\s+/g, " ").trim().slice(0, 120);
       problems = [reply.cutOff ? "the reply wasn't JSON: it was cut off before it finished" : `the reply wasn't JSON${began ? `: it began "${began}"` : ": it was empty"}`];
       continue;
     }
     if (plan.fits === false) throw new Error(`Claude passed: ${plan.reason ?? "none of the photos fits the hook"}`);
-    problems = imagePlanProblems(plan, photos.length);
-    if (problems.length === 0)
-      return composeImageScript(
-        plan,
-        photos.map((f) => f._id),
-      );
+    problems = problemsOf(plan);
+    if (problems.length === 0) return plan;
   }
-  throw new Error(`the image ad still broke the rules: ${problems.join("; ")}`);
+  throw new Error(`the ${what} still broke the rules: ${problems.join("; ")}`);
 }
 
 /** The voice-over for one hook, from ElevenLabs, shared by both sizes. */
@@ -2125,6 +2233,15 @@ export const render = internalAction({
           photoUrl: shots[0].asset!.url,
           headline: c.script.onScreen[0] ?? "",
           support: c.script.onScreen[1] ?? "",
+          brand: cfg.brand,
+          ratio: c.ratio,
+        });
+      } else if (c.kind === "graphic") {
+        if (!c.audioUrl) throw new Error("No voice track");
+        edit = graphicEdit({
+          shots: shots as Array<{ asset: NonNullable<(typeof shots)[number]["asset"]>; onScreen: string; start: number; end: number }>,
+          audioUrl: c.audioUrl,
+          audioDurationSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
           brand: cfg.brand,
           ratio: c.ratio,
         });

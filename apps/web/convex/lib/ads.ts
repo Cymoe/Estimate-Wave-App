@@ -762,12 +762,20 @@ export function lineCount(text: string, perLine: number): number {
  * over a blurred, darkened copy of itself that fills the box. Lowest layer
  * last, as Shotstack stacks tracks.
  */
-export function framedPhoto(src: string, box: { width: number; height: number }, at: { start: number; length: number }, type: "image" | "video" = "image") {
+export function framedPhoto(
+  src: string,
+  box: { width: number; height: number },
+  at: { start: number; length: number },
+  opts: { type?: "image" | "video"; down?: number; fadeIn?: boolean } = {},
+) {
+  const type = opts.type ?? "image";
   const asset = type === "video" ? { type, src, volume: 0 } : { type, src };
+  // `down` is how far below the top edge the box starts, as a share of the frame's height.
+  const place = { position: "top", ...(opts.down ? { offset: { x: 0, y: -opts.down } } : {}), ...(opts.fadeIn ? { transition: { in: "fade" } } : {}) };
   return [
-    { asset, ...at, fit: "contain", width: box.width, height: box.height, position: "top" },
-    { asset: block(box.width, box.height, "#000000", 0.45), ...at, position: "top" },
-    { asset, ...at, fit: "crop", width: box.width, height: box.height, position: "top", filters: [{ type: "blur", value: 40 }] },
+    { asset, ...at, fit: "contain", width: box.width, height: box.height, ...place },
+    { asset: block(box.width, box.height, "#000000", 0.45), ...at, ...place },
+    { asset, ...at, fit: "crop", width: box.width, height: box.height, ...place, filters: [{ type: "blur", value: 40 }] },
   ];
 }
 
@@ -793,11 +801,14 @@ export function imageEdit(input: { photoUrl: string; headline: string; support: 
   const supportSize = tall ? 38 : 32;
   const headLines = lineCount(input.headline, Math.floor(width / (headSize * 0.62)));
   const supportLines = lineCount(input.support, Math.floor(width / (supportSize * 0.52)));
-  const head = Math.round(headLines * headSize * 1.18 + 16);
-  const support = Math.round(supportLines * supportSize * 1.4 + 12);
+  // Line heights are given in pixels: Shotstack's renderer reads a bare number as pixels, which prints wrapped lines on top of each other.
+  const headLine = Math.round(headSize * 1.18);
+  const supportLine = Math.round(supportSize * 1.4);
+  const head = headLines * headLine + 24;
+  const support = supportLines * supportLine + 20;
   const button = { width: 460, height: 108 };
   const pad = tall ? 110 : 52;
-  const gap = 14;
+  const gap = 4;
   // The two lines sit together, centred in what the band has above the button.
   const room = band - pad - button.height;
   const supportAt = pad + button.height + Math.max(24, Math.round((room - head - gap - support) / 2));
@@ -838,13 +849,276 @@ export function imageEdit(input: { photoUrl: string; headline: string; support: 
           position: "bottom",
           offset: { x: 0, y: up(pad) },
         }),
-        words(input.headline, `font-family:'Montserrat ExtraBold';font-size:${headSize}px;line-height:1.18;color:#ffffff`, head, supportAt + support + gap),
-        words(input.support, `font-family:'Open Sans';font-size:${supportSize}px;line-height:1.4;color:${brand.accentColor}`, support, supportAt),
+        words(input.headline, `font-family:'Montserrat ExtraBold';font-size:${headSize}px;line-height:${headLine}px;color:#ffffff`, head, supportAt + support + gap),
+        words(input.support, `font-family:'Open Sans';font-size:${supportSize}px;line-height:${supportLine}px;color:${brand.accentColor}`, support, supportAt),
         single({ asset: block(size.width, band, BAND_COLOR), ...at, position: "bottom" }),
         ...framedPhoto(input.photoUrl, { width: size.width, height: size.height - band }, at).map(single),
       ],
     },
     output: { format: "jpg", quality: "high", size },
+  };
+}
+
+// --------------------------------------------------- Animated graphic ads
+
+export const GRAPHIC_TITLE_MAX = 30;
+export const GRAPHIC_POINT_MAX = 26;
+export const GRAPHIC_POINTS = 3;
+
+/** The text before the photos for a checklist ad: a title, three points that appear as the voice says each, and the ask. */
+export function graphicPrompt(
+  hook: { textEn: string; family: Family; scope: string },
+  brand: string,
+  photos: Candidate[],
+  inScope: boolean,
+  town = "your town",
+  playbook?: string,
+): string {
+  const list = photos.map((f, i) =>
+    [`Photo ${i + 1}`, f.tags.length ? `tags: ${f.tags.join(", ")}` : "", f.description ? `looks like: ${f.description}` : "", "(attached below)"]
+      .filter(Boolean)
+      .join(" · "),
+  );
+  return [
+    `You write one short animated checklist ad for Facebook and Instagram, for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
+    `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
+    "",
+    "On screen: a title at the top, a job photo in the middle, and three short points that appear one at a time with a tick as the voice says each. It ends on a Get a quote button. Each attached photo is labelled with its number.",
+    ...list,
+    inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with them.`,
+    "",
+    ...(playbook ? ["What works in this category, from competitor ads that have run for months. Follow the angle; never their claims:", playbook.trim(), ""] : []),
+    "Write:",
+    `- title: the words at the top for the whole ad. At most 5 words and ${GRAPHIC_TITLE_MAX} characters.`,
+    "- intro: one spoken sentence that opens on the hook, 8 to 14 words.",
+    `- points: exactly ${GRAPHIC_POINTS}. Each has text (the words that appear: at most 4 words and ${GRAPHIC_POINT_MAX} characters), voice (one spoken sentence that says the same thing, 8 to 14 words) and photo (the number of the photo on screen while it is said; a photo may be used for more than one point).`,
+    `- close: one spoken sentence that names ${brand} and asks the viewer to get a quote, 6 to 12 words.`,
+    `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
+    "- The points are what the homeowner gets or what to check, in the order a homeowner would care about. Say nothing a photo contradicts, and do not name colours, rooms or materials you cannot see.",
+    ...RULES(brand, town).slice(0, 3),
+    "- If the photos can't carry the hook honestly, don't force it.",
+    "",
+    "Return only JSON, one of:",
+    '{"fits":true,"title":"...","intro":"spoken sentence","points":[{"photo":1,"text":"short point","voice":"spoken sentence"}],"close":"spoken sentence","headline":"<=40 chars","primaryText":"<=125 chars"}',
+    '{"fits":false,"reason":"why the photos do not fit"}',
+  ]
+    .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+    .join("\n");
+}
+
+export interface GraphicPlan {
+  fits?: boolean;
+  reason?: string;
+  title?: string;
+  intro?: string;
+  points?: Array<{ photo?: number; text?: string; voice?: string }>;
+  close?: string;
+  headline?: string;
+  primaryText?: string;
+}
+
+/** What's wrong with a checklist ad Claude returned, against the photos it was offered. */
+export function graphicPlanProblems(plan: GraphicPlan, photoCount: number): string[] {
+  const out: string[] = [];
+  const title = plan.title?.trim() ?? "";
+  if (!title) out.push("no title");
+  else if (title.length > GRAPHIC_TITLE_MAX) out.push(`title over ${GRAPHIC_TITLE_MAX} characters`);
+  if (!plan.intro?.trim()) out.push("no intro line");
+  if (!plan.close?.trim()) out.push("no closing line");
+  else if (!/quote/i.test(plan.close)) out.push("the closing line doesn't ask for a quote");
+  const points = plan.points ?? [];
+  if (points.length !== GRAPHIC_POINTS) out.push(`${points.length} points (write ${GRAPHIC_POINTS})`);
+  points.forEach((p, i) => {
+    const n = p.photo;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photoCount) out.push(`point ${i + 1} names photo ${n ?? "nothing"}`);
+    const text = p.text?.trim() ?? "";
+    if (!text) out.push(`point ${i + 1} has no words`);
+    else if (text.length > GRAPHIC_POINT_MAX) out.push(`point ${i + 1} is over ${GRAPHIC_POINT_MAX} characters`);
+    if (!p.voice?.trim()) out.push(`point ${i + 1} has no voice line`);
+  });
+  const spoken = [plan.intro, ...points.map((p) => p.voice), plan.close].filter(Boolean).join(" ");
+  const words = spoken.split(/\s+/).filter(Boolean).length;
+  if (words < 30 || words > 75) out.push(`${words} words of voice (write 40 to 65)`);
+  if (!plan.headline?.trim()) out.push("no headline");
+  else if (plan.headline.trim().length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
+  if (!plan.primaryText?.trim()) out.push("no primary text");
+  else if (plan.primaryText.trim().length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
+  const text = [title, spoken, ...points.map((p) => p.text), plan.headline, plan.primaryText].filter(Boolean).join(" ");
+  for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
+  return out;
+}
+
+/**
+ * A checklist ad as the script stored on the creative. Five spoken lines in
+ * order: the intro (on screen: the title), the three points, and the close
+ * (on screen: the ask). Each carries the photo shown while it is said, so
+ * the voice step times them like any shot list.
+ */
+export function composeGraphicScript(plan: GraphicPlan, assetIds: string[]): Script {
+  const points = (plan.points ?? []).map((p) => ({ assetId: assetIds[(p.photo ?? 1) - 1], voice: (p.voice ?? "").trim(), onScreen: (p.text ?? "").trim() }));
+  const title = (plan.title ?? "").trim();
+  const shots = [
+    { assetId: points[0]?.assetId ?? assetIds[0], voice: (plan.intro ?? "").trim(), onScreen: title },
+    ...points,
+    { assetId: points[points.length - 1]?.assetId ?? assetIds[0], voice: (plan.close ?? "").trim(), onScreen: "Get a quote" },
+  ];
+  return {
+    voice: shots.map((s) => s.voice).join(" "),
+    onScreen: [title, ...points.map((p) => p.onScreen)],
+    headline: (plan.headline ?? "").trim(),
+    primaryText: (plan.primaryText ?? "").trim(),
+    shots,
+  };
+}
+
+/** Where a checklist ad's three zones sit in each size: words at the top, the photo across the middle, the points under it. */
+const GRAPHIC = {
+  "9x16": { top: 400, photo: 860, title: 68, point: 52, row: 150, rowsFrom: 60 },
+  "4x5": { top: 250, photo: 600, title: 52, point: 44, row: 122, rowsFrom: 34 },
+} as const;
+/** How long the ask stays up after the voice has finished. */
+export const GRAPHIC_HOLD_SEC = 2;
+const CROSSFADE_SEC = 0.6;
+const tick = (color: string) =>
+  `<svg width="56" height="56" viewBox="0 0 56 56"><path d="M5 30 L13 22 L23 32 L43 10 L51 18 L23 48 Z" fill="${color}"/></svg>`;
+
+/**
+ * The Shotstack edit for a checklist ad, cut to the voice-over. The title is
+ * up from the start; each point fades in with its tick when its line starts
+ * and stays; when the closing line starts, the points give way to the ask.
+ * The photo zone crosses the middle of the frame, so a trial key's watermark
+ * never lands on words. Fades only, no music.
+ */
+export function graphicEdit(input: {
+  /** The intro, the points and the close, in order, each with its photo and when its line starts. */
+  shots: Array<{ asset: EditAsset; onScreen: string; start: number; end: number }>;
+  audioUrl: string;
+  audioDurationSec: number;
+  brand: Brand;
+  ratio: "9x16" | "4x5";
+}) {
+  const { shots, brand, ratio } = input;
+  const size = SIZES[ratio];
+  const zone = GRAPHIC[ratio];
+  const total = round(input.audioDurationSec + GRAPHIC_HOLD_SEC);
+  const share = (px: number) => Math.round((px / size.height) * 10000) / 10000;
+  const across = (px: number) => Math.round((px / size.width) * 10000) / 10000;
+  const points = shots.slice(1, -1);
+  const close = shots[shots.length - 1];
+  const closeAt = round(Math.max(0.5, close.start));
+  const single = (clip: unknown) => ({ clips: [clip] });
+  const under = zone.top + zone.photo;
+
+  // The photos, each on screen from its line to the next line with a different photo, fading in over the one before.
+  const runs: Array<{ url: string; type: "image" | "video"; start: number; until: number }> = [];
+  shots.forEach((shot, i) => {
+    const start = i === 0 ? 0 : shot.start;
+    const last = runs[runs.length - 1];
+    if (last && last.url === shot.asset.url) return;
+    if (last) last.until = start;
+    runs.push({ url: shot.asset.url, type: shot.asset.kind === "video" ? "video" : "image", start, until: total });
+  });
+  // Later photos go on higher tracks, so each fades in over the one it follows.
+  const photoTracks = [...runs]
+    .reverse()
+    .flatMap((run) => {
+      const first = run === runs[0];
+      const length = round(Math.min(total, run.until + CROSSFADE_SEC) - run.start);
+      return framedPhoto(run.url, { width: size.width, height: zone.photo }, { start: round(run.start), length }, { type: run.type, down: share(zone.top), fadeIn: !first });
+    })
+    .map(single);
+
+  const rows = points.map((p, i) => {
+    const start = round(p.start);
+    const length = round(Math.max(0.5, closeAt - start));
+    const y = -share(under + zone.rowsFrom + i * zone.row);
+    return [
+      { asset: { type: "svg", src: tick(brand.accentColor) }, start, length, position: "topLeft", offset: { x: across(84), y: Math.round((y - share((zone.row - 56) / 2)) * 10000) / 10000 }, transition: { in: "fade", out: "fade" } },
+      {
+        asset: {
+          type: "html",
+          html: `<p>${escapeHtml(p.onScreen)}</p>`,
+          css: `p{font-family:'Montserrat ExtraBold';font-size:${zone.point}px;line-height:${Math.round(zone.point * 1.15)}px;color:#ffffff;text-align:left}`,
+          width: 840,
+          height: zone.row,
+        },
+        start,
+        length,
+        position: "topLeft",
+        offset: { x: across(170), y },
+        transition: { in: "fade", out: "fade" },
+      },
+    ];
+  });
+  const askLength = round(Math.max(0.5, total - closeAt));
+  const below = size.height - under;
+  return {
+    timeline: {
+      background: BAND_COLOR,
+      tracks: [
+        single({
+          asset: {
+            type: "html",
+            html: `<p>${escapeHtml(brand.name)}</p>`,
+            css: `p{font-family:'Montserrat ExtraBold';font-size:32px;color:${brand.accentColor};text-align:center}`,
+            width: size.width,
+            height: 60,
+          },
+          start: 0,
+          length: total,
+          position: "top",
+          offset: { x: 0, y: -share(ratio === "9x16" ? 70 : 24) },
+        }),
+        single({
+          asset: {
+            type: "html",
+            html: `<p>${escapeHtml(shots[0].onScreen)}</p>`,
+            css: `p{font-family:'Montserrat ExtraBold';font-size:${zone.title}px;line-height:${Math.round(zone.title * 1.15)}px;color:#ffffff;text-align:center}`,
+            width: 980,
+            height: zone.top - (ratio === "9x16" ? 170 : 100),
+          },
+          start: 0,
+          length: total,
+          position: "top",
+          offset: { x: 0, y: -share(ratio === "9x16" ? 150 : 90) },
+          transition: { in: "fade" },
+        }),
+        ...rows.flat().map(single),
+        // The ask, in the points' place.
+        single({
+          asset: {
+            type: "html",
+            html: "<p>Get a quote</p>",
+            css: `p{font-family:'Montserrat ExtraBold';font-size:${ratio === "9x16" ? 56 : 46}px;color:#ffffff;text-align:center}`,
+            width: 620,
+            height: ratio === "9x16" ? 150 : 120,
+            background: brand.primaryColor,
+          },
+          start: closeAt,
+          length: askLength,
+          position: "top",
+          offset: { x: 0, y: -share(under + Math.round(below * 0.22)) },
+          transition: { in: "fade" },
+        }),
+        single({
+          asset: {
+            type: "html",
+            html: `<p>${escapeHtml([brand.name, marketsLine(brand.markets)].filter(Boolean).join(" · "))}</p>`,
+            css: `p{font-family:'Open Sans';font-size:${ratio === "9x16" ? 38 : 32}px;color:${brand.accentColor};text-align:center}`,
+            width: 980,
+            height: 70,
+          },
+          start: closeAt,
+          length: askLength,
+          position: "top",
+          offset: { x: 0, y: -share(under + Math.round(below * 0.22) + (ratio === "9x16" ? 190 : 150)) },
+          transition: { in: "fade" },
+        }),
+        ...photoTracks,
+        single({ asset: { type: "audio", src: input.audioUrl, volume: 1 }, start: 0, length: round(input.audioDurationSec) }),
+      ],
+    },
+    output: { format: "mp4", fps: 25, size },
   };
 }
 
