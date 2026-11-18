@@ -99,7 +99,12 @@ export interface AssetRow {
   uses?: number;
 }
 
-export const MAX_CANDIDATES = 6;
+/** How much footage Claude is offered for one ad: enough to choose 4 to 6 shots from. */
+export const MAX_CANDIDATES = 8;
+/** The most shots in one ad. With about 25 seconds of voice, the picture then changes every 4 to 6 seconds, and stills are cut again within that. */
+export const MAX_SHOTS = 6;
+/** The fewest shots, given how much footage was offered. */
+export const minShots = (footage: number) => Math.max(1, Math.min(4, footage));
 
 /**
  * The footage Claude chooses shots from for one hook: assets tagged with the
@@ -302,7 +307,8 @@ export function shotListPrompt(
       : []),
     ...examplesText(examples),
     "Write a shot list: the footage to show, in order, and the voice-over line spoken while each one is on screen.",
-    "- Use 2 to 4 shots (1 if only one piece of footage is offered). Use each footage number at most once.",
+    `- Use 4 to ${MAX_SHOTS} shots (with less than 4 pieces of footage offered, one shot for each). Use each footage number at most once.`,
+    "- Open on the most striking footage. Give each shot one short sentence, so the picture changes every few seconds.",
     "- Each voice line must fit what is visibly in that footage. Do not name colours, rooms, materials or details you cannot see.",
     "- A before must be immediately followed by its after (same pair).",
     "- 55 to 75 words of voice in total, about 25 seconds read aloud.",
@@ -341,16 +347,51 @@ export function scriptProblems(s: Partial<Script> | undefined): string[] {
   return out;
 }
 
-/** Pulls the JSON object out of a model reply that may wrap it in prose or a code fence. */
+/**
+ * Pulls the JSON object out of a model reply that may wrap it in prose or a
+ * code fence. First the whole span from the first brace to the last; when
+ * that isn't JSON (a brace in the prose around it, a second object after
+ * it), the largest balanced object that parses.
+ */
 export function parseJson<T = unknown>(reply: string): T | null {
+  const tryParse = (text: string): T | null => {
+    try {
+      const value = JSON.parse(text);
+      return value && typeof value === "object" && !Array.isArray(value) ? (value as T) : null;
+    } catch {
+      return null;
+    }
+  };
   const start = reply.indexOf("{");
   const end = reply.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
-  try {
-    return JSON.parse(reply.slice(start, end + 1)) as T;
-  } catch {
-    return null;
+  const whole = tryParse(reply.slice(start, end + 1));
+  if (whole) return whole;
+  let best: { value: T; length: number } | null = null;
+  for (let from = start; from >= 0 && from < reply.length; from = reply.indexOf("{", from + 1)) {
+    const to = balancedEnd(reply, from);
+    if (to < 0) continue;
+    const value = tryParse(reply.slice(from, to + 1));
+    if (value && (!best || to - from > best.length)) best = { value, length: to - from };
+    if (value) from = to;
   }
+  return best?.value ?? null;
+}
+
+/** Where the object opening at `from` closes, minding braces inside strings; -1 when it never does. */
+function balancedEnd(text: string, from: number): number {
+  let depth = 0;
+  let quoted = false;
+  for (let i = from; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === "\\") i++;
+      else if (ch === '"') quoted = false;
+    } else if (ch === '"') quoted = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return i;
+  }
+  return -1;
 }
 
 export interface ShotPlan {
@@ -365,8 +406,8 @@ export interface ShotPlan {
 export function shotPlanProblems(plan: ShotPlan, footage: Array<{ tags: string[]; pairKey?: string }>): string[] {
   const out: string[] = [];
   const shots = plan.shots ?? [];
-  const min = footage.length === 1 ? 1 : 2;
-  if (shots.length < min || shots.length > 4) out.push(`${shots.length} shots (use ${min} to 4)`);
+  const min = minShots(footage.length);
+  if (shots.length < min || shots.length > MAX_SHOTS) out.push(`${shots.length} shots (use ${min} to ${MAX_SHOTS})`);
   const seen = new Set<number>();
   shots.forEach((s, i) => {
     const n = s.footage;
@@ -486,13 +527,32 @@ const SIZES = { "9x16": { width: 1080, height: 1920 }, "4x5": { width: 1080, hei
 export const END_CARD_SEC = 3;
 const TAIL_SEC = 0.4;
 
+/** About how long a still is held before it's cut again: the same photo closer in and moving another way, so the picture keeps changing. */
+export const CUT_SEC = 2.8;
+/** How a still moves, turn by turn. */
+const MOTIONS = ["zoomIn", "slideLeft", "zoomOut", "slideRight"] as const;
+/** How a new shot arrives over the one before it, turn by turn. */
+const ARRIVALS = ["slideLeftFast", "fadeFast", "slideUpFast", "fadeFast"] as const;
+/** How long an arrival takes: the shot before stays underneath for this long, so nothing arrives over black. */
+const FAST_SEC = 0.5;
+const WIPE_SEC = 1;
+/** The music sits well under the voice. */
+export const MUSIC_VOLUME = 0.12;
+/** Public-domain (CC0, FreePD) music Shotstack hosts for its own examples. ADS_MUSIC_URL replaces it; "none" turns music off. */
+export const DEFAULT_MUSIC_URL = "https://shotstack-assets.s3-ap-southeast-2.amazonaws.com/music/freepd/advertising.mp3";
+
 /**
  * The Shotstack edit for one creative, cut to the voice-over: each shot's
  * footage is on screen from the moment its line starts until the next line
- * starts (the first from zero), with that shot's on-screen line over it; an
- * after wipes in over its before; a clip shorter than its slot repeats.
- * Captions are transcribed from the voice, the brand sits in the corner, and
- * the ask is on the last card.
+ * starts (the first from zero), with that shot's on-screen line over it.
+ *
+ * So it doesn't play as a slideshow: a still held much longer than CUT_SEC is
+ * cut again (closer in, moving another way); each new shot slides or fades in
+ * over the one before, which stays underneath while it does; an after wipes
+ * in over its before; a clip shorter than its slot repeats; the lines slide
+ * up; and music plays under the voice when there is some. Footage fills the
+ * frame cropped, never stretched. Captions are transcribed from the voice,
+ * the brand sits in the corner, and the ask is on the last card.
  */
 export function shotstackEdit(input: {
   shots: Array<{ asset: EditAsset; onScreen: string; start: number; end: number }>;
@@ -500,52 +560,74 @@ export function shotstackEdit(input: {
   audioDurationSec: number;
   brand: Brand;
   ratio: "9x16" | "4x5";
+  musicUrl?: string;
 }) {
   const { shots, audioUrl, brand, ratio } = input;
   const footageEnd = round(input.audioDurationSec + TAIL_SEC);
   const total = round(footageEnd + END_CARD_SEC);
-  const media: unknown[] = [];
+  // One track a shot, later shots above earlier ones.
+  const shotTracks: Array<{ clips: unknown[] }> = [];
   const lines: unknown[] = [];
+  let turn = 0;
   shots.forEach((shot, i) => {
     const start = i === 0 ? 0 : shot.start;
     const until = i === shots.length - 1 ? footageEnd : shots[i + 1].start;
     const length = round(Math.max(0.5, until - start));
     const a = shot.asset;
     const prev = shots[i - 1]?.asset;
-    const wipe = Boolean(prev && a.pairKey && prev.pairKey === a.pairKey && prev.tags.includes("before") && a.tags.includes("after"));
-    if (a.kind === "video" && a.durationSec && a.durationSec < length) {
+    const next = shots[i + 1]?.asset;
+    const isAfter = (x: EditAsset | undefined, y: EditAsset | undefined) =>
+      Boolean(x && y && y.pairKey && x.pairKey === y.pairKey && x.tags.includes("before") && y.tags.includes("after"));
+    const arrive = i === 0 ? undefined : isAfter(prev, a) ? "wipeLeft" : ARRIVALS[(i - 1) % ARRIVALS.length];
+    // Stays under the next shot while that one arrives.
+    const under = i === shots.length - 1 ? 0 : isAfter(a, next) ? WIPE_SEC : FAST_SEC;
+    const span = round(length + under);
+    const clips: unknown[] = [];
+    if (a.kind === "video") {
+      const each = a.durationSec && a.durationSec < span ? a.durationSec : span;
       // Too short for its slot: play it again until the slot is full.
-      for (let at = 0, n = 0; at < length - 0.01; at += a.durationSec, n++)
-        media.push({
+      for (let at = 0, n = 0; at < span - 0.01; at += each, n++)
+        clips.push({
           asset: { type: "video", src: a.url, volume: 0 },
           start: round(start + at),
-          length: round(Math.min(a.durationSec, length - at)),
-          fit: "cover",
-          ...(n === 0 && wipe ? { transition: { in: "wipeLeft" } } : {}),
+          length: round(Math.min(each, span - at)),
+          fit: "crop",
+          ...(n === 0 && arrive ? { transition: { in: arrive } } : {}),
         });
     } else {
-      media.push({
-        asset: a.kind === "video" ? { type: "video", src: a.url, volume: 0 } : { type: "image", src: a.url },
-        start: round(start),
-        length,
-        fit: "cover",
-        ...(a.kind === "photo" ? { effect: i % 2 === 0 ? "zoomIn" : "slideLeft" } : {}),
-        ...(wipe ? { transition: { in: "wipeLeft" } } : {}),
-      });
+      const cuts = Math.max(1, Math.round(length / CUT_SEC));
+      const each = length / cuts;
+      for (let n = 0; n < cuts; n++) {
+        const from = round(start + n * each);
+        const to = n === cuts - 1 ? round(start + span) : round(start + (n + 1) * each);
+        const motion = MOTIONS[turn++ % MOTIONS.length];
+        clips.push({
+          asset: { type: "image", src: a.url },
+          start: from,
+          length: round(to - from),
+          fit: "crop",
+          effect: each <= 2.5 ? `${motion}Fast` : motion,
+          // Every second cut of the same still is closer in.
+          ...(n % 2 === 1 ? { scale: 1.25 } : {}),
+          ...(n === 0 && arrive ? { transition: { in: arrive } } : {}),
+        });
+      }
     }
+    shotTracks.unshift({ clips });
     if (shot.onScreen)
       lines.push({
         asset: {
           type: "html",
           html: `<p>${escapeHtml(shot.onScreen)}</p>`,
-          css: `p{font-family:'Roboto Condensed',sans-serif;font-weight:700;font-size:64px;color:#fff;text-align:center;text-shadow:0 2px 12px rgba(0,0,0,.6)}`,
+          css: `p{font-family:'Roboto Condensed',sans-serif;font-weight:700;font-size:${i === 0 ? 76 : 64}px;color:#fff;text-align:center;text-shadow:0 2px 14px rgba(0,0,0,.75)}`,
           width: 960,
           height: 400,
         },
         start: round(start),
         length,
         position: "center",
-        transition: { in: "fade", out: "fade" },
+        offset: { x: 0, y: 0.16 },
+        transition: { in: "slideUpFast", out: "fadeFast" },
       });
   });
   return {
@@ -594,8 +676,11 @@ export function shotstackEdit(input: {
             },
           ],
         },
-        { clips: media },
+        ...shotTracks,
         { clips: [{ alias: "voice", asset: { type: "audio", src: audioUrl, volume: 1 }, start: 0, length: round(input.audioDurationSec) }] },
+        ...(input.musicUrl
+          ? [{ clips: [{ asset: { type: "audio", src: input.musicUrl, volume: MUSIC_VOLUME, effect: "fadeInFadeOut" }, start: 0, length: total }] }]
+          : []),
       ],
     },
     output: { format: "mp4", fps: 25, size: SIZES[ratio] },

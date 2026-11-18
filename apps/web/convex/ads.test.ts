@@ -26,6 +26,9 @@ import {
   shotPlanProblems,
   shotTimings,
   shotstackEdit,
+  DEFAULT_MUSIC_URL,
+  MUSIC_VOLUME,
+  minShots,
   weekOf,
   type Script,
 } from "./lib/ads";
@@ -134,6 +137,10 @@ describe("the pure parts", () => {
     expect(shotPlanProblems({ ...good, shots: [{ ...good.shots[0], onScreen: "x".repeat(41) }, good.shots[1]] }, footage)).toEqual(
       expect.arrayContaining(["shot 1 on-screen line over 40 characters"]),
     );
+    // Four to six shots, or one for each piece of footage when fewer than four are offered.
+    expect([minShots(1), minShots(3), minShots(4), minShots(8)]).toEqual([1, 3, 4, 4]);
+    expect(shotPlanProblems({ ...good, shots: good.shots.slice(0, 2) }, footage)).toEqual(expect.arrayContaining(["2 shots (use 3 to 6)"]));
+    expect(shotPlanProblems({ ...good, shots: Array.from({ length: 7 }, () => good.shots[0]) }, footage)).toEqual(expect.arrayContaining(["7 shots (use 3 to 6)"]));
     const script = composeScript(good, ["a1", "a2", "a3"]);
     expect(script.shots!.map((x) => [x.assetId, x.onScreen])).toEqual([
       ["a1", "Before"],
@@ -190,9 +197,14 @@ describe("the pure parts", () => {
     expect(scriptProblems(undefined)).toEqual(["no script"]);
     expect(parseJson('Here you go:\n```json\n{"fits":false,"reason":"x"}\n```')).toEqual({ fits: false, reason: "x" });
     expect(parseJson("no json here")).toBeNull();
+    // Braces in the words around it, or inside its own strings, don't hide the object.
+    expect(parseJson('I used {these} shots.\n{"fits":true,"shots":[{"footage":1}]}\nNote: see {above}.')).toEqual({ fits: true, shots: [{ footage: 1 }] });
+    expect(parseJson('Sure. {"fits":false,"reason":"a } in the reason"} and then {not json')).toEqual({ fits: false, reason: "a } in the reason" });
+    // Cut off before it closed: nothing to read.
+    expect(parseJson('{"fits":true,"shots":[{"footage":1,"voice":"These cab')).toBeNull();
   });
 
-  test("the Shotstack edit: each shot starts on its line, its words sit on it, an after wipes over its before, short clips repeat", () => {
+  test("the Shotstack edit: each shot starts on its line with its words on it; stills are cut again, shots arrive over the one before, an after wipes over its before, short clips repeat, music sits under the voice", () => {
     const brand = { name: "Permian Home Quotes", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
     const before = { url: "https://x/before.jpg", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k" };
     const after = { url: "https://x/after.jpg", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "k" };
@@ -207,25 +219,44 @@ describe("the pure parts", () => {
       audioDurationSec: 20,
       brand,
       ratio: "9x16",
+      musicUrl: "https://x/music.mp3",
     });
     expect(edit.output).toEqual({ format: "mp4", fps: 25, size: { width: 1080, height: 1920 } });
     const tracks = edit.timeline.tracks as Array<{ clips: any[] }>;
-    const [captions, lines, brandTrack, media, audio] = tracks;
+    // A track a shot, the latest on top, so each arrives over the one before.
+    const [captions, lines, brandTrack, third, second, first, audio, music] = tracks;
+    expect(tracks).toHaveLength(8);
     expect(captions.clips[0]).toMatchObject({ asset: { type: "caption", src: "alias://voice" }, start: 0, length: 20.4 });
-    // Clips: 0–6.4 before, 6.4–12.5 after (wipe), then the 3s clip three times to fill 12.5–20.4.
-    expect(media.clips.map((c) => [c.asset.src, c.start, c.length, c.transition?.in])).toEqual([
-      ["https://x/before.jpg", 0, 6.4, undefined],
-      ["https://x/after.jpg", 6.4, 6.1, "wipeLeft"],
-      ["https://x/clip.mp4", 12.5, 3, undefined],
-      ["https://x/clip.mp4", 15.5, 3, undefined],
-      ["https://x/clip.mp4", 18.5, 1.9, undefined],
+    const cut = (c: any) => [c.asset.src, c.start, c.length, c.effect, c.scale, c.transition?.in];
+    // The before, 0–6.4: too long for one hold, so cut again at 3.2, closer in and moving the other way. It stays a second
+    // under its after, for the wipe.
+    expect(first.clips.map(cut)).toEqual([
+      ["https://x/before.jpg", 0, 3.2, "zoomIn", undefined, undefined],
+      ["https://x/before.jpg", 3.2, 4.2, "slideLeft", 1.25, undefined],
     ]);
-    // Each on-screen line sits on its own shot.
-    expect(lines.clips.map((c) => [c.asset.html, c.start, c.length])).toEqual([
-      ["<p>Before</p>", 0, 6.4],
-      ["<p>After</p>", 6.4, 6.1],
-      ["<p>Get a quote</p>", 12.5, 7.9],
+    // The after, 6.4–12.5: wipes in, cut again, and stays half a second under the clip that fades in next.
+    expect(second.clips.map(cut)).toEqual([
+      ["https://x/after.jpg", 6.4, 3.05, "zoomOut", undefined, "wipeLeft"],
+      ["https://x/after.jpg", 9.45, 3.55, "slideRight", 1.25, undefined],
     ]);
+    // The 3s clip, three times to fill 12.5–20.4.
+    expect(third.clips.map(cut)).toEqual([
+      ["https://x/clip.mp4", 12.5, 3, undefined, undefined, "fadeFast"],
+      ["https://x/clip.mp4", 15.5, 3, undefined, undefined, undefined],
+      ["https://x/clip.mp4", 18.5, 1.9, undefined, undefined, undefined],
+    ]);
+    // Footage fills the frame cropped; "cover" would stretch it.
+    expect([...first.clips, ...second.clips, ...third.clips].every((c) => c.fit === "crop")).toBe(true);
+    // Each on-screen line sits on its own shot and slides up; the first, the hook, is larger.
+    expect(lines.clips.map((c) => [c.asset.html, c.start, c.length, c.transition.in])).toEqual([
+      ["<p>Before</p>", 0, 6.4, "slideUpFast"],
+      ["<p>After</p>", 6.4, 6.1, "slideUpFast"],
+      ["<p>Get a quote</p>", 12.5, 7.9, "slideUpFast"],
+    ]);
+    expect(lines.clips.map((c) => /font-size:(\d+)px/.exec(c.asset.css)![1])).toEqual(["76", "64", "64"]);
+    // Music under the voice for the whole video, end card included.
+    expect(music.clips[0]).toEqual({ asset: { type: "audio", src: "https://x/music.mp3", volume: MUSIC_VOLUME, effect: "fadeInFadeOut" }, start: 0, length: 23.4 });
+    expect(MUSIC_VOLUME).toBeLessThan(0.2);
     // End card after the voice, 3 seconds.
     expect(brandTrack.clips[1]).toMatchObject({ start: 20.4, length: 3 });
     expect(brandTrack.clips[1].asset.html).toContain("Get a quote");
@@ -243,7 +274,27 @@ describe("the pure parts", () => {
       ratio: "4x5",
     });
     expect(swapped.output.size).toEqual({ width: 1080, height: 1350 });
-    expect((swapped.timeline.tracks as Array<{ clips: any[] }>)[3].clips.some((c) => c.transition)).toBe(false);
+    const swappedTracks = swapped.timeline.tracks as Array<{ clips: any[] }>;
+    // No music given: captions, lines, brand, two shots, voice.
+    expect(swappedTracks).toHaveLength(6);
+    expect(swappedTracks[4].clips[0].transition).toBeUndefined();
+    expect(swappedTracks[3].clips[0]).toMatchObject({ start: 3, transition: { in: "slideLeftFast" } });
+    // A short hold moves faster.
+    expect(swappedTracks[4].clips[0]).toMatchObject({ length: 3.5, effect: "zoomIn" });
+    expect(swappedTracks[3].clips[0]).toMatchObject({ length: 3.4, effect: "slideLeft" });
+
+    // A still held under 2.5 seconds moves fast.
+    const quick = shotstackEdit({
+      shots: [
+        { asset: after, onScreen: "A", start: 0, end: 2 },
+        { asset: before, onScreen: "B", start: 2, end: 4 },
+      ],
+      audioUrl: "https://x/v.mp3",
+      audioDurationSec: 4,
+      brand,
+      ratio: "4x5",
+    });
+    expect((quick.timeline.tracks as Array<{ clips: any[] }>)[3].clips[0]).toMatchObject({ start: 2, length: 2.4, effect: "slideLeftFast" });
   });
 });
 
@@ -707,6 +758,10 @@ function shotListFor(prompt: string, primaryText = GOOD.primaryText) {
 }
 
 type StubOpts = {
+  /** Claude answers this scope's hook in words, with no shot list; "cut off" stops mid-answer instead. */
+  notJson?: { scope: string; cutOff?: boolean };
+  /** The music track has gone away. */
+  noMusic?: boolean;
   /** Every shot list carries a price. */
   scriptsFail?: boolean;
   /** The first shot list for each hook breaks a rule; the retry is fine. */
@@ -831,6 +886,14 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
         else if (prompt.includes(PLAYBOOK_MARK)) reply = PLAYBOOK_REPLY;
         else if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`))
           reply = { fits: false, reason: `no ${opts.passOnScope} in this footage` };
+        else if (opts.notJson && prompt.includes(`Scope: ${opts.notJson.scope}.`))
+          return new Response(
+            JSON.stringify(
+              opts.notJson.cutOff
+                ? { content: [{ type: "text", text: '{"fits":true,"shots":[{"footage":1,"voice":"These cab' }], stop_reason: "max_tokens" }
+                : { content: [{ type: "text", text: "Looking at the footage,\nI'd open on the kitchen." }], stop_reason: "end_turn" },
+            ),
+          );
         else if (opts.scriptsFail) reply = shotListFor(prompt, "Only $999 this week");
         else if (opts.badFirst && !retry) reply = { ...shotListFor(prompt), shots: [] };
         else reply = shotListFor(prompt);
@@ -873,6 +936,8 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
           }),
         );
       if (url.includes("cdn.shotstack.io")) return new Response(new Blob(["mp4"], { type: "video/mp4" }));
+      // The music under the voice: checked for before each render.
+      if (url === DEFAULT_MUSIC_URL) return new Response(null, { status: opts.noMusic ? 404 : 200 });
       if (url.includes("graph.facebook.com")) {
         const path = new URL(url).pathname;
         return new Response(
@@ -993,10 +1058,12 @@ describe("the weekly run", () => {
     expect(otherAsk.length).toBe(1);
     // The cabinets render: the after wipes over the before, each on-screen line on its own shot, cut where its line starts.
     const renders = calls.filter((c) => c.url.endsWith("/render")).map((c) => JSON.parse(c.body!));
-    const cabinetsRender = renders.find((r) => r.timeline.tracks[3].clips.length === 2)!;
-    const [first, second] = cabinetsRender.timeline.tracks[3].clips;
-    expect(first.start).toBe(0);
-    expect(second).toMatchObject({ start: cabinets.shots[1].start, transition: { in: "wipeLeft" } });
+    // Tracks: captions, lines, brand, then a track a shot (the latest on top), the voice, and the music.
+    const cabinetsRender = renders.find((r) => r.timeline.tracks[4].clips[0].asset.type === "image")!;
+    const [secondShot, firstShot] = [cabinetsRender.timeline.tracks[3].clips, cabinetsRender.timeline.tracks[4].clips];
+    expect(firstShot[0].start).toBe(0);
+    expect(secondShot[0]).toMatchObject({ start: cabinets.shots[1].start, transition: { in: "wipeLeft" } });
+    expect(cabinetsRender.timeline.tracks[6].clips[0].asset).toMatchObject({ type: "audio", src: DEFAULT_MUSIC_URL, volume: MUSIC_VOLUME });
     expect(cabinetsRender.timeline.tracks[1].clips.map((c: any) => [c.asset.html, c.start])).toEqual([
       ["<p>Shot 1</p>", 0],
       ["<p>Shot 2</p>", cabinets.shots[1].start],
@@ -1066,6 +1133,25 @@ describe("the weekly run", () => {
     ).toEqual(["after.jpg", "before.jpg"]);
   });
 
+  test("a reply that isn't a shot list is passed over saying what came back instead, or that it was cut off; a missing music track doesn't stop the render", async () => {
+    const { calls, draft } = await noMeta();
+    stubServices(calls, { notJson: { scope: "cabinets" }, noMusic: true });
+    const batch = await draft();
+    expect(batch.status).toBe("ready");
+    expect(batch.skipped[0]).toMatch(/: the shot list still broke the rules: the reply wasn't JSON: it began "Looking at the footage, I'd open on the kitchen\."$/);
+    // Asked twice (the retry names the problem), with room to finish.
+    const asks = calls.filter((c) => c.url.includes("anthropic")).map((c) => JSON.parse(c.body!));
+    expect(asks.filter((a) => a.messages[0].content[0].text.includes("Scope: cabinets.")).map((a) => a.max_tokens)).toEqual([4000, 4000]);
+    // The other hook rendered, without music: captions, lines, brand, its shots and the voice only.
+    const renders = calls.filter((c) => c.url.endsWith("/render")).map((c) => JSON.parse(c.body!));
+    expect(renders.length).toBeGreaterThan(0);
+    expect(renders.every((r) => r.timeline.tracks.every((t: any) => t.clips.every((c: any) => c.asset.src !== DEFAULT_MUSIC_URL)))).toBe(true);
+
+    const again = await noMeta();
+    stubServices(again.calls, { notJson: { scope: "cabinets", cutOff: true } });
+    expect((await again.draft()).skipped[0]).toMatch(/the reply wasn't JSON: it was cut off before it finished$/);
+  });
+
   test("a shot list that breaks a rule gets one retry with the problems named", async () => {
     const { calls, draft } = await noMeta();
     stubServices(calls, { badFirst: true });
@@ -1073,7 +1159,7 @@ describe("the weekly run", () => {
     expect(batch).toMatchObject({ status: "ready", skipped: [] });
     const asks = calls.filter((c) => c.url.includes("anthropic")).map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
     expect(asks.length).toBe(2);
-    expect(asks[1][asks[1].length - 1].text).toContain("Your last shot list had these problems: 0 shots (use 2 to 4)");
+    expect(asks[1][asks[1].length - 1].text).toContain("Your last shot list had these problems: 0 shots (use 2 to 6)");
   });
 
   test("a failed render fails that creative, and the batch still finishes", async () => {

@@ -31,6 +31,7 @@ import {
   shotPlanProblems,
   shotTimings,
   shotstackEdit,
+  DEFAULT_MUSIC_URL,
   swipeScore,
   tagSwipePrompt,
   weekOf,
@@ -62,6 +63,8 @@ import { tellStaff } from "./notify";
 //   ANTHROPIC_API_KEY     scripts
 //   ELEVENLABS_API_KEY    voice
 //   SHOTSTACK_API_KEY     rendering; SHOTSTACK_ENV=stage for a sandbox key (default v1)
+//   ADS_MUSIC_URL         optional: an mp3 to play under the voice instead of the default
+//                         public-domain track; "none" for no music
 //   META_ACCESS_TOKEN     a system user token with ads_management on the ad account
 //   APIFY_TOKEN           niche research: searches Meta's Ad Library through an Apify actor
 //                         (APIFY_ACTOR overrides which one)
@@ -1615,16 +1618,22 @@ async function readJson(res: Response, what: string): Promise<any> {
   return body;
 }
 
-/** One Claude call: content blocks in, the reply's text out. */
-async function claude(content: unknown[], maxTokens = 1500): Promise<string> {
+/** One Claude call: content blocks in; the reply's text out, and whether it ran out of room before finishing. */
+async function claudeReply(content: unknown[], maxTokens = 1500): Promise<{ text: string; cutOff: boolean }> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
   });
   const body = await readJson(res, "Claude");
-  return (body?.content ?? []).map((c: { text?: string }) => c.text ?? "").join("");
+  return { text: (body?.content ?? []).map((c: { text?: string }) => c.text ?? "").join(""), cutOff: body?.stop_reason === "max_tokens" };
 }
+
+/** One Claude call: content blocks in, the reply's text out. */
+const claude = async (content: unknown[], maxTokens = 1500): Promise<string> => (await claudeReply(content, maxTokens)).text;
+
+/** Room for a shot list of six shots, with whatever Claude says around it. */
+const SHOT_LIST_TOKENS = 4000;
 
 /**
  * Monday: works down the eligible hooks until hooksPerWeek of them have a
@@ -1710,9 +1719,12 @@ async function writeShotList(
             ...content,
             { type: "text", text: `Your last shot list had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` },
           ];
-    const plan = parseJson<ShotPlan>(await claude(ask));
+    const reply = await claudeReply(ask, SHOT_LIST_TOKENS);
+    const plan = parseJson<ShotPlan>(reply.text);
     if (!plan) {
-      problems = ["the reply wasn't JSON"];
+      // What came back instead, so the skip on the page says what to fix.
+      const began = reply.text.replace(/\s+/g, " ").trim().slice(0, 120);
+      problems = [reply.cutOff ? "the reply wasn't JSON: it was cut off before it finished" : `the reply wasn't JSON${began ? `: it began "${began}"` : ": it was empty"}`];
       continue;
     }
     if (plan.fits === false) throw new Error(`Claude passed: ${plan.reason ?? "the footage doesn't fit the hook"}`);
@@ -1778,6 +1790,17 @@ export const voice = internalAction({
 const shotstackBase = () => `https://api.shotstack.io/edit/${process.env.SHOTSTACK_ENV === "stage" ? "stage" : "v1"}`;
 
 /** Sends one creative to Shotstack and comes back for it. */
+/** The music to play under the voice, when it can be fetched: a track that has gone away must not fail the render. */
+async function musicUrl(): Promise<string | undefined> {
+  const url = (process.env.ADS_MUSIC_URL ?? DEFAULT_MUSIC_URL).trim();
+  if (!url || url.toLowerCase() === "none") return undefined;
+  try {
+    return (await fetch(url, { method: "HEAD" })).ok ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const render = internalAction({
   args: { id: v.id("adCreatives") },
   handler: async (ctx, { id }) => {
@@ -1795,6 +1818,7 @@ export const render = internalAction({
         audioDurationSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
         brand: cfg.brand,
         ratio: c.ratio,
+        musicUrl: await musicUrl(),
       });
       const res = await fetch(`${shotstackBase()}/render`, {
         method: "POST",
