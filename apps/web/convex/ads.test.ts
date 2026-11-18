@@ -351,6 +351,12 @@ describe("a checklist ad's pure parts", () => {
         expect(to).toBeLessThanOrEqual(height);
       }
       expect(JSON.stringify(edit)).toContain("Webb Leads · Midland and Odessa");
+      // The zones above and below the photo are painted over whatever a photo's blurred copy spills into them.
+      const covers = clips.filter((c) => c.asset.type === "shape" && (c.asset as { shape?: string }).shape === "rectangle" && c.start === 0 && c.length === 22 && !c.offset);
+      expect(covers.map((c) => [c.position, c.asset.height])).toEqual([
+        ["top", top],
+        ["bottom", height - bottom],
+      ]);
     }
   });
 });
@@ -379,7 +385,8 @@ describe("an image ad's pure parts", () => {
       const band = clips.find((c) => c.asset.type === "shape" && c.position === "bottom")!;
       expect(band.asset).toMatchObject({ width: 1080, height: band.asset.rectangle.height });
       expect(photos[0].height + band.asset.height).toBe(height);
-      expect(headline.to).toBeLessThanOrEqual(band.asset.height);
+      // With room to spare above the headline, so the words never touch the photo.
+      expect(headline.to).toBeLessThanOrEqual(band.asset.height - 30);
       for (const w of words) {
         const fromEdge = Math.abs(w.offset.y) * height + w.asset.height;
         expect(["topLeft", "bottom"]).toContain(w.position);

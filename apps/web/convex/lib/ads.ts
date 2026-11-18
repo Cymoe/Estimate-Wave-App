@@ -790,7 +790,6 @@ export function framedPhoto(
 export function imageEdit(input: { photoUrl: string; headline: string; support: string; brand: Brand; ratio: "9x16" | "4x5" }) {
   const { brand, ratio } = input;
   const size = SIZES[ratio];
-  const band = BAND[ratio];
   const tall = ratio === "9x16";
   const at = { start: 0, length: 1 };
   const up = (px: number) => Math.round((px / size.height) * 10000) / 10000;
@@ -809,6 +808,8 @@ export function imageEdit(input: { photoUrl: string; headline: string; support: 
   const button = { width: 460, height: 108 };
   const pad = tall ? 110 : 52;
   const gap = 4;
+  // The band is as tall as its size usually needs, and taller when the words wrap, so they never touch the photo.
+  const band = Math.max(BAND[ratio], pad + button.height + head + gap + support + 72);
   // The two lines sit together, centred in what the band has above the button.
   const room = band - pad - button.height;
   const supportAt = pad + button.height + Math.max(24, Math.round((room - head - gap - support) / 2));
@@ -973,8 +974,8 @@ export function composeGraphicScript(plan: GraphicPlan, assetIds: string[]): Scr
 
 /** Where a checklist ad's three zones sit in each size: words at the top, the photo across the middle, the points under it. */
 const GRAPHIC = {
-  "9x16": { top: 400, photo: 860, title: 68, point: 52, row: 150, rowsFrom: 60 },
-  "4x5": { top: 250, photo: 600, title: 52, point: 44, row: 122, rowsFrom: 34 },
+  "9x16": { top: 330, photo: 980, title: 68, point: 52, row: 150, rowsFrom: 40 },
+  "4x5": { top: 215, photo: 680, title: 52, point: 44, row: 112, rowsFrom: 24 },
 } as const;
 /** How long the ask stays up after the voice has finished. */
 export const GRAPHIC_HOLD_SEC = 2;
@@ -1130,6 +1131,9 @@ export function graphicEdit(input: {
           offset: { x: 0, y: -share(under + Math.round(below * 0.22) + (ratio === "9x16" ? 190 : 150)) },
           transition: { in: "fade" },
         }),
+        // The blurred copy of a photo isn't cut to its box, so the zones above and below are painted over it.
+        single({ asset: block(size.width, zone.top, BAND_COLOR), start: 0, length: total, position: "top" }),
+        single({ asset: block(size.width, below, BAND_COLOR), start: 0, length: total, position: "bottom" }),
         ...photoTracks,
         single({ asset: { type: "audio", src: input.audioUrl, volume: 1 }, start: 0, length: round(input.audioDurationSec) }),
       ],
