@@ -1,0 +1,21 @@
+{
+  "name": "ads-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The ad maker's animated ads, drawn frame by frame with Remotion.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.545",
+    "@remotion/fonts": "^4.0.545",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.545"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "typescript": "5.6.3"
+  }
+}

@@ -1,0 +1,63 @@
+/** What one ad is rendered from. Everything on screen comes from here: the renderer writes no words of its own. */
+export type Ratio = "9x16" | "4x5";
+
+export interface Photo {
+  /** A link, or a file under public/. */
+  src: string;
+  width: number;
+  height: number;
+}
+
+/** One spoken line, and when ElevenLabs says it. */
+export interface Line {
+  voice: string;
+  start: number;
+  end: number;
+  /** A few words pinned to the photo while this line is said ("Floors covered"). */
+  label?: string;
+}
+
+export interface Brand {
+  name: string;
+  primaryColor: string;
+  accentColor: string;
+  markets: string[];
+}
+
+export interface Stat {
+  /** The number that counts up to its value and stops. */
+  value: number;
+  label: string;
+}
+
+export type Style =
+  /** A real before photo; the after wipes across behind a moving divider. photos[0] is the before, photos[1] the after. */
+  | { kind: "beforeAfter"; /** The word the divider crosses on, when it isn't the start of the second line. */ crossOn?: string }
+  /** A finished room starts dim and grey; light and colour sweep across it. */
+  | { kind: "lightUp" }
+  /** Numbers that count and snap into place, one per spoken line after the first. */
+  | { kind: "counter"; stats: Stat[] };
+
+// A type, not an interface: Remotion reads a composition's props as a plain record.
+export type AdProps = {
+  ratio: Ratio;
+  style: Style;
+  brand: Brand;
+  /** The words at the top for the whole ad. */
+  headline: string;
+  /** The spoken lines in order. The end card comes up as the last sentence of the last line starts. */
+  lines: Line[];
+  /** The voice track, and how long it runs. */
+  audio: string;
+  audioSec: number;
+  /** One photo per spoken line; a photo used for lines in a row stays up. */
+  photos: Photo[];
+};
+
+export const FPS = 30;
+export const SIZES: Record<Ratio, { width: number; height: number }> = {
+  "9x16": { width: 1080, height: 1920 },
+  "4x5": { width: 1080, height: 1350 },
+};
+/** How long the end card holds after the voice has finished. */
+export const HOLD_SEC = 1.6;
