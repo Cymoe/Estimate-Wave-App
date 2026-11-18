@@ -66,6 +66,7 @@ import { tellStaff } from "./notify";
 //   APIFY_TOKEN           niche research: searches Meta's Ad Library through an Apify actor
 //                         (APIFY_ACTOR overrides which one)
 //   CONSUMER_BRAND        the name homeowners see (lib/support.ts)
+//   FAL_KEY               optional: photos brought to life as short clips (the motion test)
 
 const MAX_PHOTO = 15 * 1024 * 1024;
 const MAX_POSTER = 5 * 1024 * 1024;
@@ -286,7 +287,178 @@ export const removeAsset = mutation({
     const a = await ctx.db.get(id);
     if (a === null) return;
     await ctx.db.delete(id);
-    for (const sid of [a.storageId, a.posterStorageId]) if (sid && (await ctx.db.system.get(sid)) !== null) await ctx.storage.delete(sid);
+    for (const sid of [a.storageId, a.posterStorageId, a.motion?.storageId])
+      if (sid && (await ctx.db.system.get(sid)) !== null) await ctx.storage.delete(sid);
+  },
+});
+
+// ------------------------------------------------------------------ Motion
+//
+// A photo brought to life: an AI video model (Kling, through fal.ai) turns a
+// library photo into a short clip of the same room with the camera moving.
+// For now this is a test run from the deployment, to see whether the clips
+// look real enough to use: nothing here puts a clip in an ad.
+
+const MOTION_MODEL = "fal-ai/kling-video/v3/pro/image-to-video";
+const FAL_QUEUE = "https://queue.fal.run";
+const MOTION_SEC = 10;
+/** About what the model costs a second with no sound, for the estimate a run gives before it spends. */
+const MOTION_CENTS_PER_SEC = 11.2;
+/** The most photos one run may send: each one costs money. */
+const MOTION_MAX = 6;
+/** Asked every 20 seconds, for 20 minutes. */
+const MOTION_TRIES = 60;
+const MOTION_PROMPT =
+  "Slow, steady camera move forward through the scene. Keep everything exactly as in the photo: the same colours, the same objects, the same layout. No people. Nothing added, nothing removed.";
+const MOTION_NEGATIVE = "blur, distortion, low quality, warped lines, people, text, new objects, changed colours";
+
+/** Whether the video model can be handed this photo: it needs an image it can fetch (the JPEG still for a HEIC). */
+const motionReady = (a: Doc<"adAssets">) => a.kind === "photo" && !a.motion && (Boolean(a.posterStorageId) || CLAUDE_IMAGE_TYPES.includes(a.contentType));
+
+/**
+ * Picks photos for a test and, unless it's a dry run, sends them: one of the
+ * cabinets, one interior and one exterior when the library has them (a
+ * finished room before a "before"), then others up to the limit. A photo is
+ * only ever sent once.
+ */
+export const motionTest = internalMutation({
+  args: { limit: v.optional(v.number()), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { limit = 3, dryRun = true }) => {
+    const max = Math.max(1, Math.min(MOTION_MAX, Math.floor(limit)));
+    const photos = (await ctx.db.query("adAssets").take(500))
+      .filter(motionReady)
+      // A finished room shows the work; a "before" goes last.
+      .sort((a, b) => Number(a.tags.includes("before")) - Number(b.tags.includes("before")) || b.createdAt.localeCompare(a.createdAt));
+    const picks: Doc<"adAssets">[] = [];
+    for (const scope of ["cabinets", "interior", "exterior"]) {
+      const found = photos.find((a) => a.tags.includes(scope) && !picks.includes(a));
+      if (found && picks.length < max) picks.push(found);
+    }
+    for (const a of photos) if (picks.length < max && !picks.includes(a)) picks.push(a);
+    const out = {
+      dryRun,
+      photos: picks.map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, description: a.description })),
+      secondsEach: MOTION_SEC,
+      estimateCents: Math.round(picks.length * MOTION_SEC * MOTION_CENTS_PER_SEC),
+    };
+    if (dryRun || picks.length === 0) return out;
+    if (!process.env.FAL_KEY) fail("INVALID", "Set FAL_KEY on the Convex deployment first");
+    let delay = 0;
+    for (const a of picks) {
+      await ctx.db.patch(a._id, { motion: { status: "making", model: MOTION_MODEL, durationSec: MOTION_SEC, startedAt: nowIso() } });
+      await ctx.scheduler.runAfter(delay, internal.ads.makeMotion, { id: a._id });
+      delay += 1500;
+    }
+    return out;
+  },
+});
+
+export const motionInput = internalQuery({
+  args: { id: v.id("adAssets") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    return a?.motion ? { imageUrl: await lookUrl(ctx, a), motion: a.motion } : null;
+  },
+});
+
+export const patchMotion = internalMutation({
+  args: {
+    id: v.id("adAssets"),
+    status: v.optional(v.union(v.literal("making"), v.literal("ready"), v.literal("failed"))),
+    statusUrl: v.optional(v.string()),
+    responseUrl: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, ...patch }) => {
+    const a = await ctx.db.get(id);
+    if (!a?.motion) return;
+    const done = patch.status === "ready" || patch.status === "failed";
+    await ctx.db.patch(id, { motion: { ...a.motion, ...patch, ...(done ? { finishedAt: nowIso() } : {}) } });
+  },
+});
+
+const falHeaders = () => ({ "content-type": "application/json", authorization: `Key ${process.env.FAL_KEY}` });
+/** The key only ever goes to fal's queue, whatever address a reply names. */
+const falUrl = (url: unknown): string => {
+  if (typeof url !== "string" || !url.startsWith(`${FAL_QUEUE}/`)) throw new Error("fal gave an address that isn't its queue");
+  return url;
+};
+
+/** Hands one photo to the video model; the clip is collected by pollMotion. */
+export const makeMotion = internalAction({
+  args: { id: v.id("adAssets") },
+  handler: async (ctx, { id }) => {
+    const input = await ctx.runQuery(internal.ads.motionInput, { id });
+    if (!input || input.motion.status !== "making") return;
+    try {
+      if (!process.env.FAL_KEY) throw new Error("FAL_KEY isn't set");
+      if (!input.imageUrl) throw new Error("No image the video model can read");
+      const res = await fetch(`${FAL_QUEUE}/${MOTION_MODEL}`, {
+        method: "POST",
+        headers: falHeaders(),
+        body: JSON.stringify({
+          start_image_url: input.imageUrl,
+          prompt: MOTION_PROMPT,
+          negative_prompt: MOTION_NEGATIVE,
+          duration: String(MOTION_SEC),
+          generate_audio: false,
+        }),
+      });
+      const body = await readJson(res, "fal");
+      await ctx.runMutation(internal.ads.patchMotion, { id, statusUrl: falUrl(body?.status_url), responseUrl: falUrl(body?.response_url) });
+      await ctx.scheduler.runAfter(20_000, internal.ads.pollMotion, { id, tries: 1 });
+    } catch (e) {
+      await ctx.runMutation(internal.ads.patchMotion, { id, status: "failed", error: errText(e) });
+    }
+  },
+});
+
+export const pollMotion = internalAction({
+  args: { id: v.id("adAssets"), tries: v.number() },
+  handler: async (ctx, { id, tries }) => {
+    const input = await ctx.runQuery(internal.ads.motionInput, { id });
+    if (!input || input.motion.status !== "making" || !input.motion.statusUrl || !input.motion.responseUrl) return;
+    try {
+      const status = (await readJson(await fetch(falUrl(input.motion.statusUrl), { headers: falHeaders() }), "fal"))?.status;
+      if (status === "COMPLETED") {
+        const result = await readJson(await fetch(falUrl(input.motion.responseUrl), { headers: falHeaders() }), "fal");
+        const url = result?.video?.url;
+        if (typeof url !== "string" || !url.startsWith("https://")) throw new Error("fal finished without a video");
+        // The clip itself is a plain download: no key goes with it.
+        const file = await fetch(url);
+        if (!file.ok) throw new Error(`Couldn't download the clip (${file.status})`);
+        const storageId = await ctx.storage.store(new Blob([await file.arrayBuffer()], { type: "video/mp4" }));
+        await ctx.runMutation(internal.ads.patchMotion, { id, status: "ready", storageId });
+      } else if (tries >= MOTION_TRIES) {
+        throw new Error("The video model took more than 20 minutes");
+      } else {
+        await ctx.scheduler.runAfter(20_000, internal.ads.pollMotion, { id, tries: tries + 1 });
+      }
+    } catch (e) {
+      await ctx.runMutation(internal.ads.patchMotion, { id, status: "failed", error: errText(e) });
+    }
+  },
+});
+
+/** Every photo that has been sent, with links to the photo and its clip, to watch side by side. */
+export const motionResults = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const sent = (await ctx.db.query("adAssets").take(500)).filter((a) => a.motion);
+    return await Promise.all(
+      sent.map(async (a) => ({
+        fileName: a.fileName,
+        tags: a.tags,
+        status: a.motion!.status,
+        error: a.motion!.error,
+        seconds: a.motion!.durationSec,
+        startedAt: a.motion!.startedAt,
+        finishedAt: a.motion!.finishedAt,
+        photo: await lookUrl(ctx, a),
+        clip: a.motion!.storageId ? await ctx.storage.getUrl(a.motion!.storageId) : undefined,
+      })),
+    );
   },
 });
 

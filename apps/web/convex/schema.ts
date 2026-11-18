@@ -2454,6 +2454,22 @@ export default defineSchema({
     // How many ads it has been cut into, so the library rotates.
     uses: v.optional(v.number()),
     lastUsedAt: v.optional(v.string()),
+    // A short clip an AI video model made from this photo: the same room, the camera moving. It can get a room wrong
+    // (bent lines, a changed colour), so a person watches it; only an approved clip may go in an ad.
+    motion: v.optional(
+      v.object({
+        status: v.union(v.literal("making"), v.literal("ready"), v.literal("failed")),
+        model: v.string(),
+        durationSec: v.number(),
+        startedAt: v.string(),
+        statusUrl: v.optional(v.string()),
+        responseUrl: v.optional(v.string()),
+        storageId: v.optional(v.id("_storage")),
+        error: v.optional(v.string()),
+        finishedAt: v.optional(v.string()),
+        approvedAt: v.optional(v.string()),
+      }),
+    ),
     uploadedBy: v.id("users"),
     createdAt: v.string(),
   })

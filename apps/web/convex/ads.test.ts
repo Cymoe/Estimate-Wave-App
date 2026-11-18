@@ -922,6 +922,130 @@ async function oneAtATime(t: T, limit = 500) {
   throw new Error("Scheduled functions kept going");
 }
 
+describe("a photo brought to life", () => {
+  /** fal's queue: a request is in progress the first time it's asked about, then done; `fails` names a request whose result is refused. */
+  function stubFal(calls: Array<{ url: string; method: string; auth: string | null; body?: any }>, opts: { fails?: string; strayStatus?: boolean } = {}) {
+    const asked = new Map<string, number>();
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        calls.push({ url, method: init?.method ?? "GET", auth: headers.get("authorization"), body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
+        if (url === "https://queue.fal.run/fal-ai/kling-video/v3/pro/image-to-video") {
+          const id = `m${++n}`;
+          return new Response(
+            JSON.stringify({
+              request_id: id,
+              status_url: opts.strayStatus ? `https://elsewhere.example/${id}/status` : `https://queue.fal.run/fal-ai/kling-video/requests/${id}/status`,
+              response_url: `https://queue.fal.run/fal-ai/kling-video/requests/${id}`,
+            }),
+          );
+        }
+        const status = /^https:\/\/queue\.fal\.run\/fal-ai\/kling-video\/requests\/(m\d+)\/status$/.exec(url);
+        if (status) {
+          const times = (asked.get(status[1]) ?? 0) + 1;
+          asked.set(status[1], times);
+          return new Response(JSON.stringify({ status: times === 1 ? "IN_PROGRESS" : "COMPLETED", request_id: status[1] }));
+        }
+        const result = /^https:\/\/queue\.fal\.run\/fal-ai\/kling-video\/requests\/(m\d+)$/.exec(url);
+        if (result)
+          return result[1] === opts.fails
+            ? new Response(JSON.stringify({ detail: "The image was refused" }), { status: 422 })
+            : new Response(JSON.stringify({ video: { url: `https://v3.fal.media/files/${result[1]}.mp4`, content_type: "video/mp4" } }));
+        if (url.startsWith("https://v3.fal.media/")) return new Response(new Blob(["clip"], { type: "video/mp4" }));
+        return new Response("not stubbed " + url, { status: 500 });
+      }),
+    );
+  }
+
+  async function photos(t: T) {
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    const add = (fileName: string, tags: string[], extra: Record<string, unknown> = {}, type = "image/jpeg") =>
+      t.run(async (ctx) => ctx.storage.store(new Blob([fileName], { type }))).then((storageId) => staff.as.mutation(api.ads.addAsset, { storageId, fileName, tags, ...extra }));
+    await add("before.jpg", ["cabinets", "before"], { pairKey: "k" });
+    await add("after.jpg", ["cabinets", "after"], { pairKey: "k" });
+    await add("den.heic", ["interior"], { posterStorageId: await store(t, "image/jpeg", "still") }, "image/heic");
+    await add("porch.jpg", ["exterior"]);
+    // Not sendable: a clip, and a HEIC with no still for the model to read.
+    await add("roller.mp4", ["process"], {}, "video/mp4");
+    await add("raw.heic", ["interior"], {}, "image/heic");
+    return staff;
+  }
+
+  const run = async (t: T, args: { limit?: number; dryRun?: boolean }) => {
+    vi.useFakeTimers();
+    const out = await t.mutation(internal.ads.motionTest, args);
+    await oneAtATime(t);
+    vi.useRealTimers();
+    return out;
+  };
+
+  test("the test picks a photo of each kind and says what it would cost before it spends; each is sent once, its clip is kept beside it, and a refusal says why", async () => {
+    const t = setup();
+    const staff = await photos(t);
+    const calls: Parameters<typeof stubFal>[0] = [];
+    stubFal(calls, { fails: "m3" });
+
+    // A dry run, the default: the finished cabinets (not the before), an interior, an exterior; ten seconds each at about 11¢ a second.
+    const dry = await run(t, {});
+    expect(dry).toMatchObject({ dryRun: true, secondsEach: 10, estimateCents: 336 });
+    expect(dry.photos.map((p) => p.fileName)).toEqual(["after.jpg", "den.heic", "porch.jpg"]);
+    expect(calls).toEqual([]);
+    expect(await t.query(internal.ads.motionResults, {})).toEqual([]);
+    // No key: nothing is sent and nothing is marked.
+    await expect(t.mutation(internal.ads.motionTest, { dryRun: false })).rejects.toThrow(/FAL_KEY/);
+    expect(await t.query(internal.ads.motionResults, {})).toEqual([]);
+
+    vi.stubEnv("FAL_KEY", "fk");
+    await run(t, { dryRun: false });
+    // Each photo is handed over with the keep-it-as-it-is instruction, ten seconds, no sound; the HEIC goes as its JPEG still.
+    const sent = calls.filter((c) => c.method === "POST");
+    expect(sent).toHaveLength(3);
+    expect(sent.every((c) => c.auth === "Key fk")).toBe(true);
+    expect(sent[0].body).toMatchObject({ duration: "10", generate_audio: false, start_image_url: expect.stringContaining("/api/storage/") });
+    expect(sent[0].body.prompt).toContain("Keep everything exactly as in the photo");
+    expect(sent[0].body.prompt).toContain("No people");
+    // The clip itself is downloaded without the key.
+    const downloads = calls.filter((c) => c.url.startsWith("https://v3.fal.media/"));
+    expect(downloads.map((c) => c.auth)).toEqual([null, null]);
+
+    const results = await t.query(internal.ads.motionResults, {});
+    const byName = Object.fromEntries(results.map((r) => [r.fileName, r]));
+    expect(byName["after.jpg"]).toMatchObject({ status: "ready", seconds: 10, clip: expect.stringContaining("/api/storage/"), photo: expect.stringContaining("/api/storage/") });
+    expect(byName["den.heic"]).toMatchObject({ status: "ready" });
+    expect(byName["porch.jpg"]).toMatchObject({ status: "failed", error: expect.stringContaining("422") });
+    expect(byName["porch.jpg"].clip).toBeUndefined();
+    expect(byName["porch.jpg"].error).toContain("The image was refused");
+
+    // A second run never resends a photo: only the before is left.
+    const again = await run(t, { dryRun: false });
+    expect(again.photos.map((p) => p.fileName)).toEqual(["before.jpg"]);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(4);
+    expect((await run(t, { limit: 99 })).photos).toEqual([]);
+
+    // Removing the photo removes its clip.
+    const after = (await staff.as.query(api.ads.listAssets, {})).find((a) => a.fileName === "after.jpg")!;
+    const clipId = await t.run(async (ctx) => (await ctx.db.get(after.id as Id<"adAssets">))!.motion!.storageId!);
+    await staff.as.mutation(api.ads.removeAsset, { id: after.id as Id<"adAssets"> });
+    expect(await t.run(async (ctx) => ctx.db.system.get(clipId))).toBeNull();
+  });
+
+  test("the key is never sent anywhere but fal's queue, and at most six photos go in one run", async () => {
+    const t = setup();
+    await photos(t);
+    vi.stubEnv("FAL_KEY", "fk");
+    const calls: Parameters<typeof stubFal>[0] = [];
+    stubFal(calls, { strayStatus: true });
+    expect((await run(t, { limit: 99 })).photos).toHaveLength(4);
+    await run(t, { limit: 1, dryRun: false });
+    const [one] = await t.query(internal.ads.motionResults, {});
+    expect(one).toMatchObject({ fileName: "after.jpg", status: "failed", error: "fal gave an address that isn't its queue" });
+    expect(calls.some((c) => c.url.includes("elsewhere.example"))).toBe(false);
+  });
+});
+
 describe("the weekly run", () => {
   test("drafts two hooks in two sizes, voices, renders and creates each PAUSED in Meta; the batch is ready and staff hear", async () => {
     const t = setup();
