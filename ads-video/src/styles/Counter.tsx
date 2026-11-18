@@ -1,80 +1,91 @@
-import { Img, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { source } from "../Ad";
-import { cover, PhotoCard } from "../parts/PhotoCard";
+import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { body, display, WIDE, ZONES } from "../theme";
-import type { Run } from "../timing";
 import type { AdProps, Stat } from "../types";
 
-/** How much of the photo space the photo keeps; the numbers have the rest. */
-const PHOTO_SHARE = 0.62;
-
 /**
- * Numbers that count. The photo keeps the upper part of its space; under it,
- * one tile lands for each spoken line after the first, its number spinning up
- * from nothing and stopping on its value as the line is said.
+ * Numbers that count. The photo stays behind, soft; in front, one wide row
+ * lands for each spoken line after the first. Its number spins through the
+ * digits and stops on its value as the line is said, with what it counts
+ * beside it.
  */
-export const Counter: React.FC<AdProps & { runs: Run[]; stats: Stat[] }> = ({ runs, ratio, lines, stats, brand }) => {
+export const Counter: React.FC<AdProps & { stats: Stat[] }> = ({ ratio, lines, stats, brand }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const zone = ZONES[ratio].card;
-  const top = zone.top + Math.round(zone.height * PHOTO_SHARE) + 26;
-  const height = zone.height - Math.round(zone.height * PHOTO_SHARE) - 26;
-  const gap = 22;
-  const width = (WIDE - gap * (stats.length - 1)) / stats.length;
+  const gap = 26;
+  const height = Math.min(250, Math.round((zone.height - gap * (stats.length - 1)) / stats.length));
+  const block = height * stats.length + gap * (stats.length - 1);
+  const top = zone.top + Math.round((zone.height - block) / 2);
   return (
-    <>
-      {runs.map((run, i) => (
-        <PhotoCard key={i} run={run} first={i === 0} last={i === runs.length - 1} ratio={ratio} share={PHOTO_SHARE}>
-          {() => <Img src={source(run.photo.src)} style={cover(interpolate(frame, [run.start * fps, run.end * fps], [1.03, 1.12], { extrapolateRight: "clamp" }))} />}
-        </PhotoCard>
-      ))}
-      <div style={{ position: "absolute", left: (1080 - WIDE) / 2, top, width: WIDE, height, display: "flex", gap }}>
-        {stats.map((stat, i) => {
-          const line = lines[Math.min(i + 1, lines.length - 1)];
-          const since = frame - Math.round(line.start * fps);
-          const land = spring({ frame: since, fps, config: { damping: 12, mass: 0.7 } });
-          // The number runs through the digits for half a second, then stops on its value.
-          const spin = interpolate(since, [0, 0.55 * fps], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-          const shown = spin >= 1 ? stat.value : Math.floor((stat.value + 3 + since * 0.9) % 10);
-          const settle = spring({ frame: since - Math.round(0.55 * fps), fps, config: { damping: 9, mass: 0.5 } });
-          return (
+    <div style={{ position: "absolute", left: (1080 - WIDE) / 2, top, width: WIDE, display: "flex", flexDirection: "column", gap }}>
+      {stats.map((stat, i) => {
+        const line = lines[Math.min(i + 1, lines.length - 1)];
+        const since = frame - Math.round(line.start * fps);
+        const land = spring({ frame: since, fps, config: { damping: 13, mass: 0.8 } });
+        // The number runs through the digits for half a second, then stops on its value.
+        const spinning = since < 0.55 * fps;
+        const shown = spinning ? Math.floor((stat.value + 3 + Math.max(0, since) * 0.9) % 10) : stat.value;
+        const settle = spring({ frame: since - Math.round(0.55 * fps), fps, config: { damping: 9, mass: 0.5 } });
+        const words = spring({ frame: since - 6, fps, config: { damping: 200 } });
+        return (
+          <div
+            key={i}
+            style={{
+              height,
+              borderRadius: 34,
+              backgroundColor: "rgba(255,255,255,0.97)",
+              boxShadow: "0 30px 70px rgba(0,0,0,0.5)",
+              display: "flex",
+              alignItems: "center",
+              overflow: "hidden",
+              opacity: interpolate(land, [0, 0.3], [0, 1], { extrapolateRight: "clamp" }),
+              transform: `translateX(${interpolate(land, [0, 1], [i % 2 === 0 ? -520 : 520, 0])}px) rotate(${interpolate(land, [0, 1], [i % 2 === 0 ? -4 : 4, 0])}deg)`,
+            }}
+          >
             <div
-              key={i}
               style={{
-                width,
-                height: "100%",
-                borderRadius: 30,
-                background: `linear-gradient(160deg, ${brand.primaryColor} 0%, #1c3d5e 100%)`,
-                boxShadow: "0 24px 50px rgba(0,0,0,0.45)",
+                width: height,
+                height,
+                flexShrink: 0,
+                background: `linear-gradient(150deg, ${brand.primaryColor} 0%, #1d3f61 100%)`,
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: interpolate(land, [0, 0.3], [0, 1], { extrapolateRight: "clamp" }),
-                transform: `translateY(${interpolate(land, [0, 1], [120, 0])}px) scale(${interpolate(land, [0, 1], [0.8, 1])})`,
               }}
             >
               <div
                 style={{
                   fontFamily: display,
                   fontWeight: 800,
-                  fontSize: Math.round(height * 0.5),
+                  fontSize: Math.round(height * 0.72),
                   lineHeight: 1,
                   color: "#fff",
                   fontVariantNumeric: "tabular-nums",
-                  transform: `scale(${spin >= 1 ? interpolate(settle, [0, 1], [1.35, 1]) : 1})`,
-                  filter: spin < 1 ? "blur(3px)" : "none",
+                  transform: `scale(${spinning ? 1 : interpolate(settle, [0, 1], [1.4, 1])})`,
+                  filter: spinning ? "blur(4px)" : "none",
                 }}
               >
                 {shown}
               </div>
-              <div style={{ fontFamily: body, fontWeight: 600, fontSize: Math.round(height * 0.13), color: brand.accentColor, textAlign: "center", marginTop: 12, padding: "0 14px", lineHeight: 1.15 }}>
-                {stat.label}
-              </div>
             </div>
-          );
-        })}
-      </div>
-    </>
+            <div
+              style={{
+                fontFamily: display,
+                fontWeight: 800,
+                fontSize: stat.label.length > 26 ? 50 : 58,
+                lineHeight: 1.1,
+                letterSpacing: -0.5,
+                color: "#0b121c",
+                padding: "0 40px",
+                opacity: words,
+                transform: `translateX(${interpolate(words, [0, 1], [30, 0])}px)`,
+              }}
+            >
+              {stat.label}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 };

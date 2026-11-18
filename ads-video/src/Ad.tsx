@@ -26,12 +26,12 @@ export const Ad: React.FC<AdProps> = (props) => {
   const runs = runsOf(props.photos, props.lines, total);
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
-      <Backdrop runs={runs} />
+      <Backdrop runs={runs} sharper={props.style.kind === "counter"} />
       <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />
       {props.style.kind === "beforeAfter" ? (
         <BeforeAfter {...props} crossOn={props.style.crossOn} />
       ) : props.style.kind === "counter" ? (
-        <Counter {...props} runs={runs} stats={props.style.stats} />
+        <Counter {...props} stats={props.style.stats} />
       ) : (
         <LightUp {...props} runs={runs} />
       )}
