@@ -1788,11 +1788,11 @@ export const recentCreatives = internalQuery({
         file: c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : c.imageStorageId ? await ctx.storage.getUrl(c.imageStorageId) : undefined,
         voice: c.audioStorageId ? await ctx.storage.getUrl(c.audioStorageId) : undefined,
         voiceSec: c.audioDurationSec,
-        lines: (c.script.shots ?? []).map((x) => ({ onScreen: x.onScreen, start: x.start, end: x.end })),
+        lines: (c.script.shots ?? []).map((x) => ({ voice: x.voice, onScreen: x.onScreen, start: x.start, end: x.end })),
         footage: await Promise.all(
           c.assetIds.map(async (id) => {
             const a = await ctx.db.get(id);
-            return a ? { fileName: a.fileName, kind: a.kind, url: await lookUrl(ctx, a) } : null;
+            return a ? { fileName: a.fileName, kind: a.kind, tags: a.tags, pairKey: a.pairKey, description: a.description, url: await lookUrl(ctx, a) } : null;
           }),
         ),
       })),
