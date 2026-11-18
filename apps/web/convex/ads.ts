@@ -31,7 +31,6 @@ import {
   shotPlanProblems,
   shotTimings,
   shotstackEdit,
-  DEFAULT_MUSIC_URL,
   swipeScore,
   tagSwipePrompt,
   weekOf,
@@ -63,8 +62,6 @@ import { tellStaff } from "./notify";
 //   ANTHROPIC_API_KEY     scripts
 //   ELEVENLABS_API_KEY    voice
 //   SHOTSTACK_API_KEY     rendering; SHOTSTACK_ENV=stage for a sandbox key (default v1)
-//   ADS_MUSIC_URL         optional: an mp3 to play under the voice instead of the default
-//                         public-domain track; "none" for no music
 //   META_ACCESS_TOKEN     a system user token with ads_management on the ad account
 //   APIFY_TOKEN           niche research: searches Meta's Ad Library through an Apify actor
 //                         (APIFY_ACTOR overrides which one)
@@ -1632,7 +1629,7 @@ async function claudeReply(content: unknown[], maxTokens = 1500): Promise<{ text
 /** One Claude call: content blocks in, the reply's text out. */
 const claude = async (content: unknown[], maxTokens = 1500): Promise<string> => (await claudeReply(content, maxTokens)).text;
 
-/** Room for a shot list of six shots, with whatever Claude says around it. */
+/** Room for a shot list, with whatever Claude says around it. */
 const SHOT_LIST_TOKENS = 4000;
 
 /**
@@ -1790,17 +1787,6 @@ export const voice = internalAction({
 const shotstackBase = () => `https://api.shotstack.io/edit/${process.env.SHOTSTACK_ENV === "stage" ? "stage" : "v1"}`;
 
 /** Sends one creative to Shotstack and comes back for it. */
-/** The music to play under the voice, when it can be fetched: a track that has gone away must not fail the render. */
-async function musicUrl(): Promise<string | undefined> {
-  const url = (process.env.ADS_MUSIC_URL ?? DEFAULT_MUSIC_URL).trim();
-  if (!url || url.toLowerCase() === "none") return undefined;
-  try {
-    return (await fetch(url, { method: "HEAD" })).ok ? url : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export const render = internalAction({
   args: { id: v.id("adCreatives") },
   handler: async (ctx, { id }) => {
@@ -1818,7 +1804,6 @@ export const render = internalAction({
         audioDurationSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
         brand: cfg.brand,
         ratio: c.ratio,
-        musicUrl: await musicUrl(),
       });
       const res = await fetch(`${shotstackBase()}/render`, {
         method: "POST",
