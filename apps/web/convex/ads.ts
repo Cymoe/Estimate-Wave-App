@@ -312,14 +312,19 @@ const MOTION_PROMPT =
   "Slow, steady camera move forward through the scene. Keep everything exactly as in the photo: the same colours, the same objects, the same layout. No people. Nothing added, nothing removed.";
 const MOTION_NEGATIVE = "blur, distortion, low quality, warped lines, people, text, new objects, changed colours";
 
-/** Whether the video model can be handed this photo: it needs an image it can fetch (the JPEG still for a HEIC). */
-const motionReady = (a: Doc<"adAssets">) => a.kind === "photo" && !a.motion && (Boolean(a.posterStorageId) || CLAUDE_IMAGE_TYPES.includes(a.contentType));
+/**
+ * Whether the video model can be handed this photo: it needs an image it can
+ * fetch (the JPEG still for a HEIC), and no clip made or being made. One
+ * whose last try failed (no balance, a refusal) can be tried again.
+ */
+const motionReady = (a: Doc<"adAssets">) =>
+  a.kind === "photo" && (!a.motion || a.motion.status === "failed") && (Boolean(a.posterStorageId) || CLAUDE_IMAGE_TYPES.includes(a.contentType));
 
 /**
  * Picks photos for a test and, unless it's a dry run, sends them: one of the
  * cabinets, one interior and one exterior when the library has them (a
- * finished room before a "before"), then others up to the limit. A photo is
- * only ever sent once.
+ * finished room before a "before"), then others up to the limit. A photo
+ * with a clip, or one on its way, is never sent again; a failed one can be.
  */
 export const motionTest = internalMutation({
   args: { limit: v.optional(v.number()), dryRun: v.optional(v.boolean()) },

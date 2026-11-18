@@ -982,7 +982,7 @@ describe("a photo brought to life", () => {
     return out;
   };
 
-  test("the test picks a photo of each kind and says what it would cost before it spends; each is sent once, its clip is kept beside it, and a refusal says why", async () => {
+  test("the test picks a photo of each kind and says what it would cost before it spends; its clip is kept beside it, a refusal says why and can be tried again, and a photo with a clip is never resent", async () => {
     const t = setup();
     const staff = await photos(t);
     const calls: Parameters<typeof stubFal>[0] = [];
@@ -1019,10 +1019,16 @@ describe("a photo brought to life", () => {
     expect(byName["porch.jpg"].clip).toBeUndefined();
     expect(byName["porch.jpg"].error).toContain("The image was refused");
 
-    // A second run never resends a photo: only the before is left.
+    // A second run never resends a photo that has its clip: the before is left, and the one that was refused gets another try.
     const again = await run(t, { dryRun: false });
-    expect(again.photos.map((p) => p.fileName)).toEqual(["before.jpg"]);
-    expect(calls.filter((c) => c.method === "POST")).toHaveLength(4);
+    expect(again.photos.map((p) => p.fileName)).toEqual(["before.jpg", "porch.jpg"]);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(5);
+    expect((await t.query(internal.ads.motionResults, {})).map((r) => [r.fileName, r.status]).sort()).toEqual([
+      ["after.jpg", "ready"],
+      ["before.jpg", "ready"],
+      ["den.heic", "ready"],
+      ["porch.jpg", "ready"],
+    ]);
     expect((await run(t, { limit: 99 })).photos).toEqual([]);
 
     // Removing the photo removes its clip.
