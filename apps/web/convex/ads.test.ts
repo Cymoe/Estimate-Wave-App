@@ -5,11 +5,15 @@ import {
   PLAYBOOK_MARK,
   TAG_MARK,
   apifyInput,
+  composeGraphicScript,
   composeImageScript,
   composeScript,
   creativeName,
   familyOfAngle,
   fromApifyItem,
+  graphicEdit,
+  graphicPlanProblems,
+  graphicPrompt,
   imageAdPrompt,
   imageEdit,
   imagePlanProblems,
@@ -266,6 +270,90 @@ type LooseClip = {
   filters?: unknown;
   height: number;
 };
+
+/** A clip of a checklist ad's edit, as far as these tests read it. */
+type LooseTimed = {
+  asset: { type: string; html?: string; height?: number };
+  start: number;
+  length: number;
+  position?: string;
+  offset?: { y: number };
+  fit?: string;
+  transition?: { in?: string; out?: string };
+};
+
+describe("a checklist ad's pure parts", () => {
+  const brand = { name: "Webb Leads", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
+  const photo = (url: string) => ({ url, kind: "photo" as const, tags: [] });
+
+  test("the rules: three points, short words, photos that were offered, a close that asks, and no forbidden claims", () => {
+    const good = graphicPlanFor();
+    expect(graphicPlanProblems(good, 2)).toEqual([]);
+    expect(graphicPlanProblems({ ...good, points: good.points.slice(0, 2) }, 2)).toEqual(expect.arrayContaining(["2 points (write 3)"]));
+    expect(graphicPlanProblems({ ...good, points: [{ ...good.points[0], photo: 5 }, good.points[1], good.points[2]] }, 2)).toEqual(["point 1 names photo 5"]);
+    expect(graphicPlanProblems({ ...good, points: [{ ...good.points[0], text: "x".repeat(27) }, good.points[1], good.points[2]] }, 2)).toEqual(["point 1 is over 26 characters"]);
+    expect(graphicPlanProblems({ ...good, close: "Call us today." }, 2)).toEqual(["the closing line doesn't ask for a quote"]);
+    expect(graphicPlanProblems({ ...good, title: "Painted in 3 days" }, 2)).toEqual(["mentions a completion time"]);
+    const script = composeGraphicScript(good, ["a", "b"]);
+    expect(script.shots!.map((x) => x.assetId)).toEqual(["a", "a", "a", "b", "b"]);
+    expect(script.voice.split(/\s+/).length).toBeGreaterThan(40);
+    const prompt = graphicPrompt({ textEn: "Paint them", family: "education", scope: "cabinets" }, "Webb Leads", [{ kind: "photo", tags: ["cabinets"] }], true, "Midland");
+    expect(prompt).toContain("exactly 3");
+    expect(prompt).toContain("never as a homeowner or customer");
+  });
+
+  test("a second photo fades in over the first when its line starts; a photo used for lines in a row stays up", () => {
+    const edit = graphicEdit({
+      shots: [
+        { asset: photo("https://files.example/a.jpg"), onScreen: "Title", start: 0, end: 3 },
+        { asset: photo("https://files.example/a.jpg"), onScreen: "One", start: 4, end: 7 },
+        { asset: photo("https://files.example/b.jpg"), onScreen: "Two", start: 8, end: 11 },
+        { asset: photo("https://files.example/b.jpg"), onScreen: "Three", start: 12, end: 15 },
+        { asset: photo("https://files.example/b.jpg"), onScreen: "Get a quote", start: 16, end: 19 },
+      ],
+      audioUrl: "https://files.example/v.mp3",
+      audioDurationSec: 20,
+      brand,
+      ratio: "9x16",
+    });
+    const clips = (edit.timeline.tracks as Array<{ clips: LooseTimed[] }>).map((t) => t.clips[0]);
+    const photos = clips.filter((c) => c.asset.type === "image" && c.fit === "contain");
+    // Listed top track first: the later photo is above, so its fade covers the earlier one, which stays a moment longer under it.
+    expect(photos.map((c) => [(c.asset as { src?: string }).src, c.start, c.length, c.transition?.in])).toEqual([
+      ["https://files.example/b.jpg", 8, 14, "fade"],
+      ["https://files.example/a.jpg", 0, 8.6, undefined],
+    ]);
+  });
+
+  test("the words stay out of the middle of the frame, where the photo is", () => {
+    for (const ratio of ["9x16", "4x5"] as const) {
+      const height = ratio === "9x16" ? 1920 : 1350;
+      const edit = graphicEdit({
+        shots: ["Title here", "One", "Two", "Three", "Get a quote"].map((onScreen, i) => ({ asset: photo("https://files.example/p.jpg"), onScreen, start: i * 4, end: i * 4 + 3.5 })),
+        audioUrl: "https://files.example/v.mp3",
+        audioDurationSec: 20,
+        brand,
+        ratio,
+      });
+      const clips = (edit.timeline.tracks as Array<{ clips: LooseTimed[] }>).map((t) => t.clips[0]);
+      // One photo for every line: one run, on screen for the whole ad, the ask held two seconds after the voice.
+      const photos = clips.filter((c) => c.asset.type === "image" && c.fit === "contain");
+      expect(photos.map((c) => [c.start, c.length])).toEqual([[0, 22]]);
+      // The photo's box spans the middle line of the frame; every piece of text is wholly above or wholly below it.
+      const top = Math.round(-photos[0].offset!.y * height);
+      const bottom = top + (photos[0] as unknown as { height: number }).height;
+      expect(top).toBeLessThan(height / 2 - 100);
+      expect(bottom).toBeGreaterThan(height / 2 + 100);
+      for (const w of clips.filter((c) => c.asset.type === "html")) {
+        const from = Math.round(-w.offset!.y * height);
+        const to = from + w.asset.height!;
+        expect(to <= top || from >= bottom).toBe(true);
+        expect(to).toBeLessThanOrEqual(height);
+      }
+      expect(JSON.stringify(edit)).toContain("Webb Leads · Midland and Odessa");
+    }
+  });
+});
 
 describe("an image ad's pure parts", () => {
   const brand = { name: "Webb Leads", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland"] };
@@ -806,6 +894,23 @@ function imagePlanFor(headline = "Paint them, don't replace them") {
   };
 }
 
+/** A valid checklist ad over the first two photos offered: five spoken lines, 50 words in all. */
+function graphicPlanFor() {
+  return {
+    fits: true,
+    title: "Before you hire a painter",
+    intro: "Thinking about painting your cabinets instead of replacing them this year?",
+    points: [
+      { photo: 1, text: "Vetted and insured", voice: "We match you with one local painter who has been checked." },
+      { photo: 1, text: "Prep done right", voice: "The surfaces are cleaned, sanded and primed before any colour goes on." },
+      { photo: 2, text: "A free, written quote", voice: "You see the whole job in writing before you decide anything." },
+    ],
+    close: "Get a quote from Permian Home Quotes today.",
+    headline: GOOD.headline,
+    primaryText: GOOD.primaryText,
+  };
+}
+
 type StubOpts = {
   /** Every image ad prints a price. */
   imagesFail?: boolean;
@@ -933,6 +1038,7 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
         let reply: unknown;
         if (prompt.includes(TAG_MARK)) reply = tagReplyFor(prompt);
         else if (prompt.includes(PLAYBOOK_MARK)) reply = PLAYBOOK_REPLY;
+        else if (prompt.includes("animated checklist ad")) reply = graphicPlanFor();
         else if (prompt.includes("image ad for")) reply = imagePlanFor(opts.imagesFail ? "Only $999 this week" : undefined);
         else if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`))
           reply = { fits: false, reason: `no ${opts.passOnScope} in this footage` };
@@ -1330,6 +1436,47 @@ describe("the weekly run", () => {
     // The hook and the photo were used once.
     expect((await owner.as.query(api.ads.listHooks, {})).filter((h) => h.uses === 1).length).toBe(1);
     expect((await owner.as.query(api.ads.listAssets, {})).find((a) => a.fileName === "before.jpg")!.uses).toBe(1);
+  });
+
+  test("a checklist ad: voiced once, each point appears when its line starts, and the ask replaces the points at the closing line", async () => {
+    const { calls, draft } = await noMeta({ video: false, image: false, graphic: true });
+    stubServices(calls);
+    const batch = await draft();
+    expect(batch.creatives.map((c) => `${c.kind} ${c.ratio} ${c.status}${c.error && !c.error.includes("Meta") ? `: ${c.error}` : ""}`)).toEqual([
+      "graphic 9x16 rendered",
+      "graphic 4x5 rendered",
+    ]);
+    const [tall] = batch.creatives;
+    expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}_gfx$/);
+    expect(tall.videoUrl).toContain("/api/storage/");
+    // Five spoken lines: the title's, the three points', the ask's. The two photos in the order they come up.
+    expect(tall.shots.map((x) => x.onScreen)).toEqual(["Before you hire a painter", "Vetted and insured", "Prep done right", "A free, written quote", "Get a quote"]);
+    expect(tall.shots.map((x) => x.fileName)).toEqual(["before.jpg", "before.jpg", "before.jpg", "after.jpg", "after.jpg"]);
+    expect(tall.script.onScreen).toEqual(["Before you hire a painter", "Vetted and insured", "Prep done right", "A free, written quote"]);
+    // One read for the two sizes, of the five lines joined.
+    const reads = calls.filter((c) => c.url.includes("elevenlabs"));
+    expect(reads.length).toBe(1);
+    expect(JSON.parse(reads[0].body!).text).toMatch(/^Thinking about painting .* Get a quote from Permian Home Quotes today\.$/);
+    // The render: each point's words start with its line and leave when the closing line starts; the ask starts there.
+    const render = JSON.parse(calls.find((c) => c.url.endsWith("/render"))!.body!);
+    const clips = (render.timeline.tracks as Array<{ clips: LooseTimed[] }>).map((t) => t.clips[0]);
+    const closeAt = tall.shots[4].start!;
+    const words = (text: string) => clips.find((c) => c.asset.html === `<p>${text}</p>`)!;
+    tall.shots.slice(1, 4).forEach((shot) => {
+      const clip = words(shot.onScreen);
+      expect(clip.start).toBe(shot.start);
+      expect(clip.start + clip.length).toBeCloseTo(closeAt, 1);
+    });
+    expect(tall.shots[1].start!).toBeLessThan(tall.shots[2].start!);
+    expect(words("Get a quote").start).toBe(closeAt);
+    expect(words("Before you hire a painter").start).toBe(0);
+    // Three ticks, one per point, each with its point.
+    const ticks = clips.filter((c) => c.asset.type === "svg");
+    expect(ticks.map((c) => c.start)).toEqual(tall.shots.slice(1, 4).map((x) => x.start));
+    // Nothing slides or zooms, and there is no music.
+    expect(JSON.stringify(render)).not.toMatch(/"effect"|slide|zoom|soundtrack/);
+    expect(render.output.format).toBe("mp4");
+    expect(clips.filter((c) => c.asset.type === "audio").length).toBe(1);
   });
 
   test("an image ad that prints a price is passed over with the reason", async () => {
