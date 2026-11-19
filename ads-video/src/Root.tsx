@@ -1,6 +1,7 @@
 import { Composition } from "remotion";
 import { Ad } from "./Ad";
-import { FPS, HOLD_SEC, SIZES, type AdProps } from "./types";
+import { Still } from "./formats/Still";
+import { FPS, HOLD_SEC, SIZES, type AdProps, type StillProps } from "./types";
 
 /** Stands in until an ad's own props are passed with --props. */
 const placeholder: AdProps = {
@@ -18,15 +19,35 @@ const placeholder: AdProps = {
   photos: [],
 };
 
+/** Stands in until a still's own props are passed with --props. */
+const stillPlaceholder: StillProps = {
+  ratio: "4x5",
+  brand: placeholder.brand,
+  headline: "Fresh paint, one call",
+  sub: "One vetted local painter. One free quote.",
+};
+
 export const Root: React.FC = () => (
-  <Composition
-    id="Ad"
-    component={Ad}
-    fps={FPS}
-    width={1080}
-    height={1920}
-    durationInFrames={300}
-    defaultProps={placeholder}
-    calculateMetadata={({ props }) => ({ ...SIZES[props.ratio], durationInFrames: Math.ceil((props.audioSec + HOLD_SEC) * FPS) })}
-  />
+  <>
+    <Composition
+      id="Ad"
+      component={Ad}
+      fps={FPS}
+      width={1080}
+      height={1920}
+      durationInFrames={300}
+      defaultProps={placeholder}
+      calculateMetadata={({ props }) => ({ ...SIZES[props.ratio], durationInFrames: Math.ceil((props.audioSec + HOLD_SEC) * FPS) })}
+    />
+    <Composition
+      id="Still"
+      component={Still}
+      fps={FPS}
+      width={1080}
+      height={1350}
+      durationInFrames={1}
+      defaultProps={stillPlaceholder}
+      calculateMetadata={({ props }) => ({ ...SIZES[props.ratio] })}
+    />
+  </>
 );
