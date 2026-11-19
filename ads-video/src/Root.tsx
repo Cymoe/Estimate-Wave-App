@@ -7,7 +7,7 @@ import { FPS, HOLD_SEC, SIZES, type AdProps, type StillProps } from "./types";
 const placeholder: AdProps = {
   ratio: "9x16",
   style: { kind: "lightUp" },
-  brand: { name: "Webb Leads", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] },
+  brand: { name: "GoodFit Pros", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] },
   headline: "Fresh paint, one call",
   lines: [
     { voice: "Thinking about painting this year?", start: 0, end: 2.4 },

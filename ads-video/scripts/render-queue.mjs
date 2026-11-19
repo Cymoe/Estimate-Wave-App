@@ -10,7 +10,7 @@
 //   node scripts/render-queue.mjs --fixture f.json   draw the ads in a file into out/queue, touching nothing else
 //
 // A fixture is what the backend hands out: [{ "name": "...", "props": { ... } }],
-// where a photo or the voice may be a link, or a file beside the fixture or under public/.
+// where a photo, the voice or the music may be a link, or a file beside the fixture or under public/.
 
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -67,9 +67,46 @@ async function bytesOf(src, base) {
   return await readFile(found);
 }
 
+/** The loudness ads are played at. A voice comes from ElevenLabs a good deal quieter, and uneven from one read to the next. */
+const VOICE_LUFS = -16;
+
 /**
- * Brings an ad's photos and voice into the bundle and points its props at
- * them, with each photo's size. Drawn from files beside the page, a frame
+ * Brings a voice up to the usual loudness with the ffmpeg Remotion carries.
+ * If that can't be run, the voice goes in as it came: quieter, not broken.
+ */
+async function evenVoice(file) {
+  const out = file.replace(/\.mp3$/, "-even.mp3");
+  try {
+    await run("npx", ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-i", file, "-af", `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11`, "-ar", "44100", "-b:a", "192k", out], { cwd: root });
+    return existsSync(out) ? out : file;
+  } catch (e) {
+    console.error(`The voice couldn't be brought up to level and is used as it came: ${short(e)}`);
+    return file;
+  }
+}
+
+/**
+ * Cuts a music track to where it should start and brings it to the same loudness as the voice, so the level it is
+ * mixed under the voice at means the same for every track. If that can't be run, the track goes in whole.
+ */
+async function evenMusic(file, from = 0) {
+  const out = file.replace(/\.mp3$/, "-even.mp3");
+  try {
+    await run(
+      "npx",
+      ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-ss", String(from), "-t", "90", "-i", file, "-af", `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11`, "-ar", "44100", "-b:a", "192k", out],
+      { cwd: root },
+    );
+    return existsSync(out) ? { file: out, from: 0 } : { file, from };
+  } catch (e) {
+    console.error(`The music couldn't be cut and levelled and is used as it came: ${short(e)}`);
+    return { file, from };
+  }
+}
+
+/**
+ * Brings an ad's photos, voice and music into the bundle and points its props
+ * at them, with each photo's size. Drawn from files beside the page, a frame
  * never waits on the network.
  */
 async function localProps(job, serveDir, base) {
@@ -87,16 +124,33 @@ async function localProps(job, serveDir, base) {
       const turned = (size.orientation ?? 1) >= 5;
       const file = `${folder}/p${seen.size}.${size.type === "jpg" ? "jpg" : (size.type ?? "jpg")}`;
       await writeFile(path.join(serveDir, "public", file), bytes);
-      seen.set(photo.src, { src: file, width: turned ? size.height : size.width, height: turned ? size.width : size.height });
+      const local = { src: file, width: turned ? size.height : size.width, height: turned ? size.width : size.height };
+      // The same photo with the camera moving, when a clip of it has been made.
+      if (photo.motion?.src) {
+        const clip = `${folder}/m${seen.size}.mp4`;
+        await writeFile(path.join(serveDir, "public", clip), await bytesOf(photo.motion.src, base));
+        local.motion = { src: clip };
+      }
+      seen.set(photo.src, local);
     }
-    photos.push(seen.get(photo.src));
+    // Where to move in on belongs to the line's photo, so it is kept as the line gave it.
+    photos.push({ ...seen.get(photo.src), ...(photo.focus ? { focus: photo.focus } : {}) });
   }
   let audio = "";
   if (job.props.audio) {
-    audio = `${folder}/voice.mp3`;
-    await writeFile(path.join(serveDir, "public", audio), await bytesOf(job.props.audio, base));
+    const voice = path.join(serveDir, "public", folder, "voice.mp3");
+    await writeFile(voice, await bytesOf(job.props.audio, base));
+    audio = `${folder}/${path.basename(await evenVoice(voice))}`;
   }
-  return { props: { ...job.props, photos, audio }, dir };
+  // Music is fetched like a photo; the effects are files the renderer carries, so they stay as they are.
+  let sound = job.props.sound;
+  if (sound?.music) {
+    const music = path.join(serveDir, "public", folder, "music.mp3");
+    await writeFile(music, await bytesOf(sound.music, base));
+    const even = await evenMusic(music, sound.musicFrom);
+    sound = { ...sound, music: `${folder}/${path.basename(even.file)}`, musicFrom: even.from };
+  }
+  return { props: { ...job.props, photos, audio, ...(sound ? { sound } : {}) }, dir };
 }
 
 async function draw(job, serveUrl, base) {

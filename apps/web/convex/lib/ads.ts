@@ -480,9 +480,18 @@ export interface Brand {
 // ----------------------------------------------------------- Animated ads
 
 /** How an ad moves. The renderer (ads-video/) draws each one. */
-export const AD_STYLES = ["lightUp", "beforeAfter", "counter"] as const;
+export const AD_STYLES = ["reel", "lightUp", "beforeAfter", "counter"] as const;
 export type AdStyle = (typeof AD_STYLES)[number];
-export const AD_STYLE_LABELS: Record<AdStyle, string> = { lightUp: "Light-up", beforeAfter: "Before / after", counter: "Counter" };
+export const AD_STYLE_LABELS: Record<AdStyle, string> = { reel: "Reel", lightUp: "Light-up", beforeAfter: "Before / after", counter: "Counter" };
+/** What a new ad is drawn as: the photos fill the frame and are cut like footage. The others are how ads were drawn before, and still are when one is drawn again. */
+export const NEW_AD_STYLE: AdStyle = "reel";
+/** The effects a reel plays, files the renderer carries (ads-video/public/sound). */
+export const REEL_SOUNDS = { move: "sound/whip.wav", land: "sound/switch.wav", ask: "sound/whoosh.wav" } as const;
+/** Where a shot of a photo moves in on, each 0 to 100 across and down it. */
+export interface FocusPoint {
+  x: number;
+  y: number;
+}
 
 export const TITLE_MAX = 30;
 export const LABEL_MAX = 24;
@@ -497,6 +506,8 @@ export interface Design {
   stats?: Array<{ value: number; label: string }>;
   /** The word the after is revealed on, in a before/after. */
   revealOn?: string;
+  /** In a reel: where each photo's close shots look. */
+  focus?: Array<{ assetId: string; points: FocusPoint[] }>;
 }
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
@@ -548,7 +559,7 @@ export function motionPrompt(
     `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local ${trade.contractor}.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
     "",
-    "On screen: a title at the top for the whole ad, a photo in a card in the middle, and captions that follow the voice word by word. It ends on a Get a quote button. Each attached photo is labelled with its number.",
+    "On screen: each photo fills the whole frame and is cut like footage, wide then close, while its line is said. The title is large while the first line is said, and captions follow the voice word by word. It ends on a Get a quote button. Each attached photo is labelled with its number.",
     ...list,
     inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with them.`,
     "",
@@ -557,10 +568,11 @@ export function motionPrompt(
       ? ["What works in this category, from competitor ads that have run for months. Follow the angle and the kind of opening; never their claims:", playbook.trim(), ""]
       : []),
     ...examplesText(examples),
-    "Choose the one style that suits the hook and these photos:",
-    '- "lightUp": the first photo starts dim and grey, then light crosses it and its colour comes up. The first line\'s photo must be finished, well lit work. Each line after the first may have a label of at most 3 words that pins to the photo while the line is said.',
-    '- "beforeAfter": only when two of the photos are one pair, one tagged before and one tagged after. Use just those two, the before first. Give revealOn: one word of your script, said while the after should appear.',
-    `- "counter": 2 or 3 numbers that count up and stop, one for each line after the first. Only whole numbers from 0 to 99 that are plainly true of what ${brand} does (one painter, one quote, zero pressure). Never invent counts of jobs, years, reviews or customers.`,
+    "How it is drawn:",
+    "- Each line after the first may have a label of at most 3 words that is stuck on the picture while the line is said.",
+    "- For each photo you use, give one or two focus points: where the camera should move in on, as x (0 at the left to 100 at the right) and y (0 at the top to 100 at the bottom). Choose the part of the photo its line is about.",
+    "- Use three or more different photos when that many fit the hook, so the picture keeps changing.",
+    "- When two of the photos are one pair, one tagged before and one tagged after, show the before first, and let the words say which is which.",
     "",
     "Write:",
     `- title: at most 5 words and ${TITLE_MAX} characters.`,
@@ -573,9 +585,9 @@ export function motionPrompt(
     "- If these photos can't carry the hook honestly, don't force it.",
     "",
     "Return only JSON, one of:",
-    '{"fits":true,"style":"lightUp","title":"...","lines":[{"photo":1,"voice":"spoken line","label":"short label"}],"stats":[{"value":1,"label":"what it counts"}],"revealOn":"word","headline":"<=40 chars","primaryText":"<=125 chars"}',
+    `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"voice":"spoken line","label":"short label"}],"focus":[{"photo":1,"x":60,"y":55}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
     '{"fits":false,"reason":"why the photos do not fit"}',
-    "Leave out stats unless the style is counter, revealOn unless it is beforeAfter, and label where a line has none.",
+    "Leave out label where a line has none.",
   ]
     .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
     .join("\n");
@@ -589,6 +601,8 @@ export interface MotionPlan {
   lines?: Array<{ photo?: number; voice?: string; label?: string }>;
   stats?: Array<{ value?: number; label?: string }>;
   revealOn?: string;
+  /** In a reel: where to move in on, by photo number. */
+  focus?: Array<{ photo?: number; x?: number; y?: number }>;
   headline?: string;
   primaryText?: string;
 }
@@ -599,7 +613,7 @@ const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9']/g, "");
 export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: string[]; pairKey?: string }>): string[] {
   const out: string[] = [];
   const style = AD_STYLES.find((x) => x === plan.style);
-  if (!style) out.push(`style "${plan.style ?? ""}" (choose lightUp, beforeAfter or counter)`);
+  if (!style) out.push(`style "${plan.style ?? ""}" (write ${NEW_AD_STYLE})`);
   const title = plan.title?.trim() ?? "";
   if (!title) out.push("no title");
   else if (title.length > TITLE_MAX) out.push(`title over ${TITLE_MAX} characters`);
@@ -666,8 +680,18 @@ export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: S
     voice: (line.voice ?? "").trim(),
     onScreen: (line.label ?? "").trim(),
   }));
-  const style = AD_STYLES.find((x) => x === plan.style) ?? "lightUp";
+  const style = AD_STYLES.find((x) => x === plan.style) ?? NEW_AD_STYLE;
   const title = (plan.title ?? "").trim();
+  // A reel's focus points, by the photo they are on: only ones that land on the photo, two at most to each.
+  const used = new Set(shots.map((x) => x.assetId));
+  const focus = new Map<string, FocusPoint[]>();
+  for (const f of plan.focus ?? []) {
+    const assetId = assetIds[(f.photo ?? 0) - 1];
+    const ok = (n: unknown): n is number => typeof n === "number" && n >= 0 && n <= 100;
+    if (!assetId || !used.has(assetId) || !ok(f.x) || !ok(f.y)) continue;
+    const points = focus.get(assetId) ?? [];
+    if (points.length < 2) focus.set(assetId, [...points, { x: Math.round(f.x), y: Math.round(f.y) }]);
+  }
   return {
     script: {
       voice: shots.map((x) => x.voice).join(" "),
@@ -681,6 +705,7 @@ export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: S
       title,
       ...(style === "counter" ? { stats: (plan.stats ?? []).map((x) => ({ value: x.value ?? 0, label: (x.label ?? "").trim() })) } : {}),
       ...(style === "beforeAfter" && plan.revealOn?.trim() ? { revealOn: plan.revealOn.trim() } : {}),
+      ...(style === "reel" && focus.size ? { focus: [...focus].map(([assetId, points]) => ({ assetId, points })) } : {}),
     },
   };
 }
@@ -727,6 +752,8 @@ export function renderProps(input: {
   audioUrl: string;
   audioSec: number;
   brand: Brand;
+  /** The music a reel plays under the voice, and where its beats fall; none plays without one. */
+  music?: { url: string; from?: number; beats?: number[] };
 }) {
   const { design, script } = input;
   const shots = script.shots ?? [];
@@ -736,7 +763,7 @@ export function renderProps(input: {
     voice: x.voice,
     start: x.start ?? 0,
     end: x.end ?? 0,
-    ...(design.style === "lightUp" && x.onScreen ? { label: x.onScreen } : {}),
+    ...((design.style === "lightUp" || design.style === "reel") && x.onScreen ? { label: x.onScreen } : {}),
     ...(x.words ? { words: x.words } : {}),
   }));
   let style: Record<string, unknown> = { kind: design.style };
@@ -748,6 +775,25 @@ export function renderProps(input: {
     photos = [{ src: before.url }, { src: perLine[turned]!.url }];
     style = { kind: "beforeAfter", ...(design.revealOn ? { crossOn: design.revealOn } : {}), crossAt: lines[turned].start };
   } else if (design.style === "counter") style = { kind: "counter", stats: design.stats ?? [] };
+  if (design.style === "reel") {
+    const focus = new Map((design.focus ?? []).map((f) => [f.assetId, f.points]));
+    return {
+      ratio: input.ratio,
+      style,
+      brand: input.brand,
+      headline: design.title,
+      lines,
+      audio: input.audioUrl,
+      audioSec: input.audioSec,
+      photos: shots.map((x, i) => ({ src: perLine[i]!.url, ...(focus.has(x.assetId) ? { focus: focus.get(x.assetId) } : {}) })),
+      sound: {
+        ...(input.music
+          ? { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}), ...(input.music.beats?.length ? { beats: input.music.beats } : {}) }
+          : {}),
+        ...REEL_SOUNDS,
+      },
+    };
+  }
   return { ratio: input.ratio, style, brand: input.brand, headline: design.title, lines, audio: input.audioUrl, audioSec: input.audioSec, photos };
 }
 

@@ -193,7 +193,7 @@ describe("an animated ad's pure parts", () => {
   ];
   const loose = [{ tags: ["interior"] }, { tags: ["interior"] }];
 
-  test("the prompt lists the photos by number with their pairs, offers the three styles, and carries the rules", () => {
+  test("the prompt lists the photos by number with their pairs, says how a reel is drawn, and carries the rules", () => {
     const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
     const text = motionPrompt(
       hook,
@@ -207,9 +207,13 @@ describe("an animated ad's pure parts", () => {
       "Midland",
     );
     expect(text).toContain('Photo 1 · tags: cabinets, before · pair "k" · looks like: dark oak cabinets · (attached below)');
-    expect(text).toContain('"lightUp"');
-    expect(text).toContain('"beforeAfter": only when two of the photos are one pair');
-    expect(text).toContain("Never invent counts of jobs, years, reviews or customers.");
+    // A new ad is a reel: the photos fill the frame, each with where to move in on, and a pair is shown before first.
+    expect(text).toContain("each photo fills the whole frame and is cut like footage");
+    expect(text).toContain('"style":"reel"');
+    expect(text).toContain('"focus":[{"photo":1,"x":60,"y":55}]');
+    expect(text).toContain("give one or two focus points");
+    expect(text).toContain("show the before first");
+    expect(text).not.toContain("lightUp");
     expect(text).toContain("never as a homeowner or customer");
     expect(text).toContain("its final sentence asks the viewer to get a quote");
     expect(text).toContain("at most 15 words");
@@ -238,7 +242,7 @@ describe("an animated ad's pure parts", () => {
   test("the rules: a style, a title, three to five lines on photos that were offered, a last line that asks, and no forbidden claims", () => {
     const good = motionPlanFor(2);
     expect(motionPlanProblems(good, loose)).toEqual([]);
-    expect(motionPlanProblems({ ...good, style: "explode" }, loose)).toEqual(['style "explode" (choose lightUp, beforeAfter or counter)']);
+    expect(motionPlanProblems({ ...good, style: "explode" }, loose)).toEqual(['style "explode" (write reel)']);
     expect(motionPlanProblems({ ...good, title: "x".repeat(31) }, loose)).toEqual(["title over 30 characters"]);
     expect(motionPlanProblems({ ...good, lines: good.lines.slice(0, 2) }, loose)).toEqual(expect.arrayContaining(["2 lines (write 3 to 5)"]));
     expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], photo: 3 }, ...good.lines.slice(1)] }, loose)).toEqual(["line 1 names photo 3"]);
@@ -341,6 +345,52 @@ describe("an animated ad's pure parts", () => {
     expect((wipe.lines[1] as { label?: string }).label).toBeUndefined();
     const counter = renderProps({ ...base, design: { style: "counter", title: "T", stats: [{ value: 1, label: "painter" }] } });
     expect(counter.style).toEqual({ kind: "counter", stats: [{ value: 1, label: "painter" }] });
+    // A reel: every line's photo with where to move in on, labels stuck on the picture, the effects, and the music when a track is on.
+    const reelPlan = motionPlanFor(2, {
+      style: "reel",
+      focus: [
+        { photo: 1, x: 60.4, y: 55 },
+        { photo: 1, x: 20, y: 30 },
+        { photo: 1, x: 5, y: 5 },
+        { photo: 2, x: 140, y: 50 },
+        { photo: 9, x: 50, y: 50 },
+      ],
+    });
+    expect(motionPlanProblems(reelPlan, loose)).toEqual([]);
+    const made = composeMotion(reelPlan, ["a", "b"]);
+    // Two points to a photo at most; one that is off the photo, or on a photo that wasn't offered, is dropped.
+    expect(made.design).toEqual({
+      style: "reel",
+      title: "Paint them, don't replace",
+      focus: [
+        {
+          assetId: "a",
+          points: [
+            { x: 60, y: 55 },
+            { x: 20, y: 30 },
+          ],
+        },
+      ],
+    });
+    const reel = renderProps({ ...base, design: made.design, music: { url: "https://files.example/m.mp3", beats: [0.5, 1.05] } });
+    expect(reel.style).toEqual({ kind: "reel" });
+    expect(reel.photos).toEqual([
+      { src: "https://files.example/a.jpg", focus: made.design.focus![0].points },
+      { src: "https://files.example/a.jpg", focus: made.design.focus![0].points },
+      { src: "https://files.example/b.jpg" },
+      { src: "https://files.example/b.jpg" },
+    ]);
+    expect((reel.lines[1] as { label?: string }).label).toBe("No tear-out");
+    expect((reel as { sound?: unknown }).sound).toEqual({
+      music: "https://files.example/m.mp3",
+      beats: [0.5, 1.05],
+      move: "sound/whip.wav",
+      land: "sound/switch.wav",
+      ask: "sound/whoosh.wav",
+    });
+    // With no track on, a reel still has its effects; an ad in an older style carries no sound plan at all.
+    expect((renderProps({ ...base, design: made.design }) as { sound?: unknown }).sound).toEqual({ move: "sound/whip.wav", land: "sound/switch.wav", ask: "sound/whoosh.wav" });
+    expect((lit as { sound?: unknown }).sound).toBeUndefined();
     // A photo gone from the library stops the ad rather than drawing a hole.
     expect(() => renderProps({ ...base, design, photos: new Map([["a", photos.get("a")!]]) })).toThrow("A line's photo is missing from the library");
   });
@@ -521,7 +571,7 @@ describe("niche research's pure parts", () => {
     expect(text).toContain(
       "What works in this category, from competitor ads that have run for months. Follow the angle and the kind of opening; never their claims:",
     );
-    expect(text.indexOf("Open with the owner")).toBeLessThan(text.indexOf("Choose the one style"));
+    expect(text.indexOf("Open with the owner")).toBeLessThan(text.indexOf("How it is drawn:"));
     expect(motionPrompt(hook, "B", [], true)).not.toContain("What works in this category");
   });
 
@@ -800,7 +850,7 @@ type StubOpts = {
   /** What GitHub answers when asked to start the renderer (it says 204 when it will). */
   github?: number;
   /** Claude chooses this style instead of the light-up. */
-  style?: "beforeAfter";
+  style?: "beforeAfter" | "reel";
 };
 
 /** Claude's read of a competitor ad, from what the prompt names. */
@@ -972,6 +1022,7 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         else if (opts.scriptsFail) reply = motionPlanFor(offered, { primaryText: "Only $999 this week" });
         else if (opts.badFirst && !retry) reply = motionPlanFor(offered, { lines: [] });
         else if (opts.style === "beforeAfter") reply = motionPlanFor(offered, { style: "beforeAfter", revealOn: "finish" });
+        else if (opts.style === "reel") reply = motionPlanFor(offered, { style: "reel", focus: [{ photo: 1, x: 60, y: 55 }] });
         else reply = motionPlanFor(offered);
         return new Response(JSON.stringify({ content: [{ type: "text", text: "Here it is: " + JSON.stringify(reply) }] }));
       }
@@ -1004,6 +1055,8 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
           }),
         );
       }
+      if (url.includes("tracks.example"))
+        return url.endsWith("missing.mp3") ? new Response("gone", { status: 404 }) : new Response(url.endsWith("tiny.mp3") ? "x" : "m".repeat(20_000), { status: 200 });
       if (url.includes("api.github.com")) return new Response(opts.github && opts.github >= 400 ? "Resource not accessible" : null, { status: opts.github ?? 204 });
       if (url.includes("graph.facebook.com")) {
         const path = new URL(url).pathname;
@@ -1383,6 +1436,31 @@ describe("the weekly run", () => {
     // A family that is live is skipped by the next pick.
     const plan = await t.query(internal.ads.plan, { hooksPerWeek: 4 });
     expect(plan.hooks.some((h) => h.family === tall.hook!.family)).toBe(false);
+  });
+
+  test("a new ad is a reel: its photos say where to move in on, and the track that is switched on plays under it", async () => {
+    const { t, calls, draft, claim } = await ready();
+    stubServices(calls, { style: "reel" });
+    // Two tracks filed; the second is made the only one in use.
+    await t.mutation(internal.ads.addMusic, { name: "An earlier track", storageId: await store(t, "audio/mpeg", "old music") });
+    // The chosen track is fetched from where it is published and kept in storage, with where to start it and its beats.
+    await expect(t.action(internal.ads.fetchMusic, { url: "https://tracks.example/missing.mp3", name: "x" })).rejects.toThrow("couldn't be fetched (404)");
+    await expect(t.action(internal.ads.fetchMusic, { url: "https://tracks.example/tiny.mp3", name: "x" })).rejects.toThrow("doesn't look like a music track");
+    await t.action(internal.ads.fetchMusic, { url: "https://tracks.example/music-1.mp3", name: "Music 1", from: 12, beats: [0.49, 1.03], only: true });
+    const tracks = await t.run((ctx) => ctx.db.query("adMusic").collect());
+    expect(tracks.map((m) => [m.name, m.active])).toEqual([
+      ["An earlier track", false],
+      ["Music 1", true],
+    ]);
+    const batch = await draft();
+    expect(batch.creatives[0].style).toEqual({ id: "reel", label: "Reel" });
+    const jobs = await claim();
+    expect(jobs.length).toBe(2);
+    const props = jobs[0].props as { style: unknown; photos: Array<{ focus?: unknown }>; sound?: { music?: string; musicFrom?: number; beats?: number[]; move?: string } };
+    expect(props.style).toEqual({ kind: "reel" });
+    expect(props.photos[0].focus).toEqual([{ x: 60, y: 55 }]);
+    expect(props.sound).toMatchObject({ music: expect.stringContaining("/api/storage/"), musicFrom: 12, beats: [0.49, 1.03], move: "sound/whip.wav" });
+    expect(props.sound!.music).toBe(await t.run((ctx) => ctx.storage.getUrl(tracks[1].storageId)));
   });
 
   test("pulling the unpublished ads rejects every one that hasn't gone live, and leaves alone one already created in Meta", async () => {

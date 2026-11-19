@@ -2091,10 +2091,11 @@ export const failBatch = internalMutation({
 });
 
 const adDesign = v.object({
-  style: v.union(v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
+  style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
   title: v.string(),
   stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
   revealOn: v.optional(v.string()),
+  focus: v.optional(v.array(v.object({ assetId: v.id("adAssets"), points: v.array(v.object({ x: v.number(), y: v.number() })) }))),
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */
@@ -2338,6 +2339,10 @@ export const claimRenders = internalMutation({
       accentColor: row?.accentColor ?? "#8fb6e0",
       markets: research(row).researchMarkets,
     };
+    // The music a reel plays: the newest track switched on.
+    const track = (await ctx.db.query("adMusic").order("desc").take(20)).find((m) => m.active);
+    const musicUrl = track ? await ctx.storage.getUrl(track.storageId) : null;
+    const music = track && musicUrl ? { url: musicUrl, from: track.from, beats: track.beats } : undefined;
     const jobs: Array<{ id: Id<"adCreatives">; name: string; props: ReturnType<typeof renderProps> }> = [];
     for (const c of [...waiting, ...stale].slice(0, Math.max(1, Math.min(RENDER_BATCH, limit)))) {
       try {
@@ -2359,6 +2364,7 @@ export const claimRenders = internalMutation({
           audioUrl,
           audioSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
           brand,
+          music,
         });
         await ctx.db.patch(c._id, { status: "rendering", renderStartedAt: nowIso(), error: undefined });
         jobs.push({ id: c._id, name: c.name, props });
@@ -2372,6 +2378,31 @@ export const claimRenders = internalMutation({
 });
 
 /** Where the renderer puts a finished file. */
+/** Files a music track that is already in storage; with `only`, it becomes the one track in use. */
+export const addMusic = internalMutation({
+  args: { name: v.string(), storageId: v.id("_storage"), from: v.optional(v.number()), beats: v.optional(v.array(v.number())), only: v.optional(v.boolean()) },
+  handler: async (ctx, { name, storageId, from, beats, only }) => {
+    const file = await ctx.db.system.get(storageId);
+    if (file === null) fail("NOT_FOUND", "The uploaded file wasn't found");
+    if (only) for (const m of await ctx.db.query("adMusic").take(100)) await ctx.db.patch(m._id, { active: false });
+    return await ctx.db.insert("adMusic", { name: name.slice(0, 80), storageId, from, beats: beats?.slice(0, 400), active: true, createdAt: nowIso() });
+  },
+});
+
+/** Fetches a music track from where it is published, keeps it in storage, and files it. Run by hand when a track is chosen. */
+export const fetchMusic = internalAction({
+  args: { url: v.string(), name: v.string(), from: v.optional(v.number()), beats: v.optional(v.array(v.number())), only: v.optional(v.boolean()) },
+  handler: async (ctx, { url, ...rest }): Promise<{ id: Id<"adMusic">; bytes: number }> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`The track couldn't be fetched (${res.status})`);
+    const blob = await res.blob();
+    if (blob.size < 10_000 || blob.size > 30 * 1024 * 1024) throw new Error(`That doesn't look like a music track (${blob.size} bytes)`);
+    const storageId = await ctx.storage.store(new Blob([await blob.arrayBuffer()], { type: "audio/mpeg" }));
+    const id: Id<"adMusic"> = await ctx.runMutation(internal.ads.addMusic, { ...rest, storageId });
+    return { id, bytes: blob.size };
+  },
+});
+
 export const renderUploadUrl = internalMutation({ args: {}, handler: async (ctx) => await ctx.storage.generateUploadUrl() });
 
 /** The renderer hands in a finished video. An ad that was rejected or removed meanwhile doesn't keep it. */

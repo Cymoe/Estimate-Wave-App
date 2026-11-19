@@ -2550,6 +2550,18 @@ export default defineSchema({
     startedBy: v.optional(v.id("users")),
   }),
 
+  // Music an ad may play under the voice. The file is kept here, not with the renderer's code, which is public.
+  adMusic: defineTable({
+    name: v.string(),
+    storageId: v.id("_storage"),
+    // Seconds into the file where an ad starts it, past a quiet opening.
+    from: v.optional(v.number()),
+    // Where its beats fall, in seconds from there, so a cut can land on one.
+    beats: v.optional(v.array(v.number())),
+    active: v.boolean(),
+    createdAt: v.string(),
+  }),
+
   // What the keeps and kills say about the owner's taste, in a few sentences (ads.learnTaste). The idea writers read it.
   adTaste: defineTable({
     note: v.string(),
@@ -2580,10 +2592,12 @@ export default defineSchema({
     // How the ad moves and what the renderer shows beyond the script (lib/ads.ts Design). Absent on those older ads.
     design: v.optional(
       v.object({
-        style: v.union(v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
+        style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
         title: v.string(),
         stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
         revealOn: v.optional(v.string()),
+        // In a reel: where each photo's close shots look, 0 to 100 across and down it.
+        focus: v.optional(v.array(v.object({ assetId: v.id("adAssets"), points: v.array(v.object({ x: v.number(), y: v.number() })) }))),
       }),
     ),
     // Also the ad's name in Meta, so a lead's adName joins back here.

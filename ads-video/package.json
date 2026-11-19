@@ -12,7 +12,6 @@
     "@remotion/cli": "4.0.545",
     "@remotion/fonts": "^4.0.545",
     "@remotion/renderer": "4.0.545",
-    "@remotion/sfx": "4.0.545",
     "image-size": "1.2.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
