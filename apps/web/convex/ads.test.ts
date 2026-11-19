@@ -1091,7 +1091,7 @@ describe("a photo brought to life", () => {
 
     // A dry run, the default: the finished cabinets (not the before), an interior, an exterior; ten seconds each at about 11¢ a second.
     const dry = await run(t, {});
-    expect(dry).toMatchObject({ dryRun: true, secondsEach: 10, estimateCents: 336 });
+    expect(dry).toMatchObject({ dryRun: true, secondsEach: 5, estimateCents: 168 });
     expect(dry.photos.map((p) => p.fileName)).toEqual(["after.jpg", "den.heic", "porch.jpg"]);
     expect(calls).toEqual([]);
     expect(await t.query(internal.ads.motionResults, {})).toEqual([]);
@@ -1105,7 +1105,7 @@ describe("a photo brought to life", () => {
     const sent = calls.filter((c) => c.method === "POST");
     expect(sent).toHaveLength(3);
     expect(sent.every((c) => c.auth === "Key fk")).toBe(true);
-    expect(sent[0].body).toMatchObject({ duration: "10", generate_audio: false, start_image_url: expect.stringContaining("/api/storage/") });
+    expect(sent[0].body).toMatchObject({ duration: "5", generate_audio: false, start_image_url: expect.stringContaining("/api/storage/") });
     expect(sent[0].body.prompt).toContain("Keep everything exactly as in the photo");
     expect(sent[0].body.prompt).toContain("No people");
     // The clip itself is downloaded without the key.
@@ -1114,7 +1114,7 @@ describe("a photo brought to life", () => {
 
     const results = await t.query(internal.ads.motionResults, {});
     const byName = Object.fromEntries(results.map((r) => [r.fileName, r]));
-    expect(byName["after.jpg"]).toMatchObject({ status: "ready", seconds: 10, clip: expect.stringContaining("/api/storage/"), photo: expect.stringContaining("/api/storage/") });
+    expect(byName["after.jpg"]).toMatchObject({ status: "ready", seconds: 5, clip: expect.stringContaining("/api/storage/"), photo: expect.stringContaining("/api/storage/") });
     expect(byName["den.heic"]).toMatchObject({ status: "ready" });
     expect(byName["porch.jpg"]).toMatchObject({ status: "failed", error: expect.stringContaining("422") });
     expect(byName["porch.jpg"].clip).toBeUndefined();
@@ -1139,7 +1139,7 @@ describe("a photo brought to life", () => {
     expect(await t.run(async (ctx) => ctx.db.system.get(clipId))).toBeNull();
   });
 
-  test("the key is never sent anywhere but fal's queue, and at most six photos go in one run", async () => {
+  test("the key is never sent anywhere but fal's queue, and at most ten photos go in one run", async () => {
     const t = setup();
     await photos(t);
     vi.stubEnv("FAL_KEY", "fk");

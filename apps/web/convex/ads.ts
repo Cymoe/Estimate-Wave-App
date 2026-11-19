@@ -310,11 +310,11 @@ export const removeAsset = mutation({
 
 const MOTION_MODEL = "fal-ai/kling-video/v3/pro/image-to-video";
 const FAL_QUEUE = "https://queue.fal.run";
-const MOTION_SEC = 10;
+const MOTION_SEC = 5;
 /** About what the model costs a second with no sound, for the estimate a run gives before it spends. */
 const MOTION_CENTS_PER_SEC = 11.2;
 /** The most photos one run may send: each one costs money. */
-const MOTION_MAX = 6;
+const MOTION_MAX = 10;
 /** Asked every 20 seconds, for 20 minutes. */
 const MOTION_TRIES = 60;
 const MOTION_PROMPT =
