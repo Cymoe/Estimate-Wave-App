@@ -1823,7 +1823,13 @@ describe("the weekly run", () => {
       expect(ideas.slice(0, 2).map((i) => i.opening)).toEqual(["Your kitchen stays open.", "Left side, right side."]);
       // From outside the app the same cards read the same way.
       const outside = await t.query(internal.ads.ideasOutside, {});
-      expect(outside.round).toEqual({ status: "ready", error: undefined, offered: IDEAS_SHOWN });
+      expect(outside.round).toEqual({
+        status: "ready",
+        error: undefined,
+        offered: IDEAS_SHOWN,
+        // The priced idea is dropped as each writer's answer is read, so four of five remain.
+        writers: ["neighbour: 4 ideas", "editor: 4 ideas", "sceptic: 4 ideas", "contrarian: 4 ideas"],
+      });
       expect(outside.ideas[0]).toMatchObject({ status: "new", opening: "Your kitchen stays open.", builtOn: "Rodgers Painting, 160 days", writer: "neighbour" });
       // An idea that builds on a competitor's ad says whose, and how long it has run.
       expect(ideas[0]).toMatchObject({ scope: "cabinets", familyLabel: "Respect for your home", basedOn: { company: "Rodgers Painting", daysRunning: 160 } });

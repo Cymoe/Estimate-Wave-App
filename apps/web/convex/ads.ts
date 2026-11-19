@@ -1382,6 +1382,13 @@ export const saveIdeas = internalMutation({
   },
 });
 
+export const noteIdeas = internalMutation({
+  args: { roundId: v.id("adIdeaRounds"), notes: v.array(v.string()) },
+  handler: async (ctx, { roundId, notes }) => {
+    await ctx.db.patch(roundId, { notes: notes.map((n) => n.slice(0, 300)) });
+  },
+});
+
 export const failIdeas = internalMutation({
   args: { roundId: v.id("adIdeaRounds"), error: v.string() },
   handler: async (ctx, { roundId, error }) => {
@@ -1399,22 +1406,33 @@ export const proposeIdeas = internalAction({
       const cfg = await ctx.runQuery(internal.ads.config, {});
       const brief = await ctx.runQuery(internal.ads.ideaBrief, {});
       const town = cfg.researchMarkets[0] ?? "your town";
+      // One writer at a time, so four long answers never ask for more at once than the key allows; a writer
+      // whose answer errors or can't be read is asked once more. What each gave is kept with the round.
       const errors: string[] = [];
-      const perWriter = await Promise.all(
-        IDEA_WRITERS.map(async (writer) => {
+      const notes: string[] = [];
+      const perWriter: IdeaDraft[][] = [];
+      for (const writer of IDEA_WRITERS) {
+        const prompt = ideaPrompt(writer, cfg.brand.name, town, brief.sources, brief.library, brief.houseStyle, brief.recent);
+        let got: IdeaDraft[] = [];
+        let why = "";
+        for (let attempt = 0; attempt < 2 && got.length === 0; attempt++) {
           try {
-            const reply = await claude([{ type: "text", text: ideaPrompt(writer, cfg.brand.name, town, brief.sources, brief.library, brief.houseStyle, brief.recent) }], 1800);
-            return ideasFrom(reply, writer.key, brief.sources);
+            const reply = await claudeReply([{ type: "text", text: prompt }], 2500);
+            got = ideasFrom(reply.text, writer.key, brief.sources);
+            if (got.length === 0) why = reply.cutOff ? "the answer was cut off" : `nothing usable in the answer, which began "${reply.text.replace(/\s+/g, " ").trim().slice(0, 80)}"`;
           } catch (e) {
-            errors.push(errText(e));
-            return [];
+            why = errText(e).slice(0, 160);
+            errors.push(why);
           }
-        }),
-      );
+        }
+        notes.push(`${writer.key}: ${got.length ? `${got.length} ideas` : why}`);
+        perWriter.push(got);
+      }
       // Taken in turn from each writer, so dropping near-copies doesn't always favour the first.
       const inTurn: IdeaDraft[] = [];
       for (let turn = 0; perWriter.some((list) => list.length > turn); turn++) for (const list of perWriter) if (list[turn]) inTurn.push(list[turn]);
       const distinct = dropNearCopies(inTurn, brief.recent);
+      await ctx.runMutation(internal.ads.noteIdeas, { roundId, notes });
       if (distinct.length === 0) throw new Error(errors[0] ?? "No usable ideas came back. Ask again.");
       let picks: string | null = null;
       if (distinct.length > IDEAS_SHOWN)
@@ -1490,7 +1508,7 @@ export const ideasOutside = internalQuery({
         const x = i.swipeId ? await ctx.db.get(i.swipeId) : null;
         out.push({ status, opening: i.opening, line: i.line, scope: i.scope, family: FAMILY_LABELS[i.family], writer: i.writer, builtOn: x ? `${x.company}, ${runDays(x) ?? "?"} days` : undefined });
       }
-    return { round: round ? { status: round.status, error: round.error, offered: round.offered } : null, ideas: out };
+    return { round: round ? { status: round.status, error: round.error, offered: round.offered, writers: round.notes } : null, ideas: out };
   },
 });
 

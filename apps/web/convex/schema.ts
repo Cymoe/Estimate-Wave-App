@@ -2539,6 +2539,8 @@ export default defineSchema({
     status: v.union(v.literal("writing"), v.literal("ready"), v.literal("failed")),
     error: v.optional(v.string()),
     offered: v.optional(v.number()),
+    // What each writer gave: how many ideas, or why none.
+    notes: v.optional(v.array(v.string())),
     startedBy: v.optional(v.id("users")),
   }),
 
