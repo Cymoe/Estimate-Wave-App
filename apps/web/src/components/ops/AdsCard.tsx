@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Film, Image as ImageIcon, Play, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import {
@@ -13,7 +13,7 @@ import {
   useAdsSettings,
   useAdsSwipes,
 } from '../../lib/live';
-import { familyOfAngle, mergeSwipeCsvs } from '../../../convex/lib/ads';
+import { AD_TRADES, DEFAULT_TRADE, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
 import { money } from '../market/wallet';
 import { ErrorLine, Field, ago, describeError, input, primary, secondary, tap } from './ui';
 
@@ -34,12 +34,26 @@ const SECTIONS: Array<[Section, string]> = [
   ['settings', 'Settings'],
 ];
 
-const SCOPES = ['interior', 'exterior', 'cabinets', 'crew', 'process'];
+/**
+ * The trade the page is working in. Homeowners see one brand for every trade; the photos, competitor ads, ideas
+ * and finished ads on this page are one trade's at a time.
+ */
+const TradeContext = createContext<string>(DEFAULT_TRADE);
+const useTrade = () => useContext(TradeContext);
+/** What a photo or a hook of a trade can be about: its own subjects, then the crew and the work in progress. */
+const scopesFor = (trade: string) => [...tradeOf(trade).scopes, 'crew', 'process'];
+const TRADE_KEY = 'ads.trade';
+function rememberedTrade(): string {
+  try {
+    const saved = window.localStorage.getItem(TRADE_KEY);
+    return saved && AD_TRADES[saved] ? saved : DEFAULT_TRADE;
+  } catch {
+    return DEFAULT_TRADE;
+  }
+}
 /** The room or subject a hook (or footage) is about, in the owner's words. */
 const SCOPE_LABELS: Record<string, string> = {
-  interior: 'Interior',
-  exterior: 'Exterior',
-  cabinets: 'Cabinets',
+  ...Object.assign({}, ...Object.values(AD_TRADES).map((t) => t.scopeLabels)),
   crew: 'The crew',
   process: 'The work in progress',
   general: 'all painting',
@@ -218,6 +232,16 @@ const pct = (n: number) => `${n.toFixed(2)}%`;
 
 export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const [section, setSection] = useState<Section>('week');
+  const [trade, setTrade] = useState<string>(rememberedTrade);
+  const pickTrade = (slug: string) => {
+    setTrade(slug);
+    setHookStart(null);
+    try {
+      window.localStorage.setItem(TRADE_KEY, slug);
+    } catch {
+      /* private browsing: the choice lasts for this visit */
+    }
+  };
   // A hook started from a swipe: the Hooks form opens with it filled in.
   const [hookStart, setHookStart] = useState<HookDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -234,7 +258,22 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const checks = useAdsReadiness<Readiness[]>();
   const blocked = checks?.find((c) => c.hard && !c.ok);
   return (
+    <TradeContext.Provider value={trade}>
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Trade">
+        <span className="text-xs text-gray-500">Trade</span>
+        {Object.values(AD_TRADES).map((t) => (
+          <button
+            key={t.slug}
+            type="button"
+            aria-pressed={trade === t.slug}
+            onClick={() => pickTrade(t.slug)}
+            className={`px-3 py-1.5 text-sm rounded border ${trade === t.slug ? 'border-white text-white bg-[#222]' : 'border-[#333] text-gray-400 [@media(hover:hover)]:hover:text-white'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
       {checks && (
         <div className="border border-[#2A2A2A] rounded px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" aria-label="Ready for Monday">
           <span className={blocked ? 'text-amber-300' : 'text-emerald-300'}>
@@ -301,6 +340,7 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
         <Settings owner={owner} act={act} />
       )}
     </div>
+    </TradeContext.Provider>
   );
 };
 
@@ -332,7 +372,8 @@ export interface AdIdeas {
  * kept ones are turned into ads.
  */
 const Ideas: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
-  const data = useAdsIdeas<AdIdeas>();
+  const trade = useTrade();
+  const data = useAdsIdeas<AdIdeas>(trade);
   if (data === undefined) return null;
   const fresh = data.ideas.filter((i) => i.status === 'new');
   const kept = data.ideas.filter((i) => i.status === 'kept');
@@ -349,7 +390,7 @@ const Ideas: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
             type="button"
             className={secondary}
             disabled={writing}
-            onClick={() => act(() => adsAPI.ideasNow(), 'Writing ideas. They show here in about a minute.')}
+            onClick={() => act(() => adsAPI.ideasNow(trade), 'Writing ideas. They show here in about a minute.')}
           >
             {fresh.length || kept.length ? 'Get new ideas' : 'Get ad ideas'}
           </button>
@@ -378,7 +419,7 @@ const Ideas: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
               <button
                 type="button"
                 className={primary}
-                onClick={() => act(() => adsAPI.makeKept(), 'Making them. Each ad shows below as it is written, voiced and drawn.')}
+                onClick={() => act(() => adsAPI.makeKept(trade), 'Making them. Each ad shows below as it is written, voiced and drawn.')}
               >
                 {kept.length === 1 ? 'Make this ad' : `Make these ${kept.length} ads`}
               </button>
@@ -438,7 +479,7 @@ const IdeaCard: React.FC<{ idea: AdIdea; owner: boolean; act: Act }> = ({ idea, 
 
 /** The idea cards, then the batch cards: watch, approve or reject each creative. */
 const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
-  const batches = useAdsBatches<AdBatch[]>();
+  const batches = useAdsBatches<AdBatch[]>(useTrade());
   if (batches === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
   return (
     <div className="space-y-6">
@@ -748,15 +789,16 @@ async function putFile(body: Blob, type: string): Promise<string> {
 }
 
 /** Uploads a file and its still to Convex storage and files it in the library with its tags. */
-async function uploadAsset(file: File, tags: string[], pairKey?: string, note?: string) {
+async function uploadAsset(file: File, tags: string[], trade: string, pairKey?: string, note?: string) {
   const { still, durationSec } = await makeStill(file);
   const storageId = await putFile(file, file.type);
   const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
-  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId });
+  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, trade });
 }
 
 const Library: React.FC<{ act: Act }> = ({ act }) => {
-  const assets = useAdsLibrary<AdAsset[]>();
+  const trade = useTrade();
+  const assets = useAdsLibrary<AdAsset[]>(trade);
   // Nothing lit up by default: an upload with no tags takes the tags Claude suggests.
   const [tags, setTags] = useState<string[]>([]);
   const [pairKey, setPairKey] = useState('');
@@ -769,7 +811,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
     setBusy(true);
     await act(
       async () => {
-        for (const f of Array.from(files)) await uploadAsset(f, tags, pairKey || undefined, note || undefined);
+        for (const f of Array.from(files)) await uploadAsset(f, tags, trade, pairKey || undefined, note || undefined);
       },
       `${files.length} file${files.length === 1 ? '' : 's'} in the library.`,
     );
@@ -784,7 +826,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           and after with the same pair key become a wipe.
         </p>
         <div className="flex flex-wrap gap-2" aria-label="Tags for the next upload">
-          {[...SCOPES, 'before', 'after'].map((t) => (
+          {[...scopesFor(trade), 'before', 'after'].map((t) => (
             <button
               key={t}
               type="button"
@@ -834,6 +876,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
 };
 
 const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
+  const trade = useTrade();
   const [tags, setTags] = useState(a.tags);
   const [pairKey, setPairKey] = useState(a.pairKey ?? '');
   useEffect(() => {
@@ -879,7 +922,7 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
           </p>
         )}
         <div className="flex flex-wrap gap-1">
-          {[...SCOPES, 'before', 'after'].map((t) => (
+          {[...scopesFor(trade), 'before', 'after'].map((t) => (
             <button
               key={t}
               type="button"
@@ -925,13 +968,20 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
 const EMPTY_HOOK = { family: 'before_after', scope: 'cabinets', trade: 'painting', textEn: '', active: true };
 
 type HookDraft = typeof EMPTY_HOOK;
+/** A blank hook for a trade: painting's starts on cabinets as it always has, another trade's on its first subject. */
+const emptyHook = (trade: string): HookDraft => (trade === DEFAULT_TRADE ? EMPTY_HOOK : { ...EMPTY_HOOK, trade, scope: tradeOf(trade).scopes[0] ?? 'general' });
 
 const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) => {
-  const hooks = useAdsHooks<AdHook[]>();
-  const [draft, setDraft] = useState<{ id?: string } & HookDraft>(initial ?? EMPTY_HOOK);
+  const trade = useTrade();
+  const hooks = useAdsHooks<AdHook[]>(trade);
+  const [draft, setDraft] = useState<{ id?: string } & HookDraft>(initial ?? emptyHook(trade));
+  // Switching trade starts the form over: a half-written painting hook isn't saved as a hardscaping one.
+  useEffect(() => {
+    setDraft((d) => (d.trade === trade ? d : emptyHook(trade)));
+  }, [trade]);
   const set = (k: keyof typeof EMPTY_HOOK) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setDraft((d) => ({ ...d, [k]: e.target.value }));
-  const save = () => act(() => adsAPI.saveHook(draft).then(() => setDraft(EMPTY_HOOK)), 'Hook saved.');
+  const save = () => act(() => adsAPI.saveHook(draft).then(() => setDraft(emptyHook(trade))), 'Hook saved.');
   if (hooks === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
   return (
     <div className="space-y-4">
@@ -940,7 +990,7 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
         built around the competitor ad it came from. The ones you write yourself come after. Wins and losses come from how each idea's ads did
         against the batch.
       </p>
-      {hooks.length === 0 && (
+      {hooks.length === 0 && trade === DEFAULT_TRADE && (
         <button type="button" className={secondary} onClick={() => act(() => adsAPI.seedHooks(), 'Six painting hooks added.')}>
           Add the six painting hooks
         </button>
@@ -964,7 +1014,7 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
         </Field>
         <Field label="Room or subject">
           <select value={draft.scope} onChange={set('scope')} className={input}>
-            {[...SCOPES, 'general'].map((s) => (
+            {[...scopesFor(trade), 'general'].map((s) => (
               <option key={s} value={s}>
                 {scopeLabel(s)}
               </option>
@@ -981,7 +1031,7 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
             {draft.id ? 'Save hook' : 'Add hook'}
           </button>
           {draft.id && (
-            <button type="button" className={secondary} onClick={() => setDraft(EMPTY_HOOK)}>
+            <button type="button" className={secondary} onClick={() => setDraft(emptyHook(trade))}>
               Cancel
             </button>
           )}
@@ -1186,7 +1236,20 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
   );
 };
 
-const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = ({ act, owner, onMakeHook }) => {
+/** Competitor ads are researched for painting only so far; another trade's page says so instead of showing painting's. */
+const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = (props) => {
+  const trade = useTrade();
+  if (trade !== DEFAULT_TRADE)
+    return (
+      <div className="border border-dashed border-[#333] rounded p-8 text-center">
+        <p className="text-sm text-gray-300">No competitor ads on file for {tradeOf(trade).label.toLowerCase()} yet.</p>
+        <p className="text-sm text-gray-500 mt-1">Until they are researched, ideas for this trade come from the writers&apos; own angles and your photos.</p>
+      </div>
+    );
+  return <PaintingSwipes {...props} />;
+};
+
+const PaintingSwipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = ({ act, owner, onMakeHook }) => {
   const swipes = useAdsSwipes<Swipe[]>();
   const runs = useAdsResearchRuns<ResearchRun[]>();
   const settings = useAdsSettings<AdSettings>();

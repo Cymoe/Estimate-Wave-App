@@ -2435,6 +2435,8 @@ export default defineSchema({
   // cut from, the hooks they open with, each Monday's batch of creatives,
   // what Meta reports on them, and the account they go to. Staff-only.
   adAssets: defineTable({
+    // The trade it belongs to (lib/ads.ts AD_TRADES). Absent on everything from when painting was the only one.
+    trade: v.optional(v.string()),
     storageId: v.id("_storage"),
     kind: v.union(v.literal("photo"), v.literal("video")),
     fileName: v.string(),
@@ -2506,6 +2508,8 @@ export default defineSchema({
   // line (ads.proposeIdeas); the owner keeps or kills each, and only kept ones
   // are written, voiced and drawn (ads.makeKept).
   adIdeas: defineTable({
+    // The trade it belongs to (lib/ads.ts AD_TRADES). Absent on everything from when painting was the only one.
+    trade: v.optional(v.string()),
     // The ideas offered together: when they were asked for.
     round: v.string(),
     line: v.string(),
@@ -2535,6 +2539,8 @@ export default defineSchema({
 
   // One row per ask for ideas, so the page can say they're being written or why they weren't.
   adIdeaRounds: defineTable({
+    // The trade it belongs to (lib/ads.ts AD_TRADES). Absent on everything from when painting was the only one.
+    trade: v.optional(v.string()),
     startedAt: v.string(),
     status: v.union(v.literal("writing"), v.literal("ready"), v.literal("failed")),
     error: v.optional(v.string()),
@@ -2553,6 +2559,8 @@ export default defineSchema({
   }),
 
   adBatches: defineTable({
+    // The trade it belongs to (lib/ads.ts AD_TRADES). Absent on everything from when painting was the only one.
+    trade: v.optional(v.string()),
     weekOf: v.string(),
     status: v.union(v.literal("drafting"), v.literal("rendering"), v.literal("ready"), v.literal("done"), v.literal("failed")),
     error: v.optional(v.string()),
@@ -2637,6 +2645,8 @@ export default defineSchema({
   // research recorded them, to browse for ideas and to show the writer the
   // tone and shape of ads that run in a category (never their claims).
   adSwipes: defineTable({
+    // The trade it belongs to (lib/ads.ts AD_TRADES). Absent on everything from when painting was the only one.
+    trade: v.optional(v.string()),
     company: v.string(),
     paintingType: v.string(),
     // cabinets / interior / exterior; none for general painting.
@@ -2691,6 +2701,8 @@ export default defineSchema({
   // (ads.rebuildPlaybooks) and shown to the Monday writer. A human edit holds
   // until someone asks for a rewrite.
   adPlaybooks: defineTable({
+    // The trade it belongs to (lib/ads.ts AD_TRADES). Absent on everything from when painting was the only one.
+    trade: v.optional(v.string()),
     scope: v.string(),
     text: v.string(),
     footagePrefs: v.array(v.string()),

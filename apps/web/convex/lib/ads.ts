@@ -7,6 +7,61 @@
 export const SCOPES = ["interior", "exterior", "cabinets", "crew", "process"] as const;
 export type Scope = (typeof SCOPES)[number];
 
+/**
+ * A trade the ad maker works in. The homeowner brand is one name for every
+ * trade; what changes from trade to trade is here: who does the work, what
+ * its photos are of, and what a competitor's ad has to be about to count.
+ * Everything a brief says about the work comes from one of these.
+ */
+export interface AdTrade {
+  /** Also the trade's slug in the lead market, so a lead from one of its ads arrives marked with it. */
+  slug: string;
+  label: string;
+  /** Who does the work, as an ad says it. */
+  pro: string;
+  /** The same, as a business. */
+  contractor: string;
+  /** What its photos are of, besides the crew and the work in progress. */
+  scopes: readonly string[];
+  scopeLabels: Record<string, string>;
+  /** The states a job photo can show, for describing an upload. */
+  states: string;
+  /** Searches that find its competitors' ads. */
+  keywords: readonly string[];
+}
+
+export const AD_TRADES: Record<string, AdTrade> = {
+  painting: {
+    slug: "painting",
+    label: "Painting",
+    pro: "painter",
+    contractor: "painting contractor",
+    scopes: ["interior", "exterior", "cabinets"],
+    scopeLabels: { interior: "Interior", exterior: "Exterior", cabinets: "Cabinets" },
+    states: "unpainted, being prepped, being painted, finished",
+    keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+  },
+  "outdoor-construction": {
+    slug: "outdoor-construction",
+    label: "Hardscaping",
+    pro: "hardscaping contractor",
+    contractor: "hardscaping contractor",
+    scopes: ["patio", "walkway", "wall", "outdoor-living"],
+    scopeLabels: { patio: "Patios", walkway: "Walkways and driveways", wall: "Retaining walls", "outdoor-living": "Outdoor kitchens and fire pits" },
+    states: "bare ground, being dug or laid, finished",
+    keywords: ["paver patio", "retaining wall", "hardscaping", "outdoor kitchen"],
+  },
+};
+export const DEFAULT_TRADE = "painting";
+/** The trade by its slug; painting when none is given, as everything was before there was more than one. */
+export const tradeOf = (slug?: string | null): AdTrade => AD_TRADES[slug ?? DEFAULT_TRADE] ?? AD_TRADES[DEFAULT_TRADE];
+/** Whether something filed with no trade, or with this one, belongs to this trade. */
+export const inTrade = (row: { trade?: string }, slug?: string | null): boolean => (row.trade ?? DEFAULT_TRADE) === tradeOf(slug).slug;
+/** Every tag a photo of this trade may carry. */
+export const assetTagsOf = (trade: AdTrade): string[] => [...trade.scopes, "crew", "process", "before", "after"];
+/** What a hook or an idea of this trade may be about. */
+export const scopesOf = (trade: AdTrade): string[] => [...trade.scopes, "crew", "process"];
+
 export type Family = "owner_story" | "before_after" | "proof" | "education" | "objection" | "seasonal";
 export const FAMILY_LABELS: Record<Family, string> = {
   owner_story: "Owner story",
@@ -100,14 +155,14 @@ export function pickHooks<H extends HookRow>(hooks: H[], liveFamilies: Set<Famil
 export const ANY_SCOPE = "general";
 
 /** A competitor ad as an idea to build on: its angle is the hook, in its own category. */
-export function hookFromSwipe(swipe: { hook: string; scope?: string; family?: string }): HookSeed | null {
+export function hookFromSwipe(swipe: { hook: string; scope?: string; family?: string; trade?: string }): HookSeed | null {
   const angle = swipe.hook.trim();
   if (!angle) return null;
   const families = Object.keys(FAMILY_LABELS) as Family[];
   return {
     family: families.includes(swipe.family as Family) ? (swipe.family as Family) : familyOfAngle(angle),
     scope: swipe.scope?.trim() || ANY_SCOPE,
-    trade: "painting",
+    trade: tradeOf(swipe.trade).slug,
     textEn: angle.slice(0, 300),
   };
 }
@@ -360,14 +415,16 @@ function balancedEnd(text: string, from: number): number {
 }
 
 /** What Claude is asked about one library image when it's uploaded. */
-export const DESCRIBE_PROMPT = [
-  "This is a photo (or a still from a video) a painting contractor took on a job. It will be used in ads.",
-  "Describe what is visible in one plain sentence: the surface or room, colours, the state (unpainted, being prepped, being painted, finished), and any people or tools.",
-  `Then choose tags from this list only: ${["interior", "exterior", "cabinets", "crew", "process", "before", "after"].join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
-  'Return only JSON: {"description":"...","tags":["..."]}',
-].join("\n");
+export const describePrompt = (trade: AdTrade): string =>
+  [
+    `This is a photo (or a still from a video) a ${trade.contractor} took on a job. It will be used in ads.`,
+    `Describe what is visible in one plain sentence: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
+    `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
+    'Return only JSON: {"description":"...","tags":["..."]}',
+  ].join("\n");
+export const DESCRIBE_PROMPT = describePrompt(AD_TRADES.painting);
 
-export const ASSET_TAGS = ["interior", "exterior", "cabinets", "crew", "process", "before", "after"];
+export const ASSET_TAGS = assetTagsOf(AD_TRADES.painting);
 
 /** ElevenLabs' character timing for the whole voice-over. */
 export interface Alignment {
@@ -452,6 +509,7 @@ export function motionPrompt(
   town = "your town",
   playbook?: string,
   basedOn?: BasedOn,
+  trade: AdTrade = AD_TRADES.painting,
 ): string {
   const theirs = basedOn?.transcript
     ? `spoken: ${basedOn.transcript
@@ -471,7 +529,7 @@ export function motionPrompt(
         basedOn.creative ? `- What it shows: ${basedOn.creative}` : "",
         theirs ? `- Its words (${basedOn.company}) · ${theirs}` : "",
         basedOn.adaptation ? `- How to use it honestly: ${basedOn.adaptation}` : "",
-        `Keep the same angle, the same kind of opening and the same order of points. Make the offer the nearest thing ${brand} truly gives: a free quote from one vetted local painter. Never their name, price, discount, warranty, award, review count or deadline.`,
+        `Keep the same angle, the same kind of opening and the same order of points. Make the offer the nearest thing ${brand} truly gives: a free quote from one vetted local ${trade.pro}. Never their name, price, discount, warranty, award, review count or deadline.`,
         "",
       ].filter((line, i, all) => line !== "" || i === all.length - 1)
     : [];
@@ -487,7 +545,7 @@ export function motionPrompt(
       .join(" · "),
   );
   return [
-    `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
+    `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local ${trade.contractor}.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
     "",
     "On screen: a title at the top for the whole ad, a photo in a card in the middle, and captions that follow the voice word by word. It ends on a Get a quote button. Each attached photo is labelled with its number.",
@@ -1160,7 +1218,7 @@ export const IDEA_WRITERS = [
   {
     key: "neighbour",
     brief:
-      "You think like a homeowner talking over the fence. Plain, specific, a little dry. You open on the small true moment people recognise from having a house painted.",
+      "You think like a homeowner talking over the fence. Plain, specific, a little dry. You open on the small true moment people recognise from having work done on their house.",
   },
   {
     key: "editor",
@@ -1175,7 +1233,7 @@ export const IDEA_WRITERS = [
   {
     key: "contrarian",
     brief:
-      "You look at what every painter's ad says and go the other way: the angle nobody uses, a question nobody asks, a comparison from outside painting.",
+      "You look at what every contractor's ad says and go the other way: the angle nobody uses, a question nobody asks, a comparison from outside the trade.",
   },
 ] as const;
 
@@ -1187,7 +1245,8 @@ export const TASTE_MARK = "An owner has been shown ad ideas";
 /** How many ideas each writer is asked for, and how many cards a person is shown. */
 export const IDEAS_EACH = 5;
 export const IDEAS_SHOWN = 8;
-export const IDEA_SCOPES = ["cabinets", "interior", "exterior", ANY_SCOPE] as const;
+/** What an idea of a trade may be about: one of its kinds of photo, or anything. */
+export const ideaScopesOf = (trade: AdTrade): string[] => [...trade.scopes, ANY_SCOPE];
 const IDEA_LINE_MAX = 220;
 const IDEA_OPENING_MAX = 90;
 /** Text cut to a length at the end of a word, so a card never stops mid-word. */
@@ -1216,8 +1275,8 @@ export interface IdeaDraft {
 }
 
 /** What may and may not be promised, the same for every writer and for the pass that picks. */
-const IDEA_RULES = (brand: string, town: string) => [
-  `- The only offer is the true one: ${brand} matches a ${town} homeowner with one vetted local painter, and the quote is free.`,
+const IDEA_RULES = (brand: string, town: string, trade: AdTrade) => [
+  `- The only offer is the true one: ${brand} matches a ${town} homeowner with one vetted local ${trade.pro}, and the quote is free.`,
   "- No prices, discounts, guarantees, warranties, deadlines, awards, review counts or anything a customer is supposed to have said.",
   "- No people on camera and nothing that needs filming. An ad is made from the job photos on file, words on screen, a voice, music and simple graphics.",
   "- A photo of one stage of a job is never passed off as another, and nothing is shown as finished work that isn't.",
@@ -1232,9 +1291,10 @@ export function ideaPrompt(
   library: string[],
   houseStyle?: string,
   recent: string[] = [],
+  trade: AdTrade = AD_TRADES.painting,
 ): string {
   return [
-    `${IDEA_MARK} on Facebook and Instagram for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
+    `${IDEA_MARK} on Facebook and Instagram for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local ${trade.contractor}.`,
     writer.brief,
     "",
     "Competitor ads that have kept running, longest first. An ad that keeps running is the best sign an idea pays for itself. Build on what makes one work, or leave them and bring your own:",
@@ -1246,13 +1306,13 @@ export function ideaPrompt(
     ...(houseStyle ? ["What the owner has kept and killed before. Lean towards what they keep:", houseStyle.trim(), ""] : []),
     ...(recent.length ? ["Already offered. Do not offer these again or anything close to them:", ...recent.map((r) => `- ${r}`), ""] : []),
     "Rules:",
-    ...IDEA_RULES(brand, town),
+    ...IDEA_RULES(brand, town, trade),
     "",
     `Give ${IDEAS_EACH} ideas that differ from each other in angle, not five wordings of one. For each also give "usual": from 0 to 1, how likely an ordinary ad writer is to come up with it. At least three must be under 0.3.`,
     `- line: the idea in one plain sentence of at most 24 words that someone who isn't in marketing can judge at a glance: what is seen and what is said.`,
     "- opening: the first words spoken, at most 12 words, that would stop a thumb.",
     `- family: one of ${(Object.keys(FAMILY_LABELS) as Family[]).join(", ")}.`,
-    `- scope: one of ${IDEA_SCOPES.join(", ")} (the kind of job photo it needs; ${ANY_SCOPE} when any will do).`,
+    `- scope: one of ${ideaScopesOf(trade).join(", ")} (the kind of job photo it needs; ${ANY_SCOPE} when any will do).`,
     "- from: the number of the competitor ad it builds on, or 0.",
     "",
     "Return only JSON. Start your answer with { and write nothing before or after it: no thinking out loud, no notes.",
@@ -1261,7 +1321,7 @@ export function ideaPrompt(
 }
 
 /** A writer's reply as ideas, with anything unusable left out. */
-export function ideasFrom(reply: string, writer: string, sources: IdeaSource[]): IdeaDraft[] {
+export function ideasFrom(reply: string, writer: string, sources: IdeaSource[], trade: AdTrade = AD_TRADES.painting): IdeaDraft[] {
   const parsed = parseJson<{ ideas?: unknown }>(reply);
   if (!parsed || !Array.isArray(parsed.ideas)) return [];
   const families = Object.keys(FAMILY_LABELS) as Family[];
@@ -1281,7 +1341,7 @@ export function ideasFrom(reply: string, writer: string, sources: IdeaSource[]):
       line: cutAtWord(line, IDEA_LINE_MAX),
       opening: cutAtWord(opening, IDEA_OPENING_MAX),
       family: families.includes(raw?.family as Family) ? (raw.family as Family) : familyOfAngle(line),
-      scope: (IDEA_SCOPES as readonly string[]).includes(String(raw?.scope)) ? String(raw.scope) : ANY_SCOPE,
+      scope: ideaScopesOf(trade).includes(String(raw?.scope)) ? String(raw.scope) : ANY_SCOPE,
       from: sources.some((s) => s.n === from) ? from : undefined,
       writer,
     });
@@ -1322,14 +1382,14 @@ export function dropNearCopies(ideas: IdeaDraft[], before: string[] = []): IdeaD
 }
 
 /** The brief for the one pass that picks. It ranks; it does not rewrite. */
-export function criticPrompt(ideas: IdeaDraft[], brand: string, town: string, want: number, houseStyle?: string): string {
+export function criticPrompt(ideas: IdeaDraft[], brand: string, town: string, want: number, houseStyle?: string, trade: AdTrade = AD_TRADES.painting): string {
   return [
-    `${PICK_MARK} for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor. Writers have offered the ad ideas below. Pick the ${want} to put in front of the owner.`,
+    `${PICK_MARK} for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local ${trade.contractor}. Writers have offered the ad ideas below. Pick the ${want} to put in front of the owner.`,
     "",
     ...ideas.map((idea, i) => `${i + 1}. ${idea.line} Opens: "${idea.opening}"`),
     "",
     "Throw out any idea that breaks a rule:",
-    ...IDEA_RULES(brand, town),
+    ...IDEA_RULES(brand, town, trade),
     "",
     "Among the rest, prefer an opening that would stop someone scrolling, an idea a viewer hasn't seen from every other painter, and a set that is varied: no two picks with the same angle.",
     ...(houseStyle ? ["", "What the owner has kept and killed before:", houseStyle.trim()] : []),
@@ -1362,7 +1422,7 @@ export function pickIdeas(ideas: IdeaDraft[], reply: string | null, want: number
 /** The brief that turns keeps and kills into a short note on the owner's taste. */
 export function tastePrompt(kept: string[], killed: string[], previous?: string): string {
   return [
-    `${TASTE_MARK} for a house-painting lead service and kept some and killed others. Write a short note for the writers on this owner's taste.`,
+    `${TASTE_MARK} for a service that matches homeowners with local contractors and kept some and killed others. Write a short note for the writers on this owner's taste.`,
     "",
     "Kept:",
     ...(kept.length ? kept.map((k) => `- ${k}`) : ["(none yet)"]),

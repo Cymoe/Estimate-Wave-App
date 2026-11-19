@@ -27,6 +27,22 @@ async function tradeSlugs(ctx: QueryCtx | MutationCtx): Promise<string[]> {
   return rows.filter((r) => r.is_active).map((r) => r.slug);
 }
 
+/**
+ * The trade of the ad a lead came from, when it is one the ad maker made: the ad's name is the creative's, and its
+ * idea is filed under a trade. So a lead from a hardscaping ad arrives as hardscaping even when the campaign's
+ * name says nothing.
+ */
+async function tradeOfAd(ctx: QueryCtx | MutationCtx, adName: string | undefined, trades: string[]): Promise<string | undefined> {
+  const name = adName?.trim();
+  if (!name) return undefined;
+  const creative = await ctx.db
+    .query("adCreatives")
+    .withIndex("by_name", (q) => q.eq("name", name))
+    .first();
+  const hook = creative ? await ctx.db.get(creative.hookId) : null;
+  return hook && trades.includes(hook.trade) ? hook.trade : undefined;
+}
+
 /** The same phone seen in the last 45 days, in intake or already listed. */
 export async function findDuplicate(
   ctx: MutationCtx,
@@ -153,7 +169,9 @@ export const receive = internalMutation({
     const fromCampaign = parseCampaign(fields.campaignName, trades);
     const fromAdset = parseCampaign(fields.adsetName, trades);
     const county = normalizeCounty(fields.county) ?? fromCampaign.county ?? fromAdset.county;
-    const jobType = trades.includes(fields.jobType ?? "") ? fields.jobType : (fromCampaign.jobType ?? fromAdset.jobType);
+    const jobType = trades.includes(fields.jobType ?? "")
+      ? fields.jobType
+      : (fromCampaign.jobType ?? fromAdset.jobType ?? (await tradeOfAd(ctx, fields.adName, trades)));
     const phoneNormalized = normalizePhone(fields.phone);
     const duplicateOf = await findDuplicate(ctx, phoneNormalized);
     const now = nowIso();

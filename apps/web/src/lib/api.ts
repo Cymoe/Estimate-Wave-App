@@ -1081,6 +1081,7 @@ export const adsAPI = {
     note?: string;
     durationSec?: number;
     posterStorageId?: string;
+    trade?: string;
   }) => run('mutation', api.ads.addAsset, defined(args)),
   tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
   removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
@@ -1098,9 +1099,9 @@ export const adsAPI = {
   removeSwipe: (id: string) => run('mutation', api.ads.removeSwipe, { id }),
   saveSettings: (args: Record<string, unknown>) => run('mutation', api.ads.saveSettings, defined(args)),
   draftNow: () => run('mutation', api.ads.draftNow, {}),
-  ideasNow: () => run('mutation', api.ads.ideasNow, {}),
+  ideasNow: (trade?: string) => run('mutation', api.ads.ideasNow, defined({ trade })),
   decideIdea: (id: string, status: 'kept' | 'killed' | 'new') => run('mutation', api.ads.decideIdea, { id, status }),
-  makeKept: (): Promise<number> => run('mutation', api.ads.makeKept, {}),
+  makeKept: (trade?: string): Promise<number> => run('mutation', api.ads.makeKept, defined({ trade })),
   activate: (id: string) => run('mutation', api.ads.activate, { id }),
   retire: (id: string) => run('mutation', api.ads.retire, { id }),
   reject: (id: string) => run('mutation', api.ads.reject, { id }),

@@ -1920,6 +1920,74 @@ describe("the weekly run", () => {
       await settle(() => t.action(internal.ads.learnTaste, {}));
       expect(to(calls, "anthropic").length).toBe(count);
     });
+
+    test("a second trade keeps to itself: its own photos, its own words in every brief, its own ideas and ads, and painting's are untouched", async () => {
+      const { t, owner, calls, settle } = await ready();
+      stubServices(calls);
+      const trade = "outdoor-construction";
+      await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "patio"), fileName: "patio.jpg", tags: ["patio", "after"], trade });
+      expect((await owner.as.query(api.ads.listAssets, { trade })).map((a) => a.fileName)).toEqual(["patio.jpg"]);
+      expect((await owner.as.query(api.ads.listAssets, {})).map((a) => a.fileName).sort()).toEqual(["after.jpg", "before.jpg", "prep.jpg"]);
+      // A trade nobody has set up reads as painting, never as an empty page of its own.
+      expect((await owner.as.query(api.ads.listAssets, { trade: "underwater-basket-weaving" })).length).toBe(3);
+
+      await settle(() => owner.as.mutation(api.ads.ideasNow, { trade }));
+      const briefs = to(calls, "anthropic")
+        .map((c) => JSON.parse(c.body!).messages[0].content[0].text as string)
+        .filter((p) => p.includes(IDEA_MARK));
+      expect(briefs[0]).toContain("matches homeowners with one vetted local hardscaping contractor.");
+      expect(briefs[0]).toContain("with one vetted local hardscaping contractor, and the quote is free.");
+      expect(briefs[0]).not.toContain("paint");
+      // No hardscaping competitor ads are on file, and painting's are not lent to it.
+      expect(briefs[0]).toContain("(none on file)");
+      expect(briefs[0]).not.toContain("Rodgers Painting");
+      expect(briefs[0]).toContain("1 photos in all: 1 tagged patio, 1 tagged after.");
+      expect(briefs[0]).toContain("- scope: one of patio, walkway, wall, outdoor-living, general");
+
+      // The ideas are hardscaping's alone; a painting scope the writers named falls back to any photo.
+      expect((await cards(owner)).ideas).toEqual([]);
+      const mine = await owner.as.query(api.ads.listIdeas, { trade });
+      expect(mine.round).toMatchObject({ status: "ready" });
+      expect(mine.ideas.length).toBe(IDEAS_SHOWN);
+      expect(mine.ideas.every((i) => i.scope === "general" && i.basedOn === undefined)).toBe(true);
+      expect((await t.query(internal.ads.ideasOutside, { trade })).ideas.length).toBe(IDEAS_SHOWN);
+      expect((await t.query(internal.ads.ideasOutside, {})).ideas.length).toBe(0);
+
+      // Making a kept one: the ad is written for the trade, from its photo only, in a batch of its own.
+      await owner.as.mutation(api.ads.decideIdea, { id: mine.ideas[0].id, status: "kept" });
+      await expect(owner.as.mutation(api.ads.makeKept, {})).rejects.toThrow("Keep at least one idea first");
+      const before = to(calls, "anthropic").length;
+      expect(await settle(() => owner.as.mutation(api.ads.makeKept, { trade }))).toBe(1);
+      const written = to(calls, "anthropic")
+        .slice(before)
+        .map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>)
+        .find((content) => content[0].text!.includes("You write one short animated ad"))!;
+      expect(written[0].text).toContain("matches homeowners with one vetted local hardscaping contractor.");
+      expect(written.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(1);
+      expect(await owner.as.query(api.ads.batches, {})).toEqual([]);
+      const made = await owner.as.query(api.ads.batches, { trade });
+      expect(made.length).toBe(1);
+      expect(states(made[0])).toEqual(["9x16 voiced", "4x5 voiced"]);
+      expect(made[0].creatives[0].shots.map((x) => x.fileName)).toContain("patio.jpg");
+      // A lead that names one of these ads arrives as that trade, though the campaign's name says nothing about it.
+      await t.run(async (ctx) => {
+        const stamp = new Date().toISOString();
+        for (const [slug, name] of [
+          ["painting", "Painting"],
+          [trade, "Outdoor Construction"],
+        ])
+          await ctx.db.insert("industries", { slug, name, display_order: 1, is_active: true, created_at: stamp, updated_at: stamp });
+      });
+      const lead = await t.mutation(internal.intake.receive, {
+        payload: { name: "Dana Reyes", phone: "4325550142", county: "Midland", ad_name: made[0].creatives[0].name, campaign_name: "Fall leads" },
+      });
+      expect((await t.run((ctx) => ctx.db.get(lead.id)))!.jobType).toBe(trade);
+      const other = await t.mutation(internal.intake.receive, { payload: { name: "Lee Park", phone: "4325550143", county: "Midland", ad_name: "someone else's ad" } });
+      expect((await t.run((ctx) => ctx.db.get(other.id)))!.jobType).toBeUndefined();
+      // Its hook is filed under the trade, and painting's hook list doesn't show it.
+      expect((await owner.as.query(api.ads.listHooks, { trade })).map((h) => h.textEn)).toEqual([mine.ideas[0].line]);
+      expect((await owner.as.query(api.ads.listHooks, {})).some((h) => h.textEn === mine.ideas[0].line)).toBe(false);
+    });
   });
 });
 

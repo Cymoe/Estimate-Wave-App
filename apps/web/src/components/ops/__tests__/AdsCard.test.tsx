@@ -16,6 +16,8 @@ import {
 
 let batches: AdBatch[] = [];
 let ideas: AdIdeas | undefined = { round: null, ideas: [] };
+/** Which trade each list was asked for, in order. */
+const asked: string[] = [];
 let live: LiveAd[] = [];
 let assets: AdAsset[] = [];
 let hooks: AdHook[] = [];
@@ -28,9 +30,9 @@ let settings: AdSettings | undefined;
 const activate = jest.fn(async () => undefined);
 const reject = jest.fn(async () => undefined);
 const retire = jest.fn(async () => undefined);
-const ideasNow = jest.fn(async () => undefined);
+const ideasNow = jest.fn(async (..._args: unknown[]) => undefined);
 const decideIdea = jest.fn(async () => undefined);
-const makeKept = jest.fn(async () => 2);
+const makeKept = jest.fn(async (..._args: unknown[]) => 2);
 const seedHooks = jest.fn(async () => 6);
 const saveHook = jest.fn(async () => 'h9');
 const saveSettings = jest.fn(async () => undefined);
@@ -49,9 +51,9 @@ jest.mock('../../../lib/api', () => ({
     activate: (id: string) => activate(id),
     reject: (id: string) => reject(id),
     retire: (id: string) => retire(id),
-    ideasNow: () => ideasNow(),
+    ideasNow: (...args: unknown[]) => ideasNow(...args),
     decideIdea: (...args: unknown[]) => decideIdea(...args),
-    makeKept: () => makeKept(),
+    makeKept: (...args: unknown[]) => makeKept(...args),
     seedHooks: () => seedHooks(),
     saveHook: (args: unknown) => saveHook(args),
     saveSettings: (args: unknown) => saveSettings(args),
@@ -70,11 +72,11 @@ jest.mock('../../../lib/api', () => ({
   },
 }));
 jest.mock('../../../lib/live', () => ({
-  useAdsBatches: () => batches,
-  useAdsIdeas: () => ideas,
+  useAdsBatches: (trade?: string) => (asked.push(`batches:${trade}`), batches),
+  useAdsIdeas: (trade?: string) => (asked.push(`ideas:${trade}`), ideas),
   useAdsLive: () => live,
-  useAdsLibrary: () => assets,
-  useAdsHooks: () => hooks,
+  useAdsLibrary: (trade?: string) => (asked.push(`library:${trade}`), assets),
+  useAdsHooks: (trade?: string) => (asked.push(`hooks:${trade}`), hooks),
   useAdsSettings: () => settings,
   useAdsSwipes: () => swipes,
   useAdsPlaybooks: () => playbooks,
@@ -307,6 +309,47 @@ describe('Ops → Ads', () => {
     ideas = { round: null, ideas: [] };
   });
 
+  it('the trade switch: the page works in one trade at a time, remembers the choice, and each list and upload follows it', async () => {
+    window.localStorage.clear();
+    ideas = { round: null, ideas: [] };
+    asked.length = 0;
+    await render();
+    const pick = (label: string) =>
+      Array.from(document.body.querySelector('[aria-label="Trade"]')!.querySelectorAll('button')).find((b) => b.textContent === label) as HTMLButtonElement;
+    expect(pick('Painting').getAttribute('aria-pressed')).toBe('true');
+    expect(asked).toContain('ideas:painting');
+    expect(asked).toContain('batches:painting');
+
+    await act(async () => pick('Hardscaping').click());
+    expect(pick('Hardscaping').getAttribute('aria-pressed')).toBe('true');
+    expect(asked).toContain('ideas:outdoor-construction');
+    expect(asked).toContain('batches:outdoor-construction');
+    await act(async () => byText('Get ad ideas')!.click());
+    expect(ideasNow).toHaveBeenLastCalledWith('outdoor-construction');
+
+    // The Library offers the trade's own labels and files an upload under it.
+    await tab('Library');
+    expect(asked).toContain('library:outdoor-construction');
+    const labels = Array.from(document.body.querySelectorAll('button')).map((b) => b.textContent);
+    expect(labels).toEqual(expect.arrayContaining(['patio', 'wall', 'outdoor-living', 'crew', 'before']));
+    expect(labels).not.toContain('cabinets');
+    // Hooks start on the trade's first subject, with no offer of painting's six.
+    await tab('Hooks');
+    expect(asked).toContain('hooks:outdoor-construction');
+    expect(byText('Add the six painting hooks')).toBeUndefined();
+    expect((document.body.querySelector('select[aria-label="Scope"]') as HTMLSelectElement | null)?.value ?? 'patio').toBe('patio');
+    // Competitors says none are on file yet, in place of painting's.
+    await tab('Competitors');
+    expect(document.body.textContent).toContain('No competitor ads on file for hardscaping yet.');
+
+    // The choice is remembered for the next visit.
+    document.body.innerHTML = '';
+    asked.length = 0;
+    await render();
+    expect(asked).toContain('ideas:outdoor-construction');
+    window.localStorage.clear();
+  });
+
   it('a rendered creative with no Meta ad cannot be approved', async () => {
     batches = [
       {
@@ -396,6 +439,7 @@ describe('Ops → Ads', () => {
       tags: ['interior', 'before'],
       pairKey: undefined,
       note: undefined,
+      trade: 'painting',
     });
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('1 file in the library.');
 

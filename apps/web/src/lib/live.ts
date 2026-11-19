@@ -83,14 +83,14 @@ export const useDemandBoard = <T>() => useLive<T>(q('demand:board'), {});
 /** One slot opened: who bids there and the leads it has seen. */
 export const useDemandSlot = <T>(county: string, jobType: string) => useLive<T>(q('demand:slot'), { county, jobType });
 
-// Ads on autopilot (Ops → Ads).
-export const useAdsBatches = <T>(on = true) => useLive<T>(q('ads:batches'), on ? {} : 'skip');
-export const useAdsIdeas = <T>(on = true) => useLive<T>(q('ads:listIdeas'), on ? {} : 'skip');
+// Ads on autopilot (Ops → Ads). The ones that take a trade show that trade's rows; painting when none is given.
+export const useAdsBatches = <T>(trade?: string, on = true) => useLive<T>(q('ads:batches'), on ? (trade ? { trade } : {}) : 'skip');
+export const useAdsIdeas = <T>(trade?: string, on = true) => useLive<T>(q('ads:listIdeas'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsLive = <T>(on = true) => useLive<T>(q('ads:live'), on ? {} : 'skip');
-export const useAdsLibrary = <T>(on = true) => useLive<T>(q('ads:listAssets'), on ? {} : 'skip');
-export const useAdsHooks = <T>(on = true) => useLive<T>(q('ads:listHooks'), on ? {} : 'skip');
+export const useAdsLibrary = <T>(trade?: string, on = true) => useLive<T>(q('ads:listAssets'), on ? (trade ? { trade } : {}) : 'skip');
+export const useAdsHooks = <T>(trade?: string, on = true) => useLive<T>(q('ads:listHooks'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsSettings = <T>(on = true) => useLive<T>(q('ads:settings'), on ? {} : 'skip');
-export const useAdsSwipes = <T>(on = true) => useLive<T>(q('ads:listSwipes'), on ? {} : 'skip');
+export const useAdsSwipes = <T>(trade?: string, on = true) => useLive<T>(q('ads:listSwipes'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsPlaybooks = <T>(on = true) => useLive<T>(q('ads:listPlaybooks'), on ? {} : 'skip');
 export const useAdsReadiness = <T>(on = true) => useLive<T>(q('ads:readiness'), on ? {} : 'skip');
 export const useAdsResearchRuns = <T>(on = true) => useLive<T>(q('ads:listResearchRuns'), on ? {} : 'skip');

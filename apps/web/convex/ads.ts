@@ -49,6 +49,12 @@ import {
   type Script,
   IDEA_WRITERS,
   IDEAS_SHOWN,
+  AD_TRADES,
+  assetTagsOf,
+  describePrompt,
+  inTrade,
+  scopesOf,
+  tradeOf,
   criticPrompt,
   dropNearCopies,
   ideaPrompt,
@@ -173,8 +179,9 @@ export const addAsset = mutation({
     note: v.optional(v.string()),
     durationSec: v.optional(v.number()),
     posterStorageId: v.optional(v.id("_storage")),
+    trade: v.optional(v.string()),
   },
-  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId }) => {
+  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, trade }) => {
     const user = await requireStaff(ctx);
     const file = await ctx.db.system.get(storageId);
     if (file === null) fail("NOT_FOUND", "The uploaded file wasn't found");
@@ -189,6 +196,7 @@ export const addAsset = mutation({
         fail("INVALID", "The still for this file didn't upload right");
     }
     const id = await ctx.db.insert("adAssets", {
+      trade: tradeOf(trade).slug,
       storageId,
       kind: found.kind,
       fileName: fileName.slice(0, 200),
@@ -220,7 +228,7 @@ export const assetForDescribe = internalQuery({
   args: { id: v.id("adAssets") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
-    return a ? { imageUrl: await lookUrl(ctx, a), kind: a.kind } : null;
+    return a ? { imageUrl: await lookUrl(ctx, a), kind: a.kind, trade: a.trade } : null;
   },
 });
 
@@ -248,13 +256,13 @@ export const describeAsset = internalAction({
       const reply = await claude(
         [
           { type: "image", source: { type: "url", url: a.imageUrl } },
-          { type: "text", text: DESCRIBE_PROMPT + (a.kind === "video" ? "\nThis image is a still from a video clip." : "") },
+          { type: "text", text: describePrompt(tradeOf(a.trade)) + (a.kind === "video" ? "\nThis image is a still from a video clip." : "") },
         ],
         400,
       );
       const out = parseJson<{ description?: string; tags?: string[] }>(reply);
       if (!out?.description) return;
-      const suggestedTags = [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => ASSET_TAGS.includes(t));
+      const suggestedTags = [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(tradeOf(a.trade)).includes(t));
       await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags });
     } catch (e) {
       console.error("describe asset", id, errText(e));
@@ -263,10 +271,10 @@ export const describeAsset = internalAction({
 });
 
 export const listAssets = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     await requireStaff(ctx);
-    const rows = await ctx.db.query("adAssets").order("desc").take(500);
+    const rows = (await ctx.db.query("adAssets").order("desc").take(500)).filter((a) => inTrade(a, trade));
     return await Promise.all(
       rows.map(async (a) => ({
         id: a._id,
@@ -497,10 +505,10 @@ const family = v.union(
 );
 
 export const listHooks = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     await requireStaff(ctx);
-    const rows = await ctx.db.query("adHooks").take(500);
+    const rows = (await ctx.db.query("adHooks").take(500)).filter((h) => inTrade(h, trade));
     const out = [];
     for (const h of rows)
       out.push({
@@ -573,11 +581,13 @@ export const saveHook = mutation({
     const textEn = fields.textEn.trim();
     if (textEn.length < 10) fail("INVALID", "Write the hook in English first");
     const scope = fields.scope.trim().toLowerCase();
-    if (![...SCOPES, ANY_SCOPE].includes(scope)) fail("INVALID", `Scope must be one of ${[...SCOPES, ANY_SCOPE].join(", ")}`);
+    const trade = tradeOf(fields.trade.trim().toLowerCase());
+    const allowed = [...scopesOf(trade), ANY_SCOPE];
+    if (!allowed.includes(scope)) fail("INVALID", `Scope must be one of ${allowed.join(", ")}`);
     const data = {
       family: fields.family,
       scope,
-      trade: fields.trade.trim().toLowerCase() || "painting",
+      trade: trade.slug,
       textEn: textEn.slice(0, 300),
       active: fields.active,
     };
@@ -703,10 +713,11 @@ export const importSwipes = mutation({
 });
 
 export const listSwipes = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     await requireStaff(ctx);
     return (await ctx.db.query("adSwipes").take(1000))
+      .filter((x) => inTrade(x, trade))
       .map((x) => ({
         id: x._id,
         company: x.company,
@@ -1307,13 +1318,13 @@ const MAKE_AT_ONCE = 6;
 
 /** What the idea writers are told: the competitor ads to build on, the photos to make ads from, and what the owner has gone for before. */
 export const ideaBrief = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     const swipes = (await ctx.db.query("adSwipes").take(1000))
-      .filter((x) => x.hook.trim() && runDays(x) !== undefined && !(x.quality !== undefined && x.quality < 20))
+      .filter((x) => inTrade(x, trade) && x.hook.trim() && runDays(x) !== undefined && !(x.quality !== undefined && x.quality < 20))
       .sort((a, b) => (runDays(b) ?? 0) - (runDays(a) ?? 0))
       .slice(0, 14);
-    const photos = (await ctx.db.query("adAssets").take(500)).filter((a) => a.kind === "photo");
+    const photos = (await ctx.db.query("adAssets").take(500)).filter((a) => a.kind === "photo" && inTrade(a, trade));
     const tagged = new Map<string, number>();
     for (const p of photos) for (const t of p.tags) tagged.set(t, (tagged.get(t) ?? 0) + 1);
     const library = photos.length
@@ -1325,7 +1336,10 @@ export const ideaBrief = internalQuery({
             .map((p) => `${p.tags.join(", ") || "untagged"}: ${p.description!.replace(/\s+/g, " ").slice(0, 160)}`),
         ]
       : [];
-    const recent = (await ctx.db.query("adIdeas").order("desc").take(80)).map((i) => i.line);
+    const recent = (await ctx.db.query("adIdeas").order("desc").take(300))
+      .filter((i) => inTrade(i, trade))
+      .slice(0, 80)
+      .map((i) => i.line);
     const taste = (await ctx.db.query("adTaste").order("desc").take(1))[0];
     return {
       sources: swipes.map((x, i) => ({ n: i + 1, swipeId: x._id, company: x.company, daysRunning: runDays(x), angle: x.hook, offer: x.offer })),
@@ -1338,24 +1352,25 @@ export const ideaBrief = internalQuery({
 
 /** Staff ask for a fresh set of ideas. */
 export const ideasNow = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     const user = await requireSuperAdmin(ctx);
     if (!keys().anthropic) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
-    const newest = (await ctx.db.query("adIdeaRounds").order("desc").take(1))[0];
+    const newest = (await ctx.db.query("adIdeaRounds").order("desc").take(20)).find((r) => inTrade(r, trade));
     if (newest && newest.status === "writing" && Date.now() - new Date(newest.startedAt).getTime() < 10 * 60_000)
       fail("INVALID", "Ideas are already being written; they show here in a minute");
-    await startIdeas(ctx, user._id);
+    await startIdeas(ctx, trade, user._id);
   },
 });
 
-async function startIdeas(ctx: MutationCtx, startedBy?: Id<"users">) {
-  const roundId = await ctx.db.insert("adIdeaRounds", { startedAt: nowIso(), status: "writing", startedBy });
-  await ctx.scheduler.runAfter(0, internal.ads.proposeIdeas, { roundId });
+async function startIdeas(ctx: MutationCtx, trade?: string, startedBy?: Id<"users">) {
+  const slug = tradeOf(trade).slug;
+  const roundId = await ctx.db.insert("adIdeaRounds", { trade: slug, startedAt: nowIso(), status: "writing", startedBy });
+  await ctx.scheduler.runAfter(0, internal.ads.proposeIdeas, { roundId, trade: slug });
 }
 
 /** The same ask from outside the app (the deploy workflow), for a first set before anyone opens the page. */
-export const openIdeas = internalMutation({ args: {}, handler: async (ctx) => await startIdeas(ctx) });
+export const openIdeas = internalMutation({ args: { trade: v.optional(v.string()) }, handler: async (ctx, { trade }) => await startIdeas(ctx, trade) });
 
 const ideaRow = v.object({
   line: v.string(),
@@ -1376,8 +1391,8 @@ export const saveIdeas = internalMutation({
       .query("adIdeas")
       .withIndex("by_status", (q) => q.eq("status", "new"))
       .take(200))
-      await ctx.db.patch(old._id, { status: "passed" });
-    for (const idea of ideas) await ctx.db.insert("adIdeas", { ...idea, round: round.startedAt, status: "new", createdAt: nowIso() });
+      if (inTrade(old, round.trade)) await ctx.db.patch(old._id, { status: "passed" });
+    for (const idea of ideas) await ctx.db.insert("adIdeas", { ...idea, trade: tradeOf(round.trade).slug, round: round.startedAt, status: "new", createdAt: nowIso() });
     await ctx.db.patch(roundId, { status: "ready", offered: ideas.length });
   },
 });
@@ -1398,13 +1413,14 @@ export const failIdeas = internalMutation({
 
 /** Writes a set of ideas: each writer on its own, near-copies dropped, then the best picked. */
 export const proposeIdeas = internalAction({
-  args: { roundId: v.id("adIdeaRounds") },
-  handler: async (ctx, { roundId }) => {
+  args: { roundId: v.id("adIdeaRounds"), trade: v.optional(v.string()) },
+  handler: async (ctx, { roundId, trade: slug }) => {
+    const trade = tradeOf(slug);
     try {
       // What the last keeps and kills say goes into this set.
       await ctx.runAction(internal.ads.learnTaste, {}).catch(() => undefined);
       const cfg = await ctx.runQuery(internal.ads.config, {});
-      const brief = await ctx.runQuery(internal.ads.ideaBrief, {});
+      const brief = await ctx.runQuery(internal.ads.ideaBrief, { trade: trade.slug });
       const town = cfg.researchMarkets[0] ?? "your town";
       // One writer at a time, so four long answers never ask for more at once than the key allows; a writer
       // whose answer errors or can't be read is asked once more. What each gave is kept with the round.
@@ -1412,13 +1428,13 @@ export const proposeIdeas = internalAction({
       const notes: string[] = [];
       const perWriter: IdeaDraft[][] = [];
       for (const writer of IDEA_WRITERS) {
-        const prompt = ideaPrompt(writer, cfg.brand.name, town, brief.sources, brief.library, brief.houseStyle, brief.recent);
+        const prompt = ideaPrompt(writer, cfg.brand.name, town, brief.sources, brief.library, brief.houseStyle, brief.recent, trade);
         let got: IdeaDraft[] = [];
         let why = "";
         for (let attempt = 0; attempt < 2 && got.length === 0; attempt++) {
           try {
             const reply = await claudeReply([{ type: "text", text: prompt }], SHOT_LIST_TOKENS);
-            got = ideasFrom(reply.text, writer.key, brief.sources);
+            got = ideasFrom(reply.text, writer.key, brief.sources, trade);
             if (got.length === 0) why = reply.cutOff ? "the answer was cut off" : `nothing usable in the answer, which began "${reply.text.replace(/\s+/g, " ").trim().slice(0, 80)}"`;
           } catch (e) {
             why = errText(e).slice(0, 160);
@@ -1436,7 +1452,7 @@ export const proposeIdeas = internalAction({
       if (distinct.length === 0) throw new Error(errors[0] ?? "No usable ideas came back. Ask again.");
       let picks: string | null = null;
       if (distinct.length > IDEAS_SHOWN)
-        picks = await claude([{ type: "text", text: criticPrompt(distinct, cfg.brand.name, town, IDEAS_SHOWN, brief.houseStyle) }], 300).catch(() => null);
+        picks = await claude([{ type: "text", text: criticPrompt(distinct, cfg.brand.name, town, IDEAS_SHOWN, brief.houseStyle, trade) }], 300).catch(() => null);
       const chosen = pickIdeas(distinct, picks, IDEAS_SHOWN);
       await ctx.runMutation(internal.ads.saveIdeas, {
         roundId,
@@ -1457,20 +1473,20 @@ export const proposeIdeas = internalAction({
 
 /** The idea cards: the ones waiting on a decision and the ones kept, with how the last ask went and what has been learned. */
 export const listIdeas = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     await requireStaff(ctx);
-    const round = (await ctx.db.query("adIdeaRounds").order("desc").take(1))[0];
+    const round = (await ctx.db.query("adIdeaRounds").order("desc").take(20)).find((r) => inTrade(r, trade));
     const rows = [
       ...(await ctx.db
         .query("adIdeas")
         .withIndex("by_status", (q) => q.eq("status", "new"))
-        .take(50)),
+        .take(200)),
       ...(await ctx.db
         .query("adIdeas")
         .withIndex("by_status", (q) => q.eq("status", "kept"))
-        .take(50)),
-    ];
+        .take(200)),
+    ].filter((i) => inTrade(i, trade));
     const ideas = [];
     for (const i of rows) {
       const x = i.swipeId ? await ctx.db.get(i.swipeId) : null;
@@ -1496,15 +1512,16 @@ export const listIdeas = query({
 
 /** The cards as read from outside the app: how the last ask went and every idea waiting or kept. */
 export const ideasOutside = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const round = (await ctx.db.query("adIdeaRounds").order("desc").take(1))[0];
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
+    const round = (await ctx.db.query("adIdeaRounds").order("desc").take(20)).find((r) => inTrade(r, trade));
     const out = [];
     for (const status of ["new", "kept"] as const)
       for (const i of await ctx.db
         .query("adIdeas")
         .withIndex("by_status", (q) => q.eq("status", status))
-        .take(50)) {
+        .take(200)) {
+        if (!inTrade(i, trade)) continue;
         const x = i.swipeId ? await ctx.db.get(i.swipeId) : null;
         out.push({ status, opening: i.opening, line: i.line, scope: i.scope, family: FAMILY_LABELS[i.family], writer: i.writer, builtOn: x ? `${x.company}, ${runDays(x) ?? "?"} days` : undefined });
       }
@@ -1527,18 +1544,22 @@ export const decideIdea = mutation({
 
 /** Turns the kept ideas into ads: each becomes a hook of its own and goes down the usual path (script, voice, render). */
 export const makeKept = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     const user = await requireSuperAdmin(ctx);
     const k = keys();
     if (!k.anthropic || !k.elevenlabs) fail("INVALID", "Set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY on the deployment first");
     const newest = (await ctx.db.query("adBatches").order("desc").take(1))[0];
     if (newest && newest.status === "drafting" && Date.now() - new Date(newest.createdAt).getTime() < 30 * 60_000)
       fail("INVALID", "A batch is already drafting; it shows under This week as each piece finishes");
-    const kept = await ctx.db
-      .query("adIdeas")
-      .withIndex("by_status", (q) => q.eq("status", "kept"))
-      .take(MAKE_AT_ONCE);
+    const kept = (
+      await ctx.db
+        .query("adIdeas")
+        .withIndex("by_status", (q) => q.eq("status", "kept"))
+        .take(200)
+    )
+      .filter((i) => inTrade(i, trade))
+      .slice(0, MAKE_AT_ONCE);
     if (kept.length === 0) fail("INVALID", "Keep at least one idea first");
     const only: Id<"adHooks">[] = [];
     for (const idea of kept) {
@@ -1548,7 +1569,7 @@ export const makeKept = mutation({
         (await ctx.db.insert("adHooks", {
           family: idea.family,
           scope: idea.scope,
-          trade: "painting",
+          trade: tradeOf(idea.trade).slug,
           textEn: idea.line,
           opening: idea.opening,
           active: false,
@@ -1561,7 +1582,7 @@ export const makeKept = mutation({
       await ctx.db.patch(idea._id, { status: "made", hookId, note: undefined });
       only.push(hookId);
     }
-    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only });
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only, trade: tradeOf(trade).slug });
     await ctx.scheduler.runAfter(0, internal.ads.learnTaste, {});
     return kept.length;
   },
@@ -1665,10 +1686,10 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
 
 /** The last few weeks' batches with their creatives, newest first. */
 export const batches = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     await requireStaff(ctx);
-    const rows = await ctx.db.query("adBatches").order("desc").take(6);
+    const rows = (await ctx.db.query("adBatches").order("desc").take(60)).filter((b) => inTrade(b, trade)).slice(0, 6);
     const hooks = new Map((await ctx.db.query("adHooks").take(500)).map((h) => [h._id as string, h]));
     return await Promise.all(
       rows.map(async (b) => ({
@@ -1967,8 +1988,8 @@ export const config = internalQuery({
 /** What this week can draw on: the eligible hooks in order, and the library with what Claude needs to see each asset. */
 export const plan = internalQuery({
   // `only`: these hooks, in this order, whether or not they are switched on (the ideas the owner kept).
-  args: { hooksPerWeek: v.number(), only: v.optional(v.array(v.id("adHooks"))) },
-  handler: async (ctx, { hooksPerWeek, only }) => {
+  args: { hooksPerWeek: v.number(), only: v.optional(v.array(v.id("adHooks"))), trade: v.optional(v.string()) },
+  handler: async (ctx, { hooksPerWeek, only, trade }) => {
     const liveFamilies = new Set<Family>();
     const liveAds = await ctx.db
       .query("adCreatives")
@@ -1981,10 +2002,12 @@ export const plan = internalQuery({
     const chosen = only ? (await Promise.all(only.map((id) => ctx.db.get(id)))).filter((h): h is Doc<"adHooks"> => h !== null) : null;
     const active =
       chosen ??
-      (await ctx.db
-        .query("adHooks")
-        .withIndex("by_active", (q) => q.eq("active", true))
-        .collect());
+      (
+        await ctx.db
+          .query("adHooks")
+          .withIndex("by_active", (q) => q.eq("active", true))
+          .collect()
+      ).filter((h) => inTrade(h, trade));
     // Each idea with the competitor ad it is built around, if it has one.
     const sources = new Map<string, Doc<"adSwipes">>();
     for (const h of active) {
@@ -2009,9 +2032,9 @@ export const plan = internalQuery({
         : undefined;
       return { ...h, basedOn };
     });
-    const assets = await ctx.db.query("adAssets").take(500);
-    // What the writer is shown for each hook's scope: competitor ads, for tone and shape.
-    const swipes = await ctx.db.query("adSwipes").take(1000);
+    const assets = (await ctx.db.query("adAssets").take(500)).filter((a) => inTrade(a, trade));
+    // What the writer is shown for each hook's scope: competitor ads of the same trade, for tone and shape.
+    const swipes = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade));
     const examples: Record<string, Example[]> = {};
     for (const scope of new Set(hooks.map((h) => h.scope)))
       examples[scope] = pickExamples(swipes, scope).map((x) => ({
@@ -2023,7 +2046,7 @@ export const plan = internalQuery({
         durationSec: x.durationSec,
       }));
     const playbooks: Record<string, { text: string; footagePrefs: string[] }> = {};
-    for (const p of await ctx.db.query("adPlaybooks").take(20)) playbooks[p.scope] = { text: p.text, footagePrefs: p.footagePrefs };
+    for (const p of await ctx.db.query("adPlaybooks").take(100)) if (inTrade(p, trade)) playbooks[p.scope] = { text: p.text, footagePrefs: p.footagePrefs };
     return {
       hooks,
       examples,
@@ -2047,8 +2070,9 @@ export const plan = internalQuery({
 });
 
 export const openBatch = internalMutation({
-  args: { weekOf: v.string(), startedBy: v.optional(v.id("users")) },
-  handler: async (ctx, { weekOf, startedBy }) => await ctx.db.insert("adBatches", { weekOf, status: "drafting", startedBy, createdAt: nowIso() }),
+  args: { weekOf: v.string(), startedBy: v.optional(v.id("users")), trade: v.optional(v.string()) },
+  handler: async (ctx, { weekOf, startedBy, trade }) =>
+    await ctx.db.insert("adBatches", { trade: tradeOf(trade).slug, weekOf, status: "drafting", startedBy, createdAt: nowIso() }),
 });
 
 export const noteSkipped = internalMutation({
@@ -2490,11 +2514,14 @@ export const weeklyRun = internalAction({
     hooks: v.optional(v.number()),
     // The ideas the owner kept, as hooks: make these and nothing else.
     only: v.optional(v.array(v.id("adHooks"))),
+    // The trade to draft for; painting when none is given.
+    trade: v.optional(v.string()),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount, only }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
-    const batchId = await ctx.runMutation(internal.ads.openBatch, { weekOf: weekOf(new Date()), startedBy });
+    const trade = tradeOf(slug);
+    const batchId = await ctx.runMutation(internal.ads.openBatch, { weekOf: weekOf(new Date()), startedBy, trade: trade.slug });
     const skipped: string[] = [];
     const town = cfg.researchMarkets[0] ?? "your town";
     try {
@@ -2503,7 +2530,7 @@ export const weeklyRun = internalAction({
       if (blocked) throw new Error(`${blocked.label}: ${blocked.detail}`);
       // The competitor ads on file are the ideas: each becomes one, and the longest-running are written first.
       if (!only) await ctx.runMutation(internal.ads.ideasFromResearch, {});
-      const { hooks: ranked, assets, examples, playbooks, liveCount } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100, only });
+      const { hooks: ranked, assets, examples, playbooks, liveCount } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100, only, trade: trade.slug });
       // One of each kind of angle before a second of any, so a batch isn't the same ad twice.
       const kinds = new Set<string>();
       const firsts: typeof ranked = [];
@@ -2545,6 +2572,7 @@ export const weeklyRun = internalAction({
               town,
               playbook?.text,
               hook.basedOn,
+              trade,
             ),
             picked.assets,
             "ad",
