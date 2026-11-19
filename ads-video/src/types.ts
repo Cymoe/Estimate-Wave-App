@@ -6,6 +6,10 @@ export interface Photo {
   src: string;
   width: number;
   height: number;
+  /** What to move in on, each 0 to 100 across and down the photo. Without any, a little above the middle. */
+  focus?: Array<{ x: number; y: number }>;
+  /** A few seconds of this same photo with the camera moving, when one has been made and checked. */
+  motion?: { src: string };
 }
 
 /** One spoken line, and when ElevenLabs says it. */
@@ -68,7 +72,23 @@ export type Style =
   /** No photos and no voice: a homeowner's questions and the brand's answers arrive as message bubbles. */
   | { kind: "chat"; messages: Message[]; /** When the ask takes over, in seconds. */ askAt: number }
   /** A moving clip from outside the Library fills the frame for the first line; the job's own photos carry the rest. */
-  | { kind: "stockMix"; clip: Clip };
+  | { kind: "stockMix"; clip: Clip }
+  /** The photos fill the frame and never sit still: each line is cut into a few shots, close and wide, and a new line arrives with a move. */
+  | { kind: "reel" };
+
+/** What plays under the voice. Every part is optional; an ad without any is the voice alone. */
+export interface Sound {
+  /** The music, kept low under the voice and let up on the ask. */
+  music?: string;
+  /** Seconds into the track to start from. */
+  musicFrom?: number;
+  /** Where the track's beats fall, in seconds from where it starts playing here, so a cut inside a line can land on one. */
+  beats?: number[];
+  /** Short effects: a new line arriving, a label landing, the ask. */
+  move?: string;
+  land?: string;
+  ask?: string;
+}
 
 // A type, not an interface: Remotion reads a composition's props as a plain record.
 export type AdProps = {
@@ -84,6 +104,7 @@ export type AdProps = {
   audioSec: number;
   /** One photo per spoken line; a photo used for lines in a row stays up. */
   photos: Photo[];
+  sound?: Sound;
 };
 
 export const FPS = 30;

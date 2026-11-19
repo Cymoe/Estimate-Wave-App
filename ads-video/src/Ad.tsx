@@ -11,6 +11,9 @@ import { StockMix } from "./formats/StockMix";
 import { BeforeAfter } from "./styles/BeforeAfter";
 import { Counter } from "./styles/Counter";
 import { LightUp } from "./styles/LightUp";
+import { Reel } from "./reel/Reel";
+import { shotsOf } from "./reel/shots";
+import { Sound } from "./reel/Sound";
 import { INK } from "./theme";
 import { askAt, runsOf } from "./timing";
 import type { AdProps } from "./types";
@@ -24,7 +27,7 @@ export const source = (src: string) => (/^https?:\/\//.test(src) ? src : staticF
  * voice word by word, and the ask takes over when the last line starts.
  */
 export const Ad: React.FC<AdProps> = (props) => {
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames, width, height } = useVideoConfig();
   const total = durationInFrames / fps;
   const { style } = props;
   const closeAt = style.kind === "chat" ? style.askAt : askAt(props.lines);
@@ -37,11 +40,14 @@ export const Ad: React.FC<AdProps> = (props) => {
       : wordsOnly
         ? []
         : runsOf(props.photos, props.lines, total);
+  // A reel is cut into shots; they run until the ask has covered the frame.
+  const reel = style.kind === "reel";
+  const shots = reel ? shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats) : [];
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
-      {wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
+      {reel ? <Reel {...props} shots={shots} until={closeAt} /> : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
       {style.kind === "stockMix" ? <StockMix {...props} clip={style.clip} runs={runs} /> : null}
-      {style.kind === "chat" ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
+      {style.kind === "chat" || reel ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
       {style.kind === "beforeAfter" ? (
         <BeforeAfter {...props} crossOn={style.crossOn} crossAt={style.crossAt} />
       ) : style.kind === "counter" ? (
@@ -50,7 +56,7 @@ export const Ad: React.FC<AdProps> = (props) => {
         <KineticText {...props} />
       ) : style.kind === "chat" ? (
         <Chat messages={style.messages} brand={props.brand} ratio={props.ratio} />
-      ) : style.kind === "stockMix" ? null : (
+      ) : style.kind === "stockMix" || reel ? null : (
         <LightUp {...props} runs={runs} />
       )}
       {style.kind === "chat" ? null : <BrandChip brand={props.brand} ratio={props.ratio} />}
@@ -58,6 +64,15 @@ export const Ad: React.FC<AdProps> = (props) => {
       {wordsOnly ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} />}
       <ProgressBar color={props.brand.accentColor} />
       {props.audio ? <Audio src={source(props.audio)} /> : null}
+      {props.sound ? (
+        <Sound
+          sound={props.sound}
+          moves={shots.filter((s) => s.opens && s.start > 0).map((s) => s.start)}
+          lands={props.lines.filter((l) => l.label && l.start < closeAt).map((l) => l.start + 0.1)}
+          askAt={closeAt}
+          voiceEnd={props.audioSec}
+        />
+      ) : null}
     </AbsoluteFill>
   );
 };
