@@ -7,25 +7,20 @@ import { adScript } from "./schema";
 import {
   ASSET_TAGS,
   DEFAULT_APIFY_ACTOR,
+  AD_STYLE_LABELS,
   DESCRIBE_PROMPT,
   FAMILY_LABELS,
   PAINTING_HOOKS,
   SCOPES,
   apifyInput,
-  composeGraphicScript,
-  composeImageScript,
-  composeScript,
+  composeMotion,
   creativeName,
   fromApifyItem,
-  graphicEdit,
-  graphicPlanProblems,
-  graphicPrompt,
-  imageAdPrompt,
-  imageEdit,
-  imagePlanProblems,
   isFatigued,
   isLocal,
   metaCents,
+  motionPlanProblems,
+  motionPrompt,
   parseJson,
   pickAssets,
   pickExamples,
@@ -34,25 +29,21 @@ import {
   qualifies,
   readPlaybook,
   readSwipeTags,
-  scriptProblems,
-  shotListPrompt,
-  shotPlanProblems,
+  renderProps,
   shotTimings,
-  shotstackEdit,
   swipeScore,
   tagSwipePrompt,
   weekOf,
+  wordTimings,
   type AdKind,
   type Alignment,
   type Candidate,
   type Example,
   type Family,
-  type GraphicPlan,
-  type ImagePlan,
+  type MotionPlan,
   type Playbook,
   type ScrapedAd,
   type Script,
-  type ShotPlan,
 } from "./lib/ads";
 import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
@@ -60,19 +51,23 @@ import { siteUrl } from "./delivery";
 import { tellStaff } from "./notify";
 
 // Ads on autopilot. Every Monday (or on "Draft now") a batch is drafted.
-// For each hook: candidate footage is picked from the library by tag;
-// Claude looks at the stills and writes a shot list to them (which footage,
-// in what order, the line spoken over each) or passes on the hook; ElevenLabs
-// reads the lines and says when each starts; Shotstack cuts each shot to its
-// line, in two sizes; each video becomes a PAUSED ad in Meta. Staff approve
-// them in Ops → Ads; a daily pull of Meta's numbers plus the intake queue
-// show what each ad brought in. Each outside step is its own action, chained
-// with the scheduler, so one failure marks one creative and the batch goes on.
+// For each hook: candidate photos are picked from the library by tag; Claude
+// looks at them, chooses how the ad moves (lib/ads.ts AD_STYLES) and writes
+// its lines, or passes on the hook; ElevenLabs reads the lines and says when
+// each word is said. The ad then waits to be drawn. Drawing is done outside
+// Convex, by the Remotion project in ads-video/ run by the ads-render GitHub
+// workflow: it claims the waiting ads, renders each in two sizes and uploads
+// the files. Each video becomes a PAUSED ad in Meta. Staff approve them in
+// Ops → Ads; a daily pull of Meta's numbers plus the intake queue show what
+// each ad brought in. Each outside step is its own action, chained with the
+// scheduler, so one failure marks one creative and the batch goes on.
 //
 // Environment (set on the Convex deployment, never committed):
 //   ANTHROPIC_API_KEY     scripts
 //   ELEVENLABS_API_KEY    voice
-//   SHOTSTACK_API_KEY     rendering; SHOTSTACK_ENV=stage for a sandbox key (default v1)
+//   ADS_RENDER_TOKEN      optional: a GitHub token that may start the ads-render workflow, so a
+//                         batch is drawn without anyone starting it (ADS_RENDER_REPO and
+//                         ADS_RENDER_REF override the repository and branch)
 //   META_ACCESS_TOKEN     a system user token with ads_management on the ad account
 //   APIFY_TOKEN           niche research: searches Meta's Ad Library through an Apify actor
 //                         (APIFY_ACTOR overrides which one)
@@ -84,22 +79,19 @@ const MAX_POSTER = 5 * 1024 * 1024;
 const MAX_VIDEO = 200 * 1024 * 1024;
 const GRAPH = "https://graph.facebook.com/v22.0";
 const CLAUDE_MODEL = "claude-sonnet-5-5";
-const RENDER_TRIES = 24;
 /** Image types Claude reads; anything else (HEIC) goes through its JPEG still. */
 const CLAUDE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 const keys = () => ({
   anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
   elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
-  shotstack: Boolean(process.env.SHOTSTACK_API_KEY),
+  // Whether the app can start the renderer itself; without it someone starts the workflow.
+  renderer: Boolean(process.env.ADS_RENDER_TOKEN),
   meta: Boolean(process.env.META_ACCESS_TOKEN),
   apify: Boolean(process.env.APIFY_TOKEN),
 });
 
 const DEFAULTS = { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 6 };
-/** The kinds a batch makes until Settings says otherwise. Videos only until the owner switches another kind on. */
-const DEFAULT_KINDS: Record<AdKind, boolean> = { video: true, image: false, graphic: false };
-const kindsOf = (row: Doc<"adSettings"> | null): Record<AdKind, boolean> => ({ ...DEFAULT_KINDS, ...(row?.kinds ?? {}) });
 const RESEARCH = {
   keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
   markets: ["Midland", "Odessa", "Permian Basin", "West Texas"],
@@ -1206,7 +1198,6 @@ export const settings = query({
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
-      kinds: kindsOf(row),
       ...research(row),
     };
   },
@@ -1228,11 +1219,9 @@ export const saveSettings = mutation({
     researchMarkets: v.optional(v.array(v.string())),
     researchMinDays: v.optional(v.number()),
     researchMonthly: v.optional(v.boolean()),
-    kinds: v.optional(v.object({ video: v.boolean(), image: v.boolean(), graphic: v.boolean() })),
   },
   handler: async (ctx, args) => {
     await requireSuperAdmin(ctx);
-    if (args.kinds && !args.kinds.video && !args.kinds.image && !args.kinds.graphic) fail("INVALID", "Leave at least one kind of ad switched on");
     const trimmed = Object.fromEntries(
       Object.entries(args).map(([k, val]) => [k, typeof val === "string" ? val.trim().replace(/^act_/, "") || undefined : val]),
     );
@@ -1272,6 +1261,8 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
     script: c.script,
     hook: hook ? { id: hook._id, family: hook.family, familyLabel: FAMILY_LABELS[hook.family], scope: hook.scope, textEn: hook.textEn } : null,
     kind: c.kind ?? ("video" as AdKind),
+    // How it moves; none on ads from before they were drawn with Remotion.
+    style: c.design ? { id: c.design.style, label: AD_STYLE_LABELS[c.design.style] } : undefined,
     videoUrl: c.videoStorageId ? ((await ctx.storage.getUrl(c.videoStorageId)) ?? undefined) : undefined,
     imageUrl: c.imageStorageId ? ((await ctx.storage.getUrl(c.imageStorageId)) ?? undefined) : undefined,
     meta: c.meta,
@@ -1370,7 +1361,6 @@ async function readinessChecks(ctx: QueryCtx) {
   const missingKeys = [
     k.anthropic ? "" : "ANTHROPIC_API_KEY",
     k.elevenlabs ? "" : "ELEVENLABS_API_KEY",
-    k.shotstack ? "" : "SHOTSTACK_API_KEY",
   ].filter(Boolean);
   return [
     {
@@ -1379,7 +1369,7 @@ async function readinessChecks(ctx: QueryCtx) {
       ok: missingKeys.length === 0,
       hard: true,
       tab: "settings",
-      detail: missingKeys.length ? `Set ${missingKeys.join(", ")} on the deployment` : "Claude, ElevenLabs and Shotstack are set",
+      detail: missingKeys.length ? `Set ${missingKeys.join(", ")} on the deployment` : "Claude and ElevenLabs are set",
     },
     {
       key: "library",
@@ -1402,6 +1392,14 @@ async function readinessChecks(ctx: QueryCtx) {
       hard: false,
       tab: "swipes",
       detail: playbooks > 0 ? `${playbooks} written` : "None yet: load or search competitor ads",
+    },
+    {
+      key: "renderer",
+      label: "Drawing the videos",
+      ok: k.renderer,
+      hard: false,
+      tab: "settings",
+      detail: k.renderer ? "Videos are drawn as soon as a batch is voiced" : "No ADS_RENDER_TOKEN yet: ads wait as Waiting to render until the renderer is started",
     },
     {
       key: "meta",
@@ -1430,8 +1428,7 @@ export const draftNow = mutation({
   handler: async (ctx) => {
     const user = await requireSuperAdmin(ctx);
     const k = keys();
-    if (!k.anthropic || !k.elevenlabs || !k.shotstack)
-      fail("INVALID", "Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY and SHOTSTACK_API_KEY on the deployment first");
+    if (!k.anthropic || !k.elevenlabs) fail("INVALID", "Set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY on the deployment first");
     const newest = (await ctx.db.query("adBatches").order("desc").take(1))[0];
     if (newest && newest.status === "drafting" && Date.now() - new Date(newest.createdAt).getTime() < 30 * 60_000)
       fail("INVALID", "A batch is already drafting; it shows under This week as each piece finishes");
@@ -1551,7 +1548,6 @@ export const config = internalQuery({
       voiceId: row?.voiceId,
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
-      kinds: kindsOf(row),
       ...research(row),
     };
   },
@@ -1635,25 +1631,28 @@ export const failBatch = internalMutation({
   },
 });
 
-const adKind = v.union(v.literal("video"), v.literal("image"), v.literal("graphic"));
+const adDesign = v.object({
+  style: v.union(v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
+  title: v.string(),
+  stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
+  revealOn: v.optional(v.string()),
+});
 
-/** Creates the week's creatives for one hook in one kind (two sizes) once its script is in. */
+/** Creates the week's creatives for one hook (two sizes) once its script is in. */
 export const addCreatives = internalMutation({
   args: {
     batchId: v.id("adBatches"),
     hookId: v.id("adHooks"),
     script: adScript,
-    kind: v.optional(adKind),
-    // This batch already made the hook in another kind.
-    again: v.optional(v.boolean()),
+    design: adDesign,
   },
-  handler: async (ctx, { batchId, hookId, script, kind = "video", again }) => {
-    // Each file once, in the order it first appears (a checklist ad may show one photo for several lines).
+  handler: async (ctx, { batchId, hookId, script, design }) => {
+    // Each file once, in the order it first appears (a photo may stay up for lines in a row).
     const assetIds = [...new Set((script.shots ?? []).map((s) => s.assetId))];
     const now = new Date();
     const ids: Id<"adCreatives">[] = [];
     for (const ratio of ["9x16", "4x5"] as const) {
-      let name = creativeName(hookId, ratio, now, kind);
+      let name = creativeName(hookId, ratio, now);
       for (
         let n = 2;
         (await ctx.db
@@ -1662,14 +1661,13 @@ export const addCreatives = internalMutation({
           .first()) !== null;
         n++
       )
-        name = `${creativeName(hookId, ratio, now, kind)}_${n}`;
-      ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, kind, name, script, assetIds, status: "draft", createdAt: nowIso() }));
+        name = `${creativeName(hookId, ratio, now)}_${n}`;
+      ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, name, script, design, assetIds, status: "draft", createdAt: nowIso() }));
     }
-    // A hook made in two kinds in one batch was still used once.
     const hook = await ctx.db.get(hookId);
-    if (hook) await ctx.db.patch(hookId, { uses: hook.uses + (again ? 0 : 1), lastUsedAt: nowIso() });
-    // The library rotates: footage cut into an ad this week waits behind fresher footage next week.
-    for (const assetId of new Set(assetIds)) {
+    if (hook) await ctx.db.patch(hookId, { uses: hook.uses + 1, lastUsedAt: nowIso() });
+    // The library rotates: a photo used in an ad this week waits behind fresher ones next week.
+    for (const assetId of assetIds) {
       const a = await ctx.db.get(assetId);
       if (a) await ctx.db.patch(assetId, { uses: (a.uses ?? 0) + 1, lastUsedAt: nowIso() });
     }
@@ -1752,7 +1750,7 @@ export const creativeInput = internalQuery({
       if (!a) continue;
       const original = await ctx.storage.getUrl(a.storageId);
       const posterUrl = a.posterStorageId ? ((await ctx.storage.getUrl(a.posterStorageId)) ?? undefined) : undefined;
-      // A photo Shotstack can't read (HEIC) renders from its JPEG still.
+      // A photo a browser can't read (HEIC) is shown from its JPEG still.
       const url = a.kind === "photo" && !CLAUDE_IMAGE_TYPES.includes(a.contentType) && posterUrl ? posterUrl : original;
       if (url) assets.push({ id: assetId, url, posterUrl, kind: a.kind, tags: a.tags, pairKey: a.pairKey, durationSec: a.durationSec });
     }
@@ -1778,6 +1776,7 @@ export const recentCreatives = internalQuery({
       rows.map(async (c) => ({
         name: c.name,
         kind: c.kind ?? "video",
+        style: c.design?.style,
         ratio: c.ratio,
         status: c.status,
         createdAt: c.createdAt,
@@ -1801,9 +1800,9 @@ export const recentCreatives = internalQuery({
 });
 
 /**
- * Renders ads again from the words and voice they already have, after a
- * layout fix: nothing is rewritten or re-read. The old file goes; the new
- * one takes its place when the render is back.
+ * Sends ads back to be drawn again from the words and voice they already
+ * have, after a change to how ads are drawn: nothing is rewritten or re-read.
+ * The old file goes; the new one takes its place when the render is back.
  */
 export const rerender = internalMutation({
   args: { names: v.array(v.string()) },
@@ -1814,101 +1813,133 @@ export const rerender = internalMutation({
         .query("adCreatives")
         .withIndex("by_name", (q) => q.eq("name", name))
         .first();
-      // Only one still waiting for review: an ad in Meta keeps the file Meta has.
-      if (!c || c.status !== "rendered" || (c.kind !== "image" && !c.audioStorageId)) continue;
+      // Only one still waiting for review, and only one the renderer can draw: an ad in Meta keeps the file Meta has.
+      if (!c || !c.design || !c.audioStorageId || (c.status !== "rendered" && c.status !== "failed")) continue;
       if (c.videoStorageId) await ctx.storage.delete(c.videoStorageId);
-      if (c.imageStorageId) await ctx.storage.delete(c.imageStorageId);
-      await ctx.db.patch(c._id, {
-        status: c.kind === "image" ? "draft" : "voiced",
-        videoStorageId: undefined,
-        imageStorageId: undefined,
-        renderId: undefined,
-        error: undefined,
-      });
-      await ctx.scheduler.runAfter(sent.length * 1000, internal.ads.render, { id: c._id });
+      await ctx.db.patch(c._id, { status: "voiced", videoStorageId: undefined, renderStartedAt: undefined, error: undefined });
       sent.push(name);
     }
+    if (sent.length) await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
     return { sent };
   },
 });
 
-/** A voiced ad's voice track and photos, to try another layout on them. */
-export const sampleSource = internalQuery({
-  args: { name: v.string() },
-  handler: async (ctx, { name }) => {
-    const c = await ctx.db
+/** How long a claimed ad may go without its file before it is offered again (the renderer stopped part-way). */
+const RENDER_STALE_MS = 20 * 60_000;
+/** The most ads handed out to one run of the renderer. */
+const RENDER_BATCH = 8;
+
+/**
+ * The renderer asks for work: the ads that are voiced and waiting, each with
+ * everything it is drawn from (lib/ads.ts renderProps). They are marked as
+ * rendering, so a second renderer doesn't draw them too; one claimed over
+ * twenty minutes ago with no file is offered again.
+ */
+export const claimRenders = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit = RENDER_BATCH }) => {
+    const waiting = await ctx.db
       .query("adCreatives")
-      .withIndex("by_name", (q) => q.eq("name", name))
-      .first();
-    if (!c?.audioStorageId) return null;
-    const photos: string[] = [];
-    for (const id of c.assetIds) {
-      const a = await ctx.db.get(id);
-      const url = a && a.kind === "photo" ? await lookUrl(ctx, a) : undefined;
-      if (url) photos.push(url);
+      .withIndex("by_status", (q) => q.eq("status", "voiced"))
+      .take(50);
+    const stale = (
+      await ctx.db
+        .query("adCreatives")
+        .withIndex("by_status", (q) => q.eq("status", "rendering"))
+        .take(50)
+    ).filter((c) => !c.renderStartedAt || Date.now() - new Date(c.renderStartedAt).getTime() > RENDER_STALE_MS);
+    const row = await settingsRow(ctx);
+    const brand = {
+      name: consumerBrand(),
+      primaryColor: row?.primaryColor ?? "#336699",
+      accentColor: row?.accentColor ?? "#8fb6e0",
+      markets: research(row).researchMarkets,
+    };
+    const jobs: Array<{ id: Id<"adCreatives">; name: string; props: ReturnType<typeof renderProps> }> = [];
+    for (const c of [...waiting, ...stale].slice(0, Math.max(1, Math.min(RENDER_BATCH, limit)))) {
+      try {
+        if (!c.design) throw new Error("This ad was made before ads were drawn this way");
+        const audioUrl = c.audioStorageId ? await ctx.storage.getUrl(c.audioStorageId) : null;
+        if (!audioUrl) throw new Error("No voice track");
+        const photos = new Map<string, { url: string; tags: string[] }>();
+        for (const assetId of c.assetIds) {
+          const a = await ctx.db.get(assetId);
+          // The still Claude looked at: the photo itself, or its JPEG still when the browser can't read it (HEIC).
+          const url = a ? await lookUrl(ctx, a) : undefined;
+          if (a && url) photos.set(assetId, { url, tags: a.tags });
+        }
+        const props = renderProps({
+          ratio: c.ratio,
+          design: c.design,
+          script: c.script,
+          photos,
+          audioUrl,
+          audioSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
+          brand,
+        });
+        await ctx.db.patch(c._id, { status: "rendering", renderStartedAt: nowIso(), error: undefined });
+        jobs.push({ id: c._id, name: c.name, props });
+      } catch (e) {
+        await ctx.db.patch(c._id, { status: "failed", error: errText(e) });
+        await ctx.scheduler.runAfter(0, internal.ads.finishIfDone, { batchId: c.batchId });
+      }
     }
-    return { audioUrl: await ctx.storage.getUrl(c.audioStorageId), audioDurationSec: c.audioDurationSec ?? 20, photos };
+    return jobs;
   },
 });
 
-const sampleRatio = v.union(v.literal("9x16"), v.literal("4x5"));
+/** Where the renderer puts a finished file. */
+export const renderUploadUrl = internalMutation({ args: {}, handler: async (ctx) => await ctx.storage.generateUploadUrl() });
+
+/** The renderer hands in a finished video. An ad that was rejected or removed meanwhile doesn't keep it. */
+export const renderDone = internalMutation({
+  args: { id: v.id("adCreatives"), storageId: v.id("_storage") },
+  handler: async (ctx, { id, storageId }) => {
+    const c = await ctx.db.get(id);
+    if (c === null || c.status !== "rendering") {
+      await ctx.storage.delete(storageId);
+      return { kept: false };
+    }
+    if (c.videoStorageId) await ctx.storage.delete(c.videoStorageId);
+    await ctx.db.patch(id, { status: "rendered", videoStorageId: storageId, error: undefined });
+    await ctx.scheduler.runAfter(0, internal.ads.publishPaused, { id });
+    return { kept: true };
+  },
+});
+
+/** The renderer couldn't draw one: that ad fails with the reason and the batch goes on. */
+export const renderFailed = internalMutation({
+  args: { id: v.id("adCreatives"), error: v.string() },
+  handler: async (ctx, { id, error }) => {
+    const c = await ctx.db.get(id);
+    if (c === null || c.status !== "rendering") return;
+    await ctx.db.patch(id, { status: "failed", error: `Couldn't draw the video: ${error}`.slice(0, 500) });
+    await ctx.scheduler.runAfter(0, internal.ads.finishIfDone, { batchId: c.batchId });
+  },
+});
 
 /**
- * Renders layouts and gives back the files' links, to look at one before an
- * ad kind uses it. Nothing is stored and no ad is made. `images` are image
- * ads from the words given; `graphics` are checklist ads from the words
- * given, over the voice and photos of an ad already made (so the words on
- * screen won't match what is said: it is the look being tried); `edits` are
- * raw Shotstack edits.
+ * Asks GitHub to run the renderer. With no ADS_RENDER_TOKEN it does nothing:
+ * the ads wait as voiced until someone starts the workflow.
  */
-export const renderSample = internalAction({
-  args: {
-    edits: v.optional(v.array(v.any())),
-    images: v.optional(v.array(v.object({ ratio: sampleRatio, photoUrl: v.string(), headline: v.string(), support: v.string() }))),
-    graphics: v.optional(v.array(v.object({ ratio: sampleRatio, voiceFrom: v.string(), title: v.string(), points: v.array(v.string()) }))),
-  },
-  handler: async (ctx, { edits = [], images = [], graphics = [] }): Promise<{ results: string[] }> => {
-    const cfg = await ctx.runQuery(internal.ads.config, {});
-    const all: unknown[] = [...edits, ...images.map((i) => imageEdit({ ...i, brand: cfg.brand }))];
-    for (const g of graphics) {
-      const from: { audioUrl: string | null; audioDurationSec: number; photos: string[] } | null = await ctx.runQuery(internal.ads.sampleSource, {
-        name: g.voiceFrom,
-      });
-      if (!from?.audioUrl || from.photos.length === 0) throw new Error(`${g.voiceFrom} has no voice or no photos to borrow`);
-      // Five lines spread evenly over the borrowed voice: the title, the points, the ask.
-      const lines = [g.title, ...g.points, "Get a quote"];
-      const each = from.audioDurationSec / lines.length;
-      all.push(
-        graphicEdit({
-          shots: lines.map((onScreen, i) => ({
-            asset: { url: from.photos[Math.min(from.photos.length - 1, Math.floor((i * from.photos.length) / lines.length))], kind: "photo" as const, tags: [] },
-            onScreen,
-            start: Math.round(i * each * 100) / 100,
-            end: Math.round((i + 1) * each * 100) / 100,
-          })),
-          audioUrl: from.audioUrl,
-          audioDurationSec: from.audioDurationSec,
-          brand: cfg.brand,
-          ratio: g.ratio,
-        }),
-      );
+export const startRenders = internalAction({
+  args: {},
+  handler: async (): Promise<{ started: boolean; why?: string }> => {
+    const token = process.env.ADS_RENDER_TOKEN;
+    if (!token) return { started: false, why: "no ADS_RENDER_TOKEN" };
+    const repo = process.env.ADS_RENDER_REPO ?? "Cymoe/Estimate-Wave-App";
+    const ref = process.env.ADS_RENDER_REF ?? "fieldquote-convex";
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/ads-render.yml/dispatches`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json", "user-agent": "ad-maker" },
+      body: JSON.stringify({ ref }),
+    });
+    if (!res.ok) {
+      const why = `GitHub: ${res.status} ${(await res.text()).slice(0, 200)}`;
+      console.error("start renders", why);
+      return { started: false, why };
     }
-    const headers = { "content-type": "application/json", "x-api-key": process.env.SHOTSTACK_API_KEY! };
-    const one = async (edit: unknown): Promise<string> => {
-      const sent = await readJson(await fetch(`${shotstackBase()}/render`, { method: "POST", headers, body: JSON.stringify(edit) }), "Shotstack");
-      const renderId = sent?.response?.id;
-      if (!renderId) throw new Error("Shotstack gave no render id");
-      for (let tries = 0; tries < 100; tries++) {
-        await new Promise((r) => setTimeout(r, 5000));
-        const body = await readJson(await fetch(`${shotstackBase()}/render/${renderId}`, { headers }), "Shotstack");
-        if (body?.response?.status === "done" && body.response.url) return body.response.url;
-        if (body?.response?.status === "failed") throw new Error(`Shotstack: ${body.response.error ?? "render failed"}`);
-      }
-      throw new Error("Shotstack: the sample took more than 8 minutes");
-    };
-    // Each on its own: one refused edit says why and doesn't hide the others.
-    const settled = await Promise.allSettled(all.slice(0, 6).map(one));
-    return { results: settled.map((r) => (r.status === "fulfilled" ? r.value : `failed: ${errText(r.reason)}`)) };
+    return { started: true };
   },
 });
 
@@ -1951,7 +1982,9 @@ const stripSystem = (s: Script) =>
     onScreen: s.onScreen,
     headline: s.headline,
     primaryText: s.primaryText,
-    ...(s.shots ? { shots: s.shots.map((x) => ({ assetId: x.assetId, voice: x.voice, onScreen: x.onScreen, start: x.start, end: x.end })) } : {}),
+    ...(s.shots
+      ? { shots: s.shots.map((x) => ({ assetId: x.assetId, voice: x.voice, onScreen: x.onScreen, start: x.start, end: x.end, ...(x.words ? { words: x.words } : {}) })) }
+      : {}),
   }) as never;
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 500);
@@ -1986,23 +2019,20 @@ const claude = async (content: unknown[], maxTokens = 1500): Promise<string> => 
 const SHOT_LIST_TOKENS = 4000;
 
 /**
- * Monday: works down the eligible hooks until hooksPerWeek of them have a
- * shot list. A hook Claude says the footage can't carry, or whose shot list
- * still breaks a rule after one retry, is passed over with the reason.
+ * Monday: works down the eligible hooks until hooksPerWeek of them have an ad
+ * written. A hook Claude says the photos can't carry, or whose ad still
+ * breaks a rule after one retry, is passed over with the reason.
  */
 export const weeklyRun = internalAction({
   args: {
     startedBy: v.optional(v.id("users")),
     force: v.optional(v.boolean()),
-    // For a one-off run: the kinds to make and how many hooks, whatever Settings says.
-    kinds: v.optional(v.array(adKind)),
+    // For a one-off run: how many hooks, whatever Settings says.
     hooks: v.optional(v.number()),
   },
-  handler: async (ctx, { startedBy, force, kinds, hooks: hookCount }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
-    // The kinds this batch makes: Settings' switches, or the ones named for a one-off run.
-    const on = (kind: AdKind) => (kinds ? kinds.includes(kind) : cfg.kinds[kind]);
     const batchId = await ctx.runMutation(internal.ads.openBatch, { weekOf: weekOf(new Date()), startedBy });
     const skipped: string[] = [];
     const town = cfg.researchMarkets[0] ?? "your town";
@@ -2014,7 +2044,9 @@ export const weeklyRun = internalAction({
       if (liveCount >= cfg.liveTarget)
         throw new Error(`${liveCount} ads are live and the target is ${cfg.liveTarget}. Retire one under Live, or raise the target in Settings.`);
       if (hooks.length === 0) throw new Error("No active hooks. Add or switch on hooks in Ops → Ads → Hooks.");
-      if (assets.length === 0) throw new Error("The library is empty. Upload photos or clips in Ops → Ads → Library.");
+      // An ad is drawn from photos Claude can look at.
+      const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
+      if (photos.length === 0) throw new Error("The library has no photos. Upload job photos in Ops → Ads → Library.");
       const used = new Set<string>();
       let made = 0;
       let delay = 0;
@@ -2022,150 +2054,39 @@ export const weeklyRun = internalAction({
         if (made >= (hookCount ?? cfg.hooksPerWeek)) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
         const playbook = playbooks[hook.scope] ?? playbooks.general;
-        // Both kinds choose from the footage as it stood before this hook, so the image ad may show a photo the video also uses.
-        const usedNow: string[] = [];
-        let kindsMade = 0;
-        if (on("video")) {
-          const picked = pickAssets(assets, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
-          if (picked.assets.length === 0) skipped.push(`${label}: nothing tagged ${hook.scope}, and no process or crew footage left`);
-          else
-            try {
-              const script = await writeShotList(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? [], town, playbook?.text);
-              script.shots!.forEach((s) => usedNow.push(s.assetId));
-              const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, { batchId, hookId: hook._id, script: script as never });
-              // One voice per hook, shared by its two sizes.
-              await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
-              delay += 1500;
-              kindsMade += 1;
-            } catch (e) {
-              skipped.push(`${label}: ${errText(e)}`);
-            }
+        const picked = pickAssets(photos, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
+        if (picked.assets.length === 0) {
+          skipped.push(`${label}: no photo tagged ${hook.scope}, and no process or crew photo left`);
+          continue;
         }
-        if (on("image")) {
-          // An image ad is one photo Claude can look at.
-          const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
-          const picked = pickAssets(photos, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
-          if (picked.assets.length === 0) skipped.push(`${label} (image ad): no photo tagged ${hook.scope}, and no process or crew photo left`);
-          else
-            try {
-              const plan = await writePlan<ImagePlan>(
-                imageAdPrompt(hook, cfg.brand.name, picked.assets, picked.inScope, town, playbook?.text),
-                picked.assets,
-                "image ad",
-                (p) => imagePlanProblems(p, picked.assets.length),
-              );
-              const script = composeImageScript(
-                plan,
-                picked.assets.map((a) => a._id),
-              );
-              script.shots!.forEach((s) => usedNow.push(s.assetId));
-              const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, {
-                batchId,
-                hookId: hook._id,
-                script: script as never,
-                kind: "image",
-                again: kindsMade > 0,
-              });
-              // No voice: straight to the render.
-              for (const id of ids) {
-                await ctx.scheduler.runAfter(delay, internal.ads.render, { id });
-                delay += 1000;
-              }
-              kindsMade += 1;
-            } catch (e) {
-              skipped.push(`${label} (image ad): ${errText(e)}`);
-            }
+        try {
+          const plan = await writePlan<MotionPlan>(
+            motionPrompt(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? [], town, playbook?.text),
+            picked.assets,
+            "ad",
+            (p) => motionPlanProblems(p, picked.assets),
+          );
+          const { script, design } = composeMotion(
+            plan,
+            picked.assets.map((a) => a._id),
+          );
+          script.shots!.forEach((s) => used.add(s.assetId));
+          const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, { batchId, hookId: hook._id, script: script as never, design });
+          // One voice per hook, shared by its two sizes.
+          await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
+          delay += 1500;
+          made += 1;
+        } catch (e) {
+          skipped.push(`${label}: ${errText(e)}`);
         }
-        if (on("graphic")) {
-          const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
-          const picked = pickAssets(photos, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
-          if (picked.assets.length === 0) skipped.push(`${label} (animated graphic): no photo tagged ${hook.scope}, and no process or crew photo left`);
-          else
-            try {
-              const plan = await writePlan<GraphicPlan>(
-                graphicPrompt(hook, cfg.brand.name, picked.assets, picked.inScope, town, playbook?.text),
-                picked.assets,
-                "animated graphic",
-                (p) => graphicPlanProblems(p, picked.assets.length),
-              );
-              const script = composeGraphicScript(
-                plan,
-                picked.assets.map((a) => a._id),
-              );
-              script.shots!.forEach((s) => usedNow.push(s.assetId));
-              const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, {
-                batchId,
-                hookId: hook._id,
-                script: script as never,
-                kind: "graphic",
-                again: kindsMade > 0,
-              });
-              // Voiced like a video: one read, shared by the two sizes.
-              await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
-              delay += 1500;
-              kindsMade += 1;
-            } catch (e) {
-              skipped.push(`${label} (animated graphic): ${errText(e)}`);
-            }
-        }
-        usedNow.forEach((id) => used.add(id));
-        if (kindsMade > 0) made += 1;
       }
       await ctx.runMutation(internal.ads.noteSkipped, { batchId, skipped });
-      if (made === 0) throw new Error(`No hook had footage that fits. ${skipped.join(" ")}`);
+      if (made === 0) throw new Error(`No hook had photos that fit. ${skipped.join(" ")}`);
     } catch (e) {
       await ctx.runMutation(internal.ads.failBatch, { batchId, error: errText(e) });
     }
   },
 });
-
-/**
- * Claude looks at the candidate footage and writes the shot list. The stills
- * go in as image blocks, each after a "Footage N" label so the numbers in
- * the reply point at the right asset. One retry with the problems named.
- */
-async function writeShotList(
-  hook: Doc<"adHooks">,
-  brand: string,
-  footage: Array<Candidate & { _id: string }>,
-  inScope: boolean,
-  examples: Example[],
-  town: string,
-  playbook?: string,
-): Promise<Script> {
-  const content: unknown[] = [{ type: "text", text: shotListPrompt(hook, brand, footage, inScope, examples, town, playbook) }];
-  footage.forEach((f, i) => {
-    if (!f.imageUrl) return;
-    content.push({ type: "text", text: `Footage ${i + 1}:` }, { type: "image", source: { type: "url", url: f.imageUrl } });
-  });
-  let problems: string[] = [];
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const ask =
-      attempt === 0
-        ? content
-        : [
-            ...content,
-            { type: "text", text: `Your last shot list had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` },
-          ];
-    const reply = await claudeReply(ask, SHOT_LIST_TOKENS);
-    const plan = parseJson<ShotPlan>(reply.text);
-    if (!plan) {
-      // What came back instead, so the skip on the page says what to fix.
-      const began = reply.text.replace(/\s+/g, " ").trim().slice(0, 120);
-      problems = [reply.cutOff ? "the reply wasn't JSON: it was cut off before it finished" : `the reply wasn't JSON${began ? `: it began "${began}"` : ": it was empty"}`];
-      continue;
-    }
-    if (plan.fits === false) throw new Error(`Claude passed: ${plan.reason ?? "the footage doesn't fit the hook"}`);
-    problems = shotPlanProblems(plan, footage);
-    const script = composeScript(
-      plan,
-      footage.map((f) => f._id),
-    );
-    if (problems.length === 0) problems = scriptProblems(script);
-    if (problems.length === 0) return script;
-  }
-  throw new Error(`the shot list still broke the rules: ${problems.join("; ")}`);
-}
 
 /**
  * Asks Claude for a plan about some photos and checks it. The photos go in
@@ -2189,11 +2110,12 @@ async function writePlan<P extends { fits?: boolean; reason?: string }>(
     const reply = await claudeReply(ask, SHOT_LIST_TOKENS);
     const plan = parseJson<P>(reply.text);
     if (!plan) {
+      // What came back instead, so the skip on the page says what to fix.
       const began = reply.text.replace(/\s+/g, " ").trim().slice(0, 120);
       problems = [reply.cutOff ? "the reply wasn't JSON: it was cut off before it finished" : `the reply wasn't JSON${began ? `: it began "${began}"` : ": it was empty"}`];
       continue;
     }
-    if (plan.fits === false) throw new Error(`Claude passed: ${plan.reason ?? "none of the photos fits the hook"}`);
+    if (plan.fits === false) throw new Error(`Claude passed: ${plan.reason ?? "the photos don't fit the hook"}`);
     problems = problemsOf(plan);
     if (problems.length === 0) return plan;
   }
@@ -2228,9 +2150,13 @@ export const voice = internalAction({
       const audioStorageId = await ctx.storage.store(new Blob([bytes], { type: "audio/mpeg" }));
       const estimate = Math.max(8, lines.join(" ").split(/\s+/).length / 2.6);
       const timed = shotTimings(lines, (body.alignment ?? null) as Alignment | null, estimate);
-      const script = shots.length ? { ...first.script, shots: shots.map((s, i) => ({ ...s, ...timed.shots[i] })) } : first.script;
-      let delay = 0;
-      for (const id of ids) {
+      // When each word is said, so the captions can follow the voice; without it the renderer estimates from the line.
+      const words = wordTimings(lines, (body.alignment ?? null) as Alignment | null);
+      const script = shots.length
+        ? { ...first.script, shots: shots.map((s, i) => ({ ...s, ...timed.shots[i], ...(words ? { words: words[i] } : {}) })) }
+        : first.script;
+      // Voiced is the end of what happens here: the ads now wait for the renderer.
+      for (const id of ids)
         await ctx.runMutation(internal.ads.patchCreative, {
           id,
           status: "voiced",
@@ -2238,105 +2164,10 @@ export const voice = internalAction({
           audioDurationSec: timed.durationSec,
           script: stripSystem(script),
         });
-        await ctx.scheduler.runAfter(delay, internal.ads.render, { id });
-        delay += 1000;
-      }
+      await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
     } catch (e) {
       for (const id of ids) await ctx.runMutation(internal.ads.patchCreative, { id, status: "failed", error: errText(e) });
       await ctx.runMutation(internal.ads.finishIfDone, { batchId: first.batchId });
-    }
-  },
-});
-
-const shotstackBase = () => `https://api.shotstack.io/edit/${process.env.SHOTSTACK_ENV === "stage" ? "stage" : "v1"}`;
-
-/** Sends one creative to Shotstack and comes back for it. */
-export const render = internalAction({
-  args: { id: v.id("adCreatives") },
-  handler: async (ctx, { id }) => {
-    const c: CreativeInput | null = await ctx.runQuery(internal.ads.creativeInput, { id });
-    if (!c) return;
-    const cfg = await ctx.runQuery(internal.ads.config, {});
-    try {
-      const byId = new Map(c.assets.map((a) => [a.id as string, a]));
-      const shots = (c.script.shots ?? []).map((s) => ({ asset: byId.get(s.assetId), onScreen: s.onScreen, start: s.start ?? 0, end: s.end ?? 0 }));
-      if (shots.length === 0 || shots.some((s) => !s.asset)) throw new Error("A shot's footage is missing from the library");
-      let edit: unknown;
-      if (c.kind === "image") {
-        edit = imageEdit({
-          photoUrl: shots[0].asset!.url,
-          headline: c.script.onScreen[0] ?? "",
-          support: c.script.onScreen[1] ?? "",
-          brand: cfg.brand,
-          ratio: c.ratio,
-        });
-      } else if (c.kind === "graphic") {
-        if (!c.audioUrl) throw new Error("No voice track");
-        edit = graphicEdit({
-          shots: shots as Array<{ asset: NonNullable<(typeof shots)[number]["asset"]>; onScreen: string; start: number; end: number }>,
-          audioUrl: c.audioUrl,
-          audioDurationSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
-          brand: cfg.brand,
-          ratio: c.ratio,
-        });
-      } else {
-        if (!c.audioUrl) throw new Error("No voice track");
-        edit = shotstackEdit({
-          shots: shots as Array<{ asset: NonNullable<(typeof shots)[number]["asset"]>; onScreen: string; start: number; end: number }>,
-          audioUrl: c.audioUrl,
-          audioDurationSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
-          brand: cfg.brand,
-          ratio: c.ratio,
-        });
-      }
-      const res = await fetch(`${shotstackBase()}/render`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-api-key": process.env.SHOTSTACK_API_KEY! },
-        body: JSON.stringify(edit),
-      });
-      const body = await readJson(res, "Shotstack");
-      const renderId = body?.response?.id;
-      if (!renderId) throw new Error("Shotstack gave no render id");
-      await ctx.runMutation(internal.ads.patchCreative, { id, status: "rendering", renderId });
-      // A still is ready in seconds; a video takes a minute or more.
-      await ctx.scheduler.runAfter(c.kind === "image" ? 10_000 : 30_000, internal.ads.pollRender, { id, tries: 1 });
-    } catch (e) {
-      await ctx.runMutation(internal.ads.patchCreative, { id, status: "failed", error: errText(e) });
-      await ctx.runMutation(internal.ads.finishIfDone, { batchId: c.batchId });
-    }
-  },
-});
-
-export const pollRender = internalAction({
-  args: { id: v.id("adCreatives"), tries: v.number() },
-  handler: async (ctx, { id, tries }) => {
-    const c: CreativeInput | null = await ctx.runQuery(internal.ads.creativeInput, { id });
-    if (!c || c.status !== "rendering" || !c.renderId) return;
-    try {
-      const res = await fetch(`${shotstackBase()}/render/${c.renderId}`, { headers: { "x-api-key": process.env.SHOTSTACK_API_KEY! } });
-      const body = await readJson(res, "Shotstack");
-      const status = body?.response?.status;
-      if (status === "done" && body.response.url) {
-        const file = await fetch(body.response.url);
-        if (!file.ok) throw new Error(`Couldn't download the render (${file.status})`);
-        if (c.kind === "image") {
-          const imageStorageId = await ctx.storage.store(new Blob([await file.arrayBuffer()], { type: "image/jpeg" }));
-          await ctx.runMutation(internal.ads.patchCreative, { id, status: "rendered", imageStorageId });
-        } else {
-          const videoStorageId = await ctx.storage.store(new Blob([await file.arrayBuffer()], { type: "video/mp4" }));
-          await ctx.runMutation(internal.ads.patchCreative, { id, status: "rendered", videoStorageId });
-        }
-        await ctx.scheduler.runAfter(0, internal.ads.publishPaused, { id });
-      } else if (status === "failed") {
-        throw new Error(`Shotstack: ${body.response.error ?? "render failed"}`);
-      } else if (tries >= RENDER_TRIES) {
-        throw new Error("Shotstack: the render took more than 12 minutes");
-      } else {
-        await ctx.scheduler.runAfter(c.kind === "image" ? 10_000 : 30_000, internal.ads.pollRender, { id, tries: tries + 1 });
-      }
-    } catch (e) {
-      await ctx.runMutation(internal.ads.patchCreative, { id, status: "failed", error: errText(e) });
-      await ctx.runMutation(internal.ads.finishIfDone, { batchId: c.batchId });
     }
   },
 });
@@ -2353,8 +2184,7 @@ export const publishPaused = internalAction({
   args: { id: v.id("adCreatives") },
   handler: async (ctx, { id }) => {
     const c: CreativeInput | null = await ctx.runQuery(internal.ads.creativeInput, { id });
-    const image = c?.kind === "image";
-    if (!c || !(image ? c.imageUrl : c.videoUrl)) return;
+    if (!c || !c.videoUrl) return;
     const cfg = await ctx.runQuery(internal.ads.config, {});
     const adsetId = cfg.adsetId;
     if (!process.env.META_ACCESS_TOKEN || !cfg.adAccountId || !cfg.pageId || !adsetId) {
@@ -2376,44 +2206,6 @@ export const publishPaused = internalAction({
         image_animation: { enroll_status: "OPT_OUT" },
         video_expansion: { enroll_status: "OPT_OUT" },
       };
-      if (image) {
-        // The image goes up by its bytes; Meta answers with a hash the creative points at.
-        let hash = c.meta?.imageHash;
-        if (!hash) {
-          const file = await fetch(c.imageUrl!);
-          if (!file.ok) throw new Error(`Couldn't read the image (${file.status})`);
-          const bytes = new Uint8Array(await file.arrayBuffer());
-          let binary = "";
-          for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-          const up = await graph(`${act}/adimages`, { bytes: btoa(binary), name: `${c.name}.jpg` }, "Meta image upload");
-          hash = (Object.values(up?.images ?? {})[0] as { hash?: string } | undefined)?.hash;
-          if (!hash) throw new Error("Meta gave no image hash");
-          await ctx.runMutation(internal.ads.patchCreative, { id, meta: { imageHash: hash } });
-        }
-        const creative = await graph(
-          `${act}/adcreatives`,
-          {
-            name: c.name,
-            object_story_spec: {
-              page_id: cfg.pageId,
-              link_data: {
-                image_hash: hash,
-                // A lead form opens in place; without one the button goes to the site.
-                link: cfg.leadFormId ? "http://fb.me/" : siteUrl(),
-                name: c.script.headline,
-                message: c.script.primaryText,
-                call_to_action: { type: "GET_QUOTE", ...(cfg.leadFormId ? { value: { lead_gen_form_id: cfg.leadFormId } } : {}) },
-              },
-            },
-            degrees_of_freedom_spec: { creative_features_spec: features },
-          },
-          "Meta creative",
-        );
-        const ad = await graph(`${act}/ads`, { name: c.name, adset_id: adsetId, creative: { creative_id: creative.id }, status: "PAUSED" }, "Meta ad");
-        await ctx.runMutation(internal.ads.patchCreative, { id, status: "paused", error: undefined, meta: { creativeId: creative.id, adId: ad.id, adsetId } });
-        await ctx.runMutation(internal.ads.finishIfDone, { batchId: c.batchId });
-        return;
-      }
       const video = c.meta?.videoId
         ? { id: c.meta.videoId }
         : await graph(`${act}/advideos`, { file_url: c.videoUrl, name: c.name, title: c.name }, "Meta video upload");

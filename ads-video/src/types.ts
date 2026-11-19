@@ -15,6 +15,8 @@ export interface Line {
   end: number;
   /** A few words pinned to the photo while this line is said ("Floors covered"). */
   label?: string;
+  /** When the voice says each word of the line, when it is known. */
+  words?: Array<{ text: string; start: number; end: number }>;
 }
 
 export interface Brand {
@@ -32,7 +34,13 @@ export interface Stat {
 
 export type Style =
   /** A real before photo; the after wipes across behind a moving divider. photos[0] is the before, photos[1] the after. */
-  | { kind: "beforeAfter"; /** The word the divider crosses on, when it isn't the start of the second line. */ crossOn?: string }
+  | {
+      kind: "beforeAfter";
+      /** The word the divider crosses on. */
+      crossOn?: string;
+      /** Otherwise the second it crosses at: where the first line on the after photo starts. */
+      crossAt?: number;
+    }
   /** A finished room starts dim and grey; light and colour sweep across it. */
   | { kind: "lightUp" }
   /** Numbers that count and snap into place, one per spoken line after the first. */

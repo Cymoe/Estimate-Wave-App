@@ -29,7 +29,7 @@ export const Ad: React.FC<AdProps> = (props) => {
       <Backdrop runs={runs} sharper={props.style.kind === "counter"} />
       <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />
       {props.style.kind === "beforeAfter" ? (
-        <BeforeAfter {...props} crossOn={props.style.crossOn} />
+        <BeforeAfter {...props} crossOn={props.style.crossOn} crossAt={props.style.crossAt} />
       ) : props.style.kind === "counter" ? (
         <Counter {...props} stats={props.style.stats} />
       ) : (

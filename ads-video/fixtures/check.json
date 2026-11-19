@@ -1,0 +1,79 @@
+[
+  {
+    "name": "check_4x5",
+    "props": {
+      "ratio": "4x5",
+      "style": {
+        "kind": "lightUp"
+      },
+      "brand": {
+        "name": "Webb Leads",
+        "primaryColor": "#336699",
+        "accentColor": "#8fb6e0",
+        "markets": [
+          "Midland",
+          "Odessa"
+        ]
+      },
+      "headline": "Fresh paint, one call",
+      "lines": [
+        {
+          "voice": "Thinking about painting this year?",
+          "start": 0,
+          "end": 1.6,
+          "words": [
+            {
+              "text": "Thinking",
+              "start": 0,
+              "end": 0.4
+            },
+            {
+              "text": "about",
+              "start": 0.45,
+              "end": 0.7
+            },
+            {
+              "text": "painting",
+              "start": 0.75,
+              "end": 1.1
+            },
+            {
+              "text": "this",
+              "start": 1.15,
+              "end": 1.3
+            },
+            {
+              "text": "year?",
+              "start": 1.35,
+              "end": 1.6
+            }
+          ]
+        },
+        {
+          "voice": "Walls prepped before any colour.",
+          "start": 1.8,
+          "end": 3.4,
+          "label": "Prepped first"
+        },
+        {
+          "voice": "Get a quote today.",
+          "start": 3.6,
+          "end": 4.6
+        }
+      ],
+      "audio": "",
+      "audioSec": 4.8,
+      "photos": [
+        {
+          "src": "room.jpg"
+        },
+        {
+          "src": "room.jpg"
+        },
+        {
+          "src": "room.jpg"
+        }
+      ]
+    }
+  }
+]

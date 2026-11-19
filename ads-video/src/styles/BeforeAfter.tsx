@@ -33,12 +33,13 @@ const Pill: React.FC<{ text: string; side: "left" | "right"; show: number; color
  * line starts and leaves the finished room. photos[0] is the before,
  * photos[1] the after; it is only ever used with a true pair.
  */
-export const BeforeAfter: React.FC<AdProps & { crossOn?: string }> = ({ photos, lines, ratio, brand, crossOn }) => {
+export const BeforeAfter: React.FC<AdProps & { crossOn?: string; crossAt?: number }> = ({ photos, lines, ratio, brand, crossOn, crossAt: crossSec }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const [before, after] = photos;
   const total = durationInFrames / fps;
-  const crossAt = ((crossOn ? saidAt(lines, crossOn) : undefined) ?? lines[1]?.start ?? 2.5) * fps;
+  // On the word chosen for it; else where the voice turns to the after; else as the second line starts.
+  const crossAt = ((crossOn ? saidAt(lines, crossOn) : undefined) ?? crossSec ?? lines[1]?.start ?? 2.5) * fps;
   const nudge = interpolate(frame, [1.0 * fps, 1.5 * fps, 2.0 * fps], [0, 16, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.quad) });
   const cross = interpolate(frame, [crossAt, crossAt + 1.5 * fps], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) });
   const at = Math.max(nudge, cross);

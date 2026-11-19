@@ -62,6 +62,7 @@ const FAMILIES: Array<[string, string]> = [
   ['seasonal', 'Season and timing'],
 ];
 
+/** What ads were made of before every ad was drawn as an animated video; old ones still show as what they are. */
 export type AdKind = 'video' | 'image' | 'graphic';
 const KIND_LABELS: Record<AdKind, string> = { video: 'Video', image: 'Image', graphic: 'Animated graphic' };
 
@@ -76,7 +77,9 @@ export interface AdCreative {
   error?: string;
   script: { voice: string; onScreen: string[]; headline: string; primaryText: string };
   hook: { id: string; family: string; familyLabel: string; scope: string; textEn: string } | null;
-  /** What it's made of. An image ad has no voice: script.onScreen is its printed headline and support line. */
+  /** How it moves ("Light-up", "Before / after", "Counter"); none on ads from before. */
+  style?: { id: string; label: string };
+  /** What an older ad is made of. An image ad has no voice: script.onScreen is its printed headline and support line. */
   kind?: AdKind;
   videoUrl?: string;
   imageUrl?: string;
@@ -144,7 +147,8 @@ export interface AdHook {
 }
 export interface AdSettings {
   brand: string;
-  keys: { anthropic: boolean; elevenlabs: boolean; shotstack: boolean; meta: boolean; apify: boolean };
+  /** Which services are set up; renderer is whether the app can start the drawing of videos itself. */
+  keys: { anthropic: boolean; elevenlabs: boolean; renderer: boolean; meta: boolean; apify: boolean };
   adAccountId?: string;
   pageId?: string;
   leadFormId?: string;
@@ -155,8 +159,6 @@ export interface AdSettings {
   weeklyEnabled: boolean;
   hooksPerWeek: number;
   liveTarget: number;
-  /** Which kinds of ad a batch makes for each hook. */
-  kinds: Record<AdKind, boolean>;
   researchKeywords: string[];
   researchMarkets: string[];
   researchMinDays: number;
@@ -191,7 +193,7 @@ export interface ResearchRun {
 
 const STATUS_LABELS: Record<AdCreative['status'], string> = {
   draft: 'Writing',
-  voiced: 'Voiced',
+  voiced: 'Waiting to render',
   rendering: 'Rendering',
   rendered: 'Rendered',
   paused: 'Paused in Meta',
@@ -376,7 +378,7 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
       {group.hook && (
         <p className="text-sm text-white">
           <span className="text-xs text-gray-500">
-            {KIND_LABELS[first.kind ?? 'video']} · {group.hook.familyLabel} · {scopeLabel(group.hook.scope)} ·{' '}
+            {first.style ? `${first.style.label} style` : KIND_LABELS[first.kind ?? 'video']} · {group.hook.familyLabel} · {scopeLabel(group.hook.scope)} ·{' '}
           </span>
           {group.hook.textEn}
         </p>
@@ -387,7 +389,7 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
         ))}
       </ul>
       <details className="text-xs text-gray-500">
-        <summary className="cursor-pointer">{image ? 'Words on the image' : 'Shots'}</summary>
+        <summary className="cursor-pointer">{image ? 'Words on the image' : first.style ? 'Lines' : 'Shots'}</summary>
         {image ? (
           <p className="mt-1">
             <span className="text-gray-300">{first.shots?.[0]?.fileName}</span>
@@ -398,6 +400,7 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
           </p>
         ) : first.shots && first.shots.length > 0 ? (
           <ol className="mt-1 space-y-1.5" aria-label="Shot list">
+            {first.style && first.script.onScreen[0] && <li className="list-none text-gray-400">At the top: {first.script.onScreen[0]}</li>}
             {first.shots.map((shot, i) => (
               <li key={i}>
                 <span className="text-gray-300">
@@ -405,8 +408,14 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
                   {shot.start !== undefined && shot.end !== undefined ? ` · ${shot.start.toFixed(1)}–${shot.end.toFixed(1)}s` : ''}
                 </span>
                 <br />“{shot.voice}”
-                <br />
-                <span className="text-gray-400">On screen: {shot.onScreen}</span>
+                {shot.onScreen && (
+                  <>
+                    <br />
+                    <span className="text-gray-400">
+                      {first.style ? 'Label' : 'On screen'}: {shot.onScreen}
+                    </span>
+                  </>
+                )}
               </li>
             ))}
           </ol>
@@ -1339,7 +1348,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         <span className="text-sm text-gray-400">Homeowners see the ads as {form.brand}.</span>
         {key(form.keys.anthropic, 'ANTHROPIC_API_KEY')}
         {key(form.keys.elevenlabs, 'ELEVENLABS_API_KEY')}
-        {key(form.keys.shotstack, 'SHOTSTACK_API_KEY')}
+        {key(form.keys.renderer, 'ADS_RENDER_TOKEN')}
         {key(form.keys.meta, 'META_ACCESS_TOKEN')}
         {key(form.keys.apify, 'APIFY_TOKEN')}
       </div>
@@ -1385,32 +1394,12 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         />{' '}
         Draft a batch every Monday
       </label>
-      <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-2">
-        <legend className="text-sm text-gray-300 px-1">What a batch makes</legend>
-        <p className="text-xs text-gray-500">Each ad idea is made in every kind switched on, in both sizes.</p>
-        {(
-          [
-            ['video', 'Videos from photos', 'A voiced video cut from your job photos'],
-            ['image', 'Image ads', 'One job photo with a headline and Get a quote on it'],
-          ] as Array<[AdKind, string, string]>
-        ).map(([kind, label, hint]) => (
-          <label key={kind} className="text-sm text-gray-300 flex items-start gap-2">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={form.kinds[kind]}
-              onChange={(e) => setForm({ ...form, kinds: { ...form.kinds, [kind]: e.target.checked } })}
-              disabled={!owner}
-              aria-label={label}
-            />
-            <span>
-              {label}
-              <span className="block text-xs text-gray-500">{hint}</span>
-            </span>
-          </label>
-        ))}
-        <p className="text-xs text-gray-500">Animated graphic ads are being tried out and aren't switched on yet.</p>
-      </fieldset>
+      <p className="text-xs text-gray-500">
+        Each ad idea becomes one animated video in two sizes. The videos are drawn on GitHub, about three minutes each.{' '}
+        {form.keys.renderer
+          ? 'The app starts the drawing itself once a batch is voiced.'
+          : 'Until ADS_RENDER_TOKEN is set, a batch shows Waiting to render until the drawing is started by hand.'}
+      </p>
       <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-3">
         <legend className="text-sm text-gray-300 px-1">Niche research</legend>
         <p className="text-xs text-gray-500">

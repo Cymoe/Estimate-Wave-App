@@ -1,7 +1,8 @@
 // Ads on autopilot, the pure parts: the hook library a Monday batch draws
-// from, which hooks and footage a week gets, the script brief Claude writes
-// to and the check on what it wrote, the Shotstack edit a creative renders
-// from, and the fatigue rule. ads.ts does the storing and the calling out.
+// from, which hooks and photos a week gets, the brief Claude writes an
+// animated ad to and the check on what it wrote, what the renderer
+// (ads-video/, Remotion) is handed to draw one, and the fatigue rule.
+// ads.ts does the storing and the calling out.
 
 export const SCOPES = ["interior", "exterior", "cabinets", "crew", "process"] as const;
 export type Scope = (typeof SCOPES)[number];
@@ -143,16 +144,13 @@ export function pickAssets<A extends AssetRow>(
 }
 
 /** "WL_k57abc_916_20261103": the ad's name in Meta and the creative's name here, so a lead's adName joins back. */
-export function creativeName(hookId: string, ratio: "9x16" | "4x5", date: Date, kind: AdKind = "video"): string {
+export function creativeName(hookId: string, ratio: "9x16" | "4x5", date: Date): string {
   const day = date.toISOString().slice(0, 10).replace(/-/g, "");
-  const mark = kind === "image" ? "_img" : kind === "graphic" ? "_gfx" : "";
-  return `WL_${shortId(hookId)}_${ratio === "9x16" ? "916" : "45"}_${day}${mark}`;
+  return `WL_${shortId(hookId)}_${ratio === "9x16" ? "916" : "45"}_${day}`;
 }
 
-/** What an ad is made of: a voiced video cut from footage, one photo with words on it, or voiced moving text. */
-export const AD_KINDS = ["video", "image", "graphic"] as const;
-export type AdKind = (typeof AD_KINDS)[number];
-export const AD_KIND_LABELS: Record<AdKind, string> = { video: "Video from photos", image: "Image ad", graphic: "Animated graphic" };
+/** What older ads were made of, before every ad was drawn with Remotion. Kept so they still show as what they are. */
+export type AdKind = "video" | "image" | "graphic";
 
 /** Six letters and digits that stand for an id (a hash, so the same id always gives the same six). */
 export function shortId(id: string): string {
@@ -176,6 +174,8 @@ export interface Shot {
   /** Seconds into the voice-over, once ElevenLabs has read it. */
   start?: number;
   end?: number;
+  /** When each word of the line is said, for captions that follow the voice. */
+  words?: Array<{ text: string; start: number; end: number }>;
 }
 
 export interface Script {
@@ -208,7 +208,6 @@ const RULES = (brand: string, town: string) => [
   "- Close the last shot with a plain ask: get a quote.",
 ];
 
-/** The text that goes before the images: the hook, the footage list, the rules and the shape to answer in. */
 /** A competitor ad the writer is shown for tone and shape. */
 export interface Example {
   company: string;
@@ -270,60 +269,6 @@ export function examplesText(examples: Example[]): string[] {
   ];
 }
 
-export function shotListPrompt(
-  hook: { textEn: string; family: Family; scope: string },
-  brand: string,
-  footage: Candidate[],
-  inScope: boolean,
-  examples: Example[] = [],
-  town = "your town",
-  playbook?: string,
-): string {
-  const list = footage.map((f, i) => {
-    const bits = [
-      `Footage ${i + 1}: ${f.kind}${f.kind === "video" && f.durationSec ? ` (${Math.round(f.durationSec)}s)` : ""}`,
-      f.tags.length ? `tags: ${f.tags.join(", ")}` : "",
-      f.pairKey ? `pair "${f.pairKey}"` : "",
-      f.description ? `looks like: ${f.description}` : "",
-      f.imageUrl ? "(image attached below)" : "(no image available; rely on the tags)",
-    ].filter(Boolean);
-    return bits.join(" · ");
-  });
-  return [
-    `You write one short Facebook and Instagram video ad for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
-    `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
-    "",
-    "The video is cut from this footage only. Each attached image is labelled with its footage number.",
-    ...list,
-    inScope
-      ? ""
-      : `None of this footage is tagged ${hook.scope}; it is general crew and process footage. Only go ahead if the ad still works honestly with it.`,
-    "",
-    ...(playbook
-      ? [
-          "What works in this category, from competitor ads that have run for months. Follow the shape and the kind of opening; never their claims:",
-          playbook.trim(),
-          "",
-        ]
-      : []),
-    ...examplesText(examples),
-    "Write a shot list: the footage to show, in order, and the voice-over line spoken while each one is on screen.",
-    "- Use 2 to 4 shots (1 if only one piece of footage is offered). Use each footage number at most once.",
-    "- Each voice line must fit what is visibly in that footage. Do not name colours, rooms, materials or details you cannot see.",
-    "- A before must be immediately followed by its after (same pair).",
-    "- 55 to 75 words of voice in total, about 25 seconds read aloud.",
-    `- Each on-screen line is at most 6 words and ${ON_SCREEN_MAX} characters.`,
-    ...RULES(brand, town),
-    `- If this footage can't carry the hook honestly (for example a cabinets hook with no cabinets in sight), don't force it.`,
-    "",
-    "Return only JSON, one of:",
-    '{"fits":true,"shots":[{"footage":1,"voice":"spoken line","onScreen":"short line"}],"headline":"<=40 chars","primaryText":"<=125 chars"}',
-    '{"fits":false,"reason":"why the footage does not fit"}',
-  ]
-    .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
-    .join("\n");
-}
-
 const FORBIDDEN: Array<[RegExp, string]> = [
   [/\$\s?\d|\d+\s?%|percent off|% off|discount/i, "a price or discount"],
   [/warrant|guarantee/i, "a warranty or guarantee"],
@@ -331,21 +276,6 @@ const FORBIDDEN: Array<[RegExp, string]> = [
   [/\bI hired\b|\bthey painted my\b|\bmy painter\b/i, "a customer voice"],
   [/is your home in|are you over/i, "a personal attribute"],
 ];
-
-/** What's wrong with a script, if anything. */
-export function scriptProblems(s: Partial<Script> | undefined): string[] {
-  const out: string[] = [];
-  if (!s) return ["no script"];
-  if (!s.voice || s.voice.split(/\s+/).length < 30) out.push("voice script too short");
-  if (!Array.isArray(s.onScreen) || s.onScreen.length === 0) out.push("no on-screen lines");
-  if (!s.headline) out.push("no headline");
-  else if (s.headline.length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
-  if (!s.primaryText) out.push("no primary text");
-  else if (s.primaryText.length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
-  const text = [s.voice, ...(s.onScreen ?? []), s.headline, s.primaryText].filter(Boolean).join(" ");
-  for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
-  return out;
-}
 
 /**
  * Pulls the JSON object out of a model reply that may wrap it in prose or a
@@ -392,63 +322,6 @@ function balancedEnd(text: string, from: number): number {
     else if (ch === "}" && --depth === 0) return i;
   }
   return -1;
-}
-
-export interface ShotPlan {
-  fits?: boolean;
-  reason?: string;
-  shots?: Array<{ footage?: number; voice?: string; onScreen?: string }>;
-  headline?: string;
-  primaryText?: string;
-}
-
-/** What's wrong with a shot list Claude returned, against the footage it was offered. */
-export function shotPlanProblems(plan: ShotPlan, footage: Array<{ tags: string[]; pairKey?: string }>): string[] {
-  const out: string[] = [];
-  const shots = plan.shots ?? [];
-  const min = footage.length === 1 ? 1 : 2;
-  if (shots.length < min || shots.length > 4) out.push(`${shots.length} shots (use ${min} to 4)`);
-  const seen = new Set<number>();
-  shots.forEach((s, i) => {
-    const n = s.footage;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > footage.length) out.push(`shot ${i + 1} names footage ${n ?? "nothing"}`);
-    else if (seen.has(n)) out.push(`footage ${n} used twice`);
-    else seen.add(n);
-    if (!s.voice?.trim()) out.push(`shot ${i + 1} has no voice line`);
-    if (!s.onScreen?.trim()) out.push(`shot ${i + 1} has no on-screen line`);
-    else if (s.onScreen.length > ON_SCREEN_MAX) out.push(`shot ${i + 1} on-screen line over ${ON_SCREEN_MAX} characters`);
-  });
-  // A before is followed straight away by its after.
-  shots.forEach((s, i) => {
-    const f = footage[(s.footage ?? 0) - 1];
-    if (!f?.pairKey || !f.tags.includes("before")) return;
-    const partner = footage.findIndex((g) => g.pairKey === f.pairKey && g.tags.includes("after"));
-    if (partner < 0 || !shots.some((t) => t.footage === partner + 1)) return;
-    if (shots[i + 1]?.footage !== partner + 1) out.push(`the before in footage ${s.footage} isn't followed by its after`);
-  });
-  const words = shots
-    .map((s) => s.voice ?? "")
-    .join(" ")
-    .split(/\s+/)
-    .filter(Boolean).length;
-  if (words < 45 || words > 85) out.push(`${words} words of voice (write 55 to 75)`);
-  return out;
-}
-
-/** The shot list as the script stored on the creative: shots point at asset ids, voice and lines in shot order. */
-export function composeScript(plan: ShotPlan, assetIds: string[]): Script {
-  const shots = (plan.shots ?? []).map((s) => ({
-    assetId: assetIds[(s.footage ?? 1) - 1],
-    voice: (s.voice ?? "").trim(),
-    onScreen: (s.onScreen ?? "").trim(),
-  }));
-  return {
-    voice: shots.map((s) => s.voice).join(" "),
-    onScreen: shots.map((s) => s.onScreen),
-    headline: (plan.headline ?? "").trim(),
-    primaryText: (plan.primaryText ?? "").trim(),
-    shots,
-  };
 }
 
 /** What Claude is asked about one library image when it's uploaded. */
@@ -504,14 +377,6 @@ export function shotTimings(
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
-export interface EditAsset {
-  url: string;
-  kind: "photo" | "video";
-  tags: string[];
-  pairKey?: string;
-  durationSec?: number;
-}
-
 export interface Brand {
   name: string;
   primaryColor: string;
@@ -520,638 +385,246 @@ export interface Brand {
   markets: string[];
 }
 
-/** "Midland and Odessa", "Midland", or nothing. */
-export const marketsLine = (markets: string[]): string => markets.slice(0, 2).filter(Boolean).join(" and ");
+// ----------------------------------------------------------- Animated ads
 
-const SIZES = { "9x16": { width: 1080, height: 1920 }, "4x5": { width: 1080, height: 1350 } } as const;
-export const END_CARD_SEC = 3;
-const TAIL_SEC = 0.4;
+/** How an ad moves. The renderer (ads-video/) draws each one. */
+export const AD_STYLES = ["lightUp", "beforeAfter", "counter"] as const;
+export type AdStyle = (typeof AD_STYLES)[number];
+export const AD_STYLE_LABELS: Record<AdStyle, string> = { lightUp: "Light-up", beforeAfter: "Before / after", counter: "Counter" };
 
-/**
- * The Shotstack edit for one creative, cut to the voice-over: each shot's
- * footage is on screen from the moment its line starts until the next line
- * starts (the first from zero), with that shot's on-screen line over it; an
- * after wipes in over its before; a clip shorter than its slot repeats.
- * Captions are transcribed from the voice, the brand sits in the corner, and
- * the ask is on the last card.
- */
-export function shotstackEdit(input: {
-  shots: Array<{ asset: EditAsset; onScreen: string; start: number; end: number }>;
-  audioUrl: string;
-  audioDurationSec: number;
-  brand: Brand;
-  ratio: "9x16" | "4x5";
-}) {
-  const { shots, audioUrl, brand, ratio } = input;
-  const footageEnd = round(input.audioDurationSec + TAIL_SEC);
-  const total = round(footageEnd + END_CARD_SEC);
-  const media: unknown[] = [];
-  const lines: unknown[] = [];
-  shots.forEach((shot, i) => {
-    const start = i === 0 ? 0 : shot.start;
-    const until = i === shots.length - 1 ? footageEnd : shots[i + 1].start;
-    const length = round(Math.max(0.5, until - start));
-    const a = shot.asset;
-    const prev = shots[i - 1]?.asset;
-    const wipe = Boolean(prev && a.pairKey && prev.pairKey === a.pairKey && prev.tags.includes("before") && a.tags.includes("after"));
-    if (a.kind === "video" && a.durationSec && a.durationSec < length) {
-      // Too short for its slot: play it again until the slot is full.
-      for (let at = 0, n = 0; at < length - 0.01; at += a.durationSec, n++)
-        media.push({
-          asset: { type: "video", src: a.url, volume: 0 },
-          start: round(start + at),
-          length: round(Math.min(a.durationSec, length - at)),
-          fit: "cover",
-          ...(n === 0 && wipe ? { transition: { in: "wipeLeft" } } : {}),
-        });
-    } else {
-      media.push({
-        asset: a.kind === "video" ? { type: "video", src: a.url, volume: 0 } : { type: "image", src: a.url },
-        start: round(start),
-        length,
-        fit: "cover",
-        ...(a.kind === "photo" ? { effect: i % 2 === 0 ? "zoomIn" : "slideLeft" } : {}),
-        ...(wipe ? { transition: { in: "wipeLeft" } } : {}),
-      });
-    }
-    if (shot.onScreen)
-      lines.push({
-        asset: {
-          type: "html",
-          html: `<p>${escapeHtml(shot.onScreen)}</p>`,
-          css: `p{font-family:'Roboto Condensed',sans-serif;font-weight:700;font-size:64px;color:#fff;text-align:center;text-shadow:0 2px 12px rgba(0,0,0,.6)}`,
-          width: 960,
-          height: 400,
-        },
-        start: round(start),
-        length,
-        position: "center",
-        transition: { in: "fade", out: "fade" },
-      });
-  });
-  return {
-    timeline: {
-      background: "#000000",
-      tracks: [
-        // Captions, transcribed from the voice track.
-        {
-          clips: [
-            {
-              asset: { type: "caption", src: "alias://voice", font: { color: "#ffffff", size: 40 }, background: { color: "#000000", opacity: 0.5 } },
-              start: 0,
-              length: footageEnd,
-            },
-          ],
-        },
-        { clips: lines },
-        {
-          clips: [
-            {
-              asset: {
-                type: "html",
-                html: `<p>${escapeHtml(brand.name)}</p>`,
-                css: `p{font-family:'Roboto',sans-serif;font-weight:700;font-size:36px;color:${brand.accentColor}}`,
-                width: 600,
-                height: 80,
-              },
-              start: 0,
-              length: total,
-              position: "topLeft",
-              offset: { x: 0.04, y: -0.04 },
-            },
-            {
-              asset: {
-                type: "html",
-                html: `<p class="a">Get a quote</p><p class="b">${escapeHtml([brand.name, marketsLine(brand.markets)].filter(Boolean).join(" · "))}</p>`,
-                css: `.a{font-family:'Roboto Condensed',sans-serif;font-weight:700;font-size:84px;color:#fff;text-align:center}.b{font-family:'Roboto',sans-serif;font-size:36px;color:${brand.accentColor};text-align:center}`,
-                width: 1000,
-                height: 500,
-                background: brand.primaryColor,
-              },
-              start: footageEnd,
-              length: END_CARD_SEC,
-              position: "center",
-              transition: { in: "fade" },
-            },
-          ],
-        },
-        { clips: media },
-        { clips: [{ alias: "voice", asset: { type: "audio", src: audioUrl, volume: 1 }, start: 0, length: round(input.audioDurationSec) }] },
-      ],
-    },
-    output: { format: "mp4", fps: 25, size: SIZES[ratio] },
-  };
+export const TITLE_MAX = 30;
+export const LABEL_MAX = 24;
+export const STAT_LABEL_MAX = 30;
+
+/** What the renderer needs beyond the script: the style, the words at the top, and what the style itself shows. */
+export interface Design {
+  style: AdStyle;
+  title: string;
+  stats?: Array<{ value: number; label: string }>;
+  /** The word the after is revealed on, in a before/after. */
+  revealOn?: string;
 }
 
-// --------------------------------------------------------------- Image ads
-
-export const IMAGE_HEADLINE_MAX = 36;
-export const IMAGE_SUPPORT_MAX = 70;
-
-/** The text before the photos for an image ad: the hook, the photos on offer, the rules and the shape to answer in. */
-export function imageAdPrompt(
+/** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
+export function motionPrompt(
   hook: { textEn: string; family: Family; scope: string },
   brand: string,
   photos: Candidate[],
   inScope: boolean,
+  examples: Example[] = [],
   town = "your town",
   playbook?: string,
 ): string {
   const list = photos.map((f, i) =>
-    [`Photo ${i + 1}`, f.tags.length ? `tags: ${f.tags.join(", ")}` : "", f.description ? `looks like: ${f.description}` : "", "(attached below)"]
+    [
+      `Photo ${i + 1}`,
+      f.tags.length ? `tags: ${f.tags.join(", ")}` : "",
+      f.pairKey ? `pair "${f.pairKey}"` : "",
+      f.description ? `looks like: ${f.description}` : "",
+      "(attached below)",
+    ]
       .filter(Boolean)
       .join(" · "),
   );
   return [
-    `You write one Facebook and Instagram image ad for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
+    `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
     "",
-    "The ad is one photo with a headline and a short support line printed under it, and a Get a quote button. Each attached photo is labelled with its number.",
-    ...list,
-    inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with one of them.`,
-    "",
-    ...(playbook ? ["What works in this category, from competitor ads that have run for months. Follow the angle; never their claims:", playbook.trim(), ""] : []),
-    "Choose the one photo that carries the hook best: finished, well lit work a homeowner would want. Then write:",
-    `- imageHeadline: the words printed on the ad. At most 6 words and ${IMAGE_HEADLINE_MAX} characters. It must be true of the photo you chose.`,
-    `- support: one line under it, at most ${IMAGE_SUPPORT_MAX} characters, that says what ${brand} does for the homeowner.`,
-    `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the image.`,
-    "- Do not name colours, rooms, materials or details you cannot see in the photo.",
-    ...RULES(brand, town).slice(0, 3),
-    "- If none of the photos can carry the hook honestly, don't force it.",
-    "",
-    "Return only JSON, one of:",
-    '{"fits":true,"photo":1,"imageHeadline":"...","support":"...","headline":"<=40 chars","primaryText":"<=125 chars"}',
-    '{"fits":false,"reason":"why none of the photos fits"}',
-  ]
-    .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
-    .join("\n");
-}
-
-export interface ImagePlan {
-  fits?: boolean;
-  reason?: string;
-  photo?: number;
-  imageHeadline?: string;
-  support?: string;
-  headline?: string;
-  primaryText?: string;
-}
-
-/** What's wrong with an image ad Claude returned, against the photos it was offered. */
-export function imagePlanProblems(plan: ImagePlan, photoCount: number): string[] {
-  const out: string[] = [];
-  const n = plan.photo;
-  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photoCount) out.push(`names photo ${n ?? "nothing"}`);
-  const on = plan.imageHeadline?.trim() ?? "";
-  if (!on) out.push("no headline for the image");
-  else if (on.length > IMAGE_HEADLINE_MAX) out.push(`image headline over ${IMAGE_HEADLINE_MAX} characters`);
-  else if (on.split(/\s+/).length > 6) out.push("image headline over 6 words");
-  const support = plan.support?.trim() ?? "";
-  if (!support) out.push("no support line");
-  else if (support.length > IMAGE_SUPPORT_MAX) out.push(`support line over ${IMAGE_SUPPORT_MAX} characters`);
-  if (!plan.headline?.trim()) out.push("no headline");
-  else if (plan.headline.trim().length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
-  if (!plan.primaryText?.trim()) out.push("no primary text");
-  else if (plan.primaryText.trim().length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
-  const text = [on, support, plan.headline, plan.primaryText].filter(Boolean).join(" ");
-  for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
-  return out;
-}
-
-/** An image ad as the script stored on the creative: no voice; the two printed lines are the on-screen lines, over the one photo. */
-export function composeImageScript(plan: ImagePlan, assetIds: string[]): Script {
-  const on = (plan.imageHeadline ?? "").trim();
-  return {
-    voice: "",
-    onScreen: [on, (plan.support ?? "").trim()],
-    headline: (plan.headline ?? "").trim(),
-    primaryText: (plan.primaryText ?? "").trim(),
-    shots: [{ assetId: assetIds[(plan.photo ?? 1) - 1], voice: "", onScreen: on }],
-  };
-}
-
-/** How tall the words' band is in each size; the photo has the rest. */
-const BAND = { "9x16": 620, "4x5": 450 } as const;
-const BAND_COLOR = "#0e1621";
-
-/** A filled rectangle. Its box is its own size, so `position` moves it; without one Shotstack centres it in the frame. */
-const block = (width: number, height: number, color: string, opacity = 1) => ({
-  type: "shape",
-  shape: "rectangle",
-  width,
-  height,
-  rectangle: { width, height },
-  fill: { color, opacity },
-});
-
-/** How many lines a text takes at about `perLine` characters a line, breaking between words. */
-export function lineCount(text: string, perLine: number): number {
-  let lines = 1;
-  let length = 0;
-  for (const word of text.trim().split(/\s+/)) {
-    if (length > 0 && length + 1 + word.length > perLine) {
-      lines += 1;
-      length = word.length;
-    } else length += (length > 0 ? 1 : 0) + word.length;
-  }
-  return lines;
-}
-
-/**
- * A photo in a frame without stretching it: the whole photo in the middle of
- * its box, over a blurred, darkened copy of itself that fills the box. A wide
- * photo in a tall box gets the blur above and below it; a tall one, at its
- * sides. Each layer is placed by the middle of the box, which holds whichever
- * way the photo is fitted. Lowest layer last, as Shotstack stacks tracks.
- */
-export function framedPhoto(
-  src: string,
-  /** The box, and how far below the frame's top edge it starts, in pixels. */
-  box: { width: number; height: number; top?: number },
-  frame: { width: number; height: number },
-  at: { start: number; length: number },
-  opts: { type?: "image" | "video"; fadeIn?: boolean } = {},
-) {
-  const type = opts.type ?? "image";
-  const asset = type === "video" ? { type, src, volume: 0 } : { type, src };
-  const middle = (box.top ?? 0) + box.height / 2;
-  const place = {
-    position: "center",
-    offset: { x: 0, y: Math.round(((frame.height / 2 - middle) / frame.height) * 10000) / 10000 },
-    ...(opts.fadeIn ? { transition: { in: "fade" } } : {}),
-  };
-  return [
-    { asset, ...at, fit: "contain", width: box.width, height: box.height, ...place },
-    { asset: block(box.width, box.height, "#000000", 0.45), ...at, ...place },
-    { asset, ...at, fit: "crop", width: box.width, height: box.height, ...place, filters: [{ type: "blur", value: 40 }] },
-  ];
-}
-
-/**
- * The Shotstack edit for an image ad, rendered as one JPEG: the photo whole
- * in the upper part of the frame, and a dark band under it with the headline,
- * the support line and the ask. Each line of words has a box of its own,
- * sized to the lines it takes, so two never print over each other. Nothing
- * is printed in the middle of the frame, where a trial key stamps its
- * watermark.
- */
-export function imageEdit(input: { photoUrl: string; headline: string; support: string; brand: Brand; ratio: "9x16" | "4x5" }) {
-  const { brand, ratio } = input;
-  const size = SIZES[ratio];
-  const tall = ratio === "9x16";
-  const at = { start: 0, length: 1 };
-  const up = (px: number) => Math.round((px / size.height) * 10000) / 10000;
-  const single = (clip: unknown) => ({ clips: [clip] });
-  const width = 960;
-  // Sizes in pixels; a letter of the bold face is about 0.62 of its size wide, of the plain face about 0.52.
-  const headSize = tall ? 72 : 60;
-  const supportSize = tall ? 38 : 32;
-  const headLines = lineCount(input.headline, Math.floor(width / (headSize * 0.62)));
-  const supportLines = lineCount(input.support, Math.floor(width / (supportSize * 0.52)));
-  // Line heights are given in pixels: Shotstack's renderer reads a bare number as pixels, which prints wrapped lines on top of each other.
-  const headLine = Math.round(headSize * 1.18);
-  const supportLine = Math.round(supportSize * 1.4);
-  const head = headLines * headLine + 24;
-  const support = supportLines * supportLine + 20;
-  const button = { width: 460, height: 108 };
-  const pad = tall ? 110 : 52;
-  const gap = 4;
-  // The band is as tall as its size usually needs, and taller when the words wrap, so they never touch the photo.
-  const band = Math.max(BAND[ratio], pad + button.height + head + gap + support + 72);
-  // The two lines sit together, centred in what the band has above the button.
-  const room = band - pad - button.height;
-  const supportAt = pad + button.height + Math.max(24, Math.round((room - head - gap - support) / 2));
-  const words = (text: string, css: string, height: number, from: number) =>
-    single({
-      asset: { type: "html", html: `<p>${escapeHtml(text)}</p>`, css: `p{${css};text-align:center}`, width, height },
-      ...at,
-      position: "bottom",
-      offset: { x: 0, y: up(from) },
-    });
-  return {
-    timeline: {
-      background: BAND_COLOR,
-      tracks: [
-        single({
-          asset: {
-            type: "html",
-            html: `<p>${escapeHtml(brand.name)}</p>`,
-            css: `p{font-family:'Montserrat ExtraBold';font-size:34px;color:#ffffff;text-align:center}`,
-            width: 300,
-            height: 72,
-            background: BAND_COLOR,
-          },
-          ...at,
-          position: "topLeft",
-          offset: { x: 0.04, y: -up(44) },
-        }),
-        single({
-          asset: {
-            type: "html",
-            html: "<p>Get a quote</p>",
-            css: `p{font-family:'Montserrat ExtraBold';font-size:42px;color:#ffffff;text-align:center}`,
-            width: button.width,
-            height: button.height,
-            background: brand.primaryColor,
-          },
-          ...at,
-          position: "bottom",
-          offset: { x: 0, y: up(pad) },
-        }),
-        words(input.headline, `font-family:'Montserrat ExtraBold';font-size:${headSize}px;line-height:${headLine}px;color:#ffffff`, head, supportAt + support + gap),
-        words(input.support, `font-family:'Open Sans';font-size:${supportSize}px;line-height:${supportLine}px;color:${brand.accentColor}`, support, supportAt),
-        single({ asset: block(size.width, band, BAND_COLOR), ...at, position: "bottom" }),
-        ...framedPhoto(input.photoUrl, { width: size.width, height: size.height - band }, size, at).map(single),
-      ],
-    },
-    output: { format: "jpg", quality: "high", size },
-  };
-}
-
-// --------------------------------------------------- Animated graphic ads
-
-export const GRAPHIC_TITLE_MAX = 30;
-export const GRAPHIC_POINT_MAX = 26;
-export const GRAPHIC_POINTS = 3;
-
-/** The text before the photos for a checklist ad: a title, three points that appear as the voice says each, and the ask. */
-export function graphicPrompt(
-  hook: { textEn: string; family: Family; scope: string },
-  brand: string,
-  photos: Candidate[],
-  inScope: boolean,
-  town = "your town",
-  playbook?: string,
-): string {
-  const list = photos.map((f, i) =>
-    [`Photo ${i + 1}`, f.tags.length ? `tags: ${f.tags.join(", ")}` : "", f.description ? `looks like: ${f.description}` : "", "(attached below)"]
-      .filter(Boolean)
-      .join(" · "),
-  );
-  return [
-    `You write one short animated checklist ad for Facebook and Instagram, for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
-    `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
-    "",
-    "On screen: a title at the top, a job photo in the middle, and three short points that appear one at a time with a tick as the voice says each. It ends on a Get a quote button. Each attached photo is labelled with its number.",
+    "On screen: a title at the top for the whole ad, a photo in a card in the middle, and captions that follow the voice word by word. It ends on a Get a quote button. Each attached photo is labelled with its number.",
     ...list,
     inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with them.`,
     "",
-    ...(playbook ? ["What works in this category, from competitor ads that have run for months. Follow the angle; never their claims:", playbook.trim(), ""] : []),
+    ...(playbook
+      ? ["What works in this category, from competitor ads that have run for months. Follow the angle and the kind of opening; never their claims:", playbook.trim(), ""]
+      : []),
+    ...examplesText(examples),
+    "Choose the one style that suits the hook and these photos:",
+    '- "lightUp": the first photo starts dim and grey, then light crosses it and its colour comes up. The first line\'s photo must be finished, well lit work. Each line after the first may have a label of at most 3 words that pins to the photo while the line is said.',
+    '- "beforeAfter": only when two of the photos are one pair, one tagged before and one tagged after. Use just those two, the before first. Give revealOn: one word of your script, said while the after should appear.',
+    `- "counter": 2 or 3 numbers that count up and stop, one for each line after the first. Only whole numbers from 0 to 99 that are plainly true of what ${brand} does (one painter, one quote, zero pressure). Never invent counts of jobs, years, reviews or customers.`,
+    "",
     "Write:",
-    `- title: the words at the top for the whole ad. At most 5 words and ${GRAPHIC_TITLE_MAX} characters.`,
-    "- intro: one spoken sentence that opens on the hook, 8 to 14 words.",
-    `- points: exactly ${GRAPHIC_POINTS}. Each has text (the words that appear: at most 4 words and ${GRAPHIC_POINT_MAX} characters), voice (one spoken sentence that says the same thing, 8 to 14 words) and photo (the number of the photo on screen while it is said; a photo may be used for more than one point).`,
-    `- close: one spoken sentence that names ${brand} and asks the viewer to get a quote, 6 to 12 words.`,
+    `- title: at most 5 words and ${TITLE_MAX} characters.`,
+    "- lines: 3 to 5 spoken lines, one or two sentences each, 45 to 65 words in all. Each names the photo on screen while it is said; a photo may stay up for lines in a row.",
+    "- The first line opens on the hook.",
+    `- The last line names ${brand}, and its final sentence asks the viewer to get a quote.`,
+    "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
     `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
-    "- The points are what the homeowner gets or what to check, in the order a homeowner would care about. Say nothing a photo contradicts, and do not name colours, rooms or materials you cannot see.",
     ...RULES(brand, town).slice(0, 3),
-    "- If the photos can't carry the hook honestly, don't force it.",
+    "- If these photos can't carry the hook honestly, don't force it.",
     "",
     "Return only JSON, one of:",
-    '{"fits":true,"title":"...","intro":"spoken sentence","points":[{"photo":1,"text":"short point","voice":"spoken sentence"}],"close":"spoken sentence","headline":"<=40 chars","primaryText":"<=125 chars"}',
+    '{"fits":true,"style":"lightUp","title":"...","lines":[{"photo":1,"voice":"spoken line","label":"short label"}],"stats":[{"value":1,"label":"what it counts"}],"revealOn":"word","headline":"<=40 chars","primaryText":"<=125 chars"}',
     '{"fits":false,"reason":"why the photos do not fit"}',
+    "Leave out stats unless the style is counter, revealOn unless it is beforeAfter, and label where a line has none.",
   ]
     .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
     .join("\n");
 }
 
-export interface GraphicPlan {
+export interface MotionPlan {
   fits?: boolean;
   reason?: string;
+  style?: string;
   title?: string;
-  intro?: string;
-  points?: Array<{ photo?: number; text?: string; voice?: string }>;
-  close?: string;
+  lines?: Array<{ photo?: number; voice?: string; label?: string }>;
+  stats?: Array<{ value?: number; label?: string }>;
+  revealOn?: string;
   headline?: string;
   primaryText?: string;
 }
 
-/** What's wrong with a checklist ad Claude returned, against the photos it was offered. */
-export function graphicPlanProblems(plan: GraphicPlan, photoCount: number): string[] {
+const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9']/g, "");
+
+/** What's wrong with an animated ad Claude returned, against the photos it was offered. */
+export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: string[]; pairKey?: string }>): string[] {
   const out: string[] = [];
+  const style = AD_STYLES.find((x) => x === plan.style);
+  if (!style) out.push(`style "${plan.style ?? ""}" (choose lightUp, beforeAfter or counter)`);
   const title = plan.title?.trim() ?? "";
   if (!title) out.push("no title");
-  else if (title.length > GRAPHIC_TITLE_MAX) out.push(`title over ${GRAPHIC_TITLE_MAX} characters`);
-  if (!plan.intro?.trim()) out.push("no intro line");
-  if (!plan.close?.trim()) out.push("no closing line");
-  else if (!/quote/i.test(plan.close)) out.push("the closing line doesn't ask for a quote");
-  const points = plan.points ?? [];
-  if (points.length !== GRAPHIC_POINTS) out.push(`${points.length} points (write ${GRAPHIC_POINTS})`);
-  points.forEach((p, i) => {
-    const n = p.photo;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photoCount) out.push(`point ${i + 1} names photo ${n ?? "nothing"}`);
-    const text = p.text?.trim() ?? "";
-    if (!text) out.push(`point ${i + 1} has no words`);
-    else if (text.length > GRAPHIC_POINT_MAX) out.push(`point ${i + 1} is over ${GRAPHIC_POINT_MAX} characters`);
-    if (!p.voice?.trim()) out.push(`point ${i + 1} has no voice line`);
+  else if (title.length > TITLE_MAX) out.push(`title over ${TITLE_MAX} characters`);
+  const lines = plan.lines ?? [];
+  if (lines.length < 3 || lines.length > 5) out.push(`${lines.length} lines (write 3 to 5)`);
+  lines.forEach((line, i) => {
+    const n = line.photo;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photos.length) out.push(`line ${i + 1} names photo ${n ?? "nothing"}`);
+    if (!line.voice?.trim()) out.push(`line ${i + 1} has no voice`);
+    if (line.label && line.label.trim().length > LABEL_MAX) out.push(`line ${i + 1}'s label is over ${LABEL_MAX} characters`);
   });
-  const spoken = [plan.intro, ...points.map((p) => p.voice), plan.close].filter(Boolean).join(" ");
+  const spoken = lines.map((l) => l.voice ?? "").join(" ");
   const words = spoken.split(/\s+/).filter(Boolean).length;
-  if (words < 30 || words > 75) out.push(`${words} words of voice (write 40 to 65)`);
+  if (words < 35 || words > 80) out.push(`${words} words of voice (write 45 to 65)`);
+  const last = lines[lines.length - 1]?.voice ?? "";
+  // The word itself, so a brand with "Quotes" in its name doesn't pass for the ask.
+  if (lines.length > 0 && !/\bquote\b/i.test(last)) out.push("the last line doesn't ask for a quote");
+
+  if (style === "beforeAfter") {
+    const used = [...new Set(lines.map((l) => l.photo).filter((n): n is number => typeof n === "number" && n >= 1 && n <= photos.length))];
+    const first = photos[(lines[0]?.photo ?? 0) - 1];
+    const before = first?.pairKey && first.tags.includes("before") ? first : undefined;
+    const after = before ? used.map((n) => photos[n - 1]).find((f) => f !== before && f.pairKey === before.pairKey && f.tags.includes("after")) : undefined;
+    if (!before || !after) out.push("a before/after needs a tagged pair: open on the photo tagged before and bring in its after");
+    else if (used.length !== 2) out.push("a before/after uses only its two photos");
+    else {
+      // Once the after is up it stays up.
+      const turned = lines.findIndex((l) => photos[(l.photo ?? 0) - 1] === after);
+      if (lines.slice(turned).some((l) => photos[(l.photo ?? 0) - 1] !== after)) out.push("once the after is shown, it stays");
+    }
+    if (plan.revealOn && !spoken.split(/\s+/).some((w) => bare(w) === bare(plan.revealOn!))) out.push(`revealOn "${plan.revealOn}" isn't a word of the script`);
+  }
+  if (style === "counter") {
+    const stats = plan.stats ?? [];
+    if (stats.length < 2 || stats.length > 3) out.push(`${stats.length} numbers (a counter has 2 or 3)`);
+    stats.forEach((stat, i) => {
+      if (typeof stat.value !== "number" || !Number.isInteger(stat.value) || stat.value < 0 || stat.value > 99) out.push(`number ${i + 1} isn't a whole number from 0 to 99`);
+      const label = stat.label?.trim() ?? "";
+      if (!label) out.push(`number ${i + 1} doesn't say what it counts`);
+      else if (label.length > STAT_LABEL_MAX) out.push(`number ${i + 1}'s label is over ${STAT_LABEL_MAX} characters`);
+    });
+    // The opening line, a line for each number, then the ask.
+    if (stats.length >= 2 && lines.length < stats.length + 2) out.push(`${stats.length} numbers need ${stats.length + 2} lines: an opening, one each, and the ask`);
+  }
+
   if (!plan.headline?.trim()) out.push("no headline");
   else if (plan.headline.trim().length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
   if (!plan.primaryText?.trim()) out.push("no primary text");
   else if (plan.primaryText.trim().length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
-  const text = [title, spoken, ...points.map((p) => p.text), plan.headline, plan.primaryText].filter(Boolean).join(" ");
+  const text = [title, spoken, ...lines.map((l) => l.label), ...(plan.stats ?? []).map((x) => x.label), plan.headline, plan.primaryText].filter(Boolean).join(" ");
   for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
   return out;
 }
 
-/**
- * A checklist ad as the script stored on the creative. Five spoken lines in
- * order: the intro (on screen: the title), the three points, and the close
- * (on screen: the ask). Each carries the photo shown while it is said, so
- * the voice step times them like any shot list.
- */
-export function composeGraphicScript(plan: GraphicPlan, assetIds: string[]): Script {
-  const points = (plan.points ?? []).map((p) => ({ assetId: assetIds[(p.photo ?? 1) - 1], voice: (p.voice ?? "").trim(), onScreen: (p.text ?? "").trim() }));
+/** An animated ad as it is stored: the script (each line a shot, with its photo and its label) and the design the renderer follows. */
+export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: Script; design: Design } {
+  const shots = (plan.lines ?? []).map((line) => ({
+    assetId: assetIds[(line.photo ?? 1) - 1],
+    voice: (line.voice ?? "").trim(),
+    onScreen: (line.label ?? "").trim(),
+  }));
+  const style = AD_STYLES.find((x) => x === plan.style) ?? "lightUp";
   const title = (plan.title ?? "").trim();
-  const shots = [
-    { assetId: points[0]?.assetId ?? assetIds[0], voice: (plan.intro ?? "").trim(), onScreen: title },
-    ...points,
-    { assetId: points[points.length - 1]?.assetId ?? assetIds[0], voice: (plan.close ?? "").trim(), onScreen: "Get a quote" },
-  ];
   return {
-    voice: shots.map((s) => s.voice).join(" "),
-    onScreen: [title, ...points.map((p) => p.onScreen)],
-    headline: (plan.headline ?? "").trim(),
-    primaryText: (plan.primaryText ?? "").trim(),
-    shots,
+    script: {
+      voice: shots.map((x) => x.voice).join(" "),
+      onScreen: [title, ...shots.map((x) => x.onScreen).filter(Boolean)],
+      headline: (plan.headline ?? "").trim(),
+      primaryText: (plan.primaryText ?? "").trim(),
+      shots,
+    },
+    design: {
+      style,
+      title,
+      ...(style === "counter" ? { stats: (plan.stats ?? []).map((x) => ({ value: x.value ?? 0, label: (x.label ?? "").trim() })) } : {}),
+      ...(style === "beforeAfter" && plan.revealOn?.trim() ? { revealOn: plan.revealOn.trim() } : {}),
+    },
   };
 }
-
-/** Where a checklist ad's three zones sit in each size: words at the top, the photo across the middle, the points under it. */
-const GRAPHIC = {
-  "9x16": { top: 330, photo: 980, title: 68, point: 52, row: 150, rowsFrom: 40 },
-  "4x5": { top: 215, photo: 680, title: 52, point: 44, row: 112, rowsFrom: 24 },
-} as const;
-/** How long the ask stays up after the voice has finished. */
-export const GRAPHIC_HOLD_SEC = 2;
-const CROSSFADE_SEC = 0.6;
-/** A tick's two strokes inside its 56-pixel square: where each one's middle is, how long it is, and how far it leans. */
-const TICK = [
-  { x: 15, y: 37, length: 24, angle: 45 },
-  { x: 36, y: 29, length: 44, angle: -45 },
-] as const;
-const TICK_SIZE = 56;
 
 /**
- * The Shotstack edit for a checklist ad, cut to the voice-over. The title is
- * up from the start; each point fades in with its tick when its line starts
- * and stays; when the closing line starts, the points give way to the ask.
- * The photo zone crosses the middle of the frame, so a trial key's watermark
- * never lands on words. Fades only, no music.
+ * When each word of each line is said, from ElevenLabs' character times. The
+ * voice is the lines joined by single spaces, so a line's characters start
+ * where the earlier lines and their spaces end. Null when the alignment
+ * doesn't cover the text, and the renderer estimates instead.
  */
-export function graphicEdit(input: {
-  /** The intro, the points and the close, in order, each with its photo and when its line starts. */
-  shots: Array<{ asset: EditAsset; onScreen: string; start: number; end: number }>;
-  audioUrl: string;
-  audioDurationSec: number;
-  brand: Brand;
-  ratio: "9x16" | "4x5";
-}) {
-  const { shots, brand, ratio } = input;
-  const size = SIZES[ratio];
-  const zone = GRAPHIC[ratio];
-  const total = round(input.audioDurationSec + GRAPHIC_HOLD_SEC);
-  const share = (px: number) => Math.round((px / size.height) * 10000) / 10000;
-  const across = (px: number) => Math.round((px / size.width) * 10000) / 10000;
-  const points = shots.slice(1, -1);
-  const close = shots[shots.length - 1];
-  const closeAt = round(Math.max(0.5, close.start));
-  const single = (clip: unknown) => ({ clips: [clip] });
-  const under = zone.top + zone.photo;
-
-  // The photos, each on screen from its line to the next line with a different photo, fading in over the one before.
-  const runs: Array<{ url: string; type: "image" | "video"; start: number; until: number }> = [];
-  shots.forEach((shot, i) => {
-    const start = i === 0 ? 0 : shot.start;
-    const last = runs[runs.length - 1];
-    if (last && last.url === shot.asset.url) return;
-    if (last) last.until = start;
-    runs.push({ url: shot.asset.url, type: shot.asset.kind === "video" ? "video" : "image", start, until: total });
+export function wordTimings(lines: string[], alignment: Alignment | null | undefined): Array<Array<{ text: string; start: number; end: number }>> | null {
+  const starts = alignment?.character_start_times_seconds ?? [];
+  const ends = alignment?.character_end_times_seconds ?? [];
+  const total = lines.join(" ").length;
+  if (total === 0 || starts.length < total || ends.length < total) return null;
+  let offset = 0;
+  return lines.map((line) => {
+    const words: Array<{ text: string; start: number; end: number }> = [];
+    for (const match of line.matchAll(/\S+/g)) {
+      const from = offset + match.index;
+      words.push({ text: match[0], start: round(starts[from]), end: round(ends[from + match[0].length - 1]) });
+    }
+    offset += line.length + 1;
+    return words;
   });
-  // Later photos go on higher tracks, so each fades in over the one it follows.
-  const photoTracks = [...runs]
-    .reverse()
-    .flatMap((run) => {
-      const first = run === runs[0];
-      const length = round(Math.min(total, run.until + CROSSFADE_SEC) - run.start);
-      return framedPhoto(run.url, { width: size.width, height: zone.photo, top: zone.top }, size, { start: round(run.start), length }, { type: run.type, fadeIn: !first });
-    })
-    .map(single);
-
-  const rows = points.map((p, i) => {
-    const start = round(p.start);
-    const length = round(Math.max(0.5, closeAt - start));
-    const y = -share(under + zone.rowsFrom + i * zone.row);
-    // The tick is two plain strokes (Shotstack refuses a drawn SVG here). A stroke with no box of its own sits at the
-    // middle of the frame and turns about its own middle, so each is placed by how far its middle is from the frame's.
-    const tickTop = under + zone.rowsFrom + i * zone.row + (zone.row - TICK_SIZE) / 2;
-    const strokes = TICK.map((t) => ({
-      asset: { type: "shape", shape: "line", line: { length: t.length, thickness: 10 }, fill: { color: brand.accentColor, opacity: 1 } },
-      start,
-      length,
-      position: "center",
-      offset: { x: across(84 + t.x - size.width / 2), y: share(size.height / 2 - (tickTop + t.y)) },
-      transform: { rotate: { angle: t.angle } },
-      transition: { in: "fade", out: "fade" },
-    }));
-    return [
-      ...strokes,
-      {
-        asset: {
-          type: "html",
-          html: `<p>${escapeHtml(p.onScreen)}</p>`,
-          css: `p{font-family:'Montserrat ExtraBold';font-size:${zone.point}px;line-height:${Math.round(zone.point * 1.15)}px;color:#ffffff;text-align:left}`,
-          width: 840,
-          height: zone.row,
-        },
-        start,
-        length,
-        position: "topLeft",
-        offset: { x: across(170), y },
-        transition: { in: "fade", out: "fade" },
-      },
-    ];
-  });
-  const askLength = round(Math.max(0.5, total - closeAt));
-  const below = size.height - under;
-  return {
-    timeline: {
-      background: BAND_COLOR,
-      tracks: [
-        single({
-          asset: {
-            type: "html",
-            html: `<p>${escapeHtml(brand.name)}</p>`,
-            css: `p{font-family:'Montserrat ExtraBold';font-size:32px;color:${brand.accentColor};text-align:center}`,
-            width: size.width,
-            height: 60,
-          },
-          start: 0,
-          length: total,
-          position: "top",
-          offset: { x: 0, y: -share(ratio === "9x16" ? 70 : 24) },
-        }),
-        single({
-          asset: {
-            type: "html",
-            html: `<p>${escapeHtml(shots[0].onScreen)}</p>`,
-            css: `p{font-family:'Montserrat ExtraBold';font-size:${zone.title}px;line-height:${Math.round(zone.title * 1.15)}px;color:#ffffff;text-align:center}`,
-            width: 980,
-            height: zone.top - (ratio === "9x16" ? 170 : 100),
-          },
-          start: 0,
-          length: total,
-          position: "top",
-          offset: { x: 0, y: -share(ratio === "9x16" ? 150 : 90) },
-          transition: { in: "fade" },
-        }),
-        ...rows.flat().map(single),
-        // The ask, in the points' place.
-        single({
-          asset: {
-            type: "html",
-            html: "<p>Get a quote</p>",
-            css: `p{font-family:'Montserrat ExtraBold';font-size:${ratio === "9x16" ? 56 : 46}px;color:#ffffff;text-align:center}`,
-            width: 620,
-            height: ratio === "9x16" ? 150 : 120,
-            background: brand.primaryColor,
-          },
-          start: closeAt,
-          length: askLength,
-          position: "top",
-          offset: { x: 0, y: -share(under + Math.round(below * 0.22)) },
-          transition: { in: "fade" },
-        }),
-        single({
-          asset: {
-            type: "html",
-            html: `<p>${escapeHtml([brand.name, marketsLine(brand.markets)].filter(Boolean).join(" · "))}</p>`,
-            css: `p{font-family:'Open Sans';font-size:${ratio === "9x16" ? 38 : 32}px;color:${brand.accentColor};text-align:center}`,
-            width: 980,
-            height: 70,
-          },
-          start: closeAt,
-          length: askLength,
-          position: "top",
-          offset: { x: 0, y: -share(under + Math.round(below * 0.22) + (ratio === "9x16" ? 190 : 150)) },
-          transition: { in: "fade" },
-        }),
-        // The blurred copy of a photo isn't cut to its box, so the zones above and below are painted over it.
-        single({ asset: block(size.width, zone.top, BAND_COLOR), start: 0, length: total, position: "top" }),
-        single({ asset: block(size.width, below, BAND_COLOR), start: 0, length: total, position: "bottom" }),
-        ...photoTracks,
-        single({ asset: { type: "audio", src: input.audioUrl, volume: 1 }, start: 0, length: round(input.audioDurationSec) }),
-      ],
-    },
-    output: { format: "mp4", fps: 25, size },
-  };
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** One photo as the renderer is given it; the renderer reads its size itself. */
+export interface RenderPhoto {
+  src: string;
+}
+
+/**
+ * Everything the renderer draws one ad from (ads-video/src/types.ts, less the
+ * photos' sizes). A before/after is given its two photos, before first; any
+ * other style, the photo for each line.
+ */
+export function renderProps(input: {
+  ratio: "9x16" | "4x5";
+  design: Design;
+  script: Script;
+  /** The ad's photos by asset id. */
+  photos: Map<string, { url: string; tags: string[] }>;
+  audioUrl: string;
+  audioSec: number;
+  brand: Brand;
+}) {
+  const { design, script } = input;
+  const shots = script.shots ?? [];
+  const perLine = shots.map((x) => input.photos.get(x.assetId));
+  if (shots.length === 0 || perLine.some((p) => !p)) throw new Error("A line's photo is missing from the library");
+  const lines = shots.map((x) => ({
+    voice: x.voice,
+    start: x.start ?? 0,
+    end: x.end ?? 0,
+    ...(design.style === "lightUp" && x.onScreen ? { label: x.onScreen } : {}),
+    ...(x.words ? { words: x.words } : {}),
+  }));
+  let style: Record<string, unknown> = { kind: design.style };
+  let photos = perLine.map((p) => ({ src: p!.url }));
+  if (design.style === "beforeAfter") {
+    const before = perLine[0]!;
+    const turned = perLine.findIndex((p) => p !== before);
+    if (turned < 0) throw new Error("A before/after has no after");
+    photos = [{ src: before.url }, { src: perLine[turned]!.url }];
+    style = { kind: "beforeAfter", ...(design.revealOn ? { crossOn: design.revealOn } : {}), crossAt: lines[turned].start };
+  } else if (design.style === "counter") style = { kind: "counter", stats: design.stats ?? [] };
+  return { ratio: input.ratio, style, brand: input.brand, headline: design.title, lines, audio: input.audioUrl, audioSec: input.audioSec, photos };
 }
 
 // ------------------------------------------------------------ Swipe file

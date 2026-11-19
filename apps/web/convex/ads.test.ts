@@ -5,22 +5,15 @@ import {
   PLAYBOOK_MARK,
   TAG_MARK,
   apifyInput,
-  composeGraphicScript,
-  composeImageScript,
-  composeScript,
+  composeMotion,
   creativeName,
   familyOfAngle,
   fromApifyItem,
-  graphicEdit,
-  graphicPlanProblems,
-  graphicPrompt,
-  imageAdPrompt,
-  imageEdit,
-  imagePlanProblems,
   isFatigued,
   isLocal,
-  lineCount,
   mergeSwipeCsvs,
+  motionPlanProblems,
+  motionPrompt,
   parseCsv,
   parseJson,
   pickAssets,
@@ -29,13 +22,11 @@ import {
   qualifies,
   readPlaybook,
   readSwipeTags,
-  scriptProblems,
+  renderProps,
   swipeScore,
-  shotListPrompt,
-  shotPlanProblems,
   shotTimings,
-  shotstackEdit,
   weekOf,
+  wordTimings,
   type Script,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
@@ -92,67 +83,6 @@ describe("the pure parts", () => {
     expect(pickAssets(two, "cabinets", new Set()).assets.map((a) => a._id)).toEqual(["q1", "q2", "p1", "p2"]);
   });
 
-  test("the shot-list prompt lists the footage by number, says when it's only fallback footage, and carries the rules", () => {
-    const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
-    const footage = [
-      { kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k", description: "Dark oak kitchen cabinets", imageUrl: "https://x/1.jpg" },
-      { kind: "video" as const, tags: ["process"], durationSec: 7.6 },
-    ];
-    const text = shotListPrompt(hook, "Permian Home Quotes", footage, false);
-    expect(text).toContain('Footage 1: photo · tags: cabinets, before · pair "k" · looks like: Dark oak kitchen cabinets · (image attached below)');
-    expect(text).toContain("Footage 2: video (8s) · tags: process · (no image available; rely on the tags)");
-    expect(text).toContain("None of this footage is tagged cabinets");
-    expect(text).toContain("never as a homeowner or customer");
-    expect(text).toContain("A before must be immediately followed by its after");
-    expect(shotListPrompt(hook, "B", footage, true)).not.toContain("None of this footage");
-  });
-
-  test("a shot list is checked against the footage it was offered, then becomes the stored script", () => {
-    const footage = [{ tags: ["cabinets", "before"], pairKey: "k" }, { tags: ["cabinets", "after"], pairKey: "k" }, { tags: ["process"] }];
-    const line = (n: number) => Array.from({ length: n }, () => "word").join(" ");
-    const good = {
-      fits: true,
-      shots: [
-        { footage: 1, voice: `These cabinets ${line(18)}`, onScreen: "Before" },
-        { footage: 2, voice: `and after ${line(18)}`, onScreen: "After" },
-        { footage: 3, voice: `get a quote ${line(18)}`, onScreen: "Get a quote" },
-      ],
-      headline: "Cabinets, transformed",
-      primaryText: "One vetted local painter.",
-    };
-    expect(shotPlanProblems(good, footage)).toEqual([]);
-    expect(shotPlanProblems({ ...good, shots: [good.shots[0], good.shots[2], good.shots[1]] }, footage)).toContain(
-      "the before in footage 1 isn't followed by its after",
-    );
-    expect(shotPlanProblems({ ...good, shots: [good.shots[0], { ...good.shots[1], footage: 1 }] }, footage)).toEqual(
-      expect.arrayContaining(["footage 1 used twice"]),
-    );
-    expect(shotPlanProblems({ ...good, shots: [{ ...good.shots[0], footage: 9 }, good.shots[1]] }, footage)).toContain("shot 1 names footage 9");
-    expect(
-      shotPlanProblems(
-        {
-          ...good,
-          shots: [
-            { ...good.shots[0], voice: "Short." },
-            { ...good.shots[1], voice: "Too." },
-          ],
-        },
-        footage,
-      ),
-    ).toContain("2 words of voice (write 55 to 75)");
-    expect(shotPlanProblems({ ...good, shots: [{ ...good.shots[0], onScreen: "x".repeat(41) }, good.shots[1]] }, footage)).toEqual(
-      expect.arrayContaining(["shot 1 on-screen line over 40 characters"]),
-    );
-    const script = composeScript(good, ["a1", "a2", "a3"]);
-    expect(script.shots!.map((x) => [x.assetId, x.onScreen])).toEqual([
-      ["a1", "Before"],
-      ["a2", "After"],
-      ["a3", "Get a quote"],
-    ]);
-    expect(script.voice).toBe(good.shots.map((x) => x.voice).join(" "));
-    expect(script.onScreen).toEqual(["Before", "After", "Get a quote"]);
-  });
-
   test("shot timings come from ElevenLabs' character times, or an even estimate without them", () => {
     const lines = ["Paint them.", "Not replace."];
     const text = lines.join(" ");
@@ -188,15 +118,7 @@ describe("the pure parts", () => {
     expect(isFatigued({ frequency: 3, ctr: 0.1, baselineCtr: null })).toBe(false);
   });
 
-  test("scripts: the guardrails reject prices, promises and a customer's voice; good copy passes; JSON comes out of a fence", () => {
-    expect(scriptProblems(GOOD)).toEqual([]);
-    expect(scriptProblems({ ...GOOD, primaryText: "Cabinets from $1,200 this month" })).toContain("mentions a price or discount");
-    expect(scriptProblems({ ...GOOD, voice: GOOD.voice + " They painted my kitchen and I loved it." })).toContain("mentions a customer voice");
-    expect(scriptProblems({ ...GOOD, headline: "Done in 3 days, 10-year warranty included" })).toEqual(
-      expect.arrayContaining(["headline over 40 characters", "mentions a warranty or guarantee", "mentions a completion time"]),
-    );
-    expect(scriptProblems({ ...GOOD, onScreen: ["Is your home in Midland?"] })).toContain("mentions a personal attribute");
-    expect(scriptProblems(undefined)).toEqual(["no script"]);
+  test("JSON comes out of a fence, out of the words around it, and not out of a reply that was cut off", () => {
     expect(parseJson('Here you go:\n```json\n{"fits":false,"reason":"x"}\n```')).toEqual({ fits: false, reason: "x" });
     expect(parseJson("no json here")).toBeNull();
     // Braces in the words around it, or inside its own strings, don't hide the object.
@@ -206,228 +128,163 @@ describe("the pure parts", () => {
     expect(parseJson('{"fits":true,"shots":[{"footage":1,"voice":"These cab')).toBeNull();
   });
 
-  test("the Shotstack edit: each shot starts on its line, its words sit on it, an after wipes over its before, short clips repeat", () => {
-    const brand = { name: "Permian Home Quotes", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
-    const before = { url: "https://x/before.jpg", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k" };
-    const after = { url: "https://x/after.jpg", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "k" };
-    const clip = { url: "https://x/clip.mp4", kind: "video" as const, tags: ["process"], durationSec: 3 };
-    const edit = shotstackEdit({
-      shots: [
-        { asset: before, onScreen: "Before", start: 0.2, end: 6 },
-        { asset: after, onScreen: "After", start: 6.4, end: 12 },
-        { asset: clip, onScreen: "Get a quote", start: 12.5, end: 20 },
-      ],
-      audioUrl: "https://x/voice.mp3",
-      audioDurationSec: 20,
-      brand,
-      ratio: "9x16",
-    });
-    expect(edit.output).toEqual({ format: "mp4", fps: 25, size: { width: 1080, height: 1920 } });
-    const tracks = edit.timeline.tracks as Array<{ clips: any[] }>;
-    const [captions, lines, brandTrack, media, audio] = tracks;
-    expect(captions.clips[0]).toMatchObject({ asset: { type: "caption", src: "alias://voice" }, start: 0, length: 20.4 });
-    // Clips: 0–6.4 before, 6.4–12.5 after (wipe), then the 3s clip three times to fill 12.5–20.4.
-    expect(media.clips.map((c) => [c.asset.src, c.start, c.length, c.transition?.in])).toEqual([
-      ["https://x/before.jpg", 0, 6.4, undefined],
-      ["https://x/after.jpg", 6.4, 6.1, "wipeLeft"],
-      ["https://x/clip.mp4", 12.5, 3, undefined],
-      ["https://x/clip.mp4", 15.5, 3, undefined],
-      ["https://x/clip.mp4", 18.5, 1.9, undefined],
-    ]);
-    // Each on-screen line sits on its own shot.
-    expect(lines.clips.map((c) => [c.asset.html, c.start, c.length])).toEqual([
-      ["<p>Before</p>", 0, 6.4],
-      ["<p>After</p>", 6.4, 6.1],
-      ["<p>Get a quote</p>", 12.5, 7.9],
-    ]);
-    // End card after the voice, 3 seconds.
-    expect(brandTrack.clips[1]).toMatchObject({ start: 20.4, length: 3 });
-    expect(brandTrack.clips[1].asset.html).toContain("Get a quote");
-    expect(audio.clips[0]).toMatchObject({ alias: "voice", asset: { src: "https://x/voice.mp3" }, start: 0, length: 20 });
-
-    // No wipe when the after doesn't follow its own before.
-    const swapped = shotstackEdit({
-      shots: [
-        { asset: after, onScreen: "A", start: 0, end: 3 },
-        { asset: before, onScreen: "B", start: 3, end: 6 },
-      ],
-      audioUrl: "https://x/v.mp3",
-      audioDurationSec: 6,
-      brand,
-      ratio: "4x5",
-    });
-    expect(swapped.output.size).toEqual({ width: 1080, height: 1350 });
-    expect((swapped.timeline.tracks as Array<{ clips: any[] }>)[3].clips.some((c) => c.transition)).toBe(false);
-  });
 });
 
-/** A clip of an image ad's edit, as far as these tests read it. */
-type LooseClip = {
-  asset: { type: string; width: number; height: number; rectangle?: { height: number } };
-  position?: string;
-  offset: { y: number };
-  fit?: string;
-  filters?: unknown;
-  height: number;
-};
+/** A valid animated ad over the photos offered: four lines, about fifty words, the last one asking. */
+function motionPlanFor(photoCount: number, over: Record<string, unknown> = {}) {
+  const second = Math.min(2, photoCount);
+  return {
+    fits: true,
+    style: "lightUp",
+    title: "Paint them, don't replace",
+    lines: [
+      { photo: 1, voice: "Thinking about new cabinets? You might not need them at all this year." },
+      { photo: 1, voice: "A fresh finish can change the whole kitchen without tearing anything out.", label: "No tear-out" },
+      { photo: second, voice: "Every door and frame is cleaned, sanded and primed before the colour goes on.", label: "Prepped first" },
+      { photo: second, voice: "Permian Home Quotes matches you with one vetted local painter. Get a quote today." },
+    ],
+    headline: GOOD.headline,
+    primaryText: GOOD.primaryText,
+    ...over,
+  };
+}
 
-/** A clip of a checklist ad's edit, as far as these tests read it. */
-type LooseTimed = {
-  asset: { type: string; html?: string; height?: number };
-  start: number;
-  length: number;
-  position?: string;
-  offset?: { y: number };
-  fit?: string;
-  transition?: { in?: string; out?: string };
-};
-
-describe("a checklist ad's pure parts", () => {
+describe("an animated ad's pure parts", () => {
   const brand = { name: "Webb Leads", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
-  const photo = (url: string) => ({ url, kind: "photo" as const, tags: [] });
+  const pair = [
+    { tags: ["cabinets", "before"], pairKey: "k" },
+    { tags: ["cabinets", "after"], pairKey: "k" },
+  ];
+  const loose = [{ tags: ["interior"] }, { tags: ["interior"] }];
 
-  test("the rules: three points, short words, photos that were offered, a close that asks, and no forbidden claims", () => {
-    const good = graphicPlanFor();
-    expect(graphicPlanProblems(good, 2)).toEqual([]);
-    expect(graphicPlanProblems({ ...good, points: good.points.slice(0, 2) }, 2)).toEqual(expect.arrayContaining(["2 points (write 3)"]));
-    expect(graphicPlanProblems({ ...good, points: [{ ...good.points[0], photo: 5 }, good.points[1], good.points[2]] }, 2)).toEqual(["point 1 names photo 5"]);
-    expect(graphicPlanProblems({ ...good, points: [{ ...good.points[0], text: "x".repeat(27) }, good.points[1], good.points[2]] }, 2)).toEqual(["point 1 is over 26 characters"]);
-    expect(graphicPlanProblems({ ...good, close: "Call us today." }, 2)).toEqual(["the closing line doesn't ask for a quote"]);
-    expect(graphicPlanProblems({ ...good, title: "Painted in 3 days" }, 2)).toEqual(["mentions a completion time"]);
-    const script = composeGraphicScript(good, ["a", "b"]);
-    expect(script.shots!.map((x) => x.assetId)).toEqual(["a", "a", "a", "b", "b"]);
-    expect(script.voice.split(/\s+/).length).toBeGreaterThan(40);
-    const prompt = graphicPrompt({ textEn: "Paint them", family: "education", scope: "cabinets" }, "Webb Leads", [{ kind: "photo", tags: ["cabinets"] }], true, "Midland");
-    expect(prompt).toContain("exactly 3");
-    expect(prompt).toContain("never as a homeowner or customer");
+  test("the prompt lists the photos by number with their pairs, offers the three styles, and carries the rules", () => {
+    const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
+    const text = motionPrompt(
+      hook,
+      "Webb Leads",
+      [
+        { kind: "photo", tags: ["cabinets", "before"], pairKey: "k", description: "dark oak cabinets", imageUrl: "u" },
+        { kind: "photo", tags: ["cabinets", "after"], pairKey: "k", imageUrl: "u" },
+      ],
+      true,
+      [],
+      "Midland",
+    );
+    expect(text).toContain('Photo 1 · tags: cabinets, before · pair "k" · looks like: dark oak cabinets · (attached below)');
+    expect(text).toContain('"lightUp"');
+    expect(text).toContain('"beforeAfter": only when two of the photos are one pair');
+    expect(text).toContain("Never invent counts of jobs, years, reviews or customers.");
+    expect(text).toContain("never as a homeowner or customer");
+    expect(text).toContain("its final sentence asks the viewer to get a quote");
+    expect(text).not.toContain("None of these photos is tagged");
+    expect(motionPrompt(hook, "Webb Leads", [], false)).toContain("None of these photos is tagged cabinets");
   });
 
-  test("a second photo fades in over the first when its line starts; a photo used for lines in a row stays up", () => {
-    const edit = graphicEdit({
-      shots: [
-        { asset: photo("https://files.example/a.jpg"), onScreen: "Title", start: 0, end: 3 },
-        { asset: photo("https://files.example/a.jpg"), onScreen: "One", start: 4, end: 7 },
-        { asset: photo("https://files.example/b.jpg"), onScreen: "Two", start: 8, end: 11 },
-        { asset: photo("https://files.example/b.jpg"), onScreen: "Three", start: 12, end: 15 },
-        { asset: photo("https://files.example/b.jpg"), onScreen: "Get a quote", start: 16, end: 19 },
-      ],
-      audioUrl: "https://files.example/v.mp3",
-      audioDurationSec: 20,
-      brand,
-      ratio: "9x16",
-    });
-    const clips = (edit.timeline.tracks as Array<{ clips: LooseTimed[] }>).map((t) => t.clips[0]);
-    const photos = clips.filter((c) => c.asset.type === "image" && c.fit === "contain");
-    // Listed top track first: the later photo is above, so its fade covers the earlier one, which stays a moment longer under it.
-    expect(photos.map((c) => [(c.asset as { src?: string }).src, c.start, c.length, c.transition?.in])).toEqual([
-      ["https://files.example/b.jpg", 8, 14, "fade"],
-      ["https://files.example/a.jpg", 0, 8.6, undefined],
+  test("the rules: a style, a title, three to five lines on photos that were offered, a last line that asks, and no forbidden claims", () => {
+    const good = motionPlanFor(2);
+    expect(motionPlanProblems(good, loose)).toEqual([]);
+    expect(motionPlanProblems({ ...good, style: "explode" }, loose)).toEqual(['style "explode" (choose lightUp, beforeAfter or counter)']);
+    expect(motionPlanProblems({ ...good, title: "x".repeat(31) }, loose)).toEqual(["title over 30 characters"]);
+    expect(motionPlanProblems({ ...good, lines: good.lines.slice(0, 2) }, loose)).toEqual(expect.arrayContaining(["2 lines (write 3 to 5)"]));
+    expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], photo: 3 }, ...good.lines.slice(1)] }, loose)).toEqual(["line 1 names photo 3"]);
+    expect(motionPlanProblems({ ...good, lines: [...good.lines.slice(0, 3), { photo: 2, voice: "Permian Home Quotes matches you with one vetted local painter near you." }] }, loose)).toEqual([
+      "the last line doesn't ask for a quote",
+    ]);
+    expect(motionPlanProblems({ ...good, primaryText: "Cabinets from $1,200 this month" }, loose)).toEqual(["mentions a price or discount"]);
+    expect(motionPlanProblems({ ...good, title: "10-year warranty" }, loose)).toEqual(["mentions a warranty or guarantee"]);
+    expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], label: "x".repeat(25) }, ...good.lines.slice(1)] }, loose)).toEqual([
+      "line 1's label is over 24 characters",
     ]);
   });
 
-  test("the words stay out of the middle of the frame, where the photo is", () => {
-    for (const ratio of ["9x16", "4x5"] as const) {
-      const height = ratio === "9x16" ? 1920 : 1350;
-      const edit = graphicEdit({
-        shots: ["Title here", "One", "Two", "Three", "Get a quote"].map((onScreen, i) => ({ asset: photo("https://files.example/p.jpg"), onScreen, start: i * 4, end: i * 4 + 3.5 })),
-        audioUrl: "https://files.example/v.mp3",
-        audioDurationSec: 20,
-        brand,
-        ratio,
-      });
-      const clips = (edit.timeline.tracks as Array<{ clips: LooseTimed[] }>).map((t) => t.clips[0]);
-      // One photo for every line: one run, on screen for the whole ad, the ask held two seconds after the voice.
-      const photos = clips.filter((c) => c.asset.type === "image" && c.fit === "contain");
-      expect(photos.map((c) => [c.start, c.length])).toEqual([[0, 22]]);
-      // The photo's box spans the middle line of the frame; every piece of text is wholly above or wholly below it.
-      const boxHeight = (photos[0] as unknown as { height: number }).height;
-      const top = Math.round((0.5 - photos[0].offset!.y) * height - boxHeight / 2);
-      const bottom = top + boxHeight;
-      expect(top).toBeLessThan(height / 2 - 100);
-      expect(bottom).toBeGreaterThan(height / 2 + 100);
-      for (const w of clips.filter((c) => c.asset.type === "html")) {
-        const from = Math.round(-w.offset!.y * height);
-        const to = from + w.asset.height!;
-        expect(to <= top || from >= bottom).toBe(true);
-        expect(to).toBeLessThanOrEqual(height);
-      }
-      expect(JSON.stringify(edit)).toContain("Webb Leads · Midland and Odessa");
-      // The zones above and below the photo are painted over whatever a photo's blurred copy spills into them.
-      const covers = clips.filter((c) => c.asset.type === "shape" && (c.asset as { shape?: string }).shape === "rectangle" && c.start === 0 && c.length === 22 && !c.offset);
-      expect(covers.map((c) => [c.position, c.asset.height])).toEqual([
-        ["top", top],
-        ["bottom", height - bottom],
-      ]);
-    }
-  });
-});
-
-describe("an image ad's pure parts", () => {
-  const brand = { name: "Webb Leads", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland"] };
-
-  test("the photo is whole and unstretched over a blurred copy, and no words sit in the middle of the frame", () => {
-    for (const ratio of ["9x16", "4x5"] as const) {
-      const edit = imageEdit({ photoUrl: "https://files.example/p.jpg", headline: "Paint them <now>", support: "A free quote", brand, ratio });
-      const height = ratio === "9x16" ? 1920 : 1350;
-      expect(edit.output).toMatchObject({ format: "jpg", size: { width: 1080, height } });
-      const clips = edit.timeline.tracks.map((t) => t.clips[0] as LooseClip);
-      const photos = clips.filter((c) => c.asset.type === "image");
-      expect(photos.map((c) => c.fit)).toEqual(["contain", "crop"]);
-      // Placed by the middle of its box, so a wide photo sits in the middle of the space, not at its top.
-      expect(photos[0].position).toBe("center");
-      expect(Math.round((0.5 - photos[0].offset.y) * height)).toBe(photos[0].height / 2);
-      expect(photos[1].filters).toEqual([{ type: "blur", value: 40 }]);
-      // Every piece of text is anchored to the top or the bottom edge and ends short of the middle.
-      const words = clips.filter((c) => c.asset.type === "html");
-      expect(words.length).toBe(4);
-      // The headline's box starts above where the support line's box ends, and that one above the button.
-      const fromBottom = words.filter((w) => w.position === "bottom").map((w) => ({ from: Math.round(w.offset.y * height), to: Math.round(w.offset.y * height) + w.asset.height }));
-      const [button, headline, support] = fromBottom;
-      expect(support.from).toBeGreaterThanOrEqual(button.to);
-      expect(headline.from).toBeGreaterThanOrEqual(support.to);
-      // The dark band is at the bottom edge and as wide as the frame; the photo's box is everything above it.
-      const band = clips.find((c) => c.asset.type === "shape" && c.position === "bottom")!;
-      expect(band.asset).toMatchObject({ width: 1080, height: band.asset.rectangle.height });
-      expect(photos[0].height + band.asset.height).toBe(height);
-      // With room to spare above the headline, so the words never touch the photo.
-      expect(headline.to).toBeLessThanOrEqual(band.asset.height - 30);
-      for (const w of words) {
-        const fromEdge = Math.abs(w.offset.y) * height + w.asset.height;
-        expect(["topLeft", "bottom"]).toContain(w.position);
-        expect(fromEdge).toBeLessThan(height / 2 - 60);
-      }
-      expect(JSON.stringify(edit)).toContain("Paint them &lt;now&gt;");
-      expect(JSON.stringify(edit)).toContain("Get a quote");
-    }
+  test("a before/after is only ever a tagged pair, before first, and the after stays once shown", () => {
+    const wipe = motionPlanFor(2, { style: "beforeAfter", revealOn: "finish" });
+    expect(motionPlanProblems(wipe, pair)).toEqual([]);
+    // Two photos that aren't a pair: refused, never faked.
+    expect(motionPlanProblems(wipe, loose)).toEqual(["a before/after needs a tagged pair: open on the photo tagged before and bring in its after"]);
+    // Opening on the after.
+    const backwards = { ...wipe, lines: wipe.lines.map((l) => ({ ...l, photo: l.photo === 1 ? 2 : 1 })) };
+    expect(motionPlanProblems(backwards, pair)).toEqual(["a before/after needs a tagged pair: open on the photo tagged before and bring in its after"]);
+    const flipFlop = { ...wipe, lines: [wipe.lines[0], wipe.lines[2], wipe.lines[1], wipe.lines[3]] };
+    expect(motionPlanProblems(flipFlop, pair)).toEqual(["once the after is shown, it stays"]);
+    expect(motionPlanProblems({ ...wipe, revealOn: "sparkle" }, pair)).toEqual(['revealOn "sparkle" isn\'t a word of the script']);
   });
 
-  test("the rules: one of the photos offered, short printed lines, and none of the claims a video can't make either", () => {
-    const good = { fits: true, photo: 2, imageHeadline: "Cabinets, painted", support: "One vetted local painter.", headline: "Cabinets, painted", primaryText: "Get a free quote." };
-    expect(imagePlanProblems(good, 2)).toEqual([]);
-    expect(imagePlanProblems({ ...good, photo: 3 }, 2)).toEqual(["names photo 3"]);
-    expect(imagePlanProblems({ ...good, imageHeadline: "One two three four five six seven" }, 2)).toEqual(["image headline over 6 words"]);
-    expect(imagePlanProblems({ ...good, imageHeadline: "x".repeat(37) }, 2)).toEqual(["image headline over 36 characters"]);
-    expect(imagePlanProblems({ ...good, support: "" }, 2)).toEqual(["no support line"]);
-    expect(imagePlanProblems({ ...good, support: "10-year warranty included" }, 2)).toEqual(["mentions a warranty or guarantee"]);
-    expect(composeImageScript(good, ["a", "b"])).toMatchObject({ voice: "", onScreen: ["Cabinets, painted", "One vetted local painter."], shots: [{ assetId: "b" }] });
-    const prompt = imageAdPrompt({ textEn: "Paint them", family: "before_after", scope: "cabinets" }, "Webb Leads", [{ kind: "photo", tags: ["cabinets"] }], false, "Midland");
-    expect(prompt).toContain("Photo 1 · tags: cabinets");
-    expect(prompt).toContain("None of these photos is tagged cabinets");
-    expect(prompt).toContain("never as a homeowner or customer");
+  test("a counter needs two or three whole numbers, each with what it counts, and a line for each", () => {
+    const stats = [
+      { value: 1, label: "vetted local painter" },
+      { value: 0, label: "pressure" },
+    ];
+    const counter = motionPlanFor(2, { style: "counter", stats });
+    expect(motionPlanProblems(counter, loose)).toEqual([]);
+    expect(motionPlanProblems({ ...counter, stats: [stats[0]] }, loose)).toEqual(["1 numbers (a counter has 2 or 3)"]);
+    expect(motionPlanProblems({ ...counter, stats: [{ value: 212, label: "homes painted" }, stats[1]] }, loose)).toEqual(["number 1 isn't a whole number from 0 to 99"]);
+    expect(motionPlanProblems({ ...counter, stats: [...stats, { value: 1, label: "free quote" }] }, loose)).toEqual([
+      "3 numbers need 5 lines: an opening, one each, and the ask",
+    ]);
   });
 
-  test("a long headline gets a taller box, never a shared one", () => {
-    expect(lineCount("Paint them", 20)).toBe(1);
-    expect(lineCount("Paint them, don't replace them", 20)).toBe(2);
-    expect(lineCount("One two three four five six seven eight nine ten", 12)).toBe(5);
-    const boxes = (headline: string) =>
-      imageEdit({ photoUrl: "https://files.example/p.jpg", headline, support: "A free quote", brand, ratio: "4x5" }).timeline.tracks.map((t) => (t.clips[0] as LooseClip).asset.height);
-    expect(boxes("Paint them, don't replace them")[2]).toBeGreaterThan(boxes("Paint them")[2]);
+  test("the stored ad: each line a shot with its photo and label; the design carries the style and only what that style shows", () => {
+    const { script, design } = composeMotion(motionPlanFor(2, { stats: [{ value: 9, label: "ignored" }], revealOn: "ignored" }), ["a", "b"]);
+    expect(script.shots!.map((x) => [x.assetId, x.onScreen])).toEqual([
+      ["a", ""],
+      ["a", "No tear-out"],
+      ["b", "Prepped first"],
+      ["b", ""],
+    ]);
+    expect(script.onScreen).toEqual(["Paint them, don't replace", "No tear-out", "Prepped first"]);
+    expect(script.voice).toMatch(/^Thinking about new cabinets\? .* Get a quote today\.$/);
+    expect(design).toEqual({ style: "lightUp", title: "Paint them, don't replace" });
+    expect(composeMotion(motionPlanFor(2, { style: "counter", stats: [{ value: 1, label: " painter " }] }), ["a", "b"]).design.stats).toEqual([{ value: 1, label: "painter" }]);
+    expect(composeMotion(motionPlanFor(2, { style: "beforeAfter", revealOn: "finish" }), ["a", "b"]).design.revealOn).toBe("finish");
   });
 
-  test("an image ad's name says so", () => {
-    expect(creativeName("hook1", "4x5", new Date("2026-11-03T12:00:00Z"), "image")).toMatch(/^WL_[a-z0-9]{6}_45_20261103_img$/);
-    expect(creativeName("hook1", "4x5", new Date("2026-11-03T12:00:00Z"))).toMatch(/^WL_[a-z0-9]{6}_45_20261103$/);
+  test("word times come from the voice's own character times, line by line; without them there are none", () => {
+    const lines = ["Paint them.", "Get a quote."];
+    const chars = [...lines.join(" ")];
+    const alignment = { characters: chars, character_start_times_seconds: chars.map((_, i) => i * 0.1), character_end_times_seconds: chars.map((_, i) => i * 0.1 + 0.1) };
+    expect(wordTimings(lines, alignment)).toEqual([
+      [
+        { text: "Paint", start: 0, end: 0.5 },
+        { text: "them.", start: 0.6, end: 1.1 },
+      ],
+      [
+        { text: "Get", start: 1.2, end: 1.5 },
+        { text: "a", start: 1.6, end: 1.7 },
+        { text: "quote.", start: 1.8, end: 2.4 },
+      ],
+    ]);
+    expect(wordTimings(lines, null)).toBeNull();
+    expect(wordTimings(lines, { ...alignment, character_start_times_seconds: [0, 0.1] })).toBeNull();
+  });
+
+  test("what the renderer is given: a photo for each line, labels only where the style shows them, and a before/after's two photos", () => {
+    const photos = new Map([
+      ["a", { url: "https://files.example/a.jpg", tags: ["cabinets", "before"] }],
+      ["b", { url: "https://files.example/b.jpg", tags: ["cabinets", "after"] }],
+    ]);
+    const { script, design } = composeMotion(motionPlanFor(2), ["a", "b"]);
+    const timed = { ...script, shots: script.shots!.map((x, i) => ({ ...x, start: i * 5, end: i * 5 + 4, words: [{ text: "w", start: i * 5, end: i * 5 + 1 }] })) };
+    const base = { ratio: "9x16" as const, script: timed, photos, audioUrl: "https://files.example/v.mp3", audioSec: 20, brand };
+    const lit = renderProps({ ...base, design });
+    expect(lit).toMatchObject({ ratio: "9x16", style: { kind: "lightUp" }, headline: "Paint them, don't replace", audio: "https://files.example/v.mp3", audioSec: 20, brand });
+    expect(lit.photos.map((x) => x.src.slice(-5))).toEqual(["a.jpg", "a.jpg", "b.jpg", "b.jpg"]);
+    expect(lit.lines.map((l) => [l.start, (l as { label?: string }).label])).toEqual([
+      [0, undefined],
+      [5, "No tear-out"],
+      [10, "Prepped first"],
+      [15, undefined],
+    ]);
+    expect(lit.lines[1].words).toEqual([{ text: "w", start: 5, end: 6 }]);
+    // A before/after: just the two photos, and when the after comes (its word, and the line it starts on).
+    const wipe = renderProps({ ...base, design: { style: "beforeAfter", title: "T", revealOn: "sanded" } });
+    expect(wipe.style).toEqual({ kind: "beforeAfter", crossOn: "sanded", crossAt: 10 });
+    expect(wipe.photos).toEqual([{ src: "https://files.example/a.jpg" }, { src: "https://files.example/b.jpg" }]);
+    expect((wipe.lines[1] as { label?: string }).label).toBeUndefined();
+    const counter = renderProps({ ...base, design: { style: "counter", title: "T", stats: [{ value: 1, label: "painter" }] } });
+    expect(counter.style).toEqual({ kind: "counter", stats: [{ value: 1, label: "painter" }] });
+    // A photo gone from the library stops the ad rather than drawing a hole.
+    expect(() => renderProps({ ...base, design, photos: new Map([["a", photos.get("a")!]]) })).toThrow("A line's photo is missing from the library");
   });
 });
 
@@ -500,12 +357,12 @@ describe("the swipe file's pure parts", () => {
       { company: "Acme", hook: "Cost", offer: "Free quote", transcript: "[00:00] Hi there.\n[00:03] Paint them.", durationSec: 14.4 },
       { company: "Bee", hook: "Selfie", offer: "None", adCopy: "x".repeat(400) },
     ];
-    const text = shotListPrompt(hook, "B", [], true, examples);
+    const text = motionPrompt(hook, "B", [], true, examples);
     expect(text).toContain("for tone and shape only. Never copy their claims, prices, discounts, names, warranties or deadlines.");
     expect(text).toContain("Example 1 (Acme; angle: Cost; offer: Free quote) · spoken (14s): Hi there. Paint them.");
     expect(text).toContain(`Example 2 (Bee; angle: Selfie; offer: None) · copy: ${"x".repeat(300)}`);
     expect(text).not.toContain("x".repeat(301));
-    expect(shotListPrompt(hook, "B", [], true)).not.toContain("tone and shape");
+    expect(motionPrompt(hook, "B", [], true)).not.toContain("tone and shape");
   });
 });
 
@@ -600,14 +457,14 @@ describe("niche research's pure parts", () => {
       "int-plain",
     ]);
     const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
-    const text = shotListPrompt(hook, "B", [], true, [], "Midland", "Open with the owner, then the before/after.");
+    const text = motionPrompt(hook, "B", [], true, [], "Midland", "Open with the owner, then the before/after.");
     expect(text).toContain('Say "Midland homeowners"');
-    expect(shotListPrompt(hook, "B", [], true, [], "Odessa")).toContain('Say "Odessa homeowners"');
+    expect(motionPrompt(hook, "B", [], true, [], "Odessa")).toContain('Say "Odessa homeowners"');
     expect(text).toContain(
-      "What works in this category, from competitor ads that have run for months. Follow the shape and the kind of opening; never their claims:",
+      "What works in this category, from competitor ads that have run for months. Follow the angle and the kind of opening; never their claims:",
     );
-    expect(text.indexOf("Open with the owner")).toBeLessThan(text.indexOf("Write a shot list"));
-    expect(shotListPrompt(hook, "B", [], true)).not.toContain("What works in this category");
+    expect(text.indexOf("Open with the owner")).toBeLessThan(text.indexOf("Choose the one style"));
+    expect(motionPrompt(hook, "B", [], true)).not.toContain("What works in this category");
   });
 
   test("Claude's tag and playbook replies are cleaned: unknown families, tags and openings fall away; junk is junk", () => {
@@ -830,14 +687,14 @@ describe("the library, hooks and settings", () => {
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
     vi.stubEnv("CONSUMER_BRAND", "Permian Home Quotes");
-    vi.stubEnv("SHOTSTACK_API_KEY", "sk");
+    vi.stubEnv("ADS_RENDER_TOKEN", "ghp");
     const before = await staff.as.query(api.ads.settings, {});
     expect(before).toMatchObject({
       brand: "Permian Home Quotes",
       weeklyEnabled: false,
       hooksPerWeek: 2,
       liveTarget: 6,
-      keys: { shotstack: true, anthropic: false, apify: false },
+      keys: { renderer: true, anthropic: false, apify: false },
       researchKeywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
       researchMarkets: ["Midland", "Odessa", "Permian Basin", "West Texas"],
       researchMinDays: 90,
@@ -873,67 +730,19 @@ describe("the library, hooks and settings", () => {
   });
 });
 
-/** A valid shot list for however much footage the request offered, 60 words in all. */
-function shotListFor(prompt: string, primaryText = GOOD.primaryText) {
-  const count = Math.min(4, (prompt.match(/^Footage \d+:/gm) ?? []).length);
-  const words = GOOD.voice.split(/\s+/).slice(0, 52).concat(["Get", "a", "quote", "today", "from", "a", "local", "painter."]);
-  const per = Math.ceil(words.length / count);
-  return {
-    fits: true,
-    shots: Array.from({ length: count }, (_, i) => ({
-      footage: i + 1,
-      voice: words.slice(i * per, (i + 1) * per).join(" "),
-      onScreen: `Shot ${i + 1}`,
-    })),
-    headline: GOOD.headline,
-    primaryText,
-  };
-}
-
-/** Settings for the tests that are about the videos: image ads off. */
-const VIDEO_ONLY = { kinds: { video: true, image: false, graphic: false } };
-
-/** A valid image ad: the first photo offered, with words that are true of any job photo. */
-function imagePlanFor(headline = "Paint them, don't replace them") {
-  return {
-    fits: true,
-    photo: 1,
-    imageHeadline: headline,
-    support: "One vetted Midland painter. The quote is free.",
-    headline: GOOD.headline,
-    primaryText: GOOD.primaryText,
-  };
-}
-
-/** A valid checklist ad over the first two photos offered: five spoken lines, 50 words in all. */
-function graphicPlanFor() {
-  return {
-    fits: true,
-    title: "Before you hire a painter",
-    intro: "Thinking about painting your cabinets instead of replacing them this year?",
-    points: [
-      { photo: 1, text: "Vetted and insured", voice: "We match you with one local painter who has been checked." },
-      { photo: 1, text: "Prep done right", voice: "The surfaces are cleaned, sanded and primed before any colour goes on." },
-      { photo: 2, text: "A free, written quote", voice: "You see the whole job in writing before you decide anything." },
-    ],
-    close: "Get a quote from Permian Home Quotes today.",
-    headline: GOOD.headline,
-    primaryText: GOOD.primaryText,
-  };
-}
-
 type StubOpts = {
-  /** Every image ad prints a price. */
-  imagesFail?: boolean;
-  /** Claude answers this scope's hook in words, with no shot list; "cut off" stops mid-answer instead. */
+  /** Claude answers this scope's hook in words, with no plan; "cut off" stops mid-answer instead. */
   notJson?: { scope: string; cutOff?: boolean };
-  /** Every shot list carries a price. */
+  /** Every ad carries a price. */
   scriptsFail?: boolean;
-  /** The first shot list for each hook breaks a rule; the retry is fine. */
+  /** The first answer for each hook breaks a rule; the retry is fine. */
   badFirst?: boolean;
   /** Claude passes on hooks whose prompt names this scope. */
   passOnScope?: string;
-  renderFails?: boolean;
+  /** What GitHub answers when asked to start the renderer (it says 204 when it will). */
+  github?: number;
+  /** Claude chooses this style instead of the light-up. */
+  style?: "beforeAfter";
 };
 
 /** Claude's read of a competitor ad, from what the prompt names. */
@@ -1035,35 +844,34 @@ const APIFY_HOUSE = [
 ];
 
 /** What each outside service answers during a weekly run. */
-function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOpts = {}) {
+function stubServices(calls: Array<{ url: string; body?: string; auth?: string | null }>, opts: StubOpts = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       const body = typeof init?.body === "string" ? init.body : init?.body instanceof URLSearchParams ? init.body.toString() : undefined;
-      calls.push({ url, body });
+      calls.push({ url, body, auth: new Headers(init?.headers).get("authorization") });
       if (url.includes("api.anthropic.com")) {
         const content = JSON.parse(body!).messages[0].content as Array<{ type: string; text?: string }>;
         const prompt = content.find((c) => c.type === "text")?.text ?? "";
-        const retry = content.some((c) => c.text?.startsWith("Your last shot list had these problems"));
+        const retry = content.some((c) => c.text?.startsWith("Your last answer had these problems"));
+        const offered = content.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length;
         let reply: unknown;
         if (prompt.includes(TAG_MARK)) reply = tagReplyFor(prompt);
         else if (prompt.includes(PLAYBOOK_MARK)) reply = PLAYBOOK_REPLY;
-        else if (prompt.includes("animated checklist ad")) reply = graphicPlanFor();
-        else if (prompt.includes("image ad for")) reply = imagePlanFor(opts.imagesFail ? "Only $999 this week" : undefined);
-        else if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`))
-          reply = { fits: false, reason: `no ${opts.passOnScope} in this footage` };
+        else if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`)) reply = { fits: false, reason: `no ${opts.passOnScope} in these photos` };
         else if (opts.notJson && prompt.includes(`Scope: ${opts.notJson.scope}.`))
           return new Response(
             JSON.stringify(
               opts.notJson.cutOff
-                ? { content: [{ type: "text", text: '{"fits":true,"shots":[{"footage":1,"voice":"These cab' }], stop_reason: "max_tokens" }
-                : { content: [{ type: "text", text: "Looking at the footage,\nI'd open on the kitchen." }], stop_reason: "end_turn" },
+                ? { content: [{ type: "text", text: '{"fits":true,"lines":[{"photo":1,"voice":"These cab' }], stop_reason: "max_tokens" }
+                : { content: [{ type: "text", text: "Looking at the photos,\nI'd open on the kitchen." }], stop_reason: "end_turn" },
             ),
           );
-        else if (opts.scriptsFail) reply = shotListFor(prompt, "Only $999 this week");
-        else if (opts.badFirst && !retry) reply = { ...shotListFor(prompt), shots: [] };
-        else reply = shotListFor(prompt);
+        else if (opts.scriptsFail) reply = motionPlanFor(offered, { primaryText: "Only $999 this week" });
+        else if (opts.badFirst && !retry) reply = motionPlanFor(offered, { lines: [] });
+        else if (opts.style === "beforeAfter") reply = motionPlanFor(offered, { style: "beforeAfter", revealOn: "finish" });
+        else reply = motionPlanFor(offered);
         return new Response(JSON.stringify({ content: [{ type: "text", text: "Here it is: " + JSON.stringify(reply) }] }));
       }
       if (url.includes("api.apify.com")) {
@@ -1095,19 +903,9 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
           }),
         );
       }
-      if (url.includes("shotstack.io") && url.endsWith("/render")) return new Response(JSON.stringify({ response: { id: `r-${calls.length}` } }));
-      if (url.includes("shotstack.io/edit/v1/render/"))
-        return new Response(
-          JSON.stringify({
-            response: opts.renderFails ? { status: "failed", error: "bad asset" } : { status: "done", url: "https://cdn.shotstack.io/out.mp4" },
-          }),
-        );
-      if (url.includes("cdn.shotstack.io")) return new Response(new Blob(["mp4"], { type: "video/mp4" }));
-      // A stored file read back by its link (an image ad's JPEG on its way to Meta).
-      if (url.includes("/api/storage/")) return new Response(new Blob(["jpg"], { type: "image/jpeg" }));
+      if (url.includes("api.github.com")) return new Response(opts.github && opts.github >= 400 ? "Resource not accessible" : null, { status: opts.github ?? 204 });
       if (url.includes("graph.facebook.com")) {
         const path = new URL(url).pathname;
-        if (path.endsWith("/adimages")) return new Response(JSON.stringify({ images: { "ad.jpg": { hash: "h1", url: "https://scontent.example/ad.jpg" } } }));
         return new Response(
           JSON.stringify({
             id: path.endsWith("/advideos") ? "vid1" : path.endsWith("/adcreatives") ? "cr1" : path.endsWith("/ads") ? "ad1" : "ok",
@@ -1125,9 +923,9 @@ async function library(t: T, staff: Awaited<ReturnType<typeof signUp>>) {
   await staff.as.mutation(api.ads.seedSwipes, {});
   const rodgers = (await staff.as.query(api.ads.listSwipes, {})).find((x) => x.company === "Rodgers Painting")!;
   await staff.as.mutation(api.ads.starSwipe, { id: rodgers.id, starred: true });
-  await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "before.jpg", tags: ["cabinets", "before"], pairKey: "k" });
-  await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "after.jpg", tags: ["cabinets", "after"], pairKey: "k" });
-  await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "video/mp4", "mp4"), fileName: "roller.mp4", tags: ["process"] });
+  await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "before"), fileName: "before.jpg", tags: ["cabinets", "before"], pairKey: "k" });
+  await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "after"), fileName: "after.jpg", tags: ["cabinets", "after"], pairKey: "k" });
+  await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "prep"), fileName: "prep.jpg", tags: ["process"] });
 }
 
 /** Runs the scheduled functions strictly one after another: finish what's running, then fire the next timer. */
@@ -1271,112 +1069,163 @@ describe("a photo brought to life", () => {
 });
 
 describe("the weekly run", () => {
-  test("drafts two hooks in two sizes, voices, renders and creates each PAUSED in Meta; the batch is ready and staff hear", async () => {
+  type Call = { url: string; body?: string; auth?: string | null };
+
+  /** A fresh backend with the library in, Claude and the voice set; one ad idea a week unless told otherwise. */
+  async function ready(opts: { hooks?: number; meta?: boolean; token?: boolean } = {}) {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     await library(t, owner);
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
     vi.stubEnv("ELEVENLABS_API_KEY", "e");
-    vi.stubEnv("SHOTSTACK_API_KEY", "s");
-    vi.stubEnv("META_ACCESS_TOKEN", "m");
     vi.stubEnv("CONSUMER_BRAND", "Permian Home Quotes");
+    if (opts.token) vi.stubEnv("ADS_RENDER_TOKEN", "ghs");
+    if (opts.meta) vi.stubEnv("META_ACCESS_TOKEN", "m");
     await owner.as.mutation(api.ads.saveSettings, {
-      adAccountId: "123",
-      pageId: "77",
-      leadFormId: "f1",
-      adsetId: "900",
+      ...(opts.meta ? { adAccountId: "123", pageId: "77", leadFormId: "f1", adsetId: "900" } : {}),
       voiceId: "ven",
-      weeklyEnabled: true,
-      hooksPerWeek: 2,
+      weeklyEnabled: false,
+      hooksPerWeek: opts.hooks ?? 1,
       liveTarget: 6,
-      ...VIDEO_ONLY,
     });
-    const calls: Array<{ url: string; body?: string }> = [];
-    stubServices(calls);
-    vi.useFakeTimers();
-    await owner.as.mutation(api.ads.draftNow, {});
-    // One scheduled function at a time: the voice and render steps each save a file, and convex-test's
-    // storage can't take two actions saving at once ("Write outside of transaction"), which the real
-    // backend can. finishAllScheduledFunctions keeps advancing the clock while a function is still
-    // running, so the next one could start mid-save; here each runs to the end before the clock moves.
-    await oneAtATime(t);
-    vi.useRealTimers();
+    const calls: Call[] = [];
+    // One scheduled function at a time: the voice step saves a file, and convex-test's storage can't take
+    // two actions saving at once ("Write outside of transaction"), which the real backend can.
+    // finishAllScheduledFunctions keeps advancing the clock while a function is still running, so the
+    // next one could start mid-save; here each runs to the end before the clock moves.
+    const settle = async <R>(step: () => Promise<R>): Promise<R> => {
+      vi.useFakeTimers();
+      const out = await step();
+      await oneAtATime(t);
+      vi.useRealTimers();
+      return out;
+    };
+    const latest = async () => (await owner.as.query(api.ads.batches, {}))[0];
+    const draft = async () => {
+      await settle(() => owner.as.mutation(api.ads.draftNow, {}));
+      return await latest();
+    };
+    const claim = () => settle(() => t.mutation(internal.ads.claimRenders, {}));
+    const handIn = async (job: { id: Id<"adCreatives">; name: string }) => {
+      const storageId = await store(t, "video/mp4", `mp4 ${job.name}`);
+      const { kept } = await settle(() => t.mutation(internal.ads.renderDone, { id: job.id, storageId }));
+      return { kept, storageId };
+    };
+    /** The renderer's part: take what's waiting and hand each one a file, or the reason it couldn't be drawn. */
+    const draw = async (fail?: string) => {
+      const jobs = await claim();
+      for (const job of jobs) {
+        if (fail) await settle(() => t.mutation(internal.ads.renderFailed, { id: job.id, error: fail }));
+        else await handIn(job);
+      }
+      return jobs;
+    };
+    return { t, owner, calls, settle, latest, draft, claim, handIn, draw };
+  }
+  const states = (batch: { creatives: Array<{ ratio: string; status: string; error?: string }> }) =>
+    batch.creatives.map((c) => `${c.ratio} ${c.status}${c.error ? `: ${c.error}` : ""}`);
+  const to = (calls: Call[], host: string) => calls.filter((c) => c.url.includes(host));
 
-    const [batch] = await owner.as.query(api.ads.batches, {});
-    // Named so a failed creative says why, not just that it failed.
-    expect(batch.creatives.map((c) => `${c.status}${c.error ? `: ${c.error}` : ""}`)).toEqual(["paused", "paused", "paused", "paused"]);
-    expect(batch).toMatchObject({ status: "ready", summary: "4 paused in Meta" });
-    expect(batch.creatives.length).toBe(4);
+  test("two ideas are written and voiced in two sizes and wait to be drawn; the renderer takes them once, hands in the files, and each is created PAUSED in Meta", async () => {
+    const { t, owner, calls, settle, latest, draft, claim, handIn } = await ready({ hooks: 2, meta: true, token: true });
+    stubServices(calls);
+    let batch = await draft();
+
+    // Written and voiced: that is as far as the app itself goes.
+    expect(states(batch)).toEqual(["9x16 voiced", "4x5 voiced", "9x16 voiced", "4x5 voiced"]);
+    expect(batch.status).toBe("drafting");
     expect(new Set(batch.creatives.map((c) => c.hook!.family)).size).toBe(2);
-    expect(batch.creatives.every((c) => c.status === "paused" && c.videoUrl && c.meta?.adId === "ad1" && c.meta?.adsetId === "900")).toBe(true);
-    const tall = batch.creatives.find((c) => c.ratio === "9x16")!;
-    expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}$/);
-    // The cabinets writer saw the swipe file: the starred Rodgers ad first, as tone only.
-    const cabinetsPrompt = calls
-      .filter((c) => c.url.includes("api.anthropic.com"))
-      .map((c) => (JSON.parse(c.body!).messages[0].content as Array<{ text?: string }>)[0].text ?? "")
-      .find((p) => p.includes("Scope: cabinets."))!;
-    expect(cabinetsPrompt).toContain("for tone and shape only");
-    expect(cabinetsPrompt).toMatch(/Example 1 \(Rodgers Painting; [^)]*\) · spoken \(\d+s\)/);
-    expect(tall.script.headline).toBe(GOOD.headline);
-    // The hooks were used once each; the pair went to the cabinets hook, the roller clip to the other.
-    const hooks = await owner.as.query(api.ads.listHooks, {});
-    expect(hooks.filter((h) => h.uses === 1).length).toBe(2);
     const cabinets = batch.creatives.find((c) => c.hook!.scope === "cabinets" && c.ratio === "9x16")!;
     const other = batch.creatives.find((c) => c.hook!.scope !== "cabinets" && c.ratio === "9x16")!;
-    // Each creative carries its shot list, timed from ElevenLabs' character times.
-    expect(cabinets.shots.map((x) => [x.fileName, x.onScreen])).toEqual([
-      ["before.jpg", "Shot 1"],
-      ["after.jpg", "Shot 2"],
-    ]);
-    expect(cabinets.shots[0].start).toBe(0);
-    expect(cabinets.shots[1].start).toBeGreaterThan(cabinets.shots[0].end! - 0.1);
-    expect(other.shots.map((x) => x.fileName)).toEqual(["roller.mp4"]);
-    // Every file was cut into one ad, so next week fresher footage goes first.
-    expect((await owner.as.query(api.ads.listAssets, {})).map((a) => a.uses)).toEqual([1, 1, 1]);
-    // Claude once per hook, ElevenLabs once per hook, Shotstack four renders, Meta three calls per creative.
-    expect(calls.filter((c) => c.url.includes("anthropic")).length).toBe(2);
-    expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(2);
-    expect(calls.filter((c) => c.url.endsWith("/render")).length).toBe(4);
-    const ads = calls.filter((c) => c.url.endsWith("/ads"));
-    expect(ads.length).toBe(4);
-    expect(new URLSearchParams(ads[0].body).get("status")).toBe("PAUSED");
-    const creative = JSON.parse(new URLSearchParams(calls.find((c) => c.url.endsWith("/adcreatives"))!.body).get("object_story_spec")!);
-    expect(creative.video_data.call_to_action).toEqual({ type: "GET_QUOTE", value: { lead_gen_form_id: "f1" } });
-    expect(calls.find((c) => c.url.includes("elevenlabs"))!.url).toContain("/text-to-speech/ven/with-timestamps");
-    // Claude saw the footage: the cabinets request carries both photos as images, each after its "Footage N" label.
-    const asks = calls.filter((c) => c.url.includes("anthropic")).map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
+    expect(cabinets.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}$/);
+    expect(cabinets.style).toEqual({ id: "lightUp", label: "Light-up" });
+    expect(cabinets.script.headline).toBe(GOOD.headline);
+    // Claude once per idea, the voice once per idea (shared by the two sizes), and GitHub asked to draw after each voice.
+    expect(to(calls, "anthropic").length).toBe(2);
+    expect(to(calls, "elevenlabs").length).toBe(2);
+    expect(to(calls, "elevenlabs")[0].url).toContain("/text-to-speech/ven/with-timestamps");
+    const starts = to(calls, "api.github.com");
+    expect(starts.length).toBe(2);
+    expect(starts[0]).toMatchObject({
+      url: "https://api.github.com/repos/Cymoe/Estimate-Wave-App/actions/workflows/ads-render.yml/dispatches",
+      auth: "Bearer ghs",
+      body: JSON.stringify({ ref: "fieldquote-convex" }),
+    });
+    // Claude saw the photos: the cabinets ask carries the pair, each after its "Photo N" label, and the swipe file as tone only.
+    const asks = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
     const cabinetsAsk = asks.find((a) => a[0].text.includes("Scope: cabinets."))!;
     expect(cabinetsAsk[0].text).toContain("Permian Home Quotes");
     expect(cabinetsAsk[0].text).toContain("never as a homeowner or customer");
-    expect(cabinetsAsk.slice(1).map((b) => (b.type === "text" ? b.text : b.source.type))).toEqual(["Footage 1:", "url", "Footage 2:", "url"]);
-    // The other hook only had the roller clip, which isn't in its scope and has no still: Claude is told both.
+    expect(cabinetsAsk[0].text).toContain("for tone and shape only");
+    expect(cabinetsAsk[0].text).toMatch(/Example 1 \(Rodgers Painting; [^)]*\) · spoken \(\d+s\)/);
+    expect(cabinetsAsk.slice(1).map((b) => (b.type === "text" ? b.text : b.source.type))).toEqual(["Photo 1:", "url", "Photo 2:", "url"]);
+    // The other idea had nothing in its scope, so it fell back to the prep photo, and Claude is told.
     const otherAsk = asks.find((a) => a !== cabinetsAsk)!;
-    expect(otherAsk[0].text).toContain("None of this footage is tagged");
-    expect(otherAsk[0].text).toContain("(no image available; rely on the tags)");
-    expect(otherAsk.length).toBe(1);
-    // The cabinets render: the after wipes over the before, each on-screen line on its own shot, cut where its line starts.
-    const renders = calls.filter((c) => c.url.endsWith("/render")).map((c) => JSON.parse(c.body!));
-    const cabinetsRender = renders.find((r) => r.timeline.tracks[3].clips.length === 2)!;
-    const [first, second] = cabinetsRender.timeline.tracks[3].clips;
-    expect(first.start).toBe(0);
-    expect(second).toMatchObject({ start: cabinets.shots[1].start, transition: { in: "wipeLeft" } });
-    expect(cabinetsRender.timeline.tracks[1].clips.map((c: any) => [c.asset.html, c.start])).toEqual([
-      ["<p>Shot 1</p>", 0],
-      ["<p>Shot 2</p>", cabinets.shots[1].start],
+    expect(otherAsk[0].text).toContain("None of these photos is tagged");
+    expect(otherAsk.slice(1).map((b) => (b.type === "text" ? b.text : b.source.type))).toEqual(["Photo 1:", "url"]);
+    // Each line is a shot on its photo, timed from the voice's own character times.
+    expect(cabinets.shots.map((x) => [x.fileName, x.onScreen])).toEqual([
+      ["before.jpg", ""],
+      ["before.jpg", "No tear-out"],
+      ["after.jpg", "Prepped first"],
+      ["after.jpg", ""],
     ]);
+    expect(cabinets.shots[0].start).toBe(0);
+    expect(cabinets.shots[1].start).toBeGreaterThan(cabinets.shots[0].end! - 0.1);
+    expect(other.shots.map((x) => x.fileName)).toEqual(["prep.jpg", "prep.jpg", "prep.jpg", "prep.jpg"]);
+    // Each idea and each photo was used once, so next week fresher ones go first.
+    expect((await owner.as.query(api.ads.listHooks, {})).filter((h) => h.uses === 1).length).toBe(2);
+    expect((await owner.as.query(api.ads.listAssets, {})).map((a) => a.uses)).toEqual([1, 1, 1]);
 
-    // From outside the app: each ad with a link to its file and to what it was cut from, newest first.
+    // The renderer asks for work: all four, each with everything it is drawn from.
+    const jobs = await claim();
+    expect(jobs.map((j) => j.name).sort()).toEqual(batch.creatives.map((c) => c.name).sort());
+    const job = jobs.find((j) => j.name === cabinets.name)!;
+    expect(job.props).toMatchObject({
+      ratio: "9x16",
+      style: { kind: "lightUp" },
+      headline: "Paint them, don't replace",
+      brand: { name: "Permian Home Quotes", primaryColor: "#336699" },
+      audio: expect.stringContaining("/api/storage/"),
+    });
+    expect(job.props.audioSec).toBeGreaterThan(8);
+    expect(job.props.lines.map((l: { label?: string }) => l.label)).toEqual([undefined, "No tear-out", "Prepped first", undefined]);
+    // The captions follow the voice: every word of a line has its own time.
+    const firstLine = job.props.lines[0] as { voice: string; words?: Array<{ text: string; start: number; end: number }> };
+    expect(firstLine.words!.map((w) => w.text).join(" ")).toBe(firstLine.voice);
+    expect(firstLine.words![0]).toMatchObject({ text: "Thinking", start: 0 });
+    expect(firstLine.words![0].end).toBeCloseTo(0.48, 2);
+    // A photo for each line: the before for two lines, then the after.
+    const srcs = job.props.photos.map((p: { src: string }) => p.src);
+    expect([srcs[0] === srcs[1], srcs[2] === srcs[3], srcs[0] === srcs[2]]).toEqual([true, true, false]);
+    expect(srcs[0]).toContain("/api/storage/");
+    // They are being drawn now, and a second renderer asking finds nothing.
+    expect(states(await latest())).toEqual(["9x16 rendering", "4x5 rendering", "9x16 rendering", "4x5 rendering"]);
+    expect(await claim()).toEqual([]);
+
+    // The files come back one by one; the batch is ready only when the last is in.
+    for (const j of jobs.slice(0, 3)) expect((await handIn(j)).kept).toBe(true);
+    expect((await latest()).status).toBe("drafting");
+    await handIn(jobs[3]);
+    batch = await latest();
+    expect(states(batch)).toEqual(["9x16 paused", "4x5 paused", "9x16 paused", "4x5 paused"]);
+    expect(batch).toMatchObject({ status: "ready", summary: "4 paused in Meta" });
+    expect(batch.creatives.every((c) => c.videoUrl && c.meta?.adId === "ad1" && c.meta?.adsetId === "900")).toBe(true);
+    const ads = calls.filter((c) => c.url.endsWith("/ads"));
+    expect(ads.length).toBe(4);
+    expect(new URLSearchParams(ads[0].body).get("status")).toBe("PAUSED");
+    const story = JSON.parse(new URLSearchParams(calls.find((c) => c.url.endsWith("/adcreatives"))!.body).get("object_story_spec")!);
+    expect(story.video_data.call_to_action).toEqual({ type: "GET_QUOTE", value: { lead_gen_form_id: "f1" } });
+
+    // From outside the app: each ad with a link to its file and to what it was drawn from, newest first.
     const recent = await t.query(internal.ads.recentCreatives, { limit: 2 });
     expect(recent).toHaveLength(2);
-    expect(recent[0]).toMatchObject({ ratio: expect.stringMatching(/^(9x16|4x5)$/), file: expect.stringContaining("/api/storage/") });
-    expect(recent[0].footage.length).toBe(recent[0].shots);
+    expect(recent[0]).toMatchObject({ style: "lightUp", ratio: expect.stringMatching(/^(9x16|4x5)$/), file: expect.stringContaining("/api/storage/") });
+    expect(recent[0].shots).toBe(4);
 
     // Approve one: live here, ACTIVE in Meta.
-    vi.useFakeTimers();
-    await owner.as.mutation(api.ads.activate, { id: tall.id });
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
-    vi.useRealTimers();
+    const tall = batch.creatives.find((c) => c.id === cabinets.id)!;
+    await settle(() => owner.as.mutation(api.ads.activate, { id: tall.id }));
     expect(new URLSearchParams(calls[calls.length - 1].body).get("status")).toBe("ACTIVE");
     expect(calls[calls.length - 1].url).toContain("/ad1");
     // Live lists everything in Meta: the one approved and the three still paused.
@@ -1389,174 +1238,105 @@ describe("the weekly run", () => {
     expect(plan.hooks.some((h) => h.family === tall.hook!.family)).toBe(false);
   });
 
-  /** One hook a week, no Meta account, on a fresh backend. Videos only unless told otherwise. */
-  async function noMeta(kinds = VIDEO_ONLY.kinds) {
-    const t = setup();
-    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
-    await library(t, owner);
-    vi.stubEnv("ANTHROPIC_API_KEY", "a");
-    vi.stubEnv("ELEVENLABS_API_KEY", "e");
-    vi.stubEnv("SHOTSTACK_API_KEY", "s");
-    await owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", weeklyEnabled: false, hooksPerWeek: 1, liveTarget: 6, kinds });
-    const calls: Array<{ url: string; body?: string }> = [];
-    const draft = async () => {
-      vi.useFakeTimers();
-      await owner.as.mutation(api.ads.draftNow, {});
-      // One at a time, as above: two renders saving their files at once trip convex-test's storage.
-      await oneAtATime(t);
-      vi.useRealTimers();
-      return (await owner.as.query(api.ads.batches, {}))[0];
-    };
-    return { t, owner, calls, draft };
-  }
-
-  test("an image ad: Claude picks one photo and writes the words, it renders as a JPEG in two sizes with no voice, and waits here without Meta", async () => {
-    const { t, owner, calls, draft } = await noMeta({ video: false, image: true, graphic: false });
+  test("with no token GitHub is never asked and the ads wait; without a Meta account the finished videos wait here, watchable, and can't be approved", async () => {
+    const { t, owner, calls, draft, draw, latest } = await ready();
     stubServices(calls);
+    expect(states(await draft())).toEqual(["9x16 voiced", "4x5 voiced"]);
+    expect(await t.action(internal.ads.startRenders, {})).toEqual({ started: false, why: "no ADS_RENDER_TOKEN" });
+    expect(to(calls, "api.github.com")).toEqual([]);
+    // Someone starts the renderer by hand.
+    expect((await draw()).length).toBe(2);
+    const batch = await latest();
+    expect(batch).toMatchObject({ status: "ready", summary: "0 paused in Meta · 2 rendered but not in Meta" });
+    expect(batch.creatives.every((c) => c.status === "rendered" && c.videoUrl && c.error?.includes("Meta isn't set up"))).toBe(true);
+    await expect(owner.as.mutation(api.ads.activate, { id: batch.creatives[0].id })).rejects.toThrow("isn't in Meta yet");
+    expect(to(calls, "graph.facebook.com")).toEqual([]);
+  });
+
+  test("GitHub refusing to start the renderer leaves the ads waiting and says why", async () => {
+    const { t, calls, draft } = await ready({ token: true });
+    stubServices(calls, { github: 403 });
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(states(await draft())).toEqual(["9x16 voiced", "4x5 voiced"]);
+    expect(await t.action(internal.ads.startRenders, {})).toEqual({ started: false, why: "GitHub: 403 Resource not accessible" });
+    quiet.mockRestore();
+  });
+
+  test("a before/after is drawn from the pair: the before, its after, and when the voice turns to it", async () => {
+    const { calls, draft, claim } = await ready();
+    stubServices(calls, { style: "beforeAfter" });
     const batch = await draft();
-    expect(batch.creatives.map((c) => `${c.kind} ${c.ratio} ${c.status}`)).toEqual(["image 9x16 rendered", "image 4x5 rendered"]);
-    expect(batch.status).toBe("ready");
+    expect(batch.creatives[0].style).toEqual({ id: "beforeAfter", label: "Before / after" });
+    const [job] = await claim();
+    expect(job.props.style).toMatchObject({ kind: "beforeAfter", crossOn: "finish" });
+    // The after comes in where the third line starts.
+    expect((job.props.style as { crossAt: number }).crossAt).toBe(batch.creatives[0].shots[2].start);
+    expect(job.props.photos.length).toBe(2);
+    expect(job.props.photos[0].src).not.toBe(job.props.photos[1].src);
+    // No ticked labels on a before/after.
+    expect(job.props.lines.every((l: { label?: string }) => l.label === undefined)).toBe(true);
+  });
+
+  test("a video that can't be drawn fails that ad with the reason and the batch still finishes; drawn again, it keeps its words and voice", async () => {
+    const { t, calls, settle, draft, draw, latest } = await ready();
+    stubServices(calls);
+    const drafted = await draft();
+    await draw("the photo wouldn't load");
+    let batch = await latest();
+    expect(batch).toMatchObject({ status: "ready", summary: "0 paused in Meta · 2 failed" });
+    expect(batch.creatives.map((c) => c.error)).toEqual(["Couldn't draw the video: the photo wouldn't load", "Couldn't draw the video: the photo wouldn't load"]);
+
+    // After a fix to how ads are drawn, the same ad goes back in the queue: nothing is rewritten or re-read.
+    const asked = { claude: to(calls, "anthropic").length, voice: to(calls, "elevenlabs").length };
     const [tall] = batch.creatives;
-    expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}_img$/);
-    expect(tall.imageUrl).toContain("/api/storage/");
-    expect(tall.videoUrl).toBeUndefined();
-    // The printed words are the on-screen lines; the one photo is the only shot.
-    expect(tall.script).toMatchObject({ voice: "", onScreen: ["Paint them, don't replace them", "One vetted Midland painter. The quote is free."], headline: GOOD.headline });
-    expect(tall.shots.map((x) => x.fileName)).toEqual(["before.jpg"]);
-    // Claude was shown the photos only (the roller clip is a video), each after its "Photo N" label.
-    const asks = calls
-      .filter((c) => c.url.includes("anthropic"))
-      .map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string; source?: { type: string } }>);
-    expect(asks.length).toBe(1);
-    expect(asks[0][0].text).toContain("image ad for");
-    expect(asks[0].slice(1).map((b) => (b.type === "text" ? b.text : b.source?.type))).toEqual(["Photo 1:", "url", "Photo 2:", "url"]);
-    // No voice was read, and each size was rendered as a still.
-    expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(0);
-    const renders = calls.filter((c) => c.url.endsWith("/render")).map((c) => JSON.parse(c.body!));
-    expect(renders.map((r) => [r.output.format, r.output.size.height])).toEqual([
-      ["jpg", 1920],
-      ["jpg", 1350],
-    ]);
-    expect(JSON.stringify(renders[0])).not.toContain('"audio"');
-    // The file is kept as the ad's image, not as a video.
-    const row = await t.run(async (ctx) => (await ctx.db.query("adCreatives").take(1))[0]);
-    expect(row.imageStorageId).toBeDefined();
-    expect(row.videoStorageId).toBeUndefined();
-    // From outside the app, the ad's file is its image.
-    expect((await t.query(internal.ads.recentCreatives, { limit: 1 }))[0]).toMatchObject({ kind: "image", file: expect.stringContaining("/api/storage/") });
-    // After a layout fix, the same ad is rendered again from the words it has: nothing is rewritten.
-    const before = { asks: calls.filter((c) => c.url.includes("anthropic")).length, renders: calls.filter((c) => c.url.endsWith("/render")).length };
-    vi.useFakeTimers();
-    expect(await t.mutation(internal.ads.rerender, { names: [tall.name, "WL_nobody"] })).toEqual({ sent: [tall.name] });
-    await oneAtATime(t);
-    vi.useRealTimers();
-    const again = (await owner.as.query(api.ads.batches, {}))[0].creatives[0];
-    expect(again).toMatchObject({ status: "rendered", script: tall.script });
-    expect(again.imageUrl).toContain("/api/storage/");
-    expect(calls.filter((c) => c.url.includes("anthropic")).length).toBe(before.asks);
-    expect(calls.filter((c) => c.url.endsWith("/render")).length).toBe(before.renders + 1);
-    // The hook and the photo were used once.
-    expect((await owner.as.query(api.ads.listHooks, {})).filter((h) => h.uses === 1).length).toBe(1);
-    expect((await owner.as.query(api.ads.listAssets, {})).find((a) => a.fileName === "before.jpg")!.uses).toBe(1);
+    expect(await settle(() => t.mutation(internal.ads.rerender, { names: [tall.name, "WL_nobody"] }))).toEqual({ sent: [tall.name] });
+    expect(states(await latest())).toEqual(["9x16 voiced", "4x5 failed: Couldn't draw the video: the photo wouldn't load"]);
+    expect((await draw()).map((j) => j.name)).toEqual([tall.name]);
+    batch = await latest();
+    expect(batch.creatives[0]).toMatchObject({ status: "rendered", script: drafted.creatives[0].script });
+    expect(batch.creatives[0].videoUrl).toContain("/api/storage/");
+    expect({ claude: to(calls, "anthropic").length, voice: to(calls, "elevenlabs").length }).toEqual(asked);
   });
 
-  test("a checklist ad: voiced once, each point appears when its line starts, and the ask replaces the points at the closing line", async () => {
-    const { calls, draft } = await noMeta({ video: false, image: false, graphic: true });
+  test("an ad taken but never finished is offered again after twenty minutes; a file for an ad rejected meanwhile is thrown away; an ad from before can't be drawn", async () => {
+    const { t, owner, calls, draft, claim, handIn, latest } = await ready();
     stubServices(calls);
     const batch = await draft();
-    expect(batch.creatives.map((c) => `${c.kind} ${c.ratio} ${c.status}${c.error && !c.error.includes("Meta") ? `: ${c.error}` : ""}`)).toEqual([
-      "graphic 9x16 rendered",
-      "graphic 4x5 rendered",
-    ]);
-    const [tall] = batch.creatives;
-    expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}_gfx$/);
-    expect(tall.videoUrl).toContain("/api/storage/");
-    // Five spoken lines: the title's, the three points', the ask's. The two photos in the order they come up.
-    expect(tall.shots.map((x) => x.onScreen)).toEqual(["Before you hire a painter", "Vetted and insured", "Prep done right", "A free, written quote", "Get a quote"]);
-    expect(tall.shots.map((x) => x.fileName)).toEqual(["before.jpg", "before.jpg", "before.jpg", "after.jpg", "after.jpg"]);
-    expect(tall.script.onScreen).toEqual(["Before you hire a painter", "Vetted and insured", "Prep done right", "A free, written quote"]);
-    // One read for the two sizes, of the five lines joined.
-    const reads = calls.filter((c) => c.url.includes("elevenlabs"));
-    expect(reads.length).toBe(1);
-    expect(JSON.parse(reads[0].body!).text).toMatch(/^Thinking about painting .* Get a quote from Permian Home Quotes today\.$/);
-    // The render: each point's words start with its line and leave when the closing line starts; the ask starts there.
-    const render = JSON.parse(calls.find((c) => c.url.endsWith("/render"))!.body!);
-    const clips = (render.timeline.tracks as Array<{ clips: LooseTimed[] }>).map((t) => t.clips[0]);
-    const closeAt = tall.shots[4].start!;
-    const words = (text: string) => clips.find((c) => c.asset.html === `<p>${text}</p>`)!;
-    tall.shots.slice(1, 4).forEach((shot) => {
-      const clip = words(shot.onScreen);
-      expect(clip.start).toBe(shot.start);
-      expect(clip.start + clip.length).toBeCloseTo(closeAt, 1);
+    // An ad from before ads were drawn this way, sent back by mistake.
+    const oldId = await t.run(async (ctx) => {
+      const row = (await ctx.db.query("adCreatives").take(1))[0];
+      return await ctx.db.insert("adCreatives", {
+        batchId: row.batchId,
+        hookId: row.hookId,
+        ratio: "9x16",
+        name: "WL_old_916_20261001",
+        script: GOOD,
+        assetIds: [],
+        status: "voiced",
+        createdAt: new Date().toISOString(),
+      });
     });
-    expect(tall.shots[1].start!).toBeLessThan(tall.shots[2].start!);
-    expect(words("Get a quote").start).toBe(closeAt);
-    expect(words("Before you hire a painter").start).toBe(0);
-    // Three ticks, two strokes each, each with its point.
-    const strokes = clips.filter((c) => c.asset.type === "shape" && (c.asset as { shape?: string }).shape === "line");
-    expect(strokes.map((c) => c.start)).toEqual(tall.shots.slice(1, 4).flatMap((x) => [x.start, x.start]));
-    // Nothing slides or zooms, and there is no music.
-    expect(JSON.stringify(render)).not.toMatch(/"effect"|slide|zoom|soundtrack/);
-    expect(render.output.format).toBe("mp4");
-    expect(clips.filter((c) => c.asset.type === "audio").length).toBe(1);
-  });
-
-  test("an image ad that prints a price is passed over with the reason", async () => {
-    const { calls, draft } = await noMeta({ video: false, image: true, graphic: false });
-    stubServices(calls, { imagesFail: true });
-    const batch = await draft();
-    expect(batch.status).toBe("failed");
-    expect(batch.error).toContain("(image ad): the image ad still broke the rules: mentions a price or discount");
-    expect(calls.filter((c) => c.url.endsWith("/render")).length).toBe(0);
-  });
-
-  test("with both kinds on, a hook is made as a video and as an image, and counts as used once", async () => {
-    const { owner, calls, draft } = await noMeta({ video: true, image: true, graphic: false });
-    stubServices(calls);
-    const batch = await draft();
-    expect(batch.creatives.map((c) => c.kind)).toEqual(["video", "video", "image", "image"]);
-    expect(batch.creatives.every((c) => c.status === "rendered")).toBe(true);
-    expect(new Set(batch.creatives.map((c) => c.hook!.id)).size).toBe(1);
-    expect((await owner.as.query(api.ads.listHooks, {})).map((h) => h.uses).filter(Boolean)).toEqual([1]);
-    // The image ad may show a photo the video also uses.
-    expect(batch.creatives[2].shots[0].fileName).toBe("before.jpg");
-    expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(1);
-  });
-
-  test("an image ad goes to Meta by its bytes and is created PAUSED with the lead form", async () => {
-    const { t, owner, calls, draft } = await noMeta({ video: false, image: true, graphic: false });
-    vi.stubEnv("META_ACCESS_TOKEN", "m");
-    await owner.as.mutation(api.ads.saveSettings, {
-      adAccountId: "123",
-      pageId: "77",
-      leadFormId: "f1",
-      adsetId: "900",
-      voiceId: "ven",
-      weeklyEnabled: false,
-      hooksPerWeek: 1,
-      liveTarget: 6,
-      kinds: { video: false, image: true, graphic: false },
+    const jobs = await claim();
+    expect(jobs.map((j) => j.name)).toEqual(batch.creatives.map((c) => c.name));
+    expect(await t.run((ctx) => ctx.db.get(oldId))).toMatchObject({ status: "failed", error: "This ad was made before ads were drawn this way" });
+    expect(await claim()).toEqual([]);
+    // The renderer stopped part-way: twenty minutes on, both are handed out again.
+    await t.run(async (ctx) => {
+      for (const j of jobs) await ctx.db.patch(j.id, { renderStartedAt: new Date(Date.now() - 21 * 60_000).toISOString() });
     });
-    stubServices(calls);
-    const batch = await draft();
-    expect(batch.creatives.map((c) => `${c.status}${c.error ? `: ${c.error}` : ""}`)).toEqual(["paused", "paused"]);
-    expect(batch.creatives[0].meta).toMatchObject({ imageHash: "h1", creativeId: "cr1", adId: "ad1", adsetId: "900" });
-    const upload = new URLSearchParams(calls.find((c) => c.url.endsWith("/adimages"))!.body);
-    expect(upload.get("bytes")).toBe(btoa("jpg"));
-    expect(calls.some((c) => c.url.endsWith("/advideos"))).toBe(false);
-    const story = JSON.parse(new URLSearchParams(calls.find((c) => c.url.endsWith("/adcreatives"))!.body).get("object_story_spec")!);
-    expect(story.link_data).toMatchObject({
-      image_hash: "h1",
-      link: "http://fb.me/",
-      name: GOOD.headline,
-      call_to_action: { type: "GET_QUOTE", value: { lead_gen_form_id: "f1" } },
-    });
-    expect(new URLSearchParams(calls.find((c) => c.url.endsWith("/ads"))!.body).get("status")).toBe("PAUSED");
-    void t;
+    expect((await claim()).map((j) => j.name)).toEqual(jobs.map((j) => j.name));
+    // One is rejected while it is being drawn: its file isn't kept.
+    await owner.as.mutation(api.ads.reject, { id: jobs[0].id });
+    const thrown = await handIn(jobs[0]);
+    expect(thrown.kept).toBe(false);
+    expect(await t.run((ctx) => ctx.storage.getUrl(thrown.storageId))).toBeNull();
+    expect((await handIn(jobs[1])).kept).toBe(true);
+    expect(states(await latest()).map((s) => s.split(":")[0])).toEqual(["9x16 rejected", "4x5 rendered", "9x16 failed"]);
+    expect((await latest()).status).toBe("ready");
   });
 
   test("a bad script fails the batch with the reason, and Monday with the switch off does nothing", async () => {
-    const { t, owner, calls, draft } = await noMeta();
+    const { t, owner, calls, draft } = await ready();
     stubServices(calls, { scriptsFail: true });
     expect(await draft()).toMatchObject({ status: "failed", error: expect.stringContaining("mentions a price or discount") });
     stubServices(calls);
@@ -1564,14 +1344,13 @@ describe("the weekly run", () => {
     expect((await owner.as.query(api.ads.batches, {})).length).toBe(1);
   });
 
-  test("Claude passes on a hook whose footage doesn't fit: that hook is passed over with the reason and the next one is drafted", async () => {
-    const { owner, calls, draft } = await noMeta();
+  test("Claude passes on an idea the photos can't carry: it is passed over with the reason and the next one is drafted", async () => {
+    const { owner, calls, draft } = await ready();
     stubServices(calls, { passOnScope: "cabinets" });
     const batch = await draft();
-    expect(batch.status).toBe("ready");
     expect(batch.creatives.length).toBe(2);
-    expect(batch.creatives.every((c) => c.hook!.scope !== "cabinets")).toBe(true);
-    expect(batch.skipped[0]).toMatch(/^"Paint them, don't replace them\..*": Claude passed: no cabinets in this footage$/);
+    expect(batch.creatives.every((c) => c.hook!.scope !== "cabinets" && c.status === "voiced")).toBe(true);
+    expect(batch.skipped[0]).toMatch(/^"Paint them, don't replace them\..*": Claude passed: no cabinets in these photos$/);
     // The pair Claude didn't use stays fresh for next week.
     expect(
       (await owner.as.query(api.ads.listAssets, {}))
@@ -1581,47 +1360,30 @@ describe("the weekly run", () => {
     ).toEqual(["after.jpg", "before.jpg"]);
   });
 
-  test("a reply that isn't a shot list is passed over saying what came back instead, or that it was cut off", async () => {
-    const { calls, draft } = await noMeta();
+  test("a reply that isn't a plan is passed over saying what came back instead, or that it was cut off", async () => {
+    const { calls, draft } = await ready();
     stubServices(calls, { notJson: { scope: "cabinets" } });
     const batch = await draft();
-    expect(batch.status).toBe("ready");
-    expect(batch.skipped[0]).toMatch(/: the shot list still broke the rules: the reply wasn't JSON: it began "Looking at the footage, I'd open on the kitchen\."$/);
+    expect(batch.creatives.length).toBe(2);
+    expect(batch.skipped[0]).toMatch(/: the ad still broke the rules: the reply wasn't JSON: it began "Looking at the photos, I'd open on the kitchen\."$/);
     // Asked twice (the retry names the problem), with room to finish.
-    const asks = calls.filter((c) => c.url.includes("anthropic")).map((c) => JSON.parse(c.body!));
+    const asks = to(calls, "anthropic").map((c) => JSON.parse(c.body!));
     expect(asks.filter((a) => a.messages[0].content[0].text.includes("Scope: cabinets.")).map((a) => a.max_tokens)).toEqual([4000, 4000]);
 
-    const again = await noMeta();
+    const again = await ready();
     stubServices(again.calls, { notJson: { scope: "cabinets", cutOff: true } });
     expect((await again.draft()).skipped[0]).toMatch(/the reply wasn't JSON: it was cut off before it finished$/);
   });
 
-  test("a shot list that breaks a rule gets one retry with the problems named", async () => {
-    const { calls, draft } = await noMeta();
+  test("an ad that breaks a rule gets one retry with the problems named", async () => {
+    const { calls, draft } = await ready();
     stubServices(calls, { badFirst: true });
     const batch = await draft();
-    expect(batch).toMatchObject({ status: "ready", skipped: [] });
-    const asks = calls.filter((c) => c.url.includes("anthropic")).map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
+    expect(batch.skipped).toEqual([]);
+    expect(batch.creatives.length).toBe(2);
+    const asks = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
     expect(asks.length).toBe(2);
-    expect(asks[1][asks[1].length - 1].text).toContain("Your last shot list had these problems: 0 shots (use 2 to 4)");
-  });
-
-  test("a failed render fails that creative, and the batch still finishes", async () => {
-    const { calls, draft } = await noMeta();
-    stubServices(calls, { renderFails: true });
-    const batch = await draft();
-    expect(batch).toMatchObject({ status: "ready", summary: "0 paused in Meta · 2 failed" });
-    expect(batch.creatives.every((c) => c.status === "failed" && c.error?.includes("bad asset"))).toBe(true);
-  });
-
-  test("without a Meta account the renders wait here, watchable, and can't be approved", async () => {
-    const { owner, calls, draft } = await noMeta();
-    stubServices(calls);
-    const latest = await draft();
-    expect(latest).toMatchObject({ status: "ready", summary: "0 paused in Meta · 2 rendered but not in Meta" });
-    expect(latest.creatives.every((c) => c.status === "rendered" && c.videoUrl && c.error?.includes("Meta isn't set up"))).toBe(true);
-    await expect(owner.as.mutation(api.ads.activate, { id: latest.creatives[0].id })).rejects.toThrow("isn't in Meta yet");
-    expect(calls.some((c) => c.url.includes("graph.facebook.com"))).toBe(false);
+    expect(asks[1][asks[1].length - 1].text).toMatch(/^Your last answer had these problems: .*0 lines \(write 3 to 5\)/);
   });
 
   test("the live table joins Meta's numbers with what intake and the sale say, and flags fatigue", async () => {
@@ -1951,20 +1713,18 @@ describe("niche research", () => {
     });
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
     vi.stubEnv("ELEVENLABS_API_KEY", "e");
-    vi.stubEnv("SHOTSTACK_API_KEY", "s");
     await owner.as.mutation(api.ads.saveSettings, {
       voiceId: "ven",
       weeklyEnabled: true,
       hooksPerWeek: 2,
       liveTarget: 6,
       researchMarkets: ["Odessa", "Midland"],
-      ...VIDEO_ONLY,
     });
     const calls: Array<{ url: string; body?: string }> = [];
     stubServices(calls);
     vi.useFakeTimers();
     await owner.as.mutation(api.ads.draftNow, {});
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await oneAtATime(t);
     vi.useRealTimers();
     const prompts = calls
       .filter((c) => c.url.includes("api.anthropic.com"))
@@ -1979,10 +1739,9 @@ describe("niche research", () => {
     const interior = prompts.find((p) => p.includes("Scope: interior."))!;
     expect(interior).toContain("Across painting, the long-runners open on a question.");
     expect(interior).not.toContain("Cabinets winners");
-    // The end card names the markets.
-    const render = calls.find((c) => c.url.endsWith("/render"))!;
-    expect(render.body).toContain("Odessa and Midland");
-    expect(render.body).not.toContain("Midland and Odessa");
+    // The renderer is told the markets in the owner's order, for the end card.
+    const [job] = await t.mutation(internal.ads.claimRenders, { limit: 1 });
+    expect(job.props.brand.markets).toEqual(["Odessa", "Midland"]);
   });
 
   test("readiness says what Monday needs; the live target stops a batch; Draft now refuses while one is drafting", async () => {
@@ -1994,13 +1753,14 @@ describe("niche research", () => {
       ["library", false, true],
       ["hooks", false, true],
       ["playbook", false, false],
+      ["renderer", false, false],
       ["meta", false, false],
     ]);
-    expect(checks[0].detail).toBe("Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY, SHOTSTACK_API_KEY on the deployment");
+    expect(checks[0].detail).toBe("Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY on the deployment");
+    expect(checks[4].detail).toContain("No ADS_RENDER_TOKEN yet");
     expect(checks[1].detail).toBe("0 of at least 3 files");
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
     vi.stubEnv("ELEVENLABS_API_KEY", "e");
-    vi.stubEnv("SHOTSTACK_API_KEY", "s");
     await library(t, owner);
     checks = await owner.as.query(api.ads.readiness, {});
     expect(checks.filter((c) => c.hard).every((c) => c.ok)).toBe(true);

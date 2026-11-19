@@ -706,6 +706,8 @@ export const adShot = v.object({
   onScreen: v.string(),
   start: v.optional(v.number()),
   end: v.optional(v.number()),
+  // When each word of the line is said (from the voice's own timing), for captions that follow it.
+  words: v.optional(v.array(v.object({ text: v.string(), start: v.number(), end: v.number() }))),
 });
 export const adScript = v.object({
   voice: v.string(),
@@ -2511,8 +2513,17 @@ export default defineSchema({
     batchId: v.id("adBatches"),
     hookId: v.id("adHooks"),
     ratio: v.union(v.literal("9x16"), v.literal("4x5")),
-    // What it's made of. Absent on ads from before there was a choice: a voiced video cut from footage.
+    // Only on ads from before every ad was drawn with Remotion: a Shotstack video (or absent), an image, a checklist.
     kind: v.optional(v.union(v.literal("video"), v.literal("image"), v.literal("graphic"))),
+    // How the ad moves and what the renderer shows beyond the script (lib/ads.ts Design). Absent on those older ads.
+    design: v.optional(
+      v.object({
+        style: v.union(v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
+        title: v.string(),
+        stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
+        revealOn: v.optional(v.string()),
+      }),
+    ),
     // Also the ad's name in Meta, so a lead's adName joins back here.
     name: v.string(),
     // An image ad has no voice: script.onScreen is its printed headline and support line.
@@ -2523,9 +2534,11 @@ export default defineSchema({
     // How long ElevenLabs' read runs; the edit is cut to it.
     audioDurationSec: v.optional(v.number()),
     videoStorageId: v.optional(v.id("_storage")),
-    // The finished JPEG of an image ad.
+    // The finished JPEG of an older image ad, and an older video's Shotstack render id.
     imageStorageId: v.optional(v.id("_storage")),
     renderId: v.optional(v.string()),
+    // When the renderer took this ad; one taken long ago with no file is offered again.
+    renderStartedAt: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("voiced"),
@@ -2663,7 +2676,7 @@ export default defineSchema({
     researchMonthly: v.optional(v.boolean()),
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
-    // Which kinds of ad a batch makes for each hook. Absent: videos only.
+    // From when a batch could make several kinds of ad. No longer read.
     kinds: v.optional(v.object({ video: v.boolean(), image: v.boolean(), graphic: v.boolean() })),
     updatedAt: v.string(),
   }),

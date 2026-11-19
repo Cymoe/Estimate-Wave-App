@@ -134,13 +134,12 @@ beforeEach(() => {
   swipes = [];
   settings = {
     brand: 'Permian Home Quotes',
-    keys: { anthropic: true, elevenlabs: true, shotstack: false, meta: false, apify: false },
+    keys: { anthropic: true, elevenlabs: true, renderer: false, meta: false, apify: false },
     primaryColor: '#336699',
     accentColor: '#8fb6e0',
     weeklyEnabled: false,
     hooksPerWeek: 2,
     liveTarget: 6,
-    kinds: { video: true, image: false, graphic: false },
     researchKeywords: ['cabinet painting', 'house painter'],
     researchMarkets: ['Midland', 'Odessa'],
     researchMinDays: 90,
@@ -155,7 +154,7 @@ beforeEach(() => {
 describe('Ops → Ads', () => {
   it('the readiness strip says whether Monday will draft, and each check opens the tab that fixes it', async () => {
     readiness = [
-      { key: 'keys', label: 'Services', ok: true, hard: true, tab: 'settings', detail: 'Claude, ElevenLabs and Shotstack are set' },
+      { key: 'keys', label: 'Services', ok: true, hard: true, tab: 'settings', detail: 'Claude and ElevenLabs are set' },
       { key: 'library', label: 'Library', ok: true, hard: true, tab: 'library', detail: '5 files, 3 tagged by room' },
       { key: 'hooks', label: 'Hooks', ok: false, hard: true, tab: 'hooks', detail: '1 active, need 2' },
       { key: 'playbook', label: 'What works', ok: false, hard: false, tab: 'swipes', detail: 'None yet: load or search competitor ads' },
@@ -613,7 +612,7 @@ describe('Ops → Ads', () => {
     );
   });
 
-  it("an image ad shows as its picture with the words printed on it, in a group of its own beside the same idea's video", async () => {
+  it("an image ad from before still shows as its picture with the words printed on it, in a group of its own beside the same idea's video", async () => {
     const words = { voice: '', onScreen: ['Paint them, do not replace them', 'One vetted Midland painter.'], headline: 'Cabinets painted', primaryText: 'A fresh finish.' };
     const photo = [{ fileName: 'kitchen-after.jpg', voice: '', onScreen: 'Paint them, do not replace them' }];
     batches = [
@@ -646,26 +645,53 @@ describe('Ops → Ads', () => {
     expect(Array.from(image.querySelectorAll('button')).some((b) => b.textContent === 'Approve both')).toBe(true);
   });
 
-  it('Settings: the owner switches image ads on beside the videos', async () => {
+  it('an animated ad that is voiced says it is waiting to be drawn, with its style, the words at the top and each line with its label', async () => {
+    const lines = [
+      { fileName: 'kitchen-after.jpg', voice: 'Thinking about new cabinets?', onScreen: '', start: 0, end: 2.4 },
+      { fileName: 'kitchen-after.jpg', voice: 'A fresh finish changes the whole kitchen.', onScreen: 'No tear-out', start: 2.6, end: 6.1 },
+    ];
+    const animated = {
+      status: 'voiced' as const,
+      style: { id: 'lightUp', label: 'Light-up' },
+      videoUrl: undefined,
+      meta: undefined,
+      shots: lines,
+      script: { voice: 'x', onScreen: ['Paint them, do not replace', 'No tear-out'], headline: 'Cabinets painted', primaryText: 'A fresh finish.' },
+    };
+    batches = [
+      {
+        id: 'b1',
+        weekOf: '2026-11-16',
+        status: 'drafting',
+        createdAt: new Date().toISOString(),
+        creatives: [creative({ id: 'a1', ...animated }), creative({ id: 'a2', ratio: '4x5', ...animated, status: 'rendering' })],
+      },
+    ];
     await render();
-    await tab('Settings');
-    expect(document.body.textContent).toContain('What a batch makes');
-    const image = document.body.querySelector('input[aria-label="Image ads"]') as HTMLInputElement;
-    expect(image.checked).toBe(false);
-    expect((document.body.querySelector('input[aria-label="Videos from photos"]') as HTMLInputElement).checked).toBe(true);
-    await act(async () => image.click());
-    await act(async () =>
-      document.body.querySelector('form[aria-label="Ad settings"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-    );
-    await flush();
-    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ kinds: { video: true, image: true, graphic: false } }));
+    const [group] = Array.from(document.body.querySelectorAll('[data-testid="hook-group"]'));
+    expect(group.textContent).toContain('Light-up style · Before / after · ');
+    expect(Array.from(group.querySelectorAll('[data-testid="creative"]')).map((c) => c.textContent)).toEqual([
+      expect.stringContaining('Waiting to render'),
+      expect.stringContaining('Rendering'),
+    ]);
+    // Nothing to watch or approve yet.
+    expect(group.querySelectorAll('video').length).toBe(0);
+    expect(Array.from(group.querySelectorAll('button')).some((b) => b.textContent === 'Approve both')).toBe(false);
+    expect(group.querySelector('summary')!.textContent).toBe('Lines');
+    expect(group.textContent).toContain('At the top: Paint them, do not replace');
+    expect(group.textContent).toContain('Label: No tear-out');
+    // A line with no label says nothing in its place.
+    expect(group.textContent!.match(/Label:/g)!.length).toBe(1);
+    expect(group.textContent).not.toContain('On screen:');
   });
 
   it('Settings shows which keys are set, and the owner saves the ids and the Monday switch', async () => {
     await render();
     await tab('Settings');
     expect(document.body.textContent).toContain('Homeowners see the ads as Permian Home Quotes');
-    expect(document.body.textContent).toContain('SHOTSTACK_API_KEY: missing');
+    expect(document.body.textContent).toContain('ADS_RENDER_TOKEN: missing');
+    expect(document.body.textContent).toContain('a batch shows Waiting to render until the drawing is started by hand');
+    expect(document.body.textContent).not.toContain('What a batch makes');
     expect(document.body.textContent).toContain('ANTHROPIC_API_KEY: set');
     await act(async () => type(document.body.querySelector('input[aria-label="Ad account id"]') as HTMLInputElement, 'act_123'));
     await act(async () => (Array.from(document.body.querySelectorAll('input[type="checkbox"]'))[0] as HTMLInputElement).click());

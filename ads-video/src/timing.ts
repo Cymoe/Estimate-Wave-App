@@ -8,13 +8,17 @@ export interface Word {
 }
 
 /**
- * When each word is said. The voice step keeps when each line starts and
- * ends; inside a line a word's share of the time is its share of the
- * letters, which is close enough for a caption to follow the voice.
+ * When each word is said. The voice step keeps each word's own time where
+ * ElevenLabs gave it; without that, a word's share of its line's time is its
+ * share of the letters, which is close enough for a caption to follow.
  */
 export function wordsOf(lines: Line[]): Word[] {
   const out: Word[] = [];
   lines.forEach((line, i) => {
+    if (line.words?.length) {
+      for (const w of line.words) out.push({ text: w.text, start: w.start, end: w.end, line: i });
+      return;
+    }
     const words = line.voice.trim().split(/\s+/).filter(Boolean);
     const total = words.reduce((n, w) => n + w.length + 1, 0);
     const span = Math.max(0.2, line.end - line.start);
