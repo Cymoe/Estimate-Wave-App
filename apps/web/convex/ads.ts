@@ -1130,8 +1130,10 @@ export const rebuildPlaybooks = internalAction({
           adCopy: x.adCopy,
           durationSec: x.durationSec,
         }));
-        const playbook = readPlaybook(await claude([{ type: "text", text: playbookPrompt(sc, summary, markets, libraryTags) }], 1200));
-        if (!playbook) throw new Error("the reply wasn't a playbook");
+        // Room to finish: at 1,200 the reply was cut off part-way through its JSON every time, so nothing was ever saved.
+        const reply = await claudeReply([{ type: "text", text: playbookPrompt(sc, summary, markets, libraryTags) }], SHOT_LIST_TOKENS);
+        const playbook = readPlaybook(reply.text);
+        if (!playbook) throw new Error(reply.cutOff ? "the reply was cut off before it finished" : "the reply wasn't a playbook");
         await ctx.runMutation(internal.ads.savePlaybookAuto, {
           scope: sc,
           playbook,
