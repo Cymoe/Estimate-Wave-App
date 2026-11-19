@@ -1906,6 +1906,30 @@ export const rankLive = internalMutation({
 });
 
 /** A draft the reviewer doesn't want: left paused in Meta, never shown as a candidate again. */
+/**
+ * Pulls every ad that hasn't gone live, so none can be approved by mistake. For when what the ads say has changed
+ * under them (the homeowner brand was renamed): each is rejected, its words and files kept. Live and retired ads
+ * are left alone.
+ */
+export const pullUnpublished = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const pulled: string[] = [];
+    const inMeta: string[] = [];
+    for (const c of await ctx.db.query("adCreatives").take(2000)) {
+      if (c.status === "live" || c.status === "retired" || c.status === "rejected" || c.status === "failed") continue;
+      // One already created in Meta is retired there by a person, not orphaned from here.
+      if (c.meta?.adId) {
+        inMeta.push(c.name);
+        continue;
+      }
+      await ctx.db.patch(c._id, { status: "rejected" });
+      pulled.push(c.name);
+    }
+    return { pulled, leftInMeta: inMeta };
+  },
+});
+
 export const reject = mutation({
   args: { id: v.id("adCreatives") },
   handler: async (ctx, { id }) => {

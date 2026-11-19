@@ -28,6 +28,11 @@ on:
         required: false
         default: '{}'
         type: string
+      consumer_brand:
+        description: 'Set the name homeowners see (ads, quote form, texts). Leave empty to keep it.'
+        required: false
+        default: ''
+        type: string
       logs:
         description: 'Only print the recent function logs of the deployment (no deploy)'
         required: false
@@ -129,6 +134,15 @@ jobs:
 
       - name: Push functions and schema
         run: npx convex deploy --yes
+
+      - name: Set the name homeowners see
+        # Not a secret: it is printed on every ad. Read by lib/support.ts consumerBrand().
+        if: github.event_name == 'workflow_dispatch' && inputs.consumer_brand != ''
+        env:
+          BRAND: ${{ inputs.consumer_brand }}
+        run: |
+          npx convex env set CONSUMER_BRAND "$BRAND" >/dev/null
+          echo "Homeowners now see: $BRAND"
 
       - name: Run the function asked for
         if: github.event_name == 'workflow_dispatch' && inputs.function != ''

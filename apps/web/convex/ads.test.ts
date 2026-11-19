@@ -1385,6 +1385,21 @@ describe("the weekly run", () => {
     expect(plan.hooks.some((h) => h.family === tall.hook!.family)).toBe(false);
   });
 
+  test("pulling the unpublished ads rejects every one that hasn't gone live, and leaves alone one already created in Meta", async () => {
+    const { t, calls, draft, latest, draw } = await ready({ meta: true });
+    stubServices(calls);
+    await draft();
+    // Both sizes are drawn and created paused in Meta: those are a person's to retire.
+    await draw();
+    expect(states(await latest())).toEqual(["9x16 paused", "4x5 paused"]);
+    expect(await t.mutation(internal.ads.pullUnpublished, {})).toMatchObject({ pulled: [], leftInMeta: [expect.stringMatching(/^WL_/), expect.stringMatching(/^WL_/)] });
+    // A second idea, written and voiced but never drawn, is pulled.
+    await draft();
+    const waiting = (await latest()).creatives.map((c) => c.name);
+    expect((await t.mutation(internal.ads.pullUnpublished, {})).pulled.sort()).toEqual([...waiting].sort());
+    expect(states(await latest())).toEqual(["9x16 rejected", "4x5 rejected"]);
+  });
+
   test("with no token GitHub is never asked and the ads wait; without a Meta account the finished videos wait here, watchable, and can't be approved", async () => {
     const { t, owner, calls, draft, draw, latest } = await ready();
     stubServices(calls);
