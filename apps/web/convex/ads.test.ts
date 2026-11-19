@@ -9,6 +9,7 @@ import {
   creativeName,
   familyOfAngle,
   fromApifyItem,
+  hookFromSwipe,
   isFatigued,
   isLocal,
   mergeSwipeCsvs,
@@ -60,6 +61,33 @@ describe("the pure parts", () => {
     expect(pickHooks(hooks, new Set(["seasonal"]), 2).map((h) => h._id)).toEqual(["b", "a"]);
     expect(pickHooks(hooks, new Set(), 2).map((h) => h._id)).toEqual(["c", "b"]);
     expect(pickHooks(hooks, new Set(["before_after", "education", "seasonal"]), 2).map((h) => h._id)).toEqual(["c", "b"]);
+  });
+
+  test("ideas built on a competitor's ad go before the hand-written ones: least used first, then the longest-running", () => {
+    const hooks = [
+      { _id: "hand", family: "seasonal" as const, scope: "exterior", active: true, uses: 0 },
+      { _id: "short", family: "proof" as const, scope: "general", active: true, uses: 0, daysRunning: 101 },
+      { _id: "long", family: "education" as const, scope: "interior", active: true, uses: 0, daysRunning: 745 },
+      { _id: "longest-used", family: "objection" as const, scope: "cabinets", active: true, uses: 1, daysRunning: 3111 },
+    ];
+    expect(pickHooks(hooks, new Set(), 4).map((h) => h._id)).toEqual(["long", "short", "longest-used", "hand"]);
+    // A kind of angle already live still goes last.
+    expect(pickHooks(hooks, new Set(["education"]), 4).map((h) => h._id)).toEqual(["short", "longest-used", "hand", "long"]);
+    // A competitor ad as an idea: its angle, in its own category; one about painting in general can use any photo.
+    expect(hookFromSwipe({ hook: " Paint instead of replace ", scope: "cabinets" })).toEqual({
+      family: "before_after",
+      scope: "cabinets",
+      trade: "painting",
+      textEn: "Paint instead of replace",
+    });
+    expect(hookFromSwipe({ hook: "Reputation + finished home", family: "proof" })).toMatchObject({ family: "proof", scope: "general" });
+    expect(hookFromSwipe({ hook: "Owner story", family: "nonsense" })).toMatchObject({ family: "owner_story" });
+    expect(hookFromSwipe({ hook: "  " })).toBeNull();
+    const photos = [
+      { _id: "a", kind: "photo" as const, tags: ["exterior"], createdAt: "2026-10-02" },
+      { _id: "b", kind: "photo" as const, tags: ["cabinets"], createdAt: "2026-10-01" },
+    ];
+    expect(pickAssets(photos, "general", new Set())).toEqual({ assets: photos, inScope: true });
   });
 
   test("footage: pairs first, then least used and newest; never reused in a week; a fallback is flagged", () => {
@@ -179,6 +207,24 @@ describe("an animated ad's pure parts", () => {
     expect(text).toContain("at most 15 words");
     expect(text).not.toContain("None of these photos is tagged");
     expect(motionPrompt(hook, "Webb Leads", [], false)).toContain("None of these photos is tagged cabinets");
+    // Built around a competitor's ad: what it does and how long it has run, with its offer turned into ours.
+    expect(text).not.toContain("Build this ad around");
+    const around = motionPrompt(hook, "Webb Leads", [], true, [], "Midland", undefined, {
+      company: "Precision Painting NY INC.",
+      daysRunning: 659,
+      angle: "Paint instead of replace",
+      offer: "Free estimate; replacement-cost alternative",
+      creative: "Finished dark kitchen with headline overlay",
+      adaptation: "Use a real kitchen.",
+      adCopy: "Why replace\nwhen you can refinish?",
+    });
+    expect(around).toContain("Build this ad around a competitor's ad that has been running for 659 days.");
+    expect(around).toContain("- Its angle: Paint instead of replace");
+    expect(around).toContain("- Its offer: Free estimate; replacement-cost alternative");
+    expect(around).toContain("- Its words (Precision Painting NY INC.) · copy: Why replace when you can refinish?");
+    expect(around).toContain("Make the offer the nearest thing Webb Leads truly gives: a free quote from one vetted local painter.");
+    expect(around).toContain("Never their name, price, discount, warranty, award, review count or deadline.");
+    expect(around).not.toContain("How it opens");
   });
 
   test("the rules: a style, a title, three to five lines on photos that were offered, a last line that asks, and no forbidden claims", () => {
@@ -924,9 +970,44 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
 
 async function library(t: T, staff: Awaited<ReturnType<typeof signUp>>) {
   await staff.as.mutation(api.ads.seedHooks, {});
-  await staff.as.mutation(api.ads.seedSwipes, {});
-  const rodgers = (await staff.as.query(api.ads.listSwipes, {})).find((x) => x.company === "Rodgers Painting")!;
-  await staff.as.mutation(api.ads.starSwipe, { id: rodgers.id, starred: true });
+  // Two competitor ads on file: a cabinets one that has run longest, with its script, and an interior one.
+  await t.run(async (ctx) => {
+    const ad = (over: Record<string, unknown>) =>
+      ctx.db.insert("adSwipes", {
+        company: "",
+        paintingType: "",
+        hook: "",
+        offer: "Free estimate",
+        creative: "Owner to camera",
+        area: "",
+        cta: "Get quote",
+        adaptation: "Explain the steps and the disruption level.",
+        starred: false,
+        source: "test",
+        importedAt: new Date().toISOString(),
+        ...over,
+      } as never);
+    await ad({
+      company: "Rodgers Painting",
+      paintingType: "Cabinets",
+      scope: "cabinets",
+      hook: "Process + minimal disruption",
+      offer: "Claimed 2–3 days; off-site doors, on-site boxes",
+      startedAt: new Date(Date.now() - 160 * 86_400_000).toISOString(),
+      starred: true,
+      transcript: "[00:00] We take the doors off site and spray the boxes at your home.",
+      durationSec: 31,
+    });
+    await ad({
+      company: "Squeegee Squad",
+      paintingType: "Interior",
+      scope: "interior",
+      hook: "Cost education",
+      offer: "Free in-home estimate",
+      startedAt: new Date(Date.now() - 90 * 86_400_000).toISOString(),
+      adCopy: "What does it cost to paint a house?",
+    });
+  });
   await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "before"), fileName: "before.jpg", tags: ["cabinets", "before"], pairKey: "k" });
   await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "after"), fileName: "after.jpg", tags: ["cabinets", "after"], pairKey: "k" });
   await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "prep"), fileName: "prep.jpg", tags: ["process"] });
@@ -1160,12 +1241,23 @@ describe("the weekly run", () => {
     const cabinetsAsk = asks.find((a) => a[0].text.includes("Scope: cabinets."))!;
     expect(cabinetsAsk[0].text).toContain("Permian Home Quotes");
     expect(cabinetsAsk[0].text).toContain("never as a homeowner or customer");
+    // Each ad is built around the competitor ad its idea came from: the longest-running one was written first.
+    expect(cabinets.hook).toMatchObject({ textEn: "Process + minimal disruption", basedOn: { company: "Rodgers Painting", daysRunning: 160, offer: "Claimed 2–3 days; off-site doors, on-site boxes" } });
+    expect(other.hook).toMatchObject({ textEn: "Cost education", basedOn: { company: "Squeegee Squad", daysRunning: 90 } });
+    expect(asks.indexOf(cabinetsAsk)).toBe(0);
+    expect(cabinetsAsk[0].text).toContain("Build this ad around a competitor's ad that has been running for 160 days.");
+    expect(cabinetsAsk[0].text).toContain("- Its angle: Process + minimal disruption");
+    expect(cabinetsAsk[0].text).toContain("- Its words (Rodgers Painting) · spoken: We take the doors off site");
+    // The other ad on file is there for tone only, and the one it is built around isn't repeated as an example.
     expect(cabinetsAsk[0].text).toContain("for tone and shape only");
-    expect(cabinetsAsk[0].text).toMatch(/Example 1 \(Rodgers Painting; [^)]*\) · spoken \(\d+s\)/);
+    expect(cabinetsAsk[0].text).toContain("Example 1 (Squeegee Squad;");
+    expect(cabinetsAsk[0].text).not.toContain("Example 2");
     expect(cabinetsAsk.slice(1).map((b) => (b.type === "text" ? b.text : b.source.type))).toEqual(["Photo 1:", "url", "Photo 2:", "url"]);
     // The other idea had nothing in its scope, so it fell back to the prep photo, and Claude is told.
     const otherAsk = asks.find((a) => a !== cabinetsAsk)!;
     expect(otherAsk[0].text).toContain("None of these photos is tagged");
+    expect(otherAsk[0].text).toContain("- Its offer: Free in-home estimate");
+    expect(otherAsk[0].text).toMatch(/Example 1 \(Rodgers Painting; [^)]*\) · spoken \(\d+s\)/);
     expect(otherAsk.slice(1).map((b) => (b.type === "text" ? b.text : b.source.type))).toEqual(["Photo 1:", "url"]);
     // Each line is a shot on its photo, timed from the voice's own character times.
     expect(cabinets.shots.map((x) => [x.fileName, x.onScreen])).toEqual([
@@ -1339,6 +1431,33 @@ describe("the weekly run", () => {
     expect((await latest()).status).toBe("ready");
   });
 
+  test("every competitor ad on file becomes one idea, listed longest-running first; one staff remove isn't made again, and an ad with no start date is left out", async () => {
+    const { t, owner, calls, draft } = await ready();
+    await t.run(async (ctx) => {
+      const one = (await ctx.db.query("adSwipes").take(1))[0];
+      const { _id, _creationTime, ...copy } = one;
+      void _id;
+      void _creationTime;
+      await ctx.db.insert("adSwipes", { ...copy, company: "No Date Painting", hook: "Curb appeal", startedAt: undefined });
+    });
+    stubServices(calls);
+    await draft();
+    const ideas = await owner.as.query(api.ads.listHooks, {});
+    expect(ideas.length).toBe(8);
+    expect(ideas.slice(0, 3).map((h) => [h.textEn, h.scope, h.basedOn?.company, h.basedOn?.daysRunning])).toEqual([
+      ["Process + minimal disruption", "cabinets", "Rodgers Painting", 160],
+      ["Cost education", "interior", "Squeegee Squad", 90],
+      [expect.any(String), expect.any(String), undefined, undefined],
+    ]);
+    // Only the longest-running was written this time.
+    expect(ideas.map((h) => h.uses).filter(Boolean)).toEqual([1]);
+    expect(ideas[0].uses).toBe(1);
+    // Removed by staff: it stays removed.
+    await owner.as.mutation(api.ads.removeHook, { id: ideas[1].id });
+    expect(await t.mutation(internal.ads.ideasFromResearch, {})).toBe(0);
+    expect((await owner.as.query(api.ads.listHooks, {})).length).toBe(7);
+  });
+
   test("a bad script fails the batch with the reason, and Monday with the switch off does nothing", async () => {
     const { t, owner, calls, draft } = await ready();
     stubServices(calls, { scriptsFail: true });
@@ -1354,7 +1473,7 @@ describe("the weekly run", () => {
     const batch = await draft();
     expect(batch.creatives.length).toBe(2);
     expect(batch.creatives.every((c) => c.hook!.scope !== "cabinets" && c.status === "voiced")).toBe(true);
-    expect(batch.skipped[0]).toMatch(/^"Paint them, don't replace them\..*": Claude passed: no cabinets in these photos$/);
+    expect(batch.skipped[0]).toBe('"Process + minimal disruption": Claude passed: no cabinets in these photos');
     // The pair Claude didn't use stays fresh for next week.
     expect(
       (await owner.as.query(api.ads.listAssets, {}))

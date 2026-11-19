@@ -19,7 +19,7 @@ export const FAMILY_LABELS: Record<Family, string> = {
 
 export interface HookSeed {
   family: Family;
-  scope: Scope;
+  scope: Scope | string;
   trade: string;
   textEn: string;
 }
@@ -72,12 +72,15 @@ export interface HookRow {
   active: boolean;
   uses: number;
   lastUsedAt?: string;
+  /** Set when the idea comes from a competitor ad: how many days that ad has been running. */
+  daysRunning?: number;
 }
 
 /**
- * The week's hooks: active, families with nothing live first (so the mix
- * stays wide), then least used, then longest since used. A family already
- * live is a reason to go last, never a reason to draft nothing.
+ * The week's ideas. Ones that come from a competitor ad go first, because an
+ * ad that has kept running is the best sign an idea pays for itself: least
+ * used first, and among those the longest-running. Ideas written by hand
+ * follow. A family already live goes last, never a reason to draft nothing.
  */
 export function pickHooks<H extends HookRow>(hooks: H[], liveFamilies: Set<Family>, n: number): H[] {
   return hooks
@@ -85,10 +88,41 @@ export function pickHooks<H extends HookRow>(hooks: H[], liveFamilies: Set<Famil
     .sort(
       (a, b) =>
         Number(liveFamilies.has(a.family)) - Number(liveFamilies.has(b.family)) ||
+        Number(a.daysRunning === undefined) - Number(b.daysRunning === undefined) ||
         a.uses - b.uses ||
+        (b.daysRunning ?? 0) - (a.daysRunning ?? 0) ||
         (a.lastUsedAt ?? "").localeCompare(b.lastUsedAt ?? ""),
     )
     .slice(0, Math.max(0, n));
+}
+
+/** The scope of an idea that isn't about one kind of job: any photo in the library can carry it. */
+export const ANY_SCOPE = "general";
+
+/** A competitor ad as an idea to build on: its angle is the hook, in its own category. */
+export function hookFromSwipe(swipe: { hook: string; scope?: string; family?: string }): HookSeed | null {
+  const angle = swipe.hook.trim();
+  if (!angle) return null;
+  const families = Object.keys(FAMILY_LABELS) as Family[];
+  return {
+    family: families.includes(swipe.family as Family) ? (swipe.family as Family) : familyOfAngle(angle),
+    scope: swipe.scope?.trim() || ANY_SCOPE,
+    trade: "painting",
+    textEn: angle.slice(0, 300),
+  };
+}
+
+/** The competitor ad an idea is built around, as the writer is told about it. */
+export interface BasedOn {
+  company: string;
+  daysRunning?: number;
+  angle: string;
+  offer: string;
+  creative?: string;
+  opening?: string;
+  adaptation?: string;
+  transcript?: string;
+  adCopy?: string;
 }
 
 export interface AssetRow {
@@ -125,7 +159,8 @@ export function pickAssets<A extends AssetRow>(
   const fresh = assets
     .filter((a) => !used.has(a._id))
     .sort((a, b) => preference(a) - preference(b) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt));
-  const inScopeAssets = fresh.filter((a) => a.tags.includes(scope));
+  // An idea about painting in general can be carried by any photo.
+  const inScopeAssets = scope === ANY_SCOPE ? fresh : fresh.filter((a) => a.tags.includes(scope));
   const inScope = inScopeAssets.length > 0;
   const pool = inScope ? inScopeAssets : fresh.filter((a) => a.tags.includes("process") || a.tags.includes("crew"));
   const groups = new Map<string, A[]>();
@@ -416,7 +451,30 @@ export function motionPrompt(
   examples: Example[] = [],
   town = "your town",
   playbook?: string,
+  basedOn?: BasedOn,
 ): string {
+  const theirs = basedOn?.transcript
+    ? `spoken: ${basedOn.transcript
+        .replace(/\[\d\d:\d\d\]\s*/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 600)}`
+    : basedOn?.adCopy
+      ? `copy: ${basedOn.adCopy.replace(/\s+/g, " ").trim().slice(0, 400)}`
+      : "";
+  const source = basedOn
+    ? [
+        `Build this ad around a competitor's ad${basedOn.daysRunning ? ` that has been running for ${basedOn.daysRunning} days` : ""}. An ad that keeps running is the best sign it pays for itself, so stay close to what makes it work:`,
+        `- Its angle: ${basedOn.angle}`,
+        `- Its offer: ${basedOn.offer}`,
+        basedOn.opening ? `- How it opens: ${basedOn.opening}` : "",
+        basedOn.creative ? `- What it shows: ${basedOn.creative}` : "",
+        theirs ? `- Its words (${basedOn.company}) · ${theirs}` : "",
+        basedOn.adaptation ? `- How to use it honestly: ${basedOn.adaptation}` : "",
+        `Keep the same angle, the same kind of opening and the same order of points. Make the offer the nearest thing ${brand} truly gives: a free quote from one vetted local painter. Never their name, price, discount, warranty, award, review count or deadline.`,
+        "",
+      ].filter((line, i, all) => line !== "" || i === all.length - 1)
+    : [];
   const list = photos.map((f, i) =>
     [
       `Photo ${i + 1}`,
@@ -436,6 +494,7 @@ export function motionPrompt(
     ...list,
     inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with them.`,
     "",
+    ...source,
     ...(playbook
       ? ["What works in this category, from competitor ads that have run for months. Follow the angle and the kind of opening; never their claims:", playbook.trim(), ""]
       : []),

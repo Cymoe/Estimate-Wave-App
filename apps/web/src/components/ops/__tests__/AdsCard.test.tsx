@@ -369,6 +369,7 @@ describe('Ops → Ads', () => {
         uses: 1,
         wins: 1,
         losses: 0,
+        basedOn: { company: 'Squeegee Squad', daysRunning: 745, offer: 'Free in-home estimate' },
       },
     ];
     document.body.innerHTML = '';
@@ -377,6 +378,8 @@ describe('Ops → Ads', () => {
     expect(byText('Add the six painting hooks')).toBeUndefined();
     const row = document.body.querySelector('[data-testid="hook"]')!;
     expect(row.textContent).toContain('Cost education · Interior · used 1 · 1 won · 0 lost');
+    // An idea that came from a competitor's ad says which, and how long it has run.
+    expect(row.textContent).toContain("From Squeegee Squad's ad, running 745 days");
     await act(async () => (row.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     expect(saveHook).toHaveBeenCalledWith(expect.objectContaining({ id: 'h1', active: false }));
     const form = document.body.querySelector('form[aria-label="New hook"]')!;
@@ -657,6 +660,14 @@ describe('Ops → Ads', () => {
       meta: undefined,
       shots: lines,
       script: { voice: 'x', onScreen: ['Paint them, do not replace', 'No tear-out'], headline: 'Cabinets painted', primaryText: 'A fresh finish.' },
+      hook: {
+        id: 'h1',
+        family: 'before_after',
+        familyLabel: 'Before / after',
+        scope: 'cabinets',
+        textEn: 'Paint instead of replace',
+        basedOn: { company: 'Precision Painting NY INC.', daysRunning: 1659, offer: 'Free estimate; replacement-cost alternative' },
+      },
     };
     batches = [
       {
@@ -670,6 +681,8 @@ describe('Ops → Ads', () => {
     await render();
     const [group] = Array.from(document.body.querySelectorAll('[data-testid="hook-group"]'));
     expect(group.textContent).toContain('Light-up style · Before / after · ');
+    // Which competitor ad it is built around, and how long that one has run.
+    expect(group.textContent).toContain("Built around Precision Painting NY INC.'s ad, running 1,659 days. Their offer: Free estimate; replacement-cost alternative");
     expect(Array.from(group.querySelectorAll('[data-testid="creative"]')).map((c) => c.textContent)).toEqual([
       expect.stringContaining('Waiting to render'),
       expect.stringContaining('Rendering'),

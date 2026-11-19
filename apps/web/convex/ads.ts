@@ -24,7 +24,10 @@ import {
   parseJson,
   pickAssets,
   pickExamples,
+  ANY_SCOPE,
+  hookFromSwipe,
   pickHooks,
+  type BasedOn,
   playbookPrompt,
   qualifies,
   readPlaybook,
@@ -489,8 +492,9 @@ export const listHooks = query({
   handler: async (ctx) => {
     await requireStaff(ctx);
     const rows = await ctx.db.query("adHooks").take(500);
-    return rows
-      .map((h) => ({
+    const out = [];
+    for (const h of rows)
+      out.push({
         id: h._id,
         family: h.family,
         familyLabel: FAMILY_LABELS[h.family],
@@ -502,8 +506,47 @@ export const listHooks = query({
         wins: h.wins,
         losses: h.losses,
         lastUsedAt: h.lastUsedAt,
-      }))
-      .sort((a, b) => Number(b.active) - Number(a.active) || a.family.localeCompare(b.family));
+        basedOn: await sourceOf(ctx, h),
+      });
+    // Switched on first; then the ideas built on a competitor's ad, longest-running first; then the ones written by hand.
+    return out.sort(
+      (a, b) =>
+        Number(b.active) - Number(a.active) ||
+        Number(!a.basedOn) - Number(!b.basedOn) ||
+        (b.basedOn?.daysRunning ?? 0) - (a.basedOn?.daysRunning ?? 0) ||
+        a.family.localeCompare(b.family),
+    );
+  },
+});
+
+/** How long a competitor ad has been running: from the day Meta says it started, else as last counted. */
+const runDays = (x: Doc<"adSwipes">): number | undefined => daysSince(x.startedAt) ?? x.daysRunning;
+
+/** The competitor ad an idea is built around, for the page: who ran it, for how long, and what it offered. */
+async function sourceOf(ctx: QueryCtx, h: Doc<"adHooks">) {
+  const x = h.swipeId ? await ctx.db.get(h.swipeId) : null;
+  return x ? { company: x.company, daysRunning: runDays(x), offer: x.offer } : undefined;
+}
+
+/**
+ * Turns the competitor ads on file into ad ideas, one each: the ad's angle is
+ * the idea, in the ad's own category. An ad with no known start date, or one
+ * Claude read as not about painting, is left out. Each ad is used once: an
+ * idea staff remove is not made again.
+ */
+export const ideasFromResearch = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let made = 0;
+    for (const x of await ctx.db.query("adSwipes").take(1000)) {
+      if (x.hookId || runDays(x) === undefined || (x.quality !== undefined && x.quality < 20)) continue;
+      const seed = hookFromSwipe(x);
+      if (!seed) continue;
+      const hookId = await ctx.db.insert("adHooks", { ...seed, active: true, uses: 0, wins: 0, losses: 0, createdAt: nowIso(), swipeId: x._id });
+      await ctx.db.patch(x._id, { hookId });
+      made++;
+    }
+    return made;
   },
 });
 
@@ -521,7 +564,7 @@ export const saveHook = mutation({
     const textEn = fields.textEn.trim();
     if (textEn.length < 10) fail("INVALID", "Write the hook in English first");
     const scope = fields.scope.trim().toLowerCase();
-    if (!(SCOPES as readonly string[]).includes(scope)) fail("INVALID", `Scope must be one of ${SCOPES.join(", ")}`);
+    if (![...SCOPES, ANY_SCOPE].includes(scope)) fail("INVALID", `Scope must be one of ${[...SCOPES, ANY_SCOPE].join(", ")}`);
     const data = {
       family: fields.family,
       scope,
@@ -1259,7 +1302,17 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
     status: c.status,
     error: c.error,
     script: c.script,
-    hook: hook ? { id: hook._id, family: hook.family, familyLabel: FAMILY_LABELS[hook.family], scope: hook.scope, textEn: hook.textEn } : null,
+    hook: hook
+      ? {
+          id: hook._id,
+          family: hook.family,
+          familyLabel: FAMILY_LABELS[hook.family],
+          scope: hook.scope,
+          textEn: hook.textEn,
+          // The competitor ad this one is built around, when the idea came from the research.
+          basedOn: await sourceOf(ctx, hook),
+        }
+      : null,
     kind: c.kind ?? ("video" as AdKind),
     // How it moves; none on ads from before they were drawn with Remotion.
     style: c.design ? { id: c.design.style, label: AD_STYLE_LABELS[c.design.style] } : undefined,
@@ -1566,14 +1619,37 @@ export const plan = internalQuery({
       const h = await ctx.db.get(c.hookId);
       if (h) liveFamilies.add(h.family);
     }
+    const active = await ctx.db
+      .query("adHooks")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    // Each idea with the competitor ad it is built around, if it has one.
+    const sources = new Map<string, Doc<"adSwipes">>();
+    for (const h of active) {
+      const x = h.swipeId ? await ctx.db.get(h.swipeId) : null;
+      if (x) sources.set(h._id, x);
+    }
     const hooks = pickHooks(
-      await ctx.db
-        .query("adHooks")
-        .withIndex("by_active", (q) => q.eq("active", true))
-        .collect(),
+      active.map((h) => ({ ...h, daysRunning: sources.has(h._id) ? (runDays(sources.get(h._id)!) ?? 0) : undefined })),
       liveFamilies,
       hooksPerWeek,
-    );
+    ).map((h) => {
+      const x = sources.get(h._id);
+      const basedOn: BasedOn | undefined = x
+        ? {
+            company: x.company,
+            daysRunning: h.daysRunning,
+            angle: x.hook,
+            offer: x.offer,
+            creative: x.creative,
+            opening: x.opening,
+            adaptation: x.adaptation,
+            transcript: x.transcript,
+            adCopy: x.adCopy,
+          }
+        : undefined;
+      return { ...h, basedOn };
+    });
     const assets = await ctx.db.query("adAssets").take(500);
     // What the writer is shown for each hook's scope: competitor ads, for tone and shape.
     const swipes = await ctx.db.query("adSwipes").take(1000);
@@ -2040,7 +2116,18 @@ export const weeklyRun = internalAction({
       const checks: Array<{ label: string; ok: boolean; hard: boolean; detail: string }> = await ctx.runQuery(internal.ads.readinessState, {});
       const blocked = checks.find((c) => c.hard && !c.ok);
       if (blocked) throw new Error(`${blocked.label}: ${blocked.detail}`);
-      const { hooks, assets, examples, playbooks, liveCount } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
+      // The competitor ads on file are the ideas: each becomes one, and the longest-running are written first.
+      await ctx.runMutation(internal.ads.ideasFromResearch, {});
+      const { hooks: ranked, assets, examples, playbooks, liveCount } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
+      // One of each kind of angle before a second of any, so a batch isn't the same ad twice.
+      const kinds = new Set<string>();
+      const firsts: typeof ranked = [];
+      const seconds: typeof ranked = [];
+      for (const h of ranked) {
+        (kinds.has(h.family) ? seconds : firsts).push(h);
+        kinds.add(h.family);
+      }
+      const hooks = [...firsts, ...seconds];
       if (liveCount >= cfg.liveTarget)
         throw new Error(`${liveCount} ads are live and the target is ${cfg.liveTarget}. Retire one under Live, or raise the target in Settings.`);
       if (hooks.length === 0) throw new Error("No active hooks. Add or switch on hooks in Ops → Ads → Hooks.");
@@ -2061,7 +2148,17 @@ export const weeklyRun = internalAction({
         }
         try {
           const plan = await writePlan<MotionPlan>(
-            motionPrompt(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? [], town, playbook?.text),
+            motionPrompt(
+              hook,
+              cfg.brand.name,
+              picked.assets,
+              picked.inScope,
+              // The ad it is built around is told in full above; the others are for tone.
+              (examples[hook.scope] ?? []).filter((e: Example) => !(hook.basedOn && e.company === hook.basedOn.company && e.hook === hook.basedOn.angle)),
+              town,
+              playbook?.text,
+              hook.basedOn,
+            ),
             picked.assets,
             "ad",
             (p) => motionPlanProblems(p, picked.assets),

@@ -76,7 +76,7 @@ export interface AdCreative {
   status: 'draft' | 'voiced' | 'rendering' | 'rendered' | 'paused' | 'live' | 'retired' | 'rejected' | 'failed';
   error?: string;
   script: { voice: string; onScreen: string[]; headline: string; primaryText: string };
-  hook: { id: string; family: string; familyLabel: string; scope: string; textEn: string } | null;
+  hook: { id: string; family: string; familyLabel: string; scope: string; textEn: string; basedOn?: BasedOn } | null;
   /** How it moves ("Light-up", "Before / after", "Counter"); none on ads from before. */
   style?: { id: string; label: string };
   /** What an older ad is made of. An image ad has no voice: script.onScreen is its printed headline and support line. */
@@ -133,7 +133,16 @@ export interface AdAsset {
   uses?: number;
   createdAt: string;
 }
+/** The competitor ad an idea is built around: who ran it, for how many days, and what it offered. */
+export interface BasedOn {
+  company: string;
+  daysRunning?: number;
+  offer: string;
+}
+/** "Rodgers Painting's ad, running 160 days". */
+const sourceLine = (b: BasedOn) => `${b.company}'s ad${b.daysRunning !== undefined ? `, running ${b.daysRunning.toLocaleString('en-US')} days` : ''}`;
 export interface AdHook {
+  basedOn?: BasedOn;
   id: string;
   family: string;
   familyLabel: string;
@@ -381,6 +390,11 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
             {first.style ? `${first.style.label} style` : KIND_LABELS[first.kind ?? 'video']} · {group.hook.familyLabel} · {scopeLabel(group.hook.scope)} ·{' '}
           </span>
           {group.hook.textEn}
+          {group.hook.basedOn && (
+            <span className="block text-xs text-emerald-300 mt-0.5">
+              Built around {sourceLine(group.hook.basedOn)}. Their offer: {group.hook.basedOn.offer}
+            </span>
+          )}
         </p>
       )}
       <ul className="grid gap-3 grid-cols-2">
@@ -802,8 +816,9 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-400">
-        The ideas an ad opens with. Monday picks the least-used active hooks, spreading the types of angle so two of a kind don't run at once. Wins
-        and losses come from how each hook's ads did against the batch.
+        The ideas an ad is built on. Every competitor ad in Competitors becomes one, and a batch writes the longest-running ones first, each ad
+        built around the competitor ad it came from. The ones you write yourself come after. Wins and losses come from how each idea's ads did
+        against the batch.
       </p>
       {hooks.length === 0 && (
         <button type="button" className={secondary} onClick={() => act(() => adsAPI.seedHooks(), 'Six painting hooks added.')}>
@@ -829,7 +844,7 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
         </Field>
         <Field label="Room or subject">
           <select value={draft.scope} onChange={set('scope')} className={input}>
-            {SCOPES.map((s) => (
+            {[...SCOPES, 'general'].map((s) => (
               <option key={s} value={s}>
                 {scopeLabel(s)}
               </option>
@@ -860,6 +875,7 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
                 {h.familyLabel} · {scopeLabel(h.scope)} · used {h.uses} · {h.wins} won · {h.losses} lost
               </p>
               <p className={`text-sm ${h.active ? 'text-white' : 'text-gray-500'}`}>{h.textEn}</p>
+              {h.basedOn && <p className="text-xs text-emerald-300">From {sourceLine(h.basedOn)}</p>}
             </div>
             <label className="text-xs text-gray-300 inline-flex items-center gap-1">
               <input

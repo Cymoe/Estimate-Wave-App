@@ -2496,6 +2496,8 @@ export default defineSchema({
     wins: v.number(),
     losses: v.number(),
     createdAt: v.string(),
+    // The competitor ad this idea is built around (ads.ideasFromResearch); none on one written by hand.
+    swipeId: v.optional(v.id("adSwipes")),
   }).index("by_active", ["active"]),
 
   adBatches: defineTable({
@@ -2626,6 +2628,8 @@ export default defineSchema({
     local: v.optional(v.boolean()),
     tagError: v.optional(v.string()),
     taggedAt: v.optional(v.string()),
+    // The ad idea made from this ad. Kept after that idea is removed, so it isn't made again.
+    hookId: v.optional(v.id("adHooks")),
   })
     .index("by_meta_ad", ["metaAdId"])
     .index("by_scope", ["scope"])
