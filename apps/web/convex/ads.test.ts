@@ -176,6 +176,7 @@ describe("an animated ad's pure parts", () => {
     expect(text).toContain("Never invent counts of jobs, years, reviews or customers.");
     expect(text).toContain("never as a homeowner or customer");
     expect(text).toContain("its final sentence asks the viewer to get a quote");
+    expect(text).toContain("at most 15 words");
     expect(text).not.toContain("None of these photos is tagged");
     expect(motionPrompt(hook, "Webb Leads", [], false)).toContain("None of these photos is tagged cabinets");
   });
@@ -190,6 +191,9 @@ describe("an animated ad's pure parts", () => {
     expect(motionPlanProblems({ ...good, lines: [...good.lines.slice(0, 3), { photo: 2, voice: "Permian Home Quotes matches you with one vetted local painter near you." }] }, loose)).toEqual([
       "the last line doesn't ask for a quote",
     ]);
+    // About twenty seconds of voice, and no line so long the screen sits still.
+    const long = "Get the outside painted before the first freeze, because West Texas sun and hail are hard on paint all year.";
+    expect(motionPlanProblems({ ...good, lines: [{ photo: 1, voice: long }, ...good.lines.slice(1)] }, loose)).toEqual(["60 words of voice (write 40 to 50)", "line 1 is 20 words (at most 15)"]);
     expect(motionPlanProblems({ ...good, primaryText: "Cabinets from $1,200 this month" }, loose)).toEqual(["mentions a price or discount"]);
     expect(motionPlanProblems({ ...good, title: "10-year warranty" }, loose)).toEqual(["mentions a warranty or guarantee"]);
     expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], label: "x".repeat(25) }, ...good.lines.slice(1)] }, loose)).toEqual([

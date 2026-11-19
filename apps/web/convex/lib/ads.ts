@@ -395,6 +395,8 @@ export const AD_STYLE_LABELS: Record<AdStyle, string> = { lightUp: "Light-up", b
 export const TITLE_MAX = 30;
 export const LABEL_MAX = 24;
 export const STAT_LABEL_MAX = 30;
+/** The most words in one spoken line: about six seconds, so the picture never sits still for longer. */
+export const LINE_WORDS_MAX = 15;
 
 /** What the renderer needs beyond the script: the style, the words at the top, and what the style itself shows. */
 export interface Design {
@@ -445,8 +447,8 @@ export function motionPrompt(
     "",
     "Write:",
     `- title: at most 5 words and ${TITLE_MAX} characters.`,
-    "- lines: 3 to 5 spoken lines, one or two sentences each, 45 to 65 words in all. Each names the photo on screen while it is said; a photo may stay up for lines in a row.",
-    "- The first line opens on the hook.",
+    `- lines: 3 to 5 spoken lines, each one short sentence of at most ${LINE_WORDS_MAX} words (the last line may be two), 40 to 50 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
+    "- The first line opens on the hook, in as few words as it takes.",
     `- The last line names ${brand}, and its final sentence asks the viewer to get a quote.`,
     "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
     `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
@@ -494,7 +496,12 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   });
   const spoken = lines.map((l) => l.voice ?? "").join(" ");
   const words = spoken.split(/\s+/).filter(Boolean).length;
-  if (words < 35 || words > 80) out.push(`${words} words of voice (write 45 to 65)`);
+  // About 20 seconds at the voice's pace, and no line so long the screen sits still.
+  if (words < 30 || words > 58) out.push(`${words} words of voice (write 40 to 50)`);
+  lines.forEach((line, i) => {
+    const n = (line.voice ?? "").split(/\s+/).filter(Boolean).length;
+    if (n > LINE_WORDS_MAX) out.push(`line ${i + 1} is ${n} words (at most ${LINE_WORDS_MAX})`);
+  });
   const last = lines[lines.length - 1]?.voice ?? "";
   // The word itself, so a brand with "Quotes" in its name doesn't pass for the ask.
   if (lines.length > 0 && !/\bquote\b/i.test(last)) out.push("the last line doesn't ask for a quote");
