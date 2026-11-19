@@ -47,6 +47,15 @@ import {
   type Playbook,
   type ScrapedAd,
   type Script,
+  IDEA_WRITERS,
+  IDEAS_SHOWN,
+  criticPrompt,
+  dropNearCopies,
+  ideaPrompt,
+  ideasFrom,
+  pickIdeas,
+  tastePrompt,
+  type IdeaDraft,
 } from "./lib/ads";
 import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
@@ -1286,6 +1295,311 @@ export const saveSettings = mutation({
   },
 });
 
+// ------------------------------------------------------------- Idea cards
+//
+// Before an ad is made, the owner is shown ideas in one line each and keeps
+// or kills them. Four writers with different points of view are each asked on
+// their own; near-copies are dropped in code; one more pass picks the best.
+// Only kept ideas go on to be written, voiced and drawn.
+
+/** How many kept ideas one press of Make turns into ads. The rest stay kept for the next press. */
+const MAKE_AT_ONCE = 6;
+
+/** What the idea writers are told: the competitor ads to build on, the photos to make ads from, and what the owner has gone for before. */
+export const ideaBrief = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const swipes = (await ctx.db.query("adSwipes").take(1000))
+      .filter((x) => x.hook.trim() && runDays(x) !== undefined && !(x.quality !== undefined && x.quality < 20))
+      .sort((a, b) => (runDays(b) ?? 0) - (runDays(a) ?? 0))
+      .slice(0, 14);
+    const photos = (await ctx.db.query("adAssets").take(500)).filter((a) => a.kind === "photo");
+    const tagged = new Map<string, number>();
+    for (const p of photos) for (const t of p.tags) tagged.set(t, (tagged.get(t) ?? 0) + 1);
+    const library = photos.length
+      ? [
+          `${photos.length} photos in all: ${[...tagged].map(([t, n]) => `${n} tagged ${t}`).join(", ") || "none tagged"}.`,
+          ...photos
+            .filter((p) => p.description)
+            .slice(0, 24)
+            .map((p) => `${p.tags.join(", ") || "untagged"}: ${p.description!.replace(/\s+/g, " ").slice(0, 160)}`),
+        ]
+      : [];
+    const recent = (await ctx.db.query("adIdeas").order("desc").take(80)).map((i) => i.line);
+    const taste = (await ctx.db.query("adTaste").order("desc").take(1))[0];
+    return {
+      sources: swipes.map((x, i) => ({ n: i + 1, swipeId: x._id, company: x.company, daysRunning: runDays(x), angle: x.hook, offer: x.offer })),
+      library,
+      recent,
+      houseStyle: taste?.note,
+    };
+  },
+});
+
+/** Staff ask for a fresh set of ideas. */
+export const ideasNow = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireSuperAdmin(ctx);
+    if (!keys().anthropic) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
+    const newest = (await ctx.db.query("adIdeaRounds").order("desc").take(1))[0];
+    if (newest && newest.status === "writing" && Date.now() - new Date(newest.startedAt).getTime() < 10 * 60_000)
+      fail("INVALID", "Ideas are already being written; they show here in a minute");
+    await startIdeas(ctx, user._id);
+  },
+});
+
+async function startIdeas(ctx: MutationCtx, startedBy?: Id<"users">) {
+  const roundId = await ctx.db.insert("adIdeaRounds", { startedAt: nowIso(), status: "writing", startedBy });
+  await ctx.scheduler.runAfter(0, internal.ads.proposeIdeas, { roundId });
+}
+
+/** The same ask from outside the app (the deploy workflow), for a first set before anyone opens the page. */
+export const openIdeas = internalMutation({ args: {}, handler: async (ctx) => await startIdeas(ctx) });
+
+const ideaRow = v.object({
+  line: v.string(),
+  opening: v.string(),
+  family,
+  scope: v.string(),
+  swipeId: v.optional(v.id("adSwipes")),
+  writer: v.string(),
+});
+
+export const saveIdeas = internalMutation({
+  args: { roundId: v.id("adIdeaRounds"), ideas: v.array(ideaRow) },
+  handler: async (ctx, { roundId, ideas }) => {
+    const round = await ctx.db.get(roundId);
+    if (!round) return;
+    // Ideas nobody decided on give way to the new set (remembered, so they aren't offered again); kept ones stay until they are made.
+    for (const old of await ctx.db
+      .query("adIdeas")
+      .withIndex("by_status", (q) => q.eq("status", "new"))
+      .take(200))
+      await ctx.db.patch(old._id, { status: "passed" });
+    for (const idea of ideas) await ctx.db.insert("adIdeas", { ...idea, round: round.startedAt, status: "new", createdAt: nowIso() });
+    await ctx.db.patch(roundId, { status: "ready", offered: ideas.length });
+  },
+});
+
+export const failIdeas = internalMutation({
+  args: { roundId: v.id("adIdeaRounds"), error: v.string() },
+  handler: async (ctx, { roundId, error }) => {
+    await ctx.db.patch(roundId, { status: "failed", error: error.slice(0, 400) });
+  },
+});
+
+/** Writes a set of ideas: each writer on its own, near-copies dropped, then the best picked. */
+export const proposeIdeas = internalAction({
+  args: { roundId: v.id("adIdeaRounds") },
+  handler: async (ctx, { roundId }) => {
+    try {
+      // What the last keeps and kills say goes into this set.
+      await ctx.runAction(internal.ads.learnTaste, {}).catch(() => undefined);
+      const cfg = await ctx.runQuery(internal.ads.config, {});
+      const brief = await ctx.runQuery(internal.ads.ideaBrief, {});
+      const town = cfg.researchMarkets[0] ?? "your town";
+      const errors: string[] = [];
+      const perWriter = await Promise.all(
+        IDEA_WRITERS.map(async (writer) => {
+          try {
+            const reply = await claude([{ type: "text", text: ideaPrompt(writer, cfg.brand.name, town, brief.sources, brief.library, brief.houseStyle, brief.recent) }], 1800);
+            return ideasFrom(reply, writer.key, brief.sources);
+          } catch (e) {
+            errors.push(errText(e));
+            return [];
+          }
+        }),
+      );
+      // Taken in turn from each writer, so dropping near-copies doesn't always favour the first.
+      const inTurn: IdeaDraft[] = [];
+      for (let turn = 0; perWriter.some((list) => list.length > turn); turn++) for (const list of perWriter) if (list[turn]) inTurn.push(list[turn]);
+      const distinct = dropNearCopies(inTurn, brief.recent);
+      if (distinct.length === 0) throw new Error(errors[0] ?? "No usable ideas came back. Ask again.");
+      let picks: string | null = null;
+      if (distinct.length > IDEAS_SHOWN)
+        picks = await claude([{ type: "text", text: criticPrompt(distinct, cfg.brand.name, town, IDEAS_SHOWN, brief.houseStyle) }], 300).catch(() => null);
+      const chosen = pickIdeas(distinct, picks, IDEAS_SHOWN);
+      await ctx.runMutation(internal.ads.saveIdeas, {
+        roundId,
+        ideas: chosen.map((i) => ({
+          line: i.line,
+          opening: i.opening,
+          family: i.family,
+          scope: i.scope,
+          writer: i.writer,
+          swipeId: brief.sources.find((s: { n: number }) => s.n === i.from)?.swipeId,
+        })),
+      });
+    } catch (e) {
+      await ctx.runMutation(internal.ads.failIdeas, { roundId, error: errText(e) });
+    }
+  },
+});
+
+/** The idea cards: the ones waiting on a decision and the ones kept, with how the last ask went and what has been learned. */
+export const listIdeas = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    const round = (await ctx.db.query("adIdeaRounds").order("desc").take(1))[0];
+    const rows = [
+      ...(await ctx.db
+        .query("adIdeas")
+        .withIndex("by_status", (q) => q.eq("status", "new"))
+        .take(50)),
+      ...(await ctx.db
+        .query("adIdeas")
+        .withIndex("by_status", (q) => q.eq("status", "kept"))
+        .take(50)),
+    ];
+    const ideas = [];
+    for (const i of rows) {
+      const x = i.swipeId ? await ctx.db.get(i.swipeId) : null;
+      ideas.push({
+        id: i._id,
+        line: i.line,
+        opening: i.opening,
+        familyLabel: FAMILY_LABELS[i.family],
+        scope: i.scope,
+        status: i.status as "new" | "kept",
+        note: i.note,
+        basedOn: x ? { company: x.company, daysRunning: runDays(x), offer: x.offer } : undefined,
+      });
+    }
+    const taste = (await ctx.db.query("adTaste").order("desc").take(1))[0];
+    return {
+      round: round ? { status: round.status, error: round.error, startedAt: round.startedAt } : null,
+      ideas,
+      taste: taste?.note,
+    };
+  },
+});
+
+/** The cards as read from outside the app: how the last ask went and every idea waiting or kept. */
+export const ideasOutside = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const round = (await ctx.db.query("adIdeaRounds").order("desc").take(1))[0];
+    const out = [];
+    for (const status of ["new", "kept"] as const)
+      for (const i of await ctx.db
+        .query("adIdeas")
+        .withIndex("by_status", (q) => q.eq("status", status))
+        .take(50)) {
+        const x = i.swipeId ? await ctx.db.get(i.swipeId) : null;
+        out.push({ status, opening: i.opening, line: i.line, scope: i.scope, family: FAMILY_LABELS[i.family], writer: i.writer, builtOn: x ? `${x.company}, ${runDays(x) ?? "?"} days` : undefined });
+      }
+    return { round: round ? { status: round.status, error: round.error, offered: round.offered } : null, ideas: out };
+  },
+});
+
+/** Keep or kill an idea, or put it back to undecided. */
+export const decideIdea = mutation({
+  args: { id: v.id("adIdeas"), status: v.union(v.literal("kept"), v.literal("killed"), v.literal("new")) },
+  handler: async (ctx, { id, status }) => {
+    await requireSuperAdmin(ctx);
+    const idea = await ctx.db.get(id);
+    if (!idea) fail("NOT_FOUND", "That idea is gone");
+    if (idea.status === "made") fail("INVALID", "That idea has already been made into an ad");
+    if (idea.status === "passed") fail("NOT_FOUND", "That idea has been replaced by a newer set");
+    await ctx.db.patch(id, { status, decidedAt: nowIso(), note: undefined });
+  },
+});
+
+/** Turns the kept ideas into ads: each becomes a hook of its own and goes down the usual path (script, voice, render). */
+export const makeKept = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireSuperAdmin(ctx);
+    const k = keys();
+    if (!k.anthropic || !k.elevenlabs) fail("INVALID", "Set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY on the deployment first");
+    const newest = (await ctx.db.query("adBatches").order("desc").take(1))[0];
+    if (newest && newest.status === "drafting" && Date.now() - new Date(newest.createdAt).getTime() < 30 * 60_000)
+      fail("INVALID", "A batch is already drafting; it shows under This week as each piece finishes");
+    const kept = await ctx.db
+      .query("adIdeas")
+      .withIndex("by_status", (q) => q.eq("status", "kept"))
+      .take(MAKE_AT_ONCE);
+    if (kept.length === 0) fail("INVALID", "Keep at least one idea first");
+    const only: Id<"adHooks">[] = [];
+    for (const idea of kept) {
+      // Off, so Monday's own run never picks it up a second time.
+      const hookId =
+        idea.hookId ??
+        (await ctx.db.insert("adHooks", {
+          family: idea.family,
+          scope: idea.scope,
+          trade: "painting",
+          textEn: idea.line,
+          opening: idea.opening,
+          active: false,
+          uses: 0,
+          wins: 0,
+          losses: 0,
+          createdAt: nowIso(),
+          swipeId: idea.swipeId,
+        }));
+      await ctx.db.patch(idea._id, { status: "made", hookId, note: undefined });
+      only.push(hookId);
+    }
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only });
+    await ctx.scheduler.runAfter(0, internal.ads.learnTaste, {});
+    return kept.length;
+  },
+});
+
+/** An idea whose ad couldn't be made goes back to kept, with the reason on the card. */
+export const ideaNotMade = internalMutation({
+  args: { hookId: v.id("adHooks"), why: v.string() },
+  handler: async (ctx, { hookId, why }) => {
+    const idea = (
+      await ctx.db
+        .query("adIdeas")
+        .withIndex("by_status", (q) => q.eq("status", "made"))
+        .take(500)
+    ).find((i) => i.hookId === hookId);
+    if (idea) await ctx.db.patch(idea._id, { status: "kept", note: why.slice(0, 300) });
+  },
+});
+
+export const tasteInputs = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const lines = async (status: "kept" | "made" | "killed") =>
+      (
+        await ctx.db
+          .query("adIdeas")
+          .withIndex("by_status", (q) => q.eq("status", status))
+          .order("desc")
+          .take(40)
+      ).map((i) => `${i.line} Opens: "${i.opening}"`);
+    const taste = (await ctx.db.query("adTaste").order("desc").take(1))[0];
+    return { kept: [...(await lines("kept")), ...(await lines("made"))].slice(0, 40), killed: await lines("killed"), taste };
+  },
+});
+
+export const saveTaste = internalMutation({
+  args: { note: v.string(), kept: v.number(), killed: v.number() },
+  handler: async (ctx, args) => {
+    const row = (await ctx.db.query("adTaste").order("desc").take(1))[0];
+    const data = { ...args, note: args.note.slice(0, 900), writtenAt: nowIso() };
+    if (row) await ctx.db.patch(row._id, data);
+    else await ctx.db.insert("adTaste", data);
+  },
+});
+
+/** Reads the keeps and kills and writes a short note on the owner's taste, once there is something new to go on. */
+export const learnTaste = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const { kept, killed, taste } = await ctx.runQuery(internal.ads.tasteInputs, {});
+    if (kept.length + killed.length < 3 || (taste && taste.kept === kept.length && taste.killed === killed.length)) return;
+    const note = parseJson<{ note?: string }>(await claude([{ type: "text", text: tastePrompt(kept, killed, taste?.note) }], 400))?.note?.trim();
+    if (note) await ctx.runMutation(internal.ads.saveTaste, { note, kept: kept.length, killed: killed.length });
+  },
+});
+
 // ------------------------------------------------------- Batches and ads
 
 async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<string, Doc<"adHooks">>) {
@@ -1610,8 +1924,9 @@ export const config = internalQuery({
 
 /** What this week can draw on: the eligible hooks in order, and the library with what Claude needs to see each asset. */
 export const plan = internalQuery({
-  args: { hooksPerWeek: v.number() },
-  handler: async (ctx, { hooksPerWeek }) => {
+  // `only`: these hooks, in this order, whether or not they are switched on (the ideas the owner kept).
+  args: { hooksPerWeek: v.number(), only: v.optional(v.array(v.id("adHooks"))) },
+  handler: async (ctx, { hooksPerWeek, only }) => {
     const liveFamilies = new Set<Family>();
     const liveAds = await ctx.db
       .query("adCreatives")
@@ -1621,21 +1936,21 @@ export const plan = internalQuery({
       const h = await ctx.db.get(c.hookId);
       if (h) liveFamilies.add(h.family);
     }
-    const active = await ctx.db
-      .query("adHooks")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .collect();
+    const chosen = only ? (await Promise.all(only.map((id) => ctx.db.get(id)))).filter((h): h is Doc<"adHooks"> => h !== null) : null;
+    const active =
+      chosen ??
+      (await ctx.db
+        .query("adHooks")
+        .withIndex("by_active", (q) => q.eq("active", true))
+        .collect());
     // Each idea with the competitor ad it is built around, if it has one.
     const sources = new Map<string, Doc<"adSwipes">>();
     for (const h of active) {
       const x = h.swipeId ? await ctx.db.get(h.swipeId) : null;
       if (x) sources.set(h._id, x);
     }
-    const hooks = pickHooks(
-      active.map((h) => ({ ...h, daysRunning: sources.has(h._id) ? (runDays(sources.get(h._id)!) ?? 0) : undefined })),
-      liveFamilies,
-      hooksPerWeek,
-    ).map((h) => {
+    const dated = active.map((h) => ({ ...h, daysRunning: sources.has(h._id) ? (runDays(sources.get(h._id)!) ?? 0) : undefined }));
+    const hooks = (chosen ? dated : pickHooks(dated, liveFamilies, hooksPerWeek)).map((h) => {
       const x = sources.get(h._id);
       const basedOn: BasedOn | undefined = x
         ? {
@@ -2131,8 +2446,10 @@ export const weeklyRun = internalAction({
     force: v.optional(v.boolean()),
     // For a one-off run: how many hooks, whatever Settings says.
     hooks: v.optional(v.number()),
+    // The ideas the owner kept, as hooks: make these and nothing else.
+    only: v.optional(v.array(v.id("adHooks"))),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     const batchId = await ctx.runMutation(internal.ads.openBatch, { weekOf: weekOf(new Date()), startedBy });
@@ -2143,8 +2460,8 @@ export const weeklyRun = internalAction({
       const blocked = checks.find((c) => c.hard && !c.ok);
       if (blocked) throw new Error(`${blocked.label}: ${blocked.detail}`);
       // The competitor ads on file are the ideas: each becomes one, and the longest-running are written first.
-      await ctx.runMutation(internal.ads.ideasFromResearch, {});
-      const { hooks: ranked, assets, examples, playbooks, liveCount } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
+      if (!only) await ctx.runMutation(internal.ads.ideasFromResearch, {});
+      const { hooks: ranked, assets, examples, playbooks, liveCount } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100, only });
       // One of each kind of angle before a second of any, so a batch isn't the same ad twice.
       const kinds = new Set<string>();
       const firsts: typeof ranked = [];
@@ -2153,7 +2470,7 @@ export const weeklyRun = internalAction({
         (kinds.has(h.family) ? seconds : firsts).push(h);
         kinds.add(h.family);
       }
-      const hooks = [...firsts, ...seconds];
+      const hooks = only ? ranked : [...firsts, ...seconds];
       if (liveCount >= cfg.liveTarget)
         throw new Error(`${liveCount} ads are live and the target is ${cfg.liveTarget}. Retire one under Live, or raise the target in Settings.`);
       if (hooks.length === 0) throw new Error("No active hooks. Add or switch on hooks in Ops → Ads → Hooks.");
@@ -2164,12 +2481,14 @@ export const weeklyRun = internalAction({
       let made = 0;
       let delay = 0;
       for (const hook of hooks) {
-        if (made >= (hookCount ?? cfg.hooksPerWeek)) break;
+        if (made >= (only ? only.length : (hookCount ?? cfg.hooksPerWeek))) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
         const playbook = playbooks[hook.scope] ?? playbooks.general;
         const picked = pickAssets(photos, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
         if (picked.assets.length === 0) {
-          skipped.push(`${label}: no photo tagged ${hook.scope}, and no process or crew photo left`);
+          const why = `no photo tagged ${hook.scope}, and no process or crew photo left`;
+          skipped.push(`${label}: ${why}`);
+          if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why });
           continue;
         }
         try {
@@ -2201,6 +2520,7 @@ export const weeklyRun = internalAction({
           made += 1;
         } catch (e) {
           skipped.push(`${label}: ${errText(e)}`);
+          if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why: errText(e) });
         }
       }
       await ctx.runMutation(internal.ads.noteSkipped, { batchId, skipped });

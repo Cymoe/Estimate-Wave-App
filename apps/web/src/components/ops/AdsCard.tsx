@@ -4,6 +4,7 @@ import { adsAPI } from '../../lib/api';
 import {
   useAdsBatches,
   useAdsHooks,
+  useAdsIdeas,
   useAdsLibrary,
   useAdsLive,
   useAdsPlaybooks,
@@ -305,31 +306,150 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
 
 type Act = (fn: () => Promise<unknown>, done?: string) => Promise<void>;
 
-/** The batch cards: watch, approve or reject each creative. */
+export interface AdIdea {
+  id: string;
+  /** The idea in one sentence. */
+  line: string;
+  /** The first words the ad would say. */
+  opening: string;
+  familyLabel: string;
+  scope: string;
+  status: 'new' | 'kept';
+  /** Why a kept idea's ad couldn't be made, when one couldn't. */
+  note?: string;
+  basedOn?: BasedOn;
+}
+export interface AdIdeas {
+  round: { status: 'writing' | 'ready' | 'failed'; error?: string; startedAt: string } | null;
+  ideas: AdIdea[];
+  /** What the keeps and kills so far say about the owner's taste. */
+  taste?: string;
+}
+
+/**
+ * Idea cards. Before anything is made, the owner asks for ideas, each one a
+ * line and the words it would open on, and keeps or kills them. Only the
+ * kept ones are turned into ads.
+ */
+const Ideas: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
+  const data = useAdsIdeas<AdIdeas>();
+  if (data === undefined) return null;
+  const fresh = data.ideas.filter((i) => i.status === 'new');
+  const kept = data.ideas.filter((i) => i.status === 'kept');
+  const writing = data.round?.status === 'writing';
+  return (
+    <section className="border border-[#2A2A2A] rounded" aria-label="Ad ideas">
+      <header className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-[#2A2A2A]">
+        <div className="flex-1 min-w-[16rem]">
+          <h3 className="text-sm font-medium text-white">Ad ideas</h3>
+          <p className="text-xs text-gray-400">Start here. Ask for ideas, keep the ones you like and kill the rest. Only the ones you keep get made.</p>
+        </div>
+        {owner && (
+          <button
+            type="button"
+            className={secondary}
+            disabled={writing}
+            onClick={() => act(() => adsAPI.ideasNow(), 'Writing ideas. They show here in about a minute.')}
+          >
+            {fresh.length || kept.length ? 'Get new ideas' : 'Get ad ideas'}
+          </button>
+        )}
+      </header>
+      {writing && (
+        <p role="status" className="px-4 pt-3 text-sm text-gray-300">
+          Writing ideas… about a minute.
+        </p>
+      )}
+      {data.round?.status === 'failed' && <p className="px-4 pt-3 text-sm text-red-300">The last ask didn&apos;t work: {data.round.error}</p>}
+      {fresh.length === 0 && kept.length === 0 && !writing ? (
+        <p className="px-4 py-4 text-sm text-gray-500">No ideas waiting.</p>
+      ) : (
+        <ul className="grid gap-3 p-4 lg:grid-cols-2" aria-label="Ideas to decide">
+          {fresh.map((i) => (
+            <IdeaCard key={i.id} idea={i} owner={owner} act={act} />
+          ))}
+        </ul>
+      )}
+      {kept.length > 0 && (
+        <div className="border-t border-[#2A2A2A] p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h4 className="text-sm text-white flex-1">Kept ({kept.length})</h4>
+            {owner && (
+              <button
+                type="button"
+                className={primary}
+                onClick={() => act(() => adsAPI.makeKept(), 'Making them. Each ad shows below as it is written, voiced and drawn.')}
+              >
+                {kept.length === 1 ? 'Make this ad' : `Make these ${kept.length} ads`}
+              </button>
+            )}
+          </div>
+          <ul className="grid gap-3 lg:grid-cols-2" aria-label="Kept ideas">
+            {kept.map((i) => (
+              <IdeaCard key={i.id} idea={i} owner={owner} act={act} />
+            ))}
+          </ul>
+        </div>
+      )}
+      {data.taste && (
+        <p className="border-t border-[#2A2A2A] px-4 py-3 text-xs text-gray-500">
+          <span className="text-gray-400">What it has learned about your taste:</span> {data.taste}
+        </p>
+      )}
+    </section>
+  );
+};
+
+const IdeaCard: React.FC<{ idea: AdIdea; owner: boolean; act: Act }> = ({ idea, owner, act }) => (
+  <li className={`border rounded p-3 space-y-2 ${idea.status === 'kept' ? 'border-emerald-700/60' : 'border-[#2A2A2A]'}`}>
+    <p className="text-base text-white font-medium">&ldquo;{idea.opening}&rdquo;</p>
+    <p className="text-sm text-gray-300">{idea.line}</p>
+    <p className="flex flex-wrap gap-1.5 items-center">
+      <span className={chip}>{scopeLabel(idea.scope)}</span>
+      <span className={chip}>{idea.familyLabel}</span>
+      {idea.basedOn && <span className="text-xs text-gray-500">From {sourceLine(idea.basedOn)}</span>}
+    </p>
+    {idea.note && <p className="text-xs text-amber-200/80">Couldn&apos;t be made last time: {idea.note}</p>}
+    {owner && (
+      <div className="flex gap-2">
+        {idea.status === 'new' ? (
+          <>
+            <button type="button" className={`${primary} ${tap}`} aria-label={`Keep: ${idea.opening}`} onClick={() => act(() => adsAPI.decideIdea(idea.id, 'kept'))}>
+              Keep
+            </button>
+            <button type="button" className={`${secondary} ${tap}`} aria-label={`Kill: ${idea.opening}`} onClick={() => act(() => adsAPI.decideIdea(idea.id, 'killed'))}>
+              Kill
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className={`${secondary} ${tap}`} aria-label={`Put back: ${idea.opening}`} onClick={() => act(() => adsAPI.decideIdea(idea.id, 'new'))}>
+              Put back
+            </button>
+            <button type="button" className={`${secondary} ${tap}`} aria-label={`Kill: ${idea.opening}`} onClick={() => act(() => adsAPI.decideIdea(idea.id, 'killed'))}>
+              Kill
+            </button>
+          </>
+        )}
+      </div>
+    )}
+  </li>
+);
+
+/** The idea cards, then the batch cards: watch, approve or reject each creative. */
 const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
   const batches = useAdsBatches<AdBatch[]>();
   if (batches === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm text-gray-400 flex-1 min-w-[16rem]">
-          Every Monday the app writes two hooks, voices them, cuts a video per size from the library and creates each one paused in Meta. Approve the
-          ones to run.
-        </p>
-        {owner && (
-          <button
-            type="button"
-            className={secondary}
-            onClick={() => act(() => adsAPI.draftNow(), 'Drafting. The batch shows here as each piece finishes.')}
-          >
-            Draft now
-          </button>
-        )}
-      </div>
+      <Ideas owner={owner} act={act} />
+      <p className="text-sm text-gray-400">
+        Each ad made from an idea you kept shows below in two sizes, and is created paused in Meta once it is drawn. Approve the ones to run.
+      </p>
       {batches.length === 0 ? (
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
           <Film className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-          <p className="text-sm text-gray-400">No batch yet. Fill the Library, check the Hooks and Settings, then Draft now or wait for Monday.</p>
+          <p className="text-sm text-gray-400">No ads yet. Fill the Library, then ask for ideas above and keep the ones you like.</p>
         </div>
       ) : (
         batches.map((b) => (

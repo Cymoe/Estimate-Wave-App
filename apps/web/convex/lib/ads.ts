@@ -444,7 +444,7 @@ export interface Design {
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
-  hook: { textEn: string; family: Family; scope: string },
+  hook: { textEn: string; family: Family; scope: string; opening?: string },
   brand: string,
   photos: Candidate[],
   inScope: boolean,
@@ -507,7 +507,7 @@ export function motionPrompt(
     "Write:",
     `- title: at most 5 words and ${TITLE_MAX} characters.`,
     `- lines: 3 to 5 spoken lines, each one short sentence of at most ${LINE_WORDS_MAX} words (the last line may be two), 40 to 50 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
-    "- The first line opens on the hook, in as few words as it takes.",
+    hook.opening ? `- The first line is the opening the owner chose, or very close to it: "${hook.opening}"` : "- The first line opens on the hook, in as few words as it takes.",
     `- The last line names ${brand}, and its final sentence asks the viewer to get a quote.`,
     "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
     `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
@@ -1148,3 +1148,227 @@ export function isFatigued(stats: { frequency: number; ctr: number; baselineCtr:
 
 /** Meta reports money as a decimal string ("12.34"). */
 export const metaCents = (spend: string | number | undefined): number => Math.round(Number(spend ?? 0) * 100) || 0;
+
+// ------------------------------------------------------------- Idea cards
+//
+// Before anything is made, a few writers each offer ideas in one line, the
+// near-copies are dropped, one more pass picks the best, and a person keeps or
+// kills each. Only kept ideas are written, voiced and drawn.
+
+/** A writer with a point of view. Each is asked on its own, so their ideas don't converge. */
+export const IDEA_WRITERS = [
+  {
+    key: "neighbour",
+    brief:
+      "You think like a homeowner talking over the fence. Plain, specific, a little dry. You open on the small true moment people recognise from having a house painted.",
+  },
+  {
+    key: "editor",
+    brief:
+      "You cut short videos for a living and think in pictures first. Each idea starts from what is seen in the first second and how the photos are cut; the words come second.",
+  },
+  {
+    key: "sceptic",
+    brief:
+      "You start from why a homeowner doesn't call: the mess, strangers in the house, quotes that never come, not knowing who to trust. You say the worry out loud and answer it honestly.",
+  },
+  {
+    key: "contrarian",
+    brief:
+      "You look at what every painter's ad says and go the other way: the angle nobody uses, a question nobody asks, a comparison from outside painting.",
+  },
+] as const;
+
+/** How each of the three idea prompts begins, so a test can tell them apart. */
+export const IDEA_MARK = "You come up with ideas for short video ads";
+export const PICK_MARK = "You are the head of creative";
+export const TASTE_MARK = "An owner has been shown ad ideas";
+
+/** How many ideas each writer is asked for, and how many cards a person is shown. */
+export const IDEAS_EACH = 5;
+export const IDEAS_SHOWN = 8;
+export const IDEA_SCOPES = ["cabinets", "interior", "exterior", ANY_SCOPE] as const;
+const IDEA_LINE_MAX = 170;
+const IDEA_OPENING_MAX = 90;
+
+/** A competitor ad the idea writers may build on. `n` is how they point at it. */
+export interface IdeaSource {
+  n: number;
+  company: string;
+  daysRunning?: number;
+  angle: string;
+  offer: string;
+}
+
+/** One idea as a writer offers it. */
+export interface IdeaDraft {
+  /** The idea in one sentence: what is seen and said. */
+  line: string;
+  /** The first words spoken. */
+  opening: string;
+  family: Family;
+  scope: string;
+  /** The competitor ad it builds on, by its number; none when it is the writer's own. */
+  from?: number;
+  writer: string;
+}
+
+/** What may and may not be promised, the same for every writer and for the pass that picks. */
+const IDEA_RULES = (brand: string, town: string) => [
+  `- The only offer is the true one: ${brand} matches a ${town} homeowner with one vetted local painter, and the quote is free.`,
+  "- No prices, discounts, guarantees, warranties, deadlines, awards, review counts or anything a customer is supposed to have said.",
+  "- No people on camera and nothing that needs filming. An ad is made from the job photos on file, words on screen, a voice, music and simple graphics.",
+  "- A photo of one stage of a job is never passed off as another, and nothing is shown as finished work that isn't.",
+];
+
+/** The brief one writer answers. */
+export function ideaPrompt(
+  writer: { key: string; brief: string },
+  brand: string,
+  town: string,
+  sources: IdeaSource[],
+  library: string[],
+  houseStyle?: string,
+  recent: string[] = [],
+): string {
+  return [
+    `${IDEA_MARK} on Facebook and Instagram for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor.`,
+    writer.brief,
+    "",
+    "Competitor ads that have kept running, longest first. An ad that keeps running is the best sign an idea pays for itself. Build on what makes one work, or leave them and bring your own:",
+    ...(sources.length ? sources.map((s) => `${s.n}. ${s.company}${s.daysRunning ? `, running ${s.daysRunning} days` : ""}. Angle: ${s.angle}. Offer: ${s.offer}`) : ["(none on file)"]),
+    "",
+    "The job photos on file to make ads from:",
+    ...(library.length ? library.map((l) => `- ${l}`) : ["(none described yet)"]),
+    "",
+    ...(houseStyle ? ["What the owner has kept and killed before. Lean towards what they keep:", houseStyle.trim(), ""] : []),
+    ...(recent.length ? ["Already offered. Do not offer these again or anything close to them:", ...recent.map((r) => `- ${r}`), ""] : []),
+    "Rules:",
+    ...IDEA_RULES(brand, town),
+    "",
+    `Give ${IDEAS_EACH} ideas that differ from each other in angle, not five wordings of one. For each also give "usual": from 0 to 1, how likely an ordinary ad writer is to come up with it. At least three must be under 0.3.`,
+    `- line: the idea in one plain sentence of at most 24 words that someone who isn't in marketing can judge at a glance: what is seen and what is said.`,
+    "- opening: the first words spoken, at most 12 words, that would stop a thumb.",
+    `- family: one of ${(Object.keys(FAMILY_LABELS) as Family[]).join(", ")}.`,
+    `- scope: one of ${IDEA_SCOPES.join(", ")} (the kind of job photo it needs; ${ANY_SCOPE} when any will do).`,
+    "- from: the number of the competitor ad it builds on, or 0.",
+    "",
+    "Return only JSON:",
+    '{"ideas":[{"line":"...","opening":"...","family":"objection","scope":"interior","from":0,"usual":0.2}]}',
+  ].join("\n");
+}
+
+/** A writer's reply as ideas, with anything unusable left out. */
+export function ideasFrom(reply: string, writer: string, sources: IdeaSource[]): IdeaDraft[] {
+  const parsed = parseJson<{ ideas?: unknown }>(reply);
+  if (!parsed || !Array.isArray(parsed.ideas)) return [];
+  const families = Object.keys(FAMILY_LABELS) as Family[];
+  const out: IdeaDraft[] = [];
+  for (const raw of parsed.ideas as Array<Record<string, unknown>>) {
+    const line = String(raw?.line ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const opening = String(raw?.opening ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (line.length < 12 || !opening) continue;
+    // A promise the brand can't make is the commonest way an idea goes wrong; it is dropped here rather than argued with.
+    if (/\$\s?\d|\d\s?%|guarantee|warrant|discount|\bcoupon\b|\bfinanc/i.test(`${line} ${opening}`)) continue;
+    const from = Number(raw?.from);
+    out.push({
+      line: line.slice(0, IDEA_LINE_MAX),
+      opening: opening.slice(0, IDEA_OPENING_MAX),
+      family: families.includes(raw?.family as Family) ? (raw.family as Family) : familyOfAngle(line),
+      scope: (IDEA_SCOPES as readonly string[]).includes(String(raw?.scope)) ? String(raw.scope) : ANY_SCOPE,
+      from: sources.some((s) => s.n === from) ? from : undefined,
+      writer,
+    });
+  }
+  return out.slice(0, IDEAS_EACH + 2);
+}
+
+const IDEA_STOP = new Set("a an and are as at be but by for from get has have how in is it its of on one or our so that the their them then this to we what when who why with you your".split(" "));
+const ideaWords = (text: string) =>
+  new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !IDEA_STOP.has(w))
+      .map((w) => w.replace(/(ing|ed|es|s)$/, "")),
+  );
+
+/** How alike two ideas are, 0 to 1: the share of their meaningful words they have in common. */
+export function ideaOverlap(a: string, b: string): number {
+  const x = ideaWords(a);
+  const y = ideaWords(b);
+  if (x.size === 0 || y.size === 0) return 0;
+  let both = 0;
+  for (const w of x) if (y.has(w)) both++;
+  return both / Math.min(x.size, y.size);
+}
+
+/** The ideas with near-copies dropped: the same opening, or mostly the same words, as one already in (or as one offered before). */
+export function dropNearCopies(ideas: IdeaDraft[], before: string[] = []): IdeaDraft[] {
+  const out: IdeaDraft[] = [];
+  for (const idea of ideas) {
+    const text = `${idea.line} ${idea.opening}`;
+    const copy = out.some((o) => ideaOverlap(o.opening, idea.opening) >= 0.8 || ideaOverlap(`${o.line} ${o.opening}`, text) >= 0.6) || before.some((b) => ideaOverlap(b, idea.line) >= 0.7);
+    if (!copy) out.push(idea);
+  }
+  return out;
+}
+
+/** The brief for the one pass that picks. It ranks; it does not rewrite. */
+export function criticPrompt(ideas: IdeaDraft[], brand: string, town: string, want: number, houseStyle?: string): string {
+  return [
+    `${PICK_MARK} for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local painting contractor. Writers have offered the ad ideas below. Pick the ${want} to put in front of the owner.`,
+    "",
+    ...ideas.map((idea, i) => `${i + 1}. ${idea.line} Opens: "${idea.opening}"`),
+    "",
+    "Throw out any idea that breaks a rule:",
+    ...IDEA_RULES(brand, town),
+    "",
+    "Among the rest, prefer an opening that would stop someone scrolling, an idea a viewer hasn't seen from every other painter, and a set that is varied: no two picks with the same angle.",
+    ...(houseStyle ? ["", "What the owner has kept and killed before:", houseStyle.trim()] : []),
+    "",
+    "Return only JSON, the numbers of your picks, best first:",
+    '{"picks":[3,7,1]}',
+  ].join("\n");
+}
+
+/**
+ * The ideas a person is shown: the picks in order, then, if the pass that
+ * picks gave too few or nothing readable, the rest taken in turn from each
+ * writer so no one voice fills the page.
+ */
+export function pickIdeas(ideas: IdeaDraft[], reply: string | null, want: number): IdeaDraft[] {
+  const picks = reply ? parseJson<{ picks?: unknown }>(reply)?.picks : null;
+  const chosen: IdeaDraft[] = [];
+  if (Array.isArray(picks))
+    for (const n of picks) {
+      const idea = ideas[Number(n) - 1];
+      if (idea && !chosen.includes(idea)) chosen.push(idea);
+    }
+  const byWriter = new Map<string, IdeaDraft[]>();
+  for (const idea of ideas) if (!chosen.includes(idea)) byWriter.set(idea.writer, [...(byWriter.get(idea.writer) ?? []), idea]);
+  for (let turn = 0; chosen.length < want && [...byWriter.values()].some((list) => list.length > turn); turn++)
+    for (const list of byWriter.values()) if (list[turn] && chosen.length < want) chosen.push(list[turn]);
+  return chosen.slice(0, want);
+}
+
+/** The brief that turns keeps and kills into a short note on the owner's taste. */
+export function tastePrompt(kept: string[], killed: string[], previous?: string): string {
+  return [
+    `${TASTE_MARK} for a house-painting lead service and kept some and killed others. Write a short note for the writers on this owner's taste.`,
+    "",
+    "Kept:",
+    ...(kept.length ? kept.map((k) => `- ${k}`) : ["(none yet)"]),
+    "",
+    "Killed:",
+    ...(killed.length ? killed.map((k) => `- ${k}`) : ["(none yet)"]),
+    ...(previous ? ["", "The note so far:", previous.trim()] : []),
+    "",
+    'At most 90 words, plain sentences. Say what they go for and what they turn down, from what is common to each pile. Do not guess beyond the evidence; with little to go on, say little. Return only JSON: {"note":"..."}',
+  ].join("\n");
+}

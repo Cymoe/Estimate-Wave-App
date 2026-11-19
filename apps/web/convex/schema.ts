@@ -2498,7 +2498,57 @@ export default defineSchema({
     createdAt: v.string(),
     // The competitor ad this idea is built around (ads.ideasFromResearch); none on one written by hand.
     swipeId: v.optional(v.id("adSwipes")),
+    // On a hook made from an idea card the owner kept: the first words they chose.
+    opening: v.optional(v.string()),
   }).index("by_active", ["active"]),
+
+  // Idea cards. Before anything is made, a few writers each offer ideas in one
+  // line (ads.proposeIdeas); the owner keeps or kills each, and only kept ones
+  // are written, voiced and drawn (ads.makeKept).
+  adIdeas: defineTable({
+    // The ideas offered together: when they were asked for.
+    round: v.string(),
+    line: v.string(),
+    opening: v.string(),
+    family: v.union(
+      v.literal("owner_story"),
+      v.literal("before_after"),
+      v.literal("proof"),
+      v.literal("education"),
+      v.literal("objection"),
+      v.literal("seasonal"),
+    ),
+    scope: v.string(),
+    // The competitor ad it builds on, when it builds on one.
+    swipeId: v.optional(v.id("adSwipes")),
+    // Which writer offered it (lib/ads.ts IDEA_WRITERS).
+    writer: v.string(),
+    // "passed": shown, and still undecided when the next set came. It is remembered so it isn't offered again.
+    status: v.union(v.literal("new"), v.literal("kept"), v.literal("killed"), v.literal("made"), v.literal("passed")),
+    decidedAt: v.optional(v.string()),
+    // The hook it became when it was made.
+    hookId: v.optional(v.id("adHooks")),
+    // Why a kept idea's ad couldn't be made, when one couldn't.
+    note: v.optional(v.string()),
+    createdAt: v.string(),
+  }).index("by_status", ["status"]),
+
+  // One row per ask for ideas, so the page can say they're being written or why they weren't.
+  adIdeaRounds: defineTable({
+    startedAt: v.string(),
+    status: v.union(v.literal("writing"), v.literal("ready"), v.literal("failed")),
+    error: v.optional(v.string()),
+    offered: v.optional(v.number()),
+    startedBy: v.optional(v.id("users")),
+  }),
+
+  // What the keeps and kills say about the owner's taste, in a few sentences (ads.learnTaste). The idea writers read it.
+  adTaste: defineTable({
+    note: v.string(),
+    kept: v.number(),
+    killed: v.number(),
+    writtenAt: v.string(),
+  }),
 
   adBatches: defineTable({
     weekOf: v.string(),

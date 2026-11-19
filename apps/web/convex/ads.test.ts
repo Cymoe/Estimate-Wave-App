@@ -2,8 +2,16 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
+  IDEA_MARK,
+  IDEAS_SHOWN,
+  PICK_MARK,
   PLAYBOOK_MARK,
   TAG_MARK,
+  TASTE_MARK,
+  dropNearCopies,
+  ideaOverlap,
+  ideasFrom,
+  pickIdeas,
   apifyInput,
   composeMotion,
   creativeName,
@@ -893,6 +901,46 @@ const APIFY_HOUSE = [
   },
 ];
 
+/** What each idea writer offers: three of its own, one all four share, and one that promises a price. */
+const WRITER_IDEAS: Record<string, Array<[line: string, opening: string, scope: string, from: number]>> = {
+  "over the fence": [
+    ["The garage full of furniture at breakfast, and the living room put back by supper.", "Where does the couch go?", "interior", 0],
+    ["Blue tape pulled off window trim in one slow strip, close enough to see the edge.", "Watch this edge.", "interior", 0],
+    ["Cabinet doors drying in rows off site while the family still cooks dinner.", "Your kitchen stays open.", "cabinets", 1],
+  ],
+  "cut short videos": [
+    ["Sanding dust in three quick cuts, then one glossy drawer front held still.", "Dust first. Shine after.", "cabinets", 1],
+    ["A sun-faded fence beside fresh siding, the screen split down the middle.", "Left side, right side.", "exterior", 0],
+    ["Every step before a brush is lifted, counted on screen with a photo each.", "Step one isn't paint.", "general", 0],
+  ],
+  "doesn't call": [
+    ["Three painters were phoned and none rang back; here one does, and it says who.", "Nobody called you back?", "general", 0],
+    ["Drop cloths over hardwood and plastic over the piano before any lid opens.", "Strangers near your piano.", "interior", 2],
+    ["How a painter gets checked before a homeowner ever hears the name.", "Who checked this painter?", "general", 0],
+  ],
+  "go the other way": [
+    ["The ad admits most people put painting off for years, and says why that is fine.", "You've put this off. Good.", "general", 0],
+    ["Choosing a painter compared with choosing a babysitter: you ask a neighbour.", "You wouldn't hire a babysitter blind.", "general", 0],
+    ["The cheapest quote and the careful one, told apart by the prep photos alone.", "Spot the careful quote.", "process", 2],
+  ],
+};
+const SHARED_IDEA = ["Paint the cabinets instead of replacing them and keep the kitchen that is there.", "Don't rip them out.", "cabinets", 1] as const;
+const TASTE_NOTE = "Keeps plain openings about mess and trust. Kills anything that sounds clever.";
+
+function ideasOf(prompt: string) {
+  const own = Object.entries(WRITER_IDEAS).find(([mark]) => prompt.includes(mark))?.[1] ?? [];
+  const row = ([line, opening, scope, from]: readonly [string, string, string, number]) => ({ line, opening, scope, from, family: "objection", usual: 0.2 });
+  return [row(SHARED_IDEA), ...own.map(row), { ...row(["A whole house painted for $999 this month only.", "Only $999.", "interior", 0]), usual: 0.9 }];
+}
+
+/** The pass that picks: the two ideas the tests follow first (a cabinets one and the exterior one), then the rest in order. */
+function picksFor(prompt: string) {
+  const numbered = prompt.split("\n").filter((l) => /^\d+\. /.test(l));
+  const at = (text: string) => numbered.findIndex((l) => l.includes(text)) + 1;
+  const first = [at("Cabinet doors drying"), at("sun-faded fence")];
+  return [...first, ...numbered.map((_, i) => i + 1).filter((n) => !first.includes(n))].slice(0, IDEAS_SHOWN);
+}
+
 /** What each outside service answers during a weekly run. */
 function stubServices(calls: Array<{ url: string; body?: string; auth?: string | null }>, opts: StubOpts = {}) {
   vi.stubGlobal(
@@ -907,7 +955,10 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         const retry = content.some((c) => c.text?.startsWith("Your last answer had these problems"));
         const offered = content.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length;
         let reply: unknown;
-        if (prompt.includes(TAG_MARK)) reply = tagReplyFor(prompt);
+        if (prompt.includes(IDEA_MARK)) reply = { ideas: ideasOf(prompt) };
+        else if (prompt.includes(PICK_MARK)) reply = { picks: picksFor(prompt) };
+        else if (prompt.includes(TASTE_MARK)) reply = { note: TASTE_NOTE };
+        else if (prompt.includes(TAG_MARK)) reply = tagReplyFor(prompt);
         else if (prompt.includes(PLAYBOOK_MARK)) reply = PLAYBOOK_REPLY;
         else if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`)) reply = { fits: false, reason: `no ${opts.passOnScope} in these photos` };
         else if (opts.notJson && prompt.includes(`Scope: ${opts.notJson.scope}.`))
@@ -1697,6 +1748,153 @@ describe("the weekly run", () => {
     await t.action(internal.ads.pullInsights, {});
     row = await liveRow();
     expect(row).toMatchObject({ fatigued: true, baselineCtr: 1.5, week: { frequency: 3.1 } });
+  });
+
+  describe("idea cards", () => {
+    const cards = async (owner: Awaited<ReturnType<typeof signUp>>) => await owner.as.query(api.ads.listIdeas, {});
+
+    test("the pure parts: a priced idea is dropped, near-copies go, and the pick decides the order, filled in turn from each writer when it gives too few", () => {
+      const sources = [{ n: 1, company: "Rodgers Painting", angle: "Process", offer: "Free estimate" }];
+      const read = ideasFrom(
+        `Here: ${JSON.stringify({
+          ideas: [
+            { line: "Cabinet doors drying in rows off site while dinner is cooked.", opening: "Your kitchen stays open.", family: "nonsense", scope: "kitchens", from: 1 },
+            { line: "Half off every room this week only, 50% for the first ten.", opening: "Half off.", family: "proof", scope: "interior", from: 0 },
+            { line: "Guaranteed for life or it is repainted.", opening: "A lifetime guarantee.", family: "proof", scope: "interior", from: 9 },
+            { line: "short", opening: "x" },
+          ],
+        })}`,
+        "editor",
+        sources,
+      );
+      // Only the one that promises nothing; its made-up family and scope fall back, and it keeps the ad it builds on.
+      expect(read).toEqual([
+        { line: "Cabinet doors drying in rows off site while dinner is cooked.", opening: "Your kitchen stays open.", family: "proof", scope: "general", from: 1, writer: "editor" },
+      ]);
+      expect(ideasFrom("I'd rather not.", "editor", sources)).toEqual([]);
+
+      expect(ideaOverlap("Cabinet doors drying in rows", "Rows of drying cabinet doors")).toBe(1);
+      expect(ideaOverlap("Cabinet doors drying in rows", "A fence beside fresh siding")).toBe(0);
+      const idea = (line: string, opening: string, writer: string) => ({ line, opening, family: "proof" as const, scope: "general", writer });
+      const offered = [
+        idea("Paint the cabinets instead of replacing them.", "Don't rip them out.", "a"),
+        idea("Keep the cabinets and paint them, don't replace them.", "Do not rip them out!", "b"),
+        idea("Drop cloths over hardwood before any lid opens.", "Strangers near your piano.", "b"),
+        idea("A sun-faded fence beside fresh siding.", "Left side, right side.", "a"),
+        idea("How a painter gets checked first.", "Who checked this painter?", "c"),
+      ];
+      const distinct = dropNearCopies(offered, ["A faded fence beside fresh siding, split down the middle."]);
+      expect(distinct.map((i) => i.opening)).toEqual(["Don't rip them out.", "Strangers near your piano.", "Who checked this painter?"]);
+      // The picks first, in their order; a number that points at nothing is passed over.
+      expect(pickIdeas(distinct, '{"picks":[3,9,1]}', 2).map((i) => i.writer)).toEqual(["c", "a"]);
+      // No readable pick: one from each writer in turn.
+      expect(pickIdeas(distinct, "no idea", 3).map((i) => i.writer)).toEqual(["a", "b", "c"]);
+      expect(pickIdeas(distinct, null, 9).length).toBe(3);
+    });
+
+    test("four writers are asked on their own; the idea they share shows once, the priced one never, and the pick chooses the eight", async () => {
+      const { t, owner, calls, settle } = await ready();
+      stubServices(calls);
+      const member = await signUp(t, "member@tolliver.example");
+      await expect(member.as.query(api.ads.listIdeas, {})).rejects.toThrow();
+      expect(await cards(owner)).toEqual({ round: null, ideas: [], taste: undefined });
+
+      await settle(() => owner.as.mutation(api.ads.ideasNow, {}));
+      const asked = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content[0].text as string);
+      const briefs = asked.filter((p) => p.includes(IDEA_MARK));
+      expect(briefs.length).toBe(4);
+      expect(new Set(briefs.map((p) => p.split("\n")[1])).size).toBe(4);
+      // Each is told the competitor ads, longest-running first, and the photos on file.
+      expect(briefs[0]).toContain("1. Rodgers Painting, running 160 days. Angle: Process + minimal disruption.");
+      expect(briefs[0]).toContain("2. Squeegee Squad, running 90 days.");
+      expect(briefs[0]).toContain("3 photos in all: 2 tagged cabinets");
+      expect(briefs[0]).not.toContain("kept and killed before");
+      // Thirteen distinct ideas came back, so one more pass picks; it sees the shared idea once and no price.
+      const pick = asked.filter((p) => p.includes(PICK_MARK));
+      expect(pick.length).toBe(1);
+      expect(pick[0].match(/Don't rip them out/g)!.length).toBe(1);
+      expect(pick[0]).not.toContain("$999");
+      expect(pick[0].split("\n").filter((l) => /^\d+\. /.test(l)).length).toBe(13);
+
+      const { round, ideas } = await cards(owner);
+      expect(round).toMatchObject({ status: "ready" });
+      expect(ideas.length).toBe(IDEAS_SHOWN);
+      expect(ideas.every((i) => i.status === "new")).toBe(true);
+      expect(ideas.slice(0, 2).map((i) => i.opening)).toEqual(["Your kitchen stays open.", "Left side, right side."]);
+      // From outside the app the same cards read the same way.
+      const outside = await t.query(internal.ads.ideasOutside, {});
+      expect(outside.round).toEqual({ status: "ready", error: undefined, offered: IDEAS_SHOWN });
+      expect(outside.ideas[0]).toMatchObject({ status: "new", opening: "Your kitchen stays open.", builtOn: "Rodgers Painting, 160 days", writer: "neighbour" });
+      // An idea that builds on a competitor's ad says whose, and how long it has run.
+      expect(ideas[0]).toMatchObject({ scope: "cabinets", familyLabel: "Respect for your home", basedOn: { company: "Rodgers Painting", daysRunning: 160 } });
+      expect(ideas[1].basedOn).toBeUndefined();
+
+      // Asked again: what was shown isn't shown twice. The writers here repeat themselves, so only the five that
+      // missed the cut come back. The kept idea stays; the seven nobody decided on give way.
+      await owner.as.mutation(api.ads.decideIdea, { id: ideas[0].id, status: "kept" });
+      await settle(() => owner.as.mutation(api.ads.ideasNow, {}));
+      const again = await cards(owner);
+      expect(again.round).toMatchObject({ status: "ready" });
+      expect(again.ideas.filter((i) => i.status === "kept").map((i) => i.opening)).toEqual(["Your kitchen stays open."]);
+      const fresh = again.ideas.filter((i) => i.status === "new");
+      expect(fresh.length).toBe(5);
+      expect(fresh.some((i) => ideas.some((shown) => shown.line === i.line))).toBe(false);
+      // A third time there is nothing left that hasn't been shown, and the page says so.
+      await settle(() => owner.as.mutation(api.ads.ideasNow, {}));
+      expect((await cards(owner)).round).toMatchObject({ status: "failed", error: "No usable ideas came back. Ask again." });
+      expect((await cards(owner)).ideas.map((i) => i.status)).toEqual(["new", "new", "new", "new", "new", "kept"]);
+      const second = to(calls, "anthropic")
+        .map((c) => JSON.parse(c.body!).messages[0].content[0].text as string)
+        .filter((p) => p.includes(IDEA_MARK))[4];
+      expect(second).toContain("Already offered. Do not offer these again");
+      expect(second).toContain("- Cabinet doors drying in rows off site while the family still cooks dinner.");
+    });
+
+    test("only kept ideas are made, each opening on the words the owner chose; one the photos can't carry goes back with the reason; the keeps and kills become a note the writers read", async () => {
+      const { t, owner, calls, settle, latest } = await ready();
+      stubServices(calls, { passOnScope: "exterior" });
+      await expect(owner.as.mutation(api.ads.makeKept, {})).rejects.toThrow("Keep at least one idea first");
+      await settle(() => owner.as.mutation(api.ads.ideasNow, {}));
+      const { ideas } = await cards(owner);
+      const [cabinets, fence, third] = ideas;
+      await owner.as.mutation(api.ads.decideIdea, { id: cabinets.id, status: "kept" });
+      await owner.as.mutation(api.ads.decideIdea, { id: fence.id, status: "kept" });
+      await owner.as.mutation(api.ads.decideIdea, { id: third.id, status: "killed" });
+      const before = to(calls, "anthropic").length;
+
+      expect(await settle(() => owner.as.mutation(api.ads.makeKept, {}))).toBe(2);
+      const batch = await latest();
+      // The cabinets idea is an ad in both sizes, built around the competitor ad it grew from.
+      expect(states(batch)).toEqual(["9x16 voiced", "4x5 voiced"]);
+      expect(batch.creatives[0].hook).toMatchObject({ textEn: cabinets.line, scope: "cabinets", basedOn: { company: "Rodgers Painting" } });
+      expect(batch.skipped).toEqual([`"${fence.line.slice(0, 50)}…": Claude passed: no exterior in these photos`]);
+      const prompts = to(calls, "anthropic")
+        .slice(before)
+        .map((c) => JSON.parse(c.body!).messages[0].content[0].text as string);
+      const written = prompts.find((p) => p.includes(`Hook: ${cabinets.line}`))!;
+      expect(written).toContain('- The first line is the opening the owner chose, or very close to it: "Your kitchen stays open."');
+      expect(written).toContain("Build this ad around a competitor's ad that has been running for 160 days.");
+      // Nothing else was written: two kept ideas, two briefs, and the hooks Monday draws from are left alone.
+      expect(prompts.filter((p) => p.includes("You write one short animated ad")).length).toBe(2);
+      const hooks = await owner.as.query(api.ads.listHooks, {});
+      expect(hooks.find((h) => h.textEn === cabinets.line)).toMatchObject({ active: false, uses: 1 });
+
+      // The fence idea is back among the kept ones saying why; the made one and the killed one are off the page.
+      const after = await cards(owner);
+      expect(after.ideas.filter((i) => i.status === "kept")).toMatchObject([{ id: fence.id, note: "Claude passed: no exterior in these photos" }]);
+      expect(after.ideas.some((i) => i.id === cabinets.id || i.id === third.id)).toBe(false);
+      await expect(owner.as.mutation(api.ads.decideIdea, { id: cabinets.id, status: "killed" })).rejects.toThrow("already been made");
+
+      // Three decisions are enough to say something about taste; the next writers are told.
+      expect(prompts.filter((p) => p.includes(TASTE_MARK)).length).toBe(1);
+      expect(after.taste).toBe(TASTE_NOTE);
+      const brief = await t.query(internal.ads.ideaBrief, {});
+      expect(brief.houseStyle).toBe(TASTE_NOTE);
+      // With nothing new decided, the note isn't written again.
+      const count = to(calls, "anthropic").length;
+      await settle(() => t.action(internal.ads.learnTaste, {}));
+      expect(to(calls, "anthropic").length).toBe(count);
+    });
   });
 });
 

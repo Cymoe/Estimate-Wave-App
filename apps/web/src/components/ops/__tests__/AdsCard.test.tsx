@@ -3,6 +3,7 @@ import { act } from 'react';
 import {
   AdsCard,
   type AdAsset,
+  type AdIdeas,
   type AdBatch,
   type AdHook,
   type AdSettings,
@@ -14,6 +15,7 @@ import {
 } from '../AdsCard';
 
 let batches: AdBatch[] = [];
+let ideas: AdIdeas | undefined = { round: null, ideas: [] };
 let live: LiveAd[] = [];
 let assets: AdAsset[] = [];
 let hooks: AdHook[] = [];
@@ -26,7 +28,9 @@ let settings: AdSettings | undefined;
 const activate = jest.fn(async () => undefined);
 const reject = jest.fn(async () => undefined);
 const retire = jest.fn(async () => undefined);
-const draftNow = jest.fn(async () => undefined);
+const ideasNow = jest.fn(async () => undefined);
+const decideIdea = jest.fn(async () => undefined);
+const makeKept = jest.fn(async () => 2);
 const seedHooks = jest.fn(async () => 6);
 const saveHook = jest.fn(async () => 'h9');
 const saveSettings = jest.fn(async () => undefined);
@@ -45,7 +49,9 @@ jest.mock('../../../lib/api', () => ({
     activate: (id: string) => activate(id),
     reject: (id: string) => reject(id),
     retire: (id: string) => retire(id),
-    draftNow: () => draftNow(),
+    ideasNow: () => ideasNow(),
+    decideIdea: (...args: unknown[]) => decideIdea(...args),
+    makeKept: () => makeKept(),
     seedHooks: () => seedHooks(),
     saveHook: (args: unknown) => saveHook(args),
     saveSettings: (args: unknown) => saveSettings(args),
@@ -65,6 +71,7 @@ jest.mock('../../../lib/api', () => ({
 }));
 jest.mock('../../../lib/live', () => ({
   useAdsBatches: () => batches,
+  useAdsIdeas: () => ideas,
   useAdsLive: () => live,
   useAdsLibrary: () => assets,
   useAdsHooks: () => hooks,
@@ -172,7 +179,7 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[aria-label="Ready for Monday"]')!.textContent).toContain('Monday will draft.');
   });
 
-  it("shows the week's batch grouped by hook, approves both sizes at once or one at a time, rejects; Draft now is the owner's", async () => {
+  it("shows the week's batch grouped by hook, approves both sizes at once or one at a time, rejects", async () => {
     batches = [
       {
         id: 'b1',
@@ -225,12 +232,79 @@ describe('Ops → Ads', () => {
         .click(),
     );
     expect(reject).toHaveBeenCalledWith('c2');
-    await act(async () => byText('Draft now')!.click());
-    expect(draftNow).toHaveBeenCalled();
+  });
+
+  it('idea cards: the owner asks for ideas, keeps or kills each, and makes only the kept ones; staff only read', async () => {
+    ideas = { round: null, ideas: [] };
+    await render();
+    const panel = () => document.body.querySelector('[aria-label="Ad ideas"]')!;
+    expect(panel().textContent).toContain('No ideas waiting.');
+    await act(async () => byText('Get ad ideas')!.click());
+    await flush();
+    expect(ideasNow).toHaveBeenCalled();
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Writing ideas. They show here in about a minute.');
+
+    document.body.innerHTML = '';
+    ideas = { round: { status: 'writing', startedAt: new Date().toISOString() }, ideas: [] };
+    await render();
+    expect(panel().textContent).toContain('Writing ideas… about a minute.');
+    expect((byText('Get ad ideas') as HTMLButtonElement).disabled).toBe(true);
+
+    document.body.innerHTML = '';
+    ideas = {
+      round: { status: 'ready', startedAt: new Date().toISOString() },
+      taste: 'Keeps plain openings about mess.',
+      ideas: [
+        {
+          id: 'i1',
+          line: 'Cabinet doors drying in rows off site while the family still cooks dinner.',
+          opening: 'Your kitchen stays open.',
+          familyLabel: 'Respect for your home',
+          scope: 'cabinets',
+          status: 'new',
+          basedOn: { company: 'Rodgers Painting', daysRunning: 160, offer: 'Free estimate' },
+        },
+        { id: 'i2', line: 'A sun-faded fence beside fresh siding.', opening: 'Left side, right side.', familyLabel: 'Before / after', scope: 'exterior', status: 'new' },
+        {
+          id: 'i3',
+          line: 'How a painter gets checked first.',
+          opening: 'Who checked this painter?',
+          familyLabel: 'Trust and proof',
+          scope: 'general',
+          status: 'kept',
+          note: 'no photo tagged exterior',
+        },
+      ],
+    };
+    await render();
+    const toDecide = document.body.querySelector('[aria-label="Ideas to decide"]')!.querySelectorAll('li');
+    expect(toDecide.length).toBe(2);
+    expect(toDecide[0].textContent).toContain('“Your kitchen stays open.”');
+    expect(toDecide[0].textContent).toContain('Cabinet doors drying in rows');
+    expect(toDecide[0].textContent).toContain("From Rodgers Painting's ad, running 160 days");
+    await act(async () => (document.body.querySelector('[aria-label="Keep: Your kitchen stays open."]') as HTMLButtonElement).click());
+    expect(decideIdea).toHaveBeenCalledWith('i1', 'kept');
+    await act(async () => (document.body.querySelector('[aria-label="Kill: Left side, right side."]') as HTMLButtonElement).click());
+    expect(decideIdea).toHaveBeenCalledWith('i2', 'killed');
+    // A kept idea can be put back, says why it couldn't be made last time, and is what Make turns into an ad.
+    const kept = document.body.querySelector('[aria-label="Kept ideas"]')!;
+    expect(kept.textContent).toContain("Couldn't be made last time: no photo tagged exterior");
+    await act(async () => (document.body.querySelector('[aria-label="Put back: Who checked this painter?"]') as HTMLButtonElement).click());
+    expect(decideIdea).toHaveBeenCalledWith('i3', 'new');
+    expect(panel().textContent).toContain('Kept (1)');
+    await act(async () => byText('Make this ad')!.click());
+    await flush();
+    expect(makeKept).toHaveBeenCalled();
+    expect(panel().textContent).toContain('What it has learned about your taste: Keeps plain openings about mess.');
+    expect(byText('Get new ideas')).toBeDefined();
 
     document.body.innerHTML = '';
     await render(false);
-    expect(byText('Draft now')).toBeUndefined();
+    expect(byText('Get new ideas')).toBeUndefined();
+    expect(byText('Make this ad')).toBeUndefined();
+    expect(document.body.querySelector('[aria-label="Keep: Your kitchen stays open."]')).toBeNull();
+    expect(panel().textContent).toContain('Your kitchen stays open.');
+    ideas = { round: null, ideas: [] };
   });
 
   it('a rendered creative with no Meta ad cannot be approved', async () => {

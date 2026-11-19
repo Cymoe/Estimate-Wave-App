@@ -85,6 +85,7 @@ export const useDemandSlot = <T>(county: string, jobType: string) => useLive<T>(
 
 // Ads on autopilot (Ops → Ads).
 export const useAdsBatches = <T>(on = true) => useLive<T>(q('ads:batches'), on ? {} : 'skip');
+export const useAdsIdeas = <T>(on = true) => useLive<T>(q('ads:listIdeas'), on ? {} : 'skip');
 export const useAdsLive = <T>(on = true) => useLive<T>(q('ads:live'), on ? {} : 'skip');
 export const useAdsLibrary = <T>(on = true) => useLive<T>(q('ads:listAssets'), on ? {} : 'skip');
 export const useAdsHooks = <T>(on = true) => useLive<T>(q('ads:listHooks'), on ? {} : 'skip');
