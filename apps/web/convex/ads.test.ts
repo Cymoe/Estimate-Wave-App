@@ -1468,12 +1468,19 @@ describe("the weekly run", () => {
   });
 
   test("Claude passes on an idea the photos can't carry: it is passed over with the reason and the next one is drafted", async () => {
-    const { owner, calls, draft } = await ready();
+    const { t, owner, calls, draft } = await ready();
     stubServices(calls, { passOnScope: "cabinets" });
     const batch = await draft();
     expect(batch.creatives.length).toBe(2);
     expect(batch.creatives.every((c) => c.hook!.scope !== "cabinets" && c.status === "voiced")).toBe(true);
     expect(batch.skipped[0]).toBe('"Process + minimal disruption": Claude passed: no cabinets in these photos');
+    // From outside the app: the batch with what it passed over, and each ad with the competitor ad it was built around.
+    const seen = (await t.query(internal.ads.lastBatch, {}))!;
+    expect(seen.skipped).toEqual(batch.skipped);
+    expect(seen.ads.map((a) => [a.ratio, a.status, a.idea, a.builtAround?.company])).toEqual([
+      ["9x16", "voiced", "Cost education", "Squeegee Squad"],
+      ["4x5", "voiced", "Cost education", "Squeegee Squad"],
+    ]);
     // The pair Claude didn't use stays fresh for next week.
     expect(
       (await owner.as.query(api.ads.listAssets, {}))

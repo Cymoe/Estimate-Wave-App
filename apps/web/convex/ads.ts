@@ -1842,38 +1842,62 @@ export const creativeInput = internalQuery({
   },
 });
 
-/**
- * The latest ads with links to their files, to look at a render from outside
- * the app: each ad's finished file, and the footage it was cut from.
- */
+/** One ad as it is looked at from outside the app: its file, its words and voice, what it was drawn from, and the competitor ad it was built around. */
+async function outsideView(ctx: QueryCtx, c: Doc<"adCreatives">) {
+  const hook = await ctx.db.get(c.hookId);
+  return {
+    name: c.name,
+    kind: c.kind ?? "video",
+    style: c.design?.style,
+    ratio: c.ratio,
+    status: c.status,
+    createdAt: c.createdAt,
+    error: c.error,
+    idea: hook?.textEn,
+    builtAround: hook ? await sourceOf(ctx, hook) : undefined,
+    headline: c.script.headline,
+    onScreen: c.script.onScreen,
+    shots: (c.script.shots ?? []).length,
+    file: c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : c.imageStorageId ? await ctx.storage.getUrl(c.imageStorageId) : undefined,
+    voice: c.audioStorageId ? await ctx.storage.getUrl(c.audioStorageId) : undefined,
+    voiceSec: c.audioDurationSec,
+    lines: (c.script.shots ?? []).map((x) => ({ voice: x.voice, onScreen: x.onScreen, start: x.start, end: x.end })),
+    footage: await Promise.all(
+      c.assetIds.map(async (id) => {
+        const a = await ctx.db.get(id);
+        return a ? { fileName: a.fileName, kind: a.kind, tags: a.tags, pairKey: a.pairKey, description: a.description, url: await lookUrl(ctx, a) } : null;
+      }),
+    ),
+  };
+}
+
+/** The latest ads, newest first, to look at a render from outside the app. */
 export const recentCreatives = internalQuery({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit = 12 }) => {
     const rows = await ctx.db.query("adCreatives").order("desc").take(Math.max(1, Math.min(40, limit)));
-    return await Promise.all(
-      rows.map(async (c) => ({
-        name: c.name,
-        kind: c.kind ?? "video",
-        style: c.design?.style,
-        ratio: c.ratio,
-        status: c.status,
-        createdAt: c.createdAt,
-        error: c.error,
-        headline: c.script.headline,
-        onScreen: c.script.onScreen,
-        shots: (c.script.shots ?? []).length,
-        file: c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : c.imageStorageId ? await ctx.storage.getUrl(c.imageStorageId) : undefined,
-        voice: c.audioStorageId ? await ctx.storage.getUrl(c.audioStorageId) : undefined,
-        voiceSec: c.audioDurationSec,
-        lines: (c.script.shots ?? []).map((x) => ({ voice: x.voice, onScreen: x.onScreen, start: x.start, end: x.end })),
-        footage: await Promise.all(
-          c.assetIds.map(async (id) => {
-            const a = await ctx.db.get(id);
-            return a ? { fileName: a.fileName, kind: a.kind, tags: a.tags, pairKey: a.pairKey, description: a.description, url: await lookUrl(ctx, a) } : null;
-          }),
-        ),
-      })),
-    );
+    return await Promise.all(rows.map((c) => outsideView(ctx, c)));
+  },
+});
+
+/** The newest batch from outside the app: how it ended, the ideas it passed over and why, and its ads. */
+export const lastBatch = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const [batch] = await ctx.db.query("adBatches").order("desc").take(1);
+    if (!batch) return null;
+    const rows = await ctx.db
+      .query("adCreatives")
+      .withIndex("by_batch", (q) => q.eq("batchId", batch._id))
+      .collect();
+    return {
+      weekOf: batch.weekOf,
+      status: batch.status,
+      summary: batch.summary,
+      error: batch.error,
+      skipped: batch.skipped ?? [],
+      ads: await Promise.all(rows.map((c) => outsideView(ctx, c))),
+    };
   },
 });
 
