@@ -1772,6 +1772,10 @@ describe("the weekly run", () => {
         { line: "Cabinet doors drying in rows off site while dinner is cooked.", opening: "Your kitchen stays open.", family: "proof", scope: "general", from: 1, writer: "editor" },
       ]);
       expect(ideasFrom("I'd rather not.", "editor", sources)).toEqual([]);
+      // A long line stops at the end of a word.
+      const long = ideasFrom(JSON.stringify({ ideas: [{ line: `${"Photos of the job ".repeat(14)}end`, opening: "Look." }] }), "editor", sources)[0].line;
+      expect(long.length).toBeLessThanOrEqual(221);
+      expect(long.endsWith("Photos of the job…")).toBe(true);
 
       expect(ideaOverlap("Cabinet doors drying in rows", "Rows of drying cabinet doors")).toBe(1);
       expect(ideaOverlap("Cabinet doors drying in rows", "A fence beside fresh siding")).toBe(0);

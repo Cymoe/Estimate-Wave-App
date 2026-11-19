@@ -1188,8 +1188,10 @@ export const TASTE_MARK = "An owner has been shown ad ideas";
 export const IDEAS_EACH = 5;
 export const IDEAS_SHOWN = 8;
 export const IDEA_SCOPES = ["cabinets", "interior", "exterior", ANY_SCOPE] as const;
-const IDEA_LINE_MAX = 170;
+const IDEA_LINE_MAX = 220;
 const IDEA_OPENING_MAX = 90;
+/** Text cut to a length at the end of a word, so a card never stops mid-word. */
+const cutAtWord = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max).replace(/\s+\S*$/, "")}…`);
 
 /** A competitor ad the idea writers may build on. `n` is how they point at it. */
 export interface IdeaSource {
@@ -1253,7 +1255,7 @@ export function ideaPrompt(
     `- scope: one of ${IDEA_SCOPES.join(", ")} (the kind of job photo it needs; ${ANY_SCOPE} when any will do).`,
     "- from: the number of the competitor ad it builds on, or 0.",
     "",
-    "Return only JSON:",
+    "Return only JSON. Start your answer with { and write nothing before or after it: no thinking out loud, no notes.",
     '{"ideas":[{"line":"...","opening":"...","family":"objection","scope":"interior","from":0,"usual":0.2}]}',
   ].join("\n");
 }
@@ -1276,8 +1278,8 @@ export function ideasFrom(reply: string, writer: string, sources: IdeaSource[]):
     if (/\$\s?\d|\d\s?%|guarantee|warrant|discount|\bcoupon\b|\bfinanc/i.test(`${line} ${opening}`)) continue;
     const from = Number(raw?.from);
     out.push({
-      line: line.slice(0, IDEA_LINE_MAX),
-      opening: opening.slice(0, IDEA_OPENING_MAX),
+      line: cutAtWord(line, IDEA_LINE_MAX),
+      opening: cutAtWord(opening, IDEA_OPENING_MAX),
       family: families.includes(raw?.family as Family) ? (raw.family as Family) : familyOfAngle(line),
       scope: (IDEA_SCOPES as readonly string[]).includes(String(raw?.scope)) ? String(raw.scope) : ANY_SCOPE,
       from: sources.some((s) => s.n === from) ? from : undefined,

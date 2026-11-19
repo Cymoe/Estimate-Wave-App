@@ -1417,7 +1417,7 @@ export const proposeIdeas = internalAction({
         let why = "";
         for (let attempt = 0; attempt < 2 && got.length === 0; attempt++) {
           try {
-            const reply = await claudeReply([{ type: "text", text: prompt }], 2500);
+            const reply = await claudeReply([{ type: "text", text: prompt }], SHOT_LIST_TOKENS);
             got = ideasFrom(reply.text, writer.key, brief.sources);
             if (got.length === 0) why = reply.cutOff ? "the answer was cut off" : `nothing usable in the answer, which began "${reply.text.replace(/\s+/g, " ").trim().slice(0, 80)}"`;
           } catch (e) {
