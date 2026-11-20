@@ -239,10 +239,10 @@ const Stickers: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: n
  * with a move and a flash. The headline is big while the first line is said,
  * then each line's label is stuck on the picture.
  */
-export const Reel: React.FC<AdProps & { shots: Shot[]; until: number; flash?: Photo[] }> = ({ shots, photos, lines, headline, brand, ratio, until, flash }) => {
+export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until }) => {
   const { fps } = useVideoConfig();
-  // The opening shows other photos first, so the first thing seen is already moving: ones the ad has to spare, or else two it shows later.
-  const others = flash?.length ? flash.slice(0, 2) : photos.filter((ph, i) => ph.src !== photos[0]?.src && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);
+  // The opening shows two of the ad's other photos first, so the first thing seen is already moving.
+  const others = photos.filter((ph, i) => ph.src !== photos[0]?.src && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);
   const openingSec = others.length * FLASH_SEC;
   const moves = shots.filter((s) => s.opens && s.start > 0).map((s) => s.start);
   return (

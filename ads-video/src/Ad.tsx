@@ -42,12 +42,11 @@ export const Ad: React.FC<AdProps> = (props) => {
         : runsOf(props.photos, props.lines, total);
   // A reel is cut into shots; they run until the ask has covered the frame.
   const reel = style.kind === "reel";
-  // Photos no line uses go to the opening first, two of them, and the rest to the closing look-back.
-  const spare = props.spare ?? [];
-  const shots = reel ? shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats, 0.6, spare.slice(2)) : [];
+  // Photos no line uses are for the closing look-back. The opening shows the ad's own, which were chosen for it: the first frame matters most.
+  const shots = reel ? shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats, 0.6, props.spare ?? []) : [];
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
-      {reel ? <Reel {...props} shots={shots} until={closeAt} flash={spare.slice(0, 2)} /> : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
+      {reel ? <Reel {...props} shots={shots} until={closeAt} /> : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
       {style.kind === "stockMix" ? <StockMix {...props} clip={style.clip} runs={runs} /> : null}
       {style.kind === "chat" || reel ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
       {style.kind === "beforeAfter" ? (

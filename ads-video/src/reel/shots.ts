@@ -78,8 +78,9 @@ export const photosOf = (photos: Photo[], lines: Line[], i: number): Photo[] => 
  * after another, each wide; a line with one is cut wide first, then close,
  * across, and back out. The last line then looks back, quickly: over photos the
  * ad has to spare when it has any, then over ones already shown, ending on the
- * first. A photo labelled as the before is left out of that, so the ad never
- * closes on unfinished work. Nothing is up for long, and nothing is still.
+ * first; a short last line just ends on the first. A photo labelled as the
+ * before is left out of that, so the ad never closes on unfinished work.
+ * Nothing is up for long, and nothing is still.
  *
  * `covered` is how long before `until` the closing card starts to cover the
  * frame. The look-back is fitted into what can still be seen, so its last
@@ -119,7 +120,9 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
     const unseen = unique(spare).filter((ph) => !shown.some((q) => q.src === ph.src) && !unfinished.has(ph.src));
     const pool = [...unseen, ...back.slice(1)];
     const span = seen - from;
-    const room = i === lines.length - 1 && i > 0 && span >= 4.2 ? span * LOOK_BACK_SHARE : 0;
+    // A last line too short to look back over everything still closes on the first photo, so the ad ends on the picture it opened with.
+    const closing = i === lines.length - 1 && i > 0;
+    const room = !closing ? 0 : span >= 4.2 ? span * LOOK_BACK_SHARE : span >= 2.6 && first ? Math.min(GLANCE_MAX_SEC, Math.max(GLANCE_SEC, span * 0.35)) : 0;
     const fit = Math.min(pool.length + (first ? 1 : 0), Math.floor(room / GLANCE_SEC));
     const glances = fit > 0 ? (first ? [...pool.slice(0, fit - 1), first] : pool.slice(0, fit)) : [];
     const each = glances.length ? Math.min(GLANCE_MAX_SEC, room / glances.length) : 0;
