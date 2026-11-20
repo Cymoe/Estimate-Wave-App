@@ -2149,7 +2149,16 @@ const adDesign = v.object({
   stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
   revealOn: v.optional(v.string()),
   frames: v.optional(
-    v.array(v.object({ x: v.optional(v.number()), y: v.optional(v.number()), from: v.optional(v.number()), to: v.optional(v.number()), more: v.optional(v.array(v.id("adAssets"))) })),
+    v.array(
+            v.object({
+              x: v.optional(v.number()),
+              y: v.optional(v.number()),
+              from: v.optional(v.number()),
+              to: v.optional(v.number()),
+              down: v.optional(v.boolean()),
+              more: v.optional(v.array(v.id("adAssets"))),
+            }),
+          ),
   ),
   spare: v.optional(v.array(v.id("adAssets"))),
 });

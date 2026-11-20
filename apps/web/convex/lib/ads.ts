@@ -512,9 +512,10 @@ export interface Design {
   /**
    * In a reel, for each line in order: where on its photo the line is about (x, y), and, when the photo is two
    * pictures side by side, which part of its width to show (from, to). All 0 to 100; x and y are within the part.
+   * `down` says the part is measured down the photo, for two pictures one above the other.
    * `more` is the other photos shown while the line is said, after its own, by asset id.
    */
-  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; more?: string[] }>;
+  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; down?: boolean; more?: string[] }>;
   /** In a reel, photos offered for the ad that no line uses, by asset id: its opening and closing show these before showing one again. */
   spare?: string[];
 }
@@ -580,9 +581,9 @@ export function motionPrompt(
     "How it is drawn:",
     "- Each line after the first may have a label of at most 3 words that is stuck on the picture while the line is said.",
     "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
-    `- A photo may itself be two pictures side by side, such as a before and its after in one image. Then give the line "cut": [from, to], the part of the photo's width to show (for example [0, 50] for the left picture), so a line about the before never shows the after. x and y are then within that part. A photo tagged both before and after is one of these, and always needs a cut.`,
+    `- A photo may itself be two pictures in one, such as a before and its after, side by side or one above the other. Then give the line "cut": [from, to], the part of the photo to show, so a line about the before never shows the after. For two side by side it is measured across ([0, 50] is the left picture). For one above the other add "stacked": true and it is measured down ([0, 50] is the top picture). Where a word such as Before or After is printed on the photo by the join, stop the cut short of it. x and y are then within that part. A photo tagged both before and after is one of these, and always needs a cut.`,
     "- Use as many different photos as honestly fit the hook, each one once where you can, so the picture keeps changing and nothing comes back.",
-    `- Besides its own photo, a line may name up to ${LINE_MORE_MAX} more in "more": other photos that show the same thing the line says. They are shown one after another while the line is said, the line's own photo first. Never put a photo in more that the line's words don't fit. A line with a cut takes no more, and a photo tagged before or after is never one of the more.`,
+    `- Besides its own photo, a line may name up to ${LINE_MORE_MAX} more in "more": other photos that show the same thing the line says. They are shown one after another while the line is said, the line's own photo first. Never put a photo in more that the line's words don't fit. A line with a cut takes no more, and a photo tagged before, or one of a pair, is never one of the more.`,
     "- When two of the photos are one pair, one tagged before and one tagged after, show the before first, and let the words say which is which.",
     "",
     "Write:",
@@ -598,7 +599,7 @@ export function motionPrompt(
     "Return only JSON, one of:",
     `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"more":[4,6],"voice":"spoken line","label":"short label","x":60,"y":55}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
     '{"fits":false,"reason":"why the photos do not fit"}',
-    "Leave out label where a line has none, more where a line shows only its own photo, and cut unless the photo is two pictures side by side.",
+    "Leave out label where a line has none, more where a line shows only its own photo, and cut (and stacked) unless the photo is two pictures in one.",
   ]
     .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
     .join("\n");
@@ -610,7 +611,7 @@ export interface MotionPlan {
   style?: string;
   title?: string;
   /** In a reel a line also says where on its photo it is about (x, y) and, for a photo that is two pictures side by side, which part to show (cut). */
-  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[] }>;
+  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[]; stacked?: boolean }>;
   stats?: Array<{ value?: number; label?: string }>;
   revealOn?: string;
   headline?: string;
@@ -646,7 +647,8 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
         if (more.length > LINE_MORE_MAX) out.push(`line ${i + 1} has ${more.length} more photos (at most ${LINE_MORE_MAX})`);
         if (more.includes(n as number) || new Set(more).size !== more.length) out.push(`line ${i + 1} names a photo twice`);
         if (more.length && Array.isArray(line.cut)) out.push(`line ${i + 1} shows part of a photo, so it takes no more photos`);
-        if (more.some((m) => photos[m - 1].tags.includes("before") || photos[m - 1].tags.includes("after"))) out.push(`line ${i + 1}'s more has a photo tagged before or after`);
+        // Finished work on its own is tagged after and is welcome; a before, or half of a pair, is only shown as what it is.
+        if (more.some((m) => photos[m - 1].tags.includes("before") || photos[m - 1].pairKey)) out.push(`line ${i + 1}'s more has a before, or one of a pair`);
       }
     }
   });
@@ -719,13 +721,13 @@ export function composeMotion(plan: MotionPlan, assetIds: string[], offered: Arr
     const more = part || !Array.isArray(line.more) ? [] : [...new Set(line.more.filter((m) => Number.isInteger(m) && m !== line.photo && assetIds[m - 1]))].slice(0, LINE_MORE_MAX);
     return {
       ...(pct(line.x) && pct(line.y) ? { x: Math.round(line.x), y: Math.round(line.y) } : {}),
-      ...(part ? { from: Math.round(from), to: Math.round(to) } : {}),
+      ...(part ? { from: Math.round(from), to: Math.round(to), ...(line.stacked === true ? { down: true } : {}) } : {}),
       ...(more.length ? { more: more.map((m) => assetIds[m - 1]) } : {}),
     };
   });
-  // Offered and not used by any line; never half of a before/after, which is only shown as the pair it is.
+  // Offered and not used by any line; never a before or half of a pair, which is only shown as what it is.
   const taken = new Set([...shots.map((x) => x.assetId), ...frames.flatMap((f) => f.more ?? [])]);
-  const spare = assetIds.filter((id, i) => !taken.has(id) && offered[i] && !offered[i].pairKey && !offered[i].tags.includes("before") && !offered[i].tags.includes("after")).slice(0, SPARE_MAX);
+  const spare = assetIds.filter((id, i) => !taken.has(id) && offered[i] && !offered[i].pairKey && !offered[i].tags.includes("before")).slice(0, SPARE_MAX);
   return {
     script: {
       voice: shots.map((x) => x.voice).join(" "),
@@ -817,7 +819,7 @@ export function renderProps(input: {
       return {
         src: perLine[i]!.url,
         ...(f.x !== undefined && f.y !== undefined ? { focus: [{ x: f.x, y: f.y }] } : {}),
-        ...(f.from !== undefined && f.to !== undefined ? { crop: { from: f.from, to: f.to } } : {}),
+        ...(f.from !== undefined && f.to !== undefined ? { crop: { from: f.from, to: f.to, ...(f.down ? { down: true } : {}) } } : {}),
       };
     });
     // A photo that has since left the library is passed over; the line still has its own.

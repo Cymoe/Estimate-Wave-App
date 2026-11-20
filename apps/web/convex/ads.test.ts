@@ -423,7 +423,12 @@ describe("an animated ad's pure parts", () => {
     expect(motionPlanProblems(withMore([1]), offered)).toEqual(["line 2 names a photo twice"]);
     expect(motionPlanProblems(withMore([3, 3]), offered)).toEqual(["line 2 names a photo twice"]);
     expect(motionPlanProblems(withMore([2, 3, 6]), offered)).toEqual(["line 2 has 3 more photos (at most 2)"]);
-    expect(motionPlanProblems(withMore([5]), offered)).toEqual(["line 2's more has a photo tagged before or after"]);
+    expect(motionPlanProblems(withMore([5]), offered)).toEqual(["line 2's more has a before, or one of a pair"]);
+    expect(motionPlanProblems(withMore([4]), offered)).toEqual(["line 2's more has a before, or one of a pair"]);
+    // Finished work on its own carries the after tag and is as welcome as any photo, as an extra or to spare.
+    const finished = offered.map((f) => (f.pairKey ? f : { tags: [...f.tags, "after"] }));
+    expect(motionPlanProblems(withMore([3]), finished)).toEqual([]);
+    expect(composeMotion(plan, ids, finished).design.spare).toEqual(["f", "g"]);
     expect(motionPlanProblems(withMore([3], { cut: [0, 50] }), offered)).toEqual(["line 2 shows part of a photo, so it takes no more photos"]);
     // One image that is a before and an after side by side is only ever shown a half at a time.
     const twoInOne = [...offered.slice(0, 2), { tags: ["cabinets", "before", "after"] }];
@@ -443,6 +448,20 @@ describe("an animated ad's pure parts", () => {
     // A line that shows part of a photo keeps to that photo.
     const part = composeMotion({ ...plan, lines: plan.lines.map((l, i) => (i === 0 ? { ...l, cut: [0, 50] } : l)) }, ids, offered);
     expect(part.design.frames![0]).toEqual({ from: 0, to: 50 });
+    // Two pictures one above the other are cut down the photo, not across it, and the renderer is told so.
+    const stacked = composeMotion({ ...plan, lines: plan.lines.map((l, i) => (i === 0 ? { ...l, more: undefined, cut: [50, 100], stacked: true } : l)) }, ids, offered);
+    expect(stacked.design.frames![0]).toEqual({ from: 50, to: 100, down: true });
+    const stackedProps = renderProps({
+      ratio: "9x16",
+      design: stacked.design,
+      script: { ...stacked.script, shots: stacked.script.shots!.map((x, i) => ({ ...x, start: i * 5, end: i * 5 + 4 })) },
+      photos: new Map(ids.map((id) => [id, { url: `https://files.example/${id}.jpg`, tags: [] as string[] }])),
+      audioUrl: "https://files.example/v.mp3",
+      audioSec: 20,
+      brand,
+    }) as { photos: Array<{ crop?: unknown }> };
+    expect(stackedProps.photos[0].crop).toEqual({ from: 50, to: 100, down: true });
+    expect(stackedProps.photos[1].crop).toBeUndefined();
 
     const photos = new Map(ids.map((id) => [id, { url: `https://files.example/${id}.jpg`, tags: [] as string[] }]));
     const timed = { ...script, shots: script.shots!.map((x, i) => ({ ...x, start: i * 5, end: i * 5 + 4 })) };

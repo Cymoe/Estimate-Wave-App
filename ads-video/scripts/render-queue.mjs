@@ -105,16 +105,20 @@ async function evenMusic(file, from = 0) {
 }
 
 /**
- * Cuts a photo down to a part of its width. A photo that is a before and its after side by side is shown one
- * picture at a time, so the cut has to be right: if it can't be made, the ad isn't drawn.
+ * Cuts a photo down to a part of its width, or of its height when the part is measured down. A photo that is a
+ * before and its after in one image, side by side or one above the other, is shown one picture at a time, so the
+ * cut has to be right: if it can't be made, the ad isn't drawn.
  */
 async function cutPhoto(file, size, crop) {
-  const out = file.replace(/(\.[a-z]+)$/i, `-${crop.from}-${crop.to}.jpg`);
-  const width = Math.max(2, Math.round((size.width * (crop.to - crop.from)) / 100));
-  const left = Math.round((size.width * crop.from) / 100);
-  await run("npx", ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-i", file, "-vf", `crop=${width}:${size.height}:${left}:0`, "-q:v", "2", out], { cwd: root });
+  const out = file.replace(/(\.[a-z]+)$/i, `-${crop.down ? "d" : ""}${crop.from}-${crop.to}.jpg`);
+  const share = (crop.to - crop.from) / 100;
+  const width = crop.down ? size.width : Math.max(2, Math.round(size.width * share));
+  const height = crop.down ? Math.max(2, Math.round(size.height * share)) : size.height;
+  const left = crop.down ? 0 : Math.round((size.width * crop.from) / 100);
+  const top = crop.down ? Math.round((size.height * crop.from) / 100) : 0;
+  await run("npx", ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-i", file, "-vf", `crop=${width}:${height}:${left}:${top}`, "-q:v", "2", out], { cwd: root });
   if (!existsSync(out)) throw new Error("a photo couldn't be cut to the part it should show");
-  return { file: out, width };
+  return { file: out, width, height };
 }
 
 /**
@@ -130,7 +134,7 @@ async function localProps(job, serveDir, base) {
   // A photo as a file the page can read, fetched once however many times the ad shows it.
   const local = async (photo) => {
     // The same file shown whole and shown in part are two different pictures.
-    const key = photo.crop ? `${photo.src}#${photo.crop.from}-${photo.crop.to}` : photo.src;
+    const key = photo.crop ? `${photo.src}#${photo.crop.down ? "d" : ""}${photo.crop.from}-${photo.crop.to}` : photo.src;
     if (!seen.has(key)) {
       const bytes = await bytesOf(photo.src, base);
       const size = imageSize(bytes);
@@ -143,7 +147,7 @@ async function localProps(job, serveDir, base) {
       let fetched = { src: file, ...upright };
       if (photo.crop) {
         const cut = await cutPhoto(path.join(serveDir, "public", file), upright, photo.crop);
-        fetched = { src: `${folder}/${path.basename(cut.file)}`, width: cut.width, height: upright.height };
+        fetched = { src: `${folder}/${path.basename(cut.file)}`, width: cut.width, height: cut.height };
       }
       // The same photo with the camera moving, when a clip of it has been made. A clip shows the whole photo, so a part doesn't use it.
       if (photo.motion?.src && !photo.crop) {
