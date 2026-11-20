@@ -1257,6 +1257,25 @@ export const rewritePlaybook = mutation({
   },
 });
 
+/** The last few competitor searches and how each ended, for the deploy workflow to read. */
+export const researchRuns = internalQuery({
+  args: {},
+  handler: async (ctx) => ({
+    apify: keys().apify,
+    runs: (await ctx.db.query("adResearchRuns").order("desc").take(5)).map((r) => ({
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      keywords: r.keywords,
+      scanned: r.scanned,
+      kept: r.kept,
+      added: r.added,
+      junk: r.junk,
+      unreadable: r.unreadable,
+      error: r.error,
+    })),
+  }),
+});
+
 export const listResearchRuns = query({
   args: {},
   handler: async (ctx) => {
