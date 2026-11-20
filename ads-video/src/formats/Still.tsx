@@ -41,8 +41,9 @@ const Split: React.FC<StillProps & { pair: [Photo, Photo] }> = ({ ratio, brand, 
   const tall = ratio === "9x16";
   const W = 1080;
   const H = tall ? 1920 : 1350;
-  const head = tall ? { top: 210, height: 300 } : { top: 0, height: 250 };
-  const foot = tall ? 300 : 150;
+  const head = tall ? { top: 180, height: 290 } : { top: 0, height: 250 };
+  // The tall size leaves its last fifth to the app's own buttons and caption.
+  const foot = tall ? 440 : 150;
   const gap = 10;
   const each = Math.floor((H - head.top - head.height - foot - gap) / 2);
   const size = headline.length <= 24 ? (tall ? 96 : 84) : headline.length <= 36 ? (tall ? 80 : 70) : tall ? 68 : 60;
@@ -68,7 +69,7 @@ const Split: React.FC<StillProps & { pair: [Photo, Photo] }> = ({ ratio, brand, 
           left: 56,
           right: 56,
           top: top + 2 * each + gap,
-          height: tall ? 170 : foot,
+          height: tall ? 150 : foot,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
