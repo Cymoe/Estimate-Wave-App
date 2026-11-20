@@ -2945,8 +2945,26 @@ export const voicePlan = internalAction({
 
 /** One script read by several voices, for the owner to choose between. Each read is stored and its link returned. */
 export const voiceSamples = internalAction({
-  args: { text: v.string(), voiceIds: v.array(v.string()), model: v.optional(v.string()) },
-  handler: async (ctx, { text, voiceIds, model }) => {
+  args: { text: v.string(), voiceIds: v.array(v.string()), model: v.optional(v.string()), lines: v.optional(v.array(v.string())) },
+  handler: async (ctx, { text, voiceIds, model, lines }) => {
+    // With lines: one read by the first voice, timed line by line and word by word, the way an ad is read, for drawing a sample.
+    if (lines?.length) {
+      const say = (m: string) =>
+        fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceIds[0])}/with-timestamps?output_format=mp3_44100_128`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "xi-api-key": process.env.ELEVENLABS_API_KEY! },
+          body: JSON.stringify({ text: lines.join(" "), model_id: m, voice_settings: VOICE_SETTINGS }),
+        });
+      let res = await say(model ?? VOICE_MODELS[0]);
+      if (!res.ok && res.status >= 400 && res.status < 500 && res.status !== 401) res = await say(VOICE_MODELS[1]);
+      const body = await readJson(res, "ElevenLabs");
+      if (!body?.audio_base64) throw new Error("ElevenLabs sent no audio");
+      const bytes = Uint8Array.from(atob(body.audio_base64), (ch) => ch.charCodeAt(0));
+      const id = await ctx.storage.store(new Blob([bytes], { type: "audio/mpeg" }));
+      const alignment = (body.alignment ?? null) as Alignment | null;
+      const timed = shotTimings(lines, alignment, Math.max(8, lines.join(" ").split(/\s+/).length / 2.6));
+      return [{ voiceId: voiceIds[0], url: await ctx.storage.getUrl(id), durationSec: timed.durationSec, shots: timed.shots, words: wordTimings(lines, alignment) }];
+    }
     const out: Array<{ voiceId: string; url?: string | null; error?: string }> = [];
     for (const voiceId of voiceIds.slice(0, 4)) {
       try {
