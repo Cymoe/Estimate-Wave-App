@@ -34,6 +34,8 @@ const GLANCE_SEC = 0.8;
 const GLANCE_MAX_SEC = 1.2;
 /** How much of the last line the look-back may take. */
 const LOOK_BACK_SHARE = 0.6;
+/** The shortest a photo is up when a line shows several, one after another. */
+const TURN_SEC = 0.95;
 
 /** How much of a photo the frame cuts off when the photo fills it, 0 to 1. */
 export function hidden(photo: Shape, frame: Shape): number {
@@ -44,45 +46,60 @@ export function hidden(photo: Shape, frame: Shape): number {
 /** The framings a photo goes through. One the frame cuts a lot off is shown by moving across it; the others start wide. */
 const orderFor = (photo: Photo, frame: Shape): Framing[] => (hidden(photo, frame) > 0.4 ? ["pan", "punch", "pan", "pull"] : ["push", "punch", "pan", "pull"]);
 
-/** A stretch of time cut into shots of about the usual length, a cut moved onto a beat when one is near. */
-function cuts(from: number, to: number, beats: number[]): number[] {
+/**
+ * A stretch of time cut into shots of about the usual length, a cut moved onto a beat when one is near.
+ * `atLeast` asks for that many shots when there is time for them, each no shorter than `shortest`.
+ */
+function cuts(from: number, to: number, beats: number[], atLeast = 1, shortest = SHORTEST): number[] {
   const span = to - from;
-  let count = Math.max(1, Math.round(span / SHOT_SEC));
-  while (count > 1 && span / count < SHORTEST) count--;
+  let count = Math.max(1, Math.round(span / SHOT_SEC), atLeast);
+  while (count > 1 && span / count < shortest) count--;
   const out: number[] = [];
   for (let i = 1; i < count; i++) {
     const even = from + (span * i) / count;
     const last = out[out.length - 1] ?? from;
-    const beat = beats.filter((b) => Math.abs(b - even) <= 0.3 && b - last >= SHORTEST && to - b >= SHORTEST).sort((a, b) => Math.abs(a - even) - Math.abs(b - even))[0];
+    const beat = beats.filter((b) => Math.abs(b - even) <= 0.3 && b - last >= shortest && to - b >= shortest).sort((a, b) => Math.abs(a - even) - Math.abs(b - even))[0];
     out.push(beat ?? even);
   }
   return out;
 }
 
+const unique = (photos: Photo[]) => photos.filter((ph, k) => photos.findIndex((q) => q.src === ph.src) === k);
+
+/** The photos a line is said over, its own first. */
+export const photosOf = (photos: Photo[], lines: Line[], i: number): Photo[] => {
+  const own = lines[i]?.photos?.length ? lines[i].photos! : [photos[Math.min(i, photos.length - 1)]];
+  return unique(own.filter(Boolean));
+};
+
 /**
- * The ad as a list of shots. Each spoken line has its photo, and the time the
- * line is up is cut into a few shots of that photo: wide first, then close,
- * across, and back out. The last line then looks back over the other photos,
- * quickly, ending on the first; a photo labelled as the before is left out of
- * that, so the ad never closes on unfinished work. Nothing is up for long, and
- * nothing is still.
+ * The ad as a list of shots. Each spoken line has its photos, and the time the
+ * line is up is cut into a few shots. A line with several photos shows them one
+ * after another, each wide; a line with one is cut wide first, then close,
+ * across, and back out. The last line then looks back, quickly: over photos the
+ * ad has to spare when it has any, then over ones already shown, ending on the
+ * first. A photo labelled as the before is left out of that, so the ad never
+ * closes on unfinished work. Nothing is up for long, and nothing is still.
  *
  * `covered` is how long before `until` the closing card starts to cover the
  * frame. The look-back is fitted into what can still be seen, so its last
  * photo gets its full time on screen and then stays up under the card.
  */
-export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Shape, beats: number[] = [], covered = 0): Shot[] {
+export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Shape, beats: number[] = [], covered = 0, spare: Photo[] = []): Shot[] {
   const out: Shot[] = [];
   // Photos a line labels as the before.
-  const unfinished = new Set(lines.flatMap((line, i) => (/\bbefore\b/i.test(line.label ?? "") ? [photos[Math.min(i, photos.length - 1)]?.src ?? ""] : [])));
+  const unfinished = new Set(lines.flatMap((line, i) => (/\bbefore\b/i.test(line.label ?? "") ? photosOf(photos, lines, i).map((ph) => ph.src) : [])));
   const count = new Map<string, number>();
   const next = (key: string) => {
     const n = count.get(key) ?? 0;
     count.set(key, n + 1);
     return n;
   };
+  // Every photo a line shows, in the order shown.
+  const shown = unique(lines.flatMap((_, i) => photosOf(photos, lines, i)));
   lines.forEach((line, i) => {
-    const photo = photos[Math.min(i, photos.length - 1)];
+    const set = photosOf(photos, lines, i);
+    const photo = set[0];
     if (!photo) return;
     const from = i === 0 ? 0 : line.start - LEAD;
     const to = i === lines.length - 1 ? until : lines[i + 1].start - LEAD;
@@ -95,22 +112,29 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
       out.push({ photo: of, start: at, end, framing, opens, line: i, turn: next(of.src + framing) });
       at = end;
     };
-    // The other photos, in the order they were shown, the first one last; never one shown as a before.
-    const others = photos.filter((ph, k) => ph.src !== photo.src && !unfinished.has(ph.src) && photos.findIndex((q) => q.src === ph.src) === k);
-    if (others.length > 1) others.push(others.shift() as Photo);
+    // What the last line looks back over: spare photos nobody has seen, then the ones shown, and last of all the first.
+    const mine = new Set(set.map((ph) => ph.src));
+    const back = shown.filter((ph) => !mine.has(ph.src) && !unfinished.has(ph.src));
+    const first = back[0];
+    const unseen = unique(spare).filter((ph) => !shown.some((q) => q.src === ph.src) && !unfinished.has(ph.src));
+    const pool = [...unseen, ...back.slice(1)];
     const span = seen - from;
     const room = i === lines.length - 1 && i > 0 && span >= 4.2 ? span * LOOK_BACK_SHARE : 0;
-    const glances = others.slice(others.length - Math.min(others.length, Math.floor(room / GLANCE_SEC)));
+    const fit = Math.min(pool.length + (first ? 1 : 0), Math.floor(room / GLANCE_SEC));
+    const glances = fit > 0 ? (first ? [...pool.slice(0, fit - 1), first] : pool.slice(0, fit)) : [];
     const each = glances.length ? Math.min(GLANCE_MAX_SEC, room / glances.length) : 0;
     const own = glances.length ? seen - each * glances.length : to;
-    if (photo.motion && fresh) add(photo, own - from - CLIP_SEC < SHORTEST ? own : from + CLIP_SEC, "clip", true);
+    if (set.length === 1 && photo.motion && fresh) add(photo, own - from - CLIP_SEC < SHORTEST ? own : from + CLIP_SEC, "clip", true);
     if (at < own) {
-      const order = orderFor(photo, frame);
-      for (const end of [...cuts(at, own, beats), own]) {
-        const seen = next(photo.src) + (photo.motion ? 1 : 0);
+      const several = set.length > 1;
+      const ends = [...cuts(at, own, beats, several ? set.length : 1, several ? TURN_SEC : SHORTEST), own];
+      ends.forEach((end, k) => {
+        const of = set[k % set.length];
+        const order = orderFor(of, frame);
+        const times = next(of.src) + (of.motion ? 1 : 0);
         // After its first time through, a photo isn't shown wide again.
-        add(photo, end, seen < order.length ? order[seen] : order[1 + ((seen - 1) % (order.length - 1))], fresh && at === from);
-      }
+        add(of, end, times < order.length ? order[times] : order[1 + ((times - 1) % (order.length - 1))], fresh && k === 0);
+      });
     }
     glances.forEach((ph, k) => add(ph, k === glances.length - 1 ? to : at + each, k % 2 === 0 ? "punch" : "pull"));
   });

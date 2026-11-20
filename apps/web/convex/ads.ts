@@ -23,6 +23,7 @@ import {
   motionPrompt,
   parseJson,
   pickAssets,
+  REEL_CANDIDATES,
   pickExamples,
   ANY_SCOPE,
   hookFromSwipe,
@@ -2095,7 +2096,10 @@ const adDesign = v.object({
   title: v.string(),
   stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
   revealOn: v.optional(v.string()),
-  frames: v.optional(v.array(v.object({ x: v.optional(v.number()), y: v.optional(v.number()), from: v.optional(v.number()), to: v.optional(v.number()) }))),
+  frames: v.optional(
+    v.array(v.object({ x: v.optional(v.number()), y: v.optional(v.number()), from: v.optional(v.number()), to: v.optional(v.number()), more: v.optional(v.array(v.id("adAssets"))) })),
+  ),
+  spare: v.optional(v.array(v.id("adAssets"))),
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */
@@ -2107,8 +2111,8 @@ export const addCreatives = internalMutation({
     design: adDesign,
   },
   handler: async (ctx, { batchId, hookId, script, design }) => {
-    // Each file once, in the order it first appears (a photo may stay up for lines in a row).
-    const assetIds = [...new Set((script.shots ?? []).map((s) => s.assetId))];
+    // Each file once, in the order it first appears (a photo may stay up for lines in a row); then a reel's other photos.
+    const assetIds = [...new Set([...(script.shots ?? []).map((s) => s.assetId), ...(design.frames ?? []).flatMap((f) => f.more ?? []), ...(design.spare ?? [])])];
     const now = new Date();
     const ids: Id<"adCreatives">[] = [];
     for (const ratio of ["9x16", "4x5"] as const) {
@@ -2584,7 +2588,7 @@ export const weeklyRun = internalAction({
         if (made >= (only ? only.length : (hookCount ?? cfg.hooksPerWeek))) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
         const playbook = playbooks[hook.scope] ?? playbooks.general;
-        const picked = pickAssets(photos, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
+        const picked = pickAssets(photos, hook.scope, used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
         if (picked.assets.length === 0) {
           const why = `no photo tagged ${hook.scope}, and no process or crew photo left`;
           skipped.push(`${label}: ${why}`);
@@ -2612,9 +2616,12 @@ export const weeklyRun = internalAction({
           const { script, design } = composeMotion(
             plan,
             picked.assets.map((a) => a._id),
+            picked.assets,
           );
+          // What a line shows is this ad's; what it only keeps to spare may still carry another.
           script.shots!.forEach((s) => used.add(s.assetId));
-          const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, { batchId, hookId: hook._id, script: script as never, design });
+          (design.frames ?? []).forEach((f) => (f.more ?? []).forEach((id) => used.add(id)));
+          const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, { batchId, hookId: hook._id, script: script as never, design: design as never });
           // One voice per hook, shared by its two sizes.
           await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
           delay += 1500;

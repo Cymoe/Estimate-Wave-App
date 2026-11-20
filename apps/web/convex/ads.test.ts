@@ -210,7 +210,10 @@ describe("an animated ad's pure parts", () => {
     // A new ad is a reel: the photos fill the frame, each with where to move in on, and a pair is shown before first.
     expect(text).toContain("each photo fills the whole frame and is cut like footage");
     expect(text).toContain('"style":"reel"');
-    expect(text).toContain('"lines":[{"photo":1,"voice":"spoken line","label":"short label","x":60,"y":55}]');
+    expect(text).toContain('"lines":[{"photo":1,"more":[4,6],"voice":"spoken line","label":"short label","x":60,"y":55}]');
+    // A reel shows as many photos as fit, each once where it can: a line may name two more besides its own.
+    expect(text).toContain("Use as many different photos as honestly fit the hook, each one once where you can");
+    expect(text).toContain('a line may name up to 2 more in "more"');
     expect(text).toContain("For each line give x and y");
     // A photo that is a before and an after in one image is shown a half at a time.
     expect(text).toContain('give the line "cut": [from, to]');
@@ -393,6 +396,68 @@ describe("an animated ad's pure parts", () => {
     expect((lit as { sound?: unknown }).sound).toBeUndefined();
     // A photo gone from the library stops the ad rather than drawing a hole.
     expect(() => renderProps({ ...base, design, photos: new Map([["a", photos.get("a")!]]) })).toThrow("A line's photo is missing from the library");
+  });
+
+  test("a reel's line can show more photos than its own, and the ad keeps the ones nobody used to open and close on", () => {
+    const offered = [
+      { tags: ["cabinets"] },
+      { tags: ["cabinets"] },
+      { tags: ["cabinets"] },
+      { tags: ["cabinets", "before"], pairKey: "k1" },
+      { tags: ["cabinets", "after"], pairKey: "k1" },
+      { tags: ["cabinets", "process"] },
+      { tags: ["cabinets"] },
+    ];
+    const ids = ["a", "b", "c", "d", "e", "f", "g"];
+    const base4 = motionPlanFor(2);
+    const plan = {
+      ...base4,
+      style: "reel",
+      lines: [{ ...base4.lines[0], more: [3] }, { ...base4.lines[1] }, { ...base4.lines[2], more: [3, 1] }, { ...base4.lines[3] }],
+    };
+    expect(motionPlanProblems(plan, offered)).toEqual([]);
+    // More has to name photos that were offered, other than the line's own, each once, two at most, and never half of a pair.
+    const withMore = (more: unknown, extra: Record<string, unknown> = {}) => ({ ...plan, lines: plan.lines.map((l, i) => (i === 1 ? { ...l, more, ...extra } : l)) }) as never;
+    expect(motionPlanProblems(withMore([9]), offered)).toEqual(["line 2's more names a photo that isn't there"]);
+    expect(motionPlanProblems(withMore("3"), offered)).toEqual(["line 2's more names a photo that isn't there"]);
+    expect(motionPlanProblems(withMore([1]), offered)).toEqual(["line 2 names a photo twice"]);
+    expect(motionPlanProblems(withMore([3, 3]), offered)).toEqual(["line 2 names a photo twice"]);
+    expect(motionPlanProblems(withMore([2, 3, 6]), offered)).toEqual(["line 2 has 3 more photos (at most 2)"]);
+    expect(motionPlanProblems(withMore([5]), offered)).toEqual(["line 2's more has a photo tagged before or after"]);
+    expect(motionPlanProblems(withMore([3], { cut: [0, 50] }), offered)).toEqual(["line 2 shows part of a photo, so it takes no more photos"]);
+    // An older style doesn't read more at all.
+    expect(motionPlanProblems({ ...withMore([9]), style: "lightUp" } as never, offered)).toEqual([]);
+
+    const { script, design } = composeMotion(plan, ids, offered);
+    // Lines use a, a, b, b; more adds c and a. Left over: d and e (a pair, never spare), f and g.
+    expect(design.frames).toEqual([{ more: ["c"] }, {}, { more: ["c", "a"] }, {}]);
+    expect(design.spare).toEqual(["f", "g"]);
+    // Without knowing what was offered nothing is kept to spare, and an older style keeps neither.
+    expect(composeMotion(plan, ids).design.spare).toBeUndefined();
+    expect(composeMotion({ ...plan, style: "lightUp" }, ids, offered).design).toEqual({ style: "lightUp", title: "Paint them, don't replace" });
+    // A line that shows part of a photo keeps to that photo.
+    const part = composeMotion({ ...plan, lines: plan.lines.map((l, i) => (i === 0 ? { ...l, cut: [0, 50] } : l)) }, ids, offered);
+    expect(part.design.frames![0]).toEqual({ from: 0, to: 50 });
+
+    const photos = new Map(ids.map((id) => [id, { url: `https://files.example/${id}.jpg`, tags: [] as string[] }]));
+    const timed = { ...script, shots: script.shots!.map((x, i) => ({ ...x, start: i * 5, end: i * 5 + 4 })) };
+    const props = renderProps({ ratio: "9x16", design, script: timed, photos, audioUrl: "https://files.example/v.mp3", audioSec: 20, brand }) as {
+      photos: Array<{ src: string }>;
+      lines: Array<{ photos?: Array<{ src: string }> }>;
+      spare?: Array<{ src: string }>;
+    };
+    const names = (list?: Array<{ src: string }>) => list?.map((x) => x.src.slice(-5, -4));
+    // Every line still has its own photo, so an older renderer draws the ad as before.
+    expect(names(props.photos)).toEqual(["a", "a", "b", "b"]);
+    // A line with more carries them all, its own first; a line without carries none.
+    expect(props.lines.map((l) => names(l.photos))).toEqual([["a", "c"], undefined, ["b", "c", "a"], undefined]);
+    expect(names(props.spare)).toEqual(["f", "g"]);
+    // A spare or extra photo that has left the library is passed over; the ad is still drawn.
+    photos.delete("c");
+    photos.delete("g");
+    const fewer = renderProps({ ratio: "9x16", design, script: timed, photos, audioUrl: "https://files.example/v.mp3", audioSec: 20, brand }) as typeof props;
+    expect(fewer.lines.map((l) => names(l.photos))).toEqual([undefined, undefined, ["b", "a"], undefined]);
+    expect(names(fewer.spare)).toEqual(["f"]);
   });
 });
 

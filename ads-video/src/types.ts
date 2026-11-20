@@ -26,6 +26,8 @@ export interface Line {
   label?: string;
   /** When the voice says each word of the line, when it is known. */
   words?: Array<{ text: string; start: number; end: number }>;
+  /** In a reel, the photos shown while this line is said, the line's own first. Without any, the line has the one in `photos`. */
+  photos?: Photo[];
 }
 
 export interface Brand {
@@ -109,6 +111,8 @@ export type AdProps = {
   audioSec: number;
   /** One photo per spoken line; a photo used for lines in a row stays up. */
   photos: Photo[];
+  /** In a reel, photos that fit the ad and that no line uses: the opening and the closing look-back show these before showing one again. */
+  spare?: Photo[];
   sound?: Sound;
 };
 

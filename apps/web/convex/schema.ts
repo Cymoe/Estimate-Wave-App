@@ -2597,7 +2597,12 @@ export default defineSchema({
         stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
         revealOn: v.optional(v.string()),
         // In a reel, for each line: where on its photo it is about, and which part of the photo to show (lib/ads.ts Design).
-        frames: v.optional(v.array(v.object({ x: v.optional(v.number()), y: v.optional(v.number()), from: v.optional(v.number()), to: v.optional(v.number()) }))),
+        // `more`: the other photos shown while the line is said.
+        frames: v.optional(
+          v.array(v.object({ x: v.optional(v.number()), y: v.optional(v.number()), from: v.optional(v.number()), to: v.optional(v.number()), more: v.optional(v.array(v.id("adAssets"))) })),
+        ),
+        // Photos offered for a reel that no line uses, for its opening and closing.
+        spare: v.optional(v.array(v.id("adAssets"))),
         // How the first reel stored where to look, by photo. No longer written or read.
         focus: v.optional(v.array(v.object({ assetId: v.id("adAssets"), points: v.array(v.object({ x: v.number(), y: v.number() })) }))),
       }),

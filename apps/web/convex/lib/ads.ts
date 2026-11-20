@@ -190,6 +190,8 @@ export interface AssetRow {
 }
 
 export const MAX_CANDIDATES = 6;
+/** How many photos a reel is offered: it shows several to a line, so it needs more to choose from. */
+export const REEL_CANDIDATES = 12;
 
 /**
  * The footage Claude chooses shots from for one hook: assets tagged with the
@@ -489,6 +491,10 @@ export const NEW_AD_STYLE: AdStyle = "reel";
 export const REEL_SOUNDS = { move: "sound/whip.wav", land: "sound/switch.wav", ask: "sound/whoosh.wav" } as const;
 /** The narrowest part of a photo that may be shown on its own, as a share of its width out of 100. */
 export const PART_MIN = 20;
+/** The most photos a reel's line may show besides its own. */
+export const LINE_MORE_MAX = 2;
+/** The most unused photos kept for a reel's opening and closing. */
+export const SPARE_MAX = 4;
 
 export const TITLE_MAX = 30;
 export const LABEL_MAX = 24;
@@ -506,8 +512,11 @@ export interface Design {
   /**
    * In a reel, for each line in order: where on its photo the line is about (x, y), and, when the photo is two
    * pictures side by side, which part of its width to show (from, to). All 0 to 100; x and y are within the part.
+   * `more` is the other photos shown while the line is said, after its own, by asset id.
    */
-  frames?: Array<{ x?: number; y?: number; from?: number; to?: number }>;
+  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; more?: string[] }>;
+  /** In a reel, photos offered for the ad that no line uses, by asset id: its opening and closing show these before showing one again. */
+  spare?: string[];
 }
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
@@ -559,7 +568,7 @@ export function motionPrompt(
     `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one vetted local ${trade.contractor}.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
     "",
-    "On screen: each photo fills the whole frame and is cut like footage, wide then close, while its line is said. The title is large while the first line is said, and captions follow the voice word by word. It ends on a Get a quote button. Each attached photo is labelled with its number.",
+    "On screen: each photo fills the whole frame and is cut like footage while its line is said. A line can show up to three photos, one after another. The title is large while the first line is said, and captions follow the voice word by word. It ends on a Get a quote button. Each attached photo is labelled with its number.",
     ...list,
     inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with them.`,
     "",
@@ -572,7 +581,8 @@ export function motionPrompt(
     "- Each line after the first may have a label of at most 3 words that is stuck on the picture while the line is said.",
     "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
     `- A photo may itself be two pictures side by side, such as a before and its after in one image. Then give the line "cut": [from, to], the part of the photo's width to show (for example [0, 50] for the left picture), so a line about the before never shows the after. x and y are then within that part.`,
-    "- Use three or more different photos when that many fit the hook, so the picture keeps changing.",
+    "- Use as many different photos as honestly fit the hook, each one once where you can, so the picture keeps changing and nothing comes back.",
+    `- Besides its own photo, a line may name up to ${LINE_MORE_MAX} more in "more": other photos that show the same thing the line says. They are shown one after another while the line is said, the line's own photo first. Never put a photo in more that the line's words don't fit. A line with a cut takes no more, and a photo tagged before or after is never one of the more.`,
     "- When two of the photos are one pair, one tagged before and one tagged after, show the before first, and let the words say which is which.",
     "",
     "Write:",
@@ -586,9 +596,9 @@ export function motionPrompt(
     "- If these photos can't carry the hook honestly, don't force it.",
     "",
     "Return only JSON, one of:",
-    `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"voice":"spoken line","label":"short label","x":60,"y":55}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
+    `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"more":[4,6],"voice":"spoken line","label":"short label","x":60,"y":55}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
     '{"fits":false,"reason":"why the photos do not fit"}',
-    "Leave out label where a line has none, and cut unless the photo is two pictures side by side.",
+    "Leave out label where a line has none, more where a line shows only its own photo, and cut unless the photo is two pictures side by side.",
   ]
     .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
     .join("\n");
@@ -600,7 +610,7 @@ export interface MotionPlan {
   style?: string;
   title?: string;
   /** In a reel a line also says where on its photo it is about (x, y) and, for a photo that is two pictures side by side, which part to show (cut). */
-  lines?: Array<{ photo?: number; voice?: string; label?: string; x?: number; y?: number; cut?: number[] }>;
+  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[] }>;
   stats?: Array<{ value?: number; label?: string }>;
   revealOn?: string;
   headline?: string;
@@ -624,6 +634,17 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photos.length) out.push(`line ${i + 1} names photo ${n ?? "nothing"}`);
     if (!line.voice?.trim()) out.push(`line ${i + 1} has no voice`);
     if (line.label && line.label.trim().length > LABEL_MAX) out.push(`line ${i + 1}'s label is over ${LABEL_MAX} characters`);
+    // The other photos a reel's line shows: real ones, not its own, not twice, and never half of a before/after.
+    if (style === "reel" && line.more !== undefined) {
+      const more = Array.isArray(line.more) ? line.more : [];
+      if (!Array.isArray(line.more) || more.some((m) => typeof m !== "number" || !Number.isInteger(m) || m < 1 || m > photos.length)) out.push(`line ${i + 1}'s more names a photo that isn't there`);
+      else {
+        if (more.length > LINE_MORE_MAX) out.push(`line ${i + 1} has ${more.length} more photos (at most ${LINE_MORE_MAX})`);
+        if (more.includes(n as number) || new Set(more).size !== more.length) out.push(`line ${i + 1} names a photo twice`);
+        if (more.length && Array.isArray(line.cut)) out.push(`line ${i + 1} shows part of a photo, so it takes no more photos`);
+        if (more.some((m) => photos[m - 1].tags.includes("before") || photos[m - 1].tags.includes("after"))) out.push(`line ${i + 1}'s more has a photo tagged before or after`);
+      }
+    }
   });
   const spoken = lines.map((l) => l.voice ?? "").join(" ");
   const words = spoken.split(/\s+/).filter(Boolean).length;
@@ -673,8 +694,11 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   return out;
 }
 
-/** An animated ad as it is stored: the script (each line a shot, with its photo and its label) and the design the renderer follows. */
-export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: Script; design: Design } {
+/**
+ * An animated ad as it is stored: the script (each line a shot, with its photo and its label) and the design the renderer follows.
+ * `offered` is what each photo is tagged, in the order offered, so a reel can keep the ones no line used for its opening and closing.
+ */
+export function composeMotion(plan: MotionPlan, assetIds: string[], offered: Array<{ tags: string[]; pairKey?: string }> = []): { script: Script; design: Design } {
   const shots = (plan.lines ?? []).map((line) => ({
     assetId: assetIds[(line.photo ?? 1) - 1],
     voice: (line.voice ?? "").trim(),
@@ -686,11 +710,18 @@ export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: S
   const pct = (n: unknown): n is number => typeof n === "number" && n >= 0 && n <= 100;
   const frames = (plan.lines ?? []).map((line) => {
     const [from, to] = Array.isArray(line.cut) ? line.cut : [];
+    const part = pct(from) && pct(to) && to - from >= PART_MIN && to - from < 100;
+    // The line's other photos: ones that were offered, each once, and none beside a part of a photo.
+    const more = part || !Array.isArray(line.more) ? [] : [...new Set(line.more.filter((m) => Number.isInteger(m) && m !== line.photo && assetIds[m - 1]))].slice(0, LINE_MORE_MAX);
     return {
       ...(pct(line.x) && pct(line.y) ? { x: Math.round(line.x), y: Math.round(line.y) } : {}),
-      ...(pct(from) && pct(to) && to - from >= PART_MIN && to - from < 100 ? { from: Math.round(from), to: Math.round(to) } : {}),
+      ...(part ? { from: Math.round(from), to: Math.round(to) } : {}),
+      ...(more.length ? { more: more.map((m) => assetIds[m - 1]) } : {}),
     };
   });
+  // Offered and not used by any line; never half of a before/after, which is only shown as the pair it is.
+  const taken = new Set([...shots.map((x) => x.assetId), ...frames.flatMap((f) => f.more ?? [])]);
+  const spare = assetIds.filter((id, i) => !taken.has(id) && offered[i] && !offered[i].pairKey && !offered[i].tags.includes("before") && !offered[i].tags.includes("after")).slice(0, SPARE_MAX);
   return {
     script: {
       voice: shots.map((x) => x.voice).join(" "),
@@ -705,6 +736,7 @@ export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: S
       ...(style === "counter" ? { stats: (plan.stats ?? []).map((x) => ({ value: x.value ?? 0, label: (x.label ?? "").trim() })) } : {}),
       ...(style === "beforeAfter" && plan.revealOn?.trim() ? { revealOn: plan.revealOn.trim() } : {}),
       ...(style === "reel" && frames.some((f) => Object.keys(f).length) ? { frames } : {}),
+      ...(style === "reel" && spare.length ? { spare } : {}),
     },
   };
 }
@@ -775,23 +807,32 @@ export function renderProps(input: {
     style = { kind: "beforeAfter", ...(design.revealOn ? { crossOn: design.revealOn } : {}), crossAt: lines[turned].start };
   } else if (design.style === "counter") style = { kind: "counter", stats: design.stats ?? [] };
   if (design.style === "reel") {
+    // Each line's photo with where to move in on it, and the part of it to show when it is two pictures in one.
+    const own = shots.map((_, i) => {
+      const f = design.frames?.[i] ?? {};
+      return {
+        src: perLine[i]!.url,
+        ...(f.x !== undefined && f.y !== undefined ? { focus: [{ x: f.x, y: f.y }] } : {}),
+        ...(f.from !== undefined && f.to !== undefined ? { crop: { from: f.from, to: f.to } } : {}),
+      };
+    });
+    // A photo that has since left the library is passed over; the line still has its own.
+    const urls = (ids: string[] = []) => ids.flatMap((id) => (input.photos.get(id) ? [{ src: input.photos.get(id)!.url }] : []));
+    const spare = urls(design.spare);
     return {
       ratio: input.ratio,
       style,
       brand: input.brand,
       headline: design.title,
-      lines,
+      // A line that shows more than its own photo carries them all, its own first.
+      lines: lines.map((line, i) => {
+        const more = urls(design.frames?.[i]?.more);
+        return more.length ? { ...line, photos: [own[i], ...more] } : line;
+      }),
       audio: input.audioUrl,
       audioSec: input.audioSec,
-      // Each line's photo with where to move in on it, and the part of it to show when it is two pictures in one.
-      photos: shots.map((_, i) => {
-        const f = design.frames?.[i] ?? {};
-        return {
-          src: perLine[i]!.url,
-          ...(f.x !== undefined && f.y !== undefined ? { focus: [{ x: f.x, y: f.y }] } : {}),
-          ...(f.from !== undefined && f.to !== undefined ? { crop: { from: f.from, to: f.to } } : {}),
-        };
-      }),
+      photos: own,
+      ...(spare.length ? { spare } : {}),
       sound: {
         ...(input.music
           ? { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}), ...(input.music.beats?.length ? { beats: input.music.beats } : {}) }

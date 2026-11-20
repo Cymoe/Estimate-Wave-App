@@ -127,8 +127,8 @@ async function localProps(job, serveDir, base) {
   const dir = path.join(serveDir, "public", folder);
   await mkdir(dir, { recursive: true });
   const seen = new Map();
-  const photos = [];
-  for (const photo of job.props.photos) {
+  // A photo as a file the page can read, fetched once however many times the ad shows it.
+  const local = async (photo) => {
     // The same file shown whole and shown in part are two different pictures.
     const key = photo.crop ? `${photo.src}#${photo.crop.from}-${photo.crop.to}` : photo.src;
     if (!seen.has(key)) {
@@ -140,22 +140,36 @@ async function localProps(job, serveDir, base) {
       const upright = { width: turned ? size.height : size.width, height: turned ? size.width : size.height };
       const file = `${folder}/p${seen.size}.${size.type === "jpg" ? "jpg" : (size.type ?? "jpg")}`;
       await writeFile(path.join(serveDir, "public", file), bytes);
-      let local = { src: file, ...upright };
+      let fetched = { src: file, ...upright };
       if (photo.crop) {
         const cut = await cutPhoto(path.join(serveDir, "public", file), upright, photo.crop);
-        local = { src: `${folder}/${path.basename(cut.file)}`, width: cut.width, height: upright.height };
+        fetched = { src: `${folder}/${path.basename(cut.file)}`, width: cut.width, height: upright.height };
       }
       // The same photo with the camera moving, when a clip of it has been made. A clip shows the whole photo, so a part doesn't use it.
       if (photo.motion?.src && !photo.crop) {
         const clip = `${folder}/m${seen.size}.mp4`;
         await writeFile(path.join(serveDir, "public", clip), await bytesOf(photo.motion.src, base));
-        local.motion = { src: clip };
+        fetched.motion = { src: clip };
       }
-      seen.set(key, local);
+      seen.set(key, fetched);
     }
     // Where to move in on belongs to the line's photo, so it is kept as the line gave it.
-    photos.push({ ...seen.get(key), ...(photo.focus ? { focus: photo.focus } : {}) });
+    return { ...seen.get(key), ...(photo.focus ? { focus: photo.focus } : {}) };
+  };
+  const photos = [];
+  for (const photo of job.props.photos) photos.push(await local(photo));
+  // A reel's lines may each have photos of their own, and the ad a few to spare.
+  const lines = [];
+  for (const line of job.props.lines ?? []) {
+    if (!line.photos?.length) lines.push(line);
+    else {
+      const own = [];
+      for (const photo of line.photos) own.push(await local(photo));
+      lines.push({ ...line, photos: own });
+    }
   }
+  const spare = [];
+  for (const photo of job.props.spare ?? []) spare.push(await local(photo));
   let audio = "";
   if (job.props.audio) {
     const voice = path.join(serveDir, "public", folder, "voice.mp3");
@@ -170,7 +184,7 @@ async function localProps(job, serveDir, base) {
     const even = await evenMusic(music, sound.musicFrom);
     sound = { ...sound, music: `${folder}/${path.basename(even.file)}`, musicFrom: even.from };
   }
-  return { props: { ...job.props, photos, audio, ...(sound ? { sound } : {}) }, dir };
+  return { props: { ...job.props, photos, lines, ...(spare.length ? { spare } : {}), audio, ...(sound ? { sound } : {}) }, dir };
 }
 
 async function draw(job, serveUrl, base) {

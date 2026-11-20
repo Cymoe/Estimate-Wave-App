@@ -18,8 +18,8 @@ const focusOf = (photo: Photo, turn = 0) => photo.focus?.[turn % (photo.focus.le
 function framed(shot: Shot, p: number, frameW: number, frameH: number) {
   const { photo, framing, turn } = shot;
   const fill = Math.max(frameW / photo.width, frameH / photo.height);
-  // How far in a close shot may go before the photo turns soft.
-  const close = clamp(SHARP / fill, 1.14, 1.7);
+  // How far in a close shot may go before the photo turns soft; closer when the line said what to look at.
+  const close = clamp(SHARP / fill, 1.14, photo.focus?.length ? 1.55 : 1.38);
   // What the frame cuts off, as a share of the photo, side to side and top to bottom.
   const spareX = 1 - frameW / (photo.width * fill);
   const spareY = 1 - frameH / (photo.height * fill);
@@ -239,10 +239,10 @@ const Stickers: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: n
  * with a move and a flash. The headline is big while the first line is said,
  * then each line's label is stuck on the picture.
  */
-export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until }) => {
+export const Reel: React.FC<AdProps & { shots: Shot[]; until: number; flash?: Photo[] }> = ({ shots, photos, lines, headline, brand, ratio, until, flash }) => {
   const { fps } = useVideoConfig();
-  // The opening shows the other photos first, most different last, so the first thing seen is already moving.
-  const others = photos.filter((ph, i) => ph.src !== photos[0]?.src && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);
+  // The opening shows other photos first, so the first thing seen is already moving: ones the ad has to spare, or else two it shows later.
+  const others = flash?.length ? flash.slice(0, 2) : photos.filter((ph, i) => ph.src !== photos[0]?.src && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);
   const openingSec = others.length * FLASH_SEC;
   const moves = shots.filter((s) => s.opens && s.start > 0).map((s) => s.start);
   return (

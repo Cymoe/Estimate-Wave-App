@@ -130,7 +130,32 @@
           "voice": "Walls prepped before any colour.",
           "start": 1.8,
           "end": 3.4,
-          "label": "One painter"
+          "label": "One painter",
+          "photos": [
+            {
+              "src": "room.jpg",
+              "focus": [
+                {
+                  "x": 70,
+                  "y": 40
+                }
+              ]
+            },
+            {
+              "src": "room.jpg",
+              "crop": {
+                "from": 0,
+                "to": 60
+              }
+            },
+            {
+              "src": "room.jpg",
+              "crop": {
+                "from": 40,
+                "to": 100
+              }
+            }
+          ]
         },
         {
           "voice": "Get a quote today.",
@@ -178,7 +203,16 @@
         "move": "sound/whip.wav",
         "land": "sound/switch.wav",
         "ask": "sound/whoosh.wav"
-      }
+      },
+      "spare": [
+        {
+          "src": "room.jpg",
+          "crop": {
+            "from": 20,
+            "to": 80
+          }
+        }
+      ]
     }
   }
 ]
