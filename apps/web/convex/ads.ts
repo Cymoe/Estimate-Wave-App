@@ -51,6 +51,7 @@ import {
   IDEA_WRITERS,
   IDEAS_SHOWN,
   AD_TRADES,
+  DEFAULT_TRADE,
   assetTagsOf,
   describePrompt,
   inTrade,
@@ -837,8 +838,9 @@ export const openResearch = internalMutation({
 
 /** Stores scraped ads: new rows are inserted untagged, known ones (by Meta ad id) get their longevity refreshed. */
 export const addScraped = internalMutation({
-  args: { ads: v.array(v.any()), source: v.string(), markets: v.array(v.string()) },
-  handler: async (ctx, { ads, source, markets }) => {
+  args: { ads: v.array(v.any()), source: v.string(), markets: v.array(v.string()), trade: v.optional(v.string()) },
+  handler: async (ctx, { ads, source, markets, trade: slug }) => {
+    const trade = tradeOf(slug);
     const added: Id<"adSwipes">[] = [];
     for (const raw of ads as ScrapedAd[]) {
       const existing = await ctx.db
@@ -868,8 +870,9 @@ export const addScraped = internalMutation({
       const text = [raw.pageName, raw.title, raw.adCopy, raw.landing].filter(Boolean).join(" ");
       const id = await ctx.db.insert("adSwipes", {
         ...scraped,
+        trade: trade.slug,
         company: raw.pageName,
-        paintingType: "General painting",
+        paintingType: `General ${trade.label.toLowerCase()}`,
         hook: (raw.title || raw.adCopy || raw.pageName).replace(/\s+/g, " ").trim().slice(0, 80),
         offer: "",
         creative: raw.mediaType,
@@ -925,11 +928,14 @@ export const countJunk = internalMutation({
 
 /** The monthly search, or the button (force). One Apify call per keyword, each under the actor's five-minute cap. */
 export const researchRun = internalAction({
-  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()) },
-  handler: async (ctx, { startedBy, force }) => {
+  // `trade`: search for that trade's ads with its own keywords; painting (and the keywords in Settings) when none is given.
+  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()), trade: v.optional(v.string()) },
+  handler: async (ctx, { startedBy, force, trade: slug }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.researchMonthly && !force) return;
-    const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords: cfg.researchKeywords, startedBy });
+    const trade = tradeOf(slug);
+    const keywords = trade.slug === DEFAULT_TRADE ? cfg.researchKeywords : [...trade.keywords];
+    const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords, startedBy });
     const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0 };
     const source = `research ${nowIso().slice(0, 10)}`;
     let delay = 0;
@@ -937,7 +943,7 @@ export const researchRun = internalAction({
       if (!process.env.APIFY_TOKEN || !process.env.ANTHROPIC_API_KEY) throw new Error("Set APIFY_TOKEN and ANTHROPIC_API_KEY on the deployment");
       const actor = process.env.APIFY_ACTOR || DEFAULT_APIFY_ACTOR;
       const seen = new Set<string>();
-      for (const keyword of cfg.researchKeywords) {
+      for (const keyword of keywords) {
         const res = await fetch(
           `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(process.env.APIFY_TOKEN)}`,
           {
@@ -961,7 +967,7 @@ export const researchRun = internalAction({
           counts.kept += 1;
           fresh.push(ad);
         }
-        const ids: Id<"adSwipes">[] = await ctx.runMutation(internal.ads.addScraped, { ads: fresh, source, markets: cfg.researchMarkets });
+        const ids: Id<"adSwipes">[] = await ctx.runMutation(internal.ads.addScraped, { ads: fresh, source, markets: cfg.researchMarkets, trade: trade.slug });
         counts.added += ids.length;
         for (const id of ids) {
           await ctx.scheduler.runAfter(delay, internal.ads.tagSwipe, { id, runId });
@@ -1036,7 +1042,8 @@ export const tagSwipe = internalAction({
     const found = await ctx.runQuery(internal.ads.swipeForTag, { id });
     if (!found) return;
     const { swipe, markets } = found;
-    const prompt = { type: "text", text: tagSwipePrompt({ ...swipe, pageName: swipe.company }, markets) };
+    const trade = tradeOf(swipe.trade);
+    const prompt = { type: "text", text: tagSwipePrompt({ ...swipe, pageName: swipe.company }, markets, trade) };
     const image = swipe.posterUrl ?? swipe.imageUrl;
     let tags: ReturnType<typeof readSwipeTags> = null;
     let error: string | undefined;
@@ -1049,7 +1056,7 @@ export const tagSwipe = internalAction({
         if (!image) throw e;
         reply = await claude([prompt], 700);
       }
-      tags = readSwipeTags(reply);
+      tags = readSwipeTags(reply, trade);
     } catch (e) {
       error = errText(e);
     }
@@ -1104,7 +1111,8 @@ export const playbookInputs = internalQuery({
   handler: async (ctx) => {
     const row = await settingsRow(ctx);
     const { researchMarkets: markets, researchMinDays: minDays } = research(row);
-    const swipes = await ctx.db.query("adSwipes").take(1000);
+    // Playbooks are kept per painting scope; other trades' ads are built straight on their own competitor ads.
+    const swipes = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, DEFAULT_TRADE));
     const libraryTags: Record<string, number> = {};
     for (const a of await ctx.db.query("adAssets").take(500)) for (const t of a.tags) libraryTags[t] = (libraryTags[t] ?? 0) + 1;
     const playbooks = await ctx.db.query("adPlaybooks").take(20);
@@ -1446,6 +1454,14 @@ export const proposeIdeas = internalAction({
       await ctx.runAction(internal.ads.learnTaste, {}).catch(() => undefined);
       const cfg = await ctx.runQuery(internal.ads.config, {});
       const brief = await ctx.runQuery(internal.ads.ideaBrief, { trade: trade.slug });
+      // Every idea is built on a competitor ad that has kept running; with none on file there is nothing to build on.
+      if (brief.sources.length === 0) {
+        await ctx.runMutation(internal.ads.failIdeas, {
+          roundId,
+          error: `No ${trade.label.toLowerCase()} competitor ads on file yet, so there is nothing to build ideas on. Run the competitor search first.`,
+        });
+        return;
+      }
       const town = cfg.researchMarkets[0] ?? "your town";
       // One writer at a time, so four long answers never ask for more at once than the key allows; a writer
       // whose answer errors or can't be read is asked once more. What each gave is kept with the round.
@@ -2063,19 +2079,25 @@ export const plan = internalQuery({
           .withIndex("by_active", (q) => q.eq("active", true))
           .collect()
       ).filter((h) => inTrade(h, trade));
-    // Each idea with the competitor ad it is built around, if it has one.
+    // Each idea with the competitor ad it is built around: its own, or else the best one on file for its kind of job.
+    // Every ad is written from a competitor ad that has kept running, so an idea with none to stand on isn't made.
+    const onFile = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade) && x.hook.trim());
     const sources = new Map<string, Doc<"adSwipes">>();
+    const own = new Set<string>();
     for (const h of active) {
       const x = h.swipeId ? await ctx.db.get(h.swipeId) : null;
-      if (x) sources.set(h._id, x);
+      if (x) own.add(h._id);
+      const best = x ?? pickExamples(onFile, h.scope, 1)[0];
+      if (best) sources.set(h._id, best);
     }
-    const dated = active.map((h) => ({ ...h, daysRunning: sources.has(h._id) ? (runDays(sources.get(h._id)!) ?? 0) : undefined }));
+    // Ideas taken from a competitor ad go first, longest-running first; the others borrow the best one only to be written.
+    const dated = active.map((h) => ({ ...h, daysRunning: own.has(h._id) ? (runDays(sources.get(h._id)!) ?? 0) : undefined }));
     const hooks = (chosen ? dated : pickHooks(dated, liveFamilies, hooksPerWeek)).map((h) => {
       const x = sources.get(h._id);
       const basedOn: BasedOn | undefined = x
         ? {
             company: x.company,
-            daysRunning: h.daysRunning,
+            daysRunning: h.daysRunning ?? runDays(x),
             angle: x.hook,
             offer: x.offer,
             creative: x.creative,
@@ -2653,6 +2675,13 @@ export const weeklyRun = internalAction({
         if (made >= (only ? only.length : (hookCount ?? cfg.hooksPerWeek))) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
         const playbook = playbooks[hook.scope] ?? playbooks.general;
+        // Every ad is written from a competitor ad that has kept running; without one on file there is nothing to build on.
+        if (!hook.basedOn) {
+          const why = `no competitor ad on file for ${trade.label.toLowerCase()} to build it on. Run the competitor search first`;
+          skipped.push(`${label}: ${why}`);
+          if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why });
+          continue;
+        }
         const picked = pickAssets(photos, hook.scope, used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
         if (picked.assets.length === 0) {
           const why = `no photo tagged ${hook.scope}, and no process or crew photo left`;
@@ -2697,7 +2726,7 @@ export const weeklyRun = internalAction({
         }
       }
       await ctx.runMutation(internal.ads.noteSkipped, { batchId, skipped });
-      if (made === 0) throw new Error(`No hook had photos that fit. ${skipped.join(" ")}`);
+      if (made === 0) throw new Error(`No ad could be made. ${skipped.join(" ")}`);
     } catch (e) {
       await ctx.runMutation(internal.ads.failBatch, { batchId, error: errText(e) });
     }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
+  AD_TRADES,
   IDEA_MARK,
   IDEAS_SHOWN,
   PICK_MARK,
@@ -31,6 +32,7 @@ import {
   qualifies,
   readPlaybook,
   readSwipeTags,
+  tagSwipePrompt,
   renderProps,
   swipeScore,
   shotTimings,
@@ -46,10 +48,10 @@ const store = (t: T, type = "image/jpeg", body = "bytes") => t.run((ctx) => ctx.
 
 const GOOD: Script = {
   voice:
-    "Paint them, don't replace them. Professionally painted cabinets change the whole kitchen without a full remodel. Vetted Midland painters prep every door, spray a smooth finish and put the hardware back. Tell us about your kitchen and one local painter calls you with a free quote. Get a quote today.",
-  onScreen: ["Paint, don't replace", "Vetted Midland painters", "Get a quote"],
+    "Paint them, don't replace them. Professionally painted cabinets change the whole kitchen without a full remodel. Midland painters prep every door, spray a smooth finish and put the hardware back. Tell us about your kitchen and one local painter calls you with a free quote. Get a quote today.",
+  onScreen: ["Paint, don't replace", "Local Midland painters", "Get a quote"],
   headline: "Cabinets painted, kitchen transformed",
-  primaryText: "A fresh finish on the cabinets you have. One vetted local painter, one free quote, no pressure.",
+  primaryText: "A fresh finish on the cabinets you have. One local painter, one free quote, no pressure.",
 };
 
 afterEach(() => {
@@ -182,7 +184,7 @@ function motionPlanFor(photoCount: number, over: Record<string, unknown> = {}) {
       { photo: 1, voice: "Thinking about new cabinets? You might not need them at all this year." },
       { photo: 1, voice: "A fresh finish can change the whole kitchen without tearing anything out.", label: "No tear-out" },
       { photo: second, voice: "Every door and frame is cleaned, sanded and primed before the colour goes on.", label: "Prepped first" },
-      { photo: second, voice: "Permian Home Quotes matches you with one vetted local painter. Get a quote today." },
+      { photo: second, voice: "Permian Home Quotes matches you with one local painter. Get a quote today." },
     ],
     headline: GOOD.headline,
     primaryText: GOOD.primaryText,
@@ -215,7 +217,7 @@ describe("an animated ad's pure parts", () => {
     // A new ad is a reel: the photos fill the frame, each with where to move in on, and a pair is shown before first.
     expect(text).toContain("each photo fills the whole frame and is cut like footage");
     expect(text).toContain('"style":"reel"');
-    expect(text).toContain('"lines":[{"photo":1,"more":[4,6],"voice":"spoken line","label":"short label","x":60,"y":55}]');
+    expect(text).toContain('"lines":[{"photo":1,"before":true,"voice":"spoken line","x":60,"y":55},{"photo":2,"more":[4,6],"voice":"spoken line","label":"scene headline","x":50,"y":40}]');
     // A reel shows as many photos as fit, each once where it can: a line may name two more besides its own.
     expect(text).toContain("Use as many different photos as honestly fit the hook, each one once where you can");
     expect(text).toContain('a line may name up to 2 more in "more"');
@@ -226,7 +228,7 @@ describe("an animated ad's pure parts", () => {
     expect(text).toContain("show the before first");
     expect(text).not.toContain("lightUp");
     expect(text).toContain("never as a homeowner or customer");
-    expect(text).toContain("its final sentence asks the viewer to get a quote");
+    expect(text).toContain("matches you with one local painter. Get a free quote.");
     expect(text).toContain("at most 15 words");
     expect(text).not.toContain("None of these photos is tagged");
     expect(motionPrompt(hook, "Webb Leads", [], false)).toContain("None of these photos is tagged cabinets");
@@ -245,7 +247,7 @@ describe("an animated ad's pure parts", () => {
     expect(around).toContain("- Its angle: Paint instead of replace");
     expect(around).toContain("- Its offer: Free estimate; replacement-cost alternative");
     expect(around).toContain("- Its words (Precision Painting NY INC.) · copy: Why replace when you can refinish?");
-    expect(around).toContain("Make the offer the nearest thing Webb Leads truly gives: a free quote from one vetted local painter.");
+    expect(around).toContain("Make the offer the nearest thing Webb Leads truly gives: a free quote from one local painter it matches the homeowner with.");
     expect(around).toContain("Never their name, price, discount, warranty, award, review count or deadline.");
     expect(around).not.toContain("How it opens");
   });
@@ -256,19 +258,22 @@ describe("an animated ad's pure parts", () => {
     expect(motionPlanProblems({ ...good, style: "explode" }, loose)).toEqual(['style "explode" (write reel)']);
     // How fast a contractor answers isn't ours to promise.
     expect(motionPlanProblems({ ...good, title: "Never Wait on a Quote" }, loose)).toEqual(["mentions a promise about how fast a contractor answers"]);
+    // Nothing is said about how the pros are checked.
+    for (const title of ["Vetted local painters", "Pre-screened pros", "Top-rated painters"])
+      expect(motionPlanProblems({ ...good, title }, loose)).toEqual(["mentions a claim about how the pros are checked (vetted, screened, top-rated)"]);
     expect(motionPlanProblems({ ...good, title: "x".repeat(31) }, loose)).toEqual(["title over 30 characters"]);
     expect(motionPlanProblems({ ...good, lines: good.lines.slice(0, 2) }, loose)).toEqual(expect.arrayContaining(["2 lines (write 3 to 5)"]));
     expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], photo: 3 }, ...good.lines.slice(1)] }, loose)).toEqual(["line 1 names photo 3"]);
-    expect(motionPlanProblems({ ...good, lines: [...good.lines.slice(0, 3), { photo: 2, voice: "Permian Home Quotes matches you with one vetted local painter near you." }] }, loose)).toEqual([
+    expect(motionPlanProblems({ ...good, lines: [...good.lines.slice(0, 3), { photo: 2, voice: "Permian Home Quotes matches you with one local painter near you." }] }, loose)).toEqual([
       "the last line doesn't ask for a quote",
     ]);
     // About twenty seconds of voice, and no line so long the screen sits still.
-    const long = "Get the outside painted before the first freeze, because West Texas sun and hail are hard on paint all year.";
-    expect(motionPlanProblems({ ...good, lines: [{ photo: 1, voice: long }, ...good.lines.slice(1)] }, loose)).toEqual(["60 words of voice (write 40 to 50)", "line 1 is 20 words (at most 15)"]);
+    const long = "Get the outside painted before the first freeze, because the hot West Texas sun and the spring hail are hard on old paint all year.";
+    expect(motionPlanProblems({ ...good, lines: [{ photo: 1, voice: long }, ...good.lines.slice(1)] }, loose)).toEqual(["64 words of voice (write 45 to 55)", "line 1 is 25 words (at most 15)"]);
     expect(motionPlanProblems({ ...good, primaryText: "Cabinets from $1,200 this month" }, loose)).toEqual(["mentions a price or discount"]);
     expect(motionPlanProblems({ ...good, title: "10-year warranty" }, loose)).toEqual(["mentions a warranty or guarantee"]);
-    expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], label: "x".repeat(25) }, ...good.lines.slice(1)] }, loose)).toEqual([
-      "line 1's label is over 24 characters",
+    expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], label: "x".repeat(41) }, ...good.lines.slice(1)] }, loose)).toEqual([
+      "line 1's label is over 40 characters",
     ]);
   });
 
@@ -287,7 +292,7 @@ describe("an animated ad's pure parts", () => {
 
   test("a counter needs two or three whole numbers, each with what it counts, and a line for each", () => {
     const stats = [
-      { value: 1, label: "vetted local painter" },
+      { value: 1, label: "local painter" },
       { value: 0, label: "pressure" },
     ];
     const counter = motionPlanFor(2, { style: "counter", stats });
@@ -696,6 +701,17 @@ describe("niche research's pure parts", () => {
     )!;
     expect(tags).toMatchObject({ painting: true, scope: "cabinets", family: "proof", opening: "other", footage: ["before_after"], quality: 60 });
     expect(readSwipeTags("not json")).toBeNull();
+    // A hardscaping ad is read as one, with that trade's kinds of job; a painting scope means nothing there.
+    const hardscape = { company: "Backyard Pavers Co", pageName: "Backyard Pavers Co", adCopy: "New patio in a week" } as never;
+    const asked = tagSwipePrompt(hardscape, ["Midland"], AD_TRADES["outdoor-construction"]);
+    expect(asked).toContain(`${TAG_MARK} hardscaping service (patios, pavers`);
+    expect(asked).toContain('"scope": "patio"|"walkway"|"wall"|"outdoor-living"|null');
+    expect(asked).not.toContain("cabinets");
+    expect(tagSwipePrompt(hardscape, ["Midland"])).toContain(`${TAG_MARK} painting service (house painting`);
+    const yard = { ...tagReplyFor("Advertiser: Acme patio"), scope: "patio", paintingType: "Patios" };
+    expect(readSwipeTags(JSON.stringify(yard), AD_TRADES["outdoor-construction"])).toMatchObject({ painting: true, scope: "patio", paintingType: "Patios" });
+    expect(readSwipeTags(JSON.stringify(yard))!.scope).toBeUndefined();
+    expect(readSwipeTags(JSON.stringify({ ...yard, scope: "cabinets" }), AD_TRADES["outdoor-construction"])!.scope).toBeUndefined();
     expect(readSwipeTags(JSON.stringify({ paintingType: "Interior" }))).toBeNull();
     const pb = readPlaybook("```json\n" + JSON.stringify(PLAYBOOK_REPLY) + "\n```")!;
     expect(pb.footagePrefs).toEqual(["before", "after", "crew"]);
@@ -1094,7 +1110,9 @@ const TASTE_NOTE = "Keeps plain openings about mess and trust. Kills anything th
 
 function ideasOf(prompt: string) {
   const own = Object.entries(WRITER_IDEAS).find(([mark]) => prompt.includes(mark))?.[1] ?? [];
-  const row = ([line, opening, scope, from]: readonly [string, string, string, number]) => ({ line, opening, scope, from, family: "objection", usual: 0.2 });
+  // Each idea names a competitor ad the brief listed (the second when it named none, or the last there is).
+  const listed = prompt.split("\n").filter((l) => /^\d+\. .*Angle: /.test(l)).length;
+  const row = ([line, opening, scope, from]: readonly [string, string, string, number]) => ({ line, opening, scope, from: Math.min(from || 2, listed), family: "objection", usual: 0.2 });
   return [row(SHARED_IDEA), ...own.map(row), { ...row(["A whole house painted for $999 this month only.", "Only $999.", "interior", 0]), usual: 0.9 }];
 }
 
@@ -1756,6 +1774,20 @@ describe("the weekly run", () => {
     ).toEqual(["after.jpg", "before.jpg"]);
   });
 
+  test("with no competitor ad on file to build on, no ad is made, and the batch says why", async () => {
+    const { t, calls, draft } = await ready();
+    stubServices(calls);
+    await t.run(async (ctx) => {
+      for (const x of await ctx.db.query("adSwipes").collect()) await ctx.db.delete(x._id);
+    });
+    const batch = await draft();
+    expect(batch.creatives).toEqual([]);
+    expect(batch.status).toBe("failed");
+    expect(batch.skipped.length).toBeGreaterThan(0);
+    expect(batch.skipped.every((x) => x.endsWith(": no competitor ad on file for painting to build it on. Run the competitor search first"))).toBe(true);
+    expect(to(calls, "anthropic").length).toBe(0);
+  });
+
   test("a reply that isn't a plan is passed over saying what came back instead, or that it was cut off", async () => {
     const { calls, draft } = await ready();
     stubServices(calls, { notJson: { scope: "cabinets" } });
@@ -1988,7 +2020,9 @@ describe("the weekly run", () => {
       ]);
       expect(ideasFrom("I'd rather not.", "editor", sources)).toEqual([]);
       // A long line stops at the end of a word.
-      const long = ideasFrom(JSON.stringify({ ideas: [{ line: `${"Photos of the job ".repeat(14)}end`, opening: "Look." }] }), "editor", sources)[0].line;
+      // With competitor ads on file, an idea that isn't built on one of them isn't kept.
+      expect(ideasFrom(JSON.stringify({ ideas: [{ line: "A fresh coat makes the whole house feel new again.", opening: "Look." }] }), "editor", sources)).toEqual([]);
+      const long = ideasFrom(JSON.stringify({ ideas: [{ line: `${"Photos of the job ".repeat(14)}end`, opening: "Look.", from: 1 }] }), "editor", sources)[0].line;
       expect(long.length).toBeLessThanOrEqual(221);
       expect(long.endsWith("Photos of the job…")).toBe(true);
 
@@ -2052,7 +2086,7 @@ describe("the weekly run", () => {
       expect(outside.ideas[0]).toMatchObject({ status: "new", opening: "Your kitchen stays open.", builtOn: "Rodgers Painting, 160 days", writer: "neighbour" });
       // An idea that builds on a competitor's ad says whose, and how long it has run.
       expect(ideas[0]).toMatchObject({ scope: "cabinets", familyLabel: "Respect for your home", basedOn: { company: "Rodgers Painting", daysRunning: 160 } });
-      expect(ideas[1].basedOn).toBeUndefined();
+      expect(ideas[1].basedOn).toMatchObject({ company: "Squeegee Squad" });
 
       // Asked again: what was shown isn't shown twice. The writers here repeat themselves, so only the five that
       // missed the cut come back. The kept idea stays; the seven nobody decided on give way.
@@ -2131,15 +2165,43 @@ describe("the weekly run", () => {
       // A trade nobody has set up reads as painting, never as an empty page of its own.
       expect((await owner.as.query(api.ads.listAssets, { trade: "underwater-basket-weaving" })).length).toBe(3);
 
+      // No hardscaping competitor ads are on file, and painting's are not lent to it: there is nothing to build ideas on.
       await settle(() => owner.as.mutation(api.ads.ideasNow, { trade }));
-      const briefs = to(calls, "anthropic")
-        .map((c) => JSON.parse(c.body!).messages[0].content[0].text as string)
-        .filter((p) => p.includes(IDEA_MARK));
-      expect(briefs[0]).toContain("matches homeowners with one vetted local hardscaping contractor.");
-      expect(briefs[0]).toContain("with one vetted local hardscaping contractor, and the quote is free.");
+      const ideaBriefs = () =>
+        to(calls, "anthropic")
+          .map((c) => JSON.parse(c.body!).messages[0].content[0].text as string)
+          .filter((p) => p.includes(IDEA_MARK));
+      expect(ideaBriefs()).toEqual([]);
+      expect((await owner.as.query(api.ads.listIdeas, { trade })).round).toMatchObject({
+        status: "failed",
+        error: "No hardscaping competitor ads on file yet, so there is nothing to build ideas on. Run the competitor search first.",
+      });
+
+      // One is found: every idea is built on it.
+      await t.run(async (ctx) => {
+        await ctx.db.insert("adSwipes", {
+          trade,
+          company: "Backyard Pavers Co",
+          paintingType: "Patios",
+          scope: "patio",
+          hook: "Dirt yard to finished patio",
+          offer: "Free design visit",
+          creative: "Before and after photos",
+          area: "",
+          cta: "Get quote",
+          adaptation: "Show the yard before, then the patio.",
+          starred: false,
+          source: "test",
+          importedAt: new Date().toISOString(),
+          startedAt: new Date(Date.now() - 120 * 86_400_000).toISOString(),
+        } as never);
+      });
+      await settle(() => owner.as.mutation(api.ads.ideasNow, { trade }));
+      const briefs = ideaBriefs();
+      expect(briefs[0]).toContain("matches homeowners with one local hardscaping contractor.");
+      expect(briefs[0]).toContain("with one local hardscaping contractor, and the quote is free.");
       expect(briefs[0]).not.toContain("paint");
-      // No hardscaping competitor ads are on file, and painting's are not lent to it.
-      expect(briefs[0]).toContain("(none on file)");
+      expect(briefs[0]).toContain("1. Backyard Pavers Co, running 120 days. Angle: Dirt yard to finished patio.");
       expect(briefs[0]).not.toContain("Rodgers Painting");
       expect(briefs[0]).toContain("1 photos in all: 1 tagged patio, 1 tagged after.");
       expect(briefs[0]).toContain("- scope: one of patio, walkway, wall, outdoor-living, general");
@@ -2149,7 +2211,7 @@ describe("the weekly run", () => {
       const mine = await owner.as.query(api.ads.listIdeas, { trade });
       expect(mine.round).toMatchObject({ status: "ready" });
       expect(mine.ideas.length).toBe(IDEAS_SHOWN);
-      expect(mine.ideas.every((i) => i.scope === "general" && i.basedOn === undefined)).toBe(true);
+      expect(mine.ideas.every((i) => i.scope === "general" && i.basedOn?.company === "Backyard Pavers Co")).toBe(true);
       expect((await t.query(internal.ads.ideasOutside, { trade })).ideas.length).toBe(IDEAS_SHOWN);
       expect((await t.query(internal.ads.ideasOutside, {})).ideas.length).toBe(0);
 
@@ -2162,7 +2224,9 @@ describe("the weekly run", () => {
         .slice(before)
         .map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>)
         .find((content) => content[0].text!.includes("You write one short animated ad"))!;
-      expect(written[0].text).toContain("matches homeowners with one vetted local hardscaping contractor.");
+      expect(written[0].text).toContain("matches homeowners with one local hardscaping contractor.");
+      expect(written[0].text).toContain("Build this ad around a competitor's ad that has been running for 120 days.");
+      expect(written[0].text).not.toContain("Rodgers Painting");
       expect(written.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(1);
       expect(await owner.as.query(api.ads.batches, {})).toEqual([]);
       const made = await owner.as.query(api.ads.batches, { trade });
