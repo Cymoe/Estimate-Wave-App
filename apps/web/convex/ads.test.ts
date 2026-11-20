@@ -1695,6 +1695,8 @@ describe("the weekly run", () => {
     const firstPhoto = ask[ask.findIndex((c) => c.text === "Photo 1:") + 1];
     const prepUrl = await t.run(async (ctx) => await ctx.storage.getUrl(prep.storageId));
     expect(firstPhoto.source!.url).toBe(prepUrl);
+    // That job only: no other job's photos to pass for it.
+    expect(ask.some((c) => c.text === "Photo 2:")).toBe(false);
     expect(ask[0].text).toContain("Build this ad around a competitor's ad that has been running for 160 days.");
     expect((await latest()).creatives.length).toBeGreaterThan(0);
   });

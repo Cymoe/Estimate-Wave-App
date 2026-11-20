@@ -2795,11 +2795,12 @@ export const weeklyRun = internalAction({
           continue;
         }
         const picked = pickAssets(photos, hook.scope, used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
-        // An ad made for one job's photo is offered that photo first, whatever else is fresher.
+        // An ad made for one job's photo shows that job only: the photo, and its pair if it has one. Other jobs' work would pass for this one.
         const lead = hook.photoId ? photos.find((a: { _id: string }) => a._id === hook.photoId) : undefined;
         if (lead) {
-          const rest = picked.assets.filter((a) => a._id !== lead._id);
-          picked.assets.splice(0, picked.assets.length, lead, ...rest.slice(0, REEL_CANDIDATES - 1));
+          const pair = lead.pairKey ? photos.filter((a: { _id: string; pairKey?: string }) => a._id !== lead._id && a.pairKey === lead.pairKey) : [];
+          picked.assets.splice(0, picked.assets.length, lead, ...pair);
+          picked.inScope = true;
         }
         if (picked.assets.length === 0) {
           const why = `no photo tagged ${hook.scope}, and no process or crew photo left`;
