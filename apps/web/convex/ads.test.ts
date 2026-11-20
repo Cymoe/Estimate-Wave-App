@@ -1683,6 +1683,22 @@ describe("the weekly run", () => {
     expect(job.props.lines.every((l: { label?: string }) => l.label === undefined)).toBe(true);
   });
 
+  test("an ad made for one job's photo is written on the longest-running competitor ad for that kind of job, and offered that photo first", async () => {
+    const { t, calls, settle, latest } = await ready();
+    stubServices(calls, { style: "reel" });
+    const prep = (await t.run(async (ctx) => (await ctx.db.query("adAssets").collect()).find((a) => a.fileName === "prep.jpg")))!;
+    const made = await settle(() => t.mutation(internal.ads.makeFromPhoto, { assetId: prep._id, line: "The prep before the paint", scope: "cabinets" }));
+    expect(made).toMatchObject({ scope: "cabinets", builtOn: "Rodgers Painting" });
+    const ask = to(calls, "anthropic")
+      .map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string; source?: { url: string } }>)
+      .find((content) => content[0].text!.includes("You write one short animated ad"))!;
+    const firstPhoto = ask[ask.findIndex((c) => c.text === "Photo 1:") + 1];
+    const prepUrl = await t.run(async (ctx) => await ctx.storage.getUrl(prep.storageId));
+    expect(firstPhoto.source!.url).toBe(prepUrl);
+    expect(ask[0].text).toContain("Build this ad around a competitor's ad that has been running for 160 days.");
+    expect((await latest()).creatives.length).toBeGreaterThan(0);
+  });
+
   test("with stills on, a reel that shows a before and its after from one job also gets a still of that pair, drawn as a picture", async () => {
     const { t, calls, draft, claim, handIn, latest } = await ready();
     stubServices(calls, { style: "reel" });

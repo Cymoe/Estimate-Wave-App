@@ -2502,6 +2502,8 @@ export default defineSchema({
     swipeId: v.optional(v.id("adSwipes")),
     // On a hook made from an idea card the owner kept: the first words they chose.
     opening: v.optional(v.string()),
+    // On a hook made for one job's photo: that photo, offered to the writer first.
+    photoId: v.optional(v.id("adAssets")),
   }).index("by_active", ["active"]),
 
   // Idea cards. Before anything is made, a few writers each offer ideas in one

@@ -1654,6 +1654,39 @@ async function hooksFor(ctx: MutationCtx, ideas: Doc<"adIdeas">[]): Promise<Id<"
 }
 
 /**
+ * An ad about one job, from the deployment: the photo it is about leads, and it is written, like every ad, on the
+ * competitor ad that has run longest for that kind of job. The words are the writer's; `line` only says what to show.
+ */
+export const makeFromPhoto = internalMutation({
+  args: { assetId: v.id("adAssets"), line: v.string(), opening: v.optional(v.string()), scope: v.optional(v.string()) },
+  handler: async (ctx, { assetId, line, opening, scope }) => {
+    const asset = await ctx.db.get(assetId);
+    if (!asset) fail("NOT_FOUND", "That photo isn't in the library");
+    const trade = tradeOf(asset.trade);
+    const kind = scope ?? asset.tags.find((t) => trade.scopes.includes(t)) ?? ANY_SCOPE;
+    const onFile = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade.slug) && x.hook.trim());
+    const swipe = pickExamples(onFile, kind, 1)[0];
+    if (!swipe) fail("INVALID", `No ${trade.label.toLowerCase()} competitor ad on file to build it on`);
+    const hookId = await ctx.db.insert("adHooks", {
+      family: "before_after",
+      scope: kind,
+      trade: trade.slug,
+      textEn: line.trim().slice(0, 220),
+      ...(opening ? { opening: opening.trim().slice(0, 120) } : {}),
+      active: false,
+      uses: 0,
+      wins: 0,
+      losses: 0,
+      createdAt: nowIso(),
+      swipeId: swipe._id,
+      photoId: assetId,
+    });
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: [hookId], trade: trade.slug });
+    return { hookId, scope: kind, builtOn: swipe.company };
+  },
+});
+
+/**
  * Makes ads from the ideas named, from the deployment: for when the owner asks for some to be chosen for them.
  * Only ideas still on offer (new or kept) of one trade; the rest of the set is left as it is.
  */
@@ -2762,6 +2795,12 @@ export const weeklyRun = internalAction({
           continue;
         }
         const picked = pickAssets(photos, hook.scope, used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
+        // An ad made for one job's photo is offered that photo first, whatever else is fresher.
+        const lead = hook.photoId ? photos.find((a: { _id: string }) => a._id === hook.photoId) : undefined;
+        if (lead) {
+          const rest = picked.assets.filter((a) => a._id !== lead._id);
+          picked.assets.splice(0, picked.assets.length, lead, ...rest.slice(0, REEL_CANDIDATES - 1));
+        }
         if (picked.assets.length === 0) {
           const why = `no photo tagged ${hook.scope}, and no process or crew photo left`;
           skipped.push(`${label}: ${why}`);
