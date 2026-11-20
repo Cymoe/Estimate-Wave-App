@@ -587,6 +587,10 @@ async function sourceOf(ctx: QueryCtx, h: Doc<"adHooks">) {
         angle: x.hook || undefined,
         spoken: swipeWords(x.transcript),
         written: swipeWords(x.adCopy),
+        // Where to see the real ad: its page in Meta's Ad Library, else the advertiser's page; and its own media when kept.
+        link: x.metaAdId ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(x.metaAdId)}` : x.pageUrl || undefined,
+        videoUrl: x.videoUrl || undefined,
+        imageUrl: x.imageUrl || x.posterUrl || undefined,
       }
     : undefined;
 }

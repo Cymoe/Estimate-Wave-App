@@ -157,6 +157,10 @@ export interface BasedOn {
   angle?: string;
   spoken?: string;
   written?: string;
+  /** The real ad in Meta's Ad Library (or the advertiser's page), and its own video or picture when kept. */
+  link?: string;
+  videoUrl?: string;
+  imageUrl?: string;
 }
 /** "Rodgers Painting's ad, running 160 days". */
 const sourceLine = (b: BasedOn) => `${b.company}'s ad${b.daysRunning !== undefined ? `, running ${b.daysRunning.toLocaleString('en-US')} days` : ''}`;
@@ -632,6 +636,18 @@ const Compare: React.FC<{ theirs: BasedOn; ours: AdCreative }> = ({ theirs, ours
     <div className="grid gap-3 md:grid-cols-2 text-xs" data-testid="compare">
       <div className="rounded border border-[#2A2A2A] bg-[#121212] p-3 space-y-1.5 min-w-0">
         <p className="uppercase tracking-wide text-[10px] text-gray-500">Their ad · {theirs.company}</p>
+        {theirs.videoUrl ? (
+          <video src={theirs.videoUrl} poster={theirs.imageUrl} controls playsInline preload="metadata" className="w-full max-h-80 rounded bg-black" />
+        ) : theirs.imageUrl ? (
+          <a href={theirs.link ?? theirs.imageUrl} target="_blank" rel="noreferrer">
+            <img src={theirs.imageUrl} alt={`${theirs.company}'s ad`} className="w-full max-h-80 object-contain rounded bg-black" />
+          </a>
+        ) : null}
+        {theirs.link && (
+          <a href={theirs.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gray-200 underline">
+            Open their ad <ExternalLink size={12} />
+          </a>
+        )}
         {theirs.angle && <p className="text-gray-300">Angle: {theirs.angle}</p>}
         {theirs.spoken && (
           <p className="text-gray-200 whitespace-pre-wrap">

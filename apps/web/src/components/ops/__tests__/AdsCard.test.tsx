@@ -790,6 +790,8 @@ describe('Ops → Ads', () => {
           offer: 'Free estimate; replacement-cost alternative',
           angle: 'Paint instead of replace',
           written: 'Why replace when you can refinish?',
+          link: 'https://www.facebook.com/ads/library/?id=123',
+          imageUrl: 'https://example.com/their-ad.jpg',
         },
       },
     };
@@ -813,6 +815,10 @@ describe('Ops → Ads', () => {
     expect(compare.textContent).toContain('Angle: Paint instead of replace');
     expect(compare.textContent).toContain('Written: “Why replace when you can refinish?”');
     expect(compare.textContent).not.toContain('Said:');
+    // Their real ad opens from here, and its picture shows when we kept it.
+    const open = Array.from(compare.querySelectorAll('a')).find((x) => x.textContent?.includes('Open their ad'))!;
+    expect(open.getAttribute('href')).toBe('https://www.facebook.com/ads/library/?id=123');
+    expect(compare.querySelector('img')!.getAttribute('src')).toBe('https://example.com/their-ad.jpg');
     expect(compare.textContent).toContain('Our ad');
     expect(Array.from(compare.querySelectorAll('ol li')).map((li) => li.textContent)).toEqual(['“Thinking about new cabinets?”', '“A fresh finish changes the whole kitchen.”']);
     expect(Array.from(group.querySelectorAll('[data-testid="creative"]')).map((c) => c.textContent)).toEqual([
