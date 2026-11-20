@@ -1507,6 +1507,8 @@ describe("the weekly run", () => {
     expect(cabinetsAsk[0].text).toContain("never as a homeowner or customer");
     // Each ad is built around the competitor ad its idea came from: the longest-running one was written first.
     expect(cabinets.hook).toMatchObject({ textEn: "Process + minimal disruption", basedOn: { company: "Rodgers Painting", daysRunning: 160, offer: "Claimed 2–3 days; off-site doors, on-site boxes" } });
+    // What their ad said goes with it, without the transcript's time stamps, to read beside ours.
+    expect(cabinets.hook!.basedOn).toMatchObject({ angle: "Process + minimal disruption", spoken: "We take the doors off site and spray the boxes at your home." });
     expect(other.hook).toMatchObject({ textEn: "Cost education", basedOn: { company: "Squeegee Squad", daysRunning: 90 } });
     expect(asks.indexOf(cabinetsAsk)).toBe(0);
     expect(cabinetsAsk[0].text).toContain("Build this ad around a competitor's ad that has been running for 160 days.");

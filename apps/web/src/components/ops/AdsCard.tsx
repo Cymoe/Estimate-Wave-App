@@ -153,6 +153,10 @@ export interface BasedOn {
   company: string;
   daysRunning?: number;
   offer: string;
+  /** Their angle, and what their ad said out loud and in writing. */
+  angle?: string;
+  spoken?: string;
+  written?: string;
 }
 /** "Rodgers Painting's ad, running 160 days". */
 const sourceLine = (b: BasedOn) => `${b.company}'s ad${b.daysRunning !== undefined ? `, running ${b.daysRunning.toLocaleString('en-US')} days` : ''}`;
@@ -558,6 +562,7 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
           )}
         </p>
       )}
+      {group.hook?.basedOn && !image && <Compare theirs={group.hook.basedOn} ours={first} />}
       <ul className="grid gap-3 grid-cols-2">
         {group.items.map((c) => (
           <CreativeCard key={c.id} c={c} act={act} />
@@ -614,6 +619,43 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
         </div>
       )}
     </li>
+  );
+};
+
+/**
+ * The competitor's ad beside ours: what theirs said, out loud and on the page, and what our video says, line by line,
+ * so it is plain what was taken from it and what was written new.
+ */
+const Compare: React.FC<{ theirs: BasedOn; ours: AdCreative }> = ({ theirs, ours }) => {
+  const lines = ours.shots?.length ? ours.shots.map((s) => s.voice) : [ours.script.voice];
+  return (
+    <div className="grid gap-3 md:grid-cols-2 text-xs" data-testid="compare">
+      <div className="rounded border border-[#2A2A2A] bg-[#121212] p-3 space-y-1.5 min-w-0">
+        <p className="uppercase tracking-wide text-[10px] text-gray-500">Their ad · {theirs.company}</p>
+        {theirs.angle && <p className="text-gray-300">Angle: {theirs.angle}</p>}
+        {theirs.spoken && (
+          <p className="text-gray-200 whitespace-pre-wrap">
+            <span className="text-gray-500">Said: </span>“{theirs.spoken}”
+          </p>
+        )}
+        {theirs.written && (
+          <p className="text-gray-200 whitespace-pre-wrap">
+            <span className="text-gray-500">Written: </span>“{theirs.written}”
+          </p>
+        )}
+        {!theirs.spoken && !theirs.written && <p className="text-gray-500">Their words weren't saved, only the angle and the offer.</p>}
+        <p className="text-gray-400">Offer: {theirs.offer}</p>
+      </div>
+      <div className="rounded border border-emerald-900 bg-[#0f1a14] p-3 space-y-1.5 min-w-0">
+        <p className="uppercase tracking-wide text-[10px] text-emerald-400">Our ad</p>
+        {ours.script.onScreen[0] && <p className="text-gray-300">At the top: {ours.script.onScreen[0]}</p>}
+        <ol className="space-y-1 list-decimal pl-4 text-gray-200">
+          {lines.map((line, i) => (
+            <li key={i}>“{line}”</li>
+          ))}
+        </ol>
+      </div>
+    </div>
   );
 };
 

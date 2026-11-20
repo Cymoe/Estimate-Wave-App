@@ -784,7 +784,13 @@ describe('Ops → Ads', () => {
         familyLabel: 'Before / after',
         scope: 'cabinets',
         textEn: 'Paint instead of replace',
-        basedOn: { company: 'Precision Painting NY INC.', daysRunning: 1659, offer: 'Free estimate; replacement-cost alternative' },
+        basedOn: {
+          company: 'Precision Painting NY INC.',
+          daysRunning: 1659,
+          offer: 'Free estimate; replacement-cost alternative',
+          angle: 'Paint instead of replace',
+          written: 'Why replace when you can refinish?',
+        },
       },
     };
     batches = [
@@ -801,6 +807,14 @@ describe('Ops → Ads', () => {
     expect(group.textContent).toContain('Light-up style · Before / after · ');
     // Which competitor ad it is built around, and how long that one has run.
     expect(group.textContent).toContain("Built around Precision Painting NY INC.'s ad, running 1,659 days. Their offer: Free estimate; replacement-cost alternative");
+    // Their ad's words beside ours, to see what was taken from it and what was written new.
+    const compare = group.querySelector('[data-testid="compare"]')!;
+    expect(compare.textContent).toContain('Their ad · Precision Painting NY INC.');
+    expect(compare.textContent).toContain('Angle: Paint instead of replace');
+    expect(compare.textContent).toContain('Written: “Why replace when you can refinish?”');
+    expect(compare.textContent).not.toContain('Said:');
+    expect(compare.textContent).toContain('Our ad');
+    expect(Array.from(compare.querySelectorAll('ol li')).map((li) => li.textContent)).toEqual(['“Thinking about new cabinets?”', '“A fresh finish changes the whole kitchen.”']);
     expect(Array.from(group.querySelectorAll('[data-testid="creative"]')).map((c) => c.textContent)).toEqual([
       expect.stringContaining('Waiting to render'),
       expect.stringContaining('Rendering'),

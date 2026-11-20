@@ -567,10 +567,28 @@ export const listHooks = query({
 /** How long a competitor ad has been running: from the day Meta says it started, else as last counted. */
 const runDays = (x: Doc<"adSwipes">): number | undefined => daysSince(x.startedAt) ?? x.daysRunning;
 
-/** The competitor ad an idea is built around, for the page: who ran it, for how long, and what it offered. */
+/** A competitor ad's words for the page: the times a transcript is stamped with taken out, and kept to a readable length. */
+const swipeWords = (text: string | undefined): string | undefined => {
+  const clean = (text ?? "").replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g, "").replace(/\s+/g, " ").trim();
+  return clean ? (clean.length > 1200 ? `${clean.slice(0, 1200).replace(/\s+\S*$/, "")}…` : clean) : undefined;
+};
+
+/**
+ * The competitor ad an idea is built around, for the page: who ran it, for how long, what it offered, its angle,
+ * and what it said (spoken and written), so it can be read beside what our ad says.
+ */
 async function sourceOf(ctx: QueryCtx, h: Doc<"adHooks">) {
   const x = h.swipeId ? await ctx.db.get(h.swipeId) : null;
-  return x ? { company: x.company, daysRunning: runDays(x), offer: x.offer } : undefined;
+  return x
+    ? {
+        company: x.company,
+        daysRunning: runDays(x),
+        offer: x.offer,
+        angle: x.hook || undefined,
+        spoken: swipeWords(x.transcript),
+        written: swipeWords(x.adCopy),
+      }
+    : undefined;
 }
 
 /**
