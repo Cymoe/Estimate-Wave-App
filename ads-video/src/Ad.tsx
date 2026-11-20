@@ -6,6 +6,7 @@ import { EndCard } from "./parts/EndCard";
 import { Headline } from "./parts/Headline";
 import { Canvas } from "./formats/Canvas";
 import { Chat } from "./formats/Chat";
+import { Explainer } from "./formats/Explainer";
 import { KineticText } from "./formats/KineticText";
 import { StockMix } from "./formats/StockMix";
 import { BeforeAfter } from "./styles/BeforeAfter";
@@ -38,7 +39,9 @@ export const Ad: React.FC<AdProps> = (props) => {
   const { style } = props;
   const closeAt = style.kind === "chat" ? style.askAt : askAt(props.lines);
   // Made of words alone: no photo behind, and the words on screen are the captions.
-  const wordsOnly = style.kind === "kineticText" || style.kind === "chat";
+  const wordsOnly = style.kind === "kineticText" || style.kind === "chat" || style.kind === "explainer";
+  // An explainer draws its own title, and its captions read in phrases like a reel's.
+  const explainer = style.kind === "explainer";
   // In a mix the clip has the first line, so the photos run from the second.
   const runs =
     style.kind === "stockMix"
@@ -54,11 +57,13 @@ export const Ad: React.FC<AdProps> = (props) => {
     <AbsoluteFill style={{ backgroundColor: INK }}>
       {reel ? <Reel {...props} shots={shots} until={closeAt} /> : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
       {style.kind === "stockMix" ? <StockMix {...props} clip={style.clip} runs={runs} /> : null}
-      {style.kind === "chat" || reel ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
+      {style.kind === "chat" || reel || explainer ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
       {style.kind === "beforeAfter" ? (
         <BeforeAfter {...props} crossOn={style.crossOn} crossAt={style.crossAt} />
       ) : style.kind === "counter" ? (
         <Counter {...props} stats={style.stats} />
+      ) : style.kind === "explainer" ? (
+        <Explainer {...props} tag={style.tag} />
       ) : style.kind === "kineticText" ? (
         <KineticText {...props} />
       ) : style.kind === "chat" ? (
@@ -68,14 +73,21 @@ export const Ad: React.FC<AdProps> = (props) => {
       )}
       {style.kind === "chat" ? null : <BrandChip brand={props.brand} ratio={props.ratio} />}
       <EndCard brand={props.brand} ratio={props.ratio} from={closeAt} />
-      {wordsOnly ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel} />}
+      {wordsOnly && !explainer ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel || explainer} />}
       <ProgressBar color={props.brand.accentColor} />
       {props.audio ? <Audio src={source(props.audio)} /> : null}
       {props.sound ? (
         <Sound
           sound={props.sound}
           moves={reel ? [] : shots.filter((s) => s.opens && s.start > 0).map((s) => s.start)}
-          lands={reel ? revealAt(props, shots) : props.lines.filter((l) => l.label && l.start < closeAt).map((l) => l.start + 0.1)}
+          lands={
+            reel
+              ? revealAt(props, shots)
+              : explainer
+                ? // A soft knock as each point is ticked.
+                  props.lines.flatMap((l, i) => (i > 0 && l.label && l.start < closeAt ? [(props.lines[i + 1]?.start ?? l.end) - 0.1] : []))
+                : props.lines.filter((l) => l.label && l.start < closeAt).map((l) => l.start + 0.1)
+          }
           askAt={closeAt}
           voiceEnd={props.audioSec}
         />

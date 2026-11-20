@@ -31,6 +31,8 @@ export interface Line {
   words?: Array<{ text: string; start: number; end: number }>;
   /** In a reel, the photos shown while this line is said, the line's own first. Without any, the line has the one in `photos`. */
   photos?: Photo[];
+  /** In an explainer, how this line's point is marked once it has been said: a tick for what to look for, a cross for what's left out. */
+  mark?: "check" | "cross";
 }
 
 export interface Brand {
@@ -84,7 +86,12 @@ export type Style =
   /** A moving clip from outside the Library fills the frame for the first line; the job's own photos carry the rest. */
   | { kind: "stockMix"; clip: Clip }
   /** The photos fill the frame and never sit still: each line is cut into a few shots, close and wide, and a new line arrives with a move. */
-  | { kind: "reel" };
+  | { kind: "reel" }
+  /**
+   * No photos: a short lesson drawn as graphics. The first line's words slam in as the title under a small tag;
+   * each line after it adds a numbered point (its label) that is ticked, or crossed, once it has been said.
+   */
+  | { kind: "explainer"; /** A few words above the title naming the subject ("Painting quotes"). */ tag?: string };
 
 /** What plays under the voice. Every part is optional; an ad without any is the voice alone. */
 export interface Sound {
