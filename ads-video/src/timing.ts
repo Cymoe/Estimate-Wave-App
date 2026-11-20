@@ -53,6 +53,38 @@ export function chunksOf(words: Word[], maxLetters = 16, maxWords = 3, atCommas 
 }
 
 /**
+ * Words grouped as short phrases, the way a subtitle reads: split where the voice pauses (a sentence's end, a
+ * comma), and a clause too long for one screen split into even parts, so none is left with a word on its own.
+ */
+export function phrasesOf(words: Word[], maxLetters = 36, maxWords = 6): Word[][] {
+  const clauses: Word[][] = [];
+  let now: Word[] = [];
+  for (const w of words) {
+    const last = now[now.length - 1];
+    if (last && (last.line !== w.line || /[.!?,;:]$/.test(last.text))) {
+      clauses.push(now);
+      now = [];
+    }
+    now.push(w);
+  }
+  if (now.length) clauses.push(now);
+  const out: Word[][] = [];
+  for (const c of clauses) {
+    const letters = c.reduce((n, w) => n + w.text.length + 1, 0);
+    const parts = Math.max(1, Math.ceil(c.length / maxWords), Math.ceil(letters / maxLetters));
+    const size = Math.ceil(c.length / parts);
+    for (let i = 0; i < c.length; i += size) out.push(c.slice(i, i + size));
+  }
+  // A one-word clause ("Same house." is two) rides with the phrase before it when they fit together.
+  return out.reduce<Word[][]>((acc, p) => {
+    const prev = acc[acc.length - 1];
+    if (prev && p.length === 1 && prev.length < maxWords && prev[0].line === p[0].line && [...prev, ...p].reduce((n, w) => n + w.text.length + 1, 0) <= maxLetters) prev.push(...p);
+    else acc.push(p);
+    return acc;
+  }, []);
+}
+
+/**
  * When the ask takes over: as the last sentence of the last line starts
  * ("... one vetted local painter. Get a quote today."), or as the last line
  * starts when it is one sentence.

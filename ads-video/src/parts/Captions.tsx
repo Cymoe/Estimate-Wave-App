@@ -1,6 +1,6 @@
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { display, WIDE, ZONES } from "../theme";
-import { chunksOf, wordsOf } from "../timing";
+import { chunksOf, phrasesOf, wordsOf } from "../timing";
 import type { Line, Ratio } from "../types";
 
 /**
@@ -17,7 +17,7 @@ export const Captions: React.FC<{ lines: Line[]; ratio: Ratio; accent: string; p
   const { fps } = useVideoConfig();
   const t = frame / fps;
   const zone = ZONES[ratio].captions;
-  const chunks = phrases ? chunksOf(wordsOf(lines), 30, 6, true) : chunksOf(wordsOf(lines));
+  const chunks = phrases ? phrasesOf(wordsOf(lines)) : chunksOf(wordsOf(lines));
   const index = chunks.findIndex((c, i) => t >= c[0].start - 0.04 && t < (chunks[i + 1]?.[0].start ?? c[c.length - 1].end + 0.5) - 0.04);
   if (index < 0) return null;
   const chunk = chunks[index];

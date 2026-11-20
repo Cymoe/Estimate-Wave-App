@@ -125,7 +125,7 @@ const Flashes: React.FC<{ at: number[] }> = ({ at }) => {
 };
 
 /** The headline, large, while the first line is said: each word lands hard, the last on the brand's colour. */
-const Hook: React.FC<{ text: string; ratio: Ratio; accent: string; until: number }> = ({ text, ratio, accent, until }) => {
+const Hook: React.FC<{ text: string; ratio: Ratio; accent: string; until: number; now?: boolean }> = ({ text, ratio, accent, until, now = false }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const zone = ZONES[ratio].head;
@@ -151,7 +151,8 @@ const Hook: React.FC<{ text: string; ratio: Ratio; accent: string; until: number
       }}
     >
       {words.map((word, i) => {
-        const land = spring({ frame: frame - 3 - i * 5, fps, config: { damping: 11, mass: 0.55, stiffness: 190 } });
+        // Opening on a before, the headline is there from the first frame: it is what stops the scroll.
+        const land = now ? 1 : spring({ frame: frame - 3 - i * 5, fps, config: { damping: 11, mass: 0.55, stiffness: 190 } });
         const last = i === words.length - 1;
         return (
           <span
@@ -275,7 +276,7 @@ export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ sho
       {flashes.length ? <Flashes at={flashes} /> : null}
       {/* Dark at the top and bottom so the words read on any photo. */}
       <AbsoluteFill style={{ background: `linear-gradient(180deg, ${INK}d9 0%, ${INK}66 16%, ${INK}00 34%, ${INK}00 62%, ${INK}73 80%, ${INK}cc 100%)` }} />
-      <Hook text={headline} ratio={ratio} accent={brand.accentColor} until={(lines[1]?.start ?? until) - 0.1} />
+      <Hook text={headline} ratio={ratio} accent={brand.accentColor} until={(lines[1]?.start ?? until) - 0.1} now={onBefore(photos, lines, 0)} />
       <Scenes lines={lines} brand={brand} ratio={ratio} until={until} />
     </>
   );
