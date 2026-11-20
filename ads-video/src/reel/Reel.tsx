@@ -2,7 +2,7 @@ import { AbsoluteFill, Easing, Img, interpolate, OffthreadVideo, Sequence, sprin
 import { source } from "../Ad";
 import { display, INK, WIDE, ZONES } from "../theme";
 import type { AdProps, Photo, Ratio } from "../types";
-import type { Shot } from "./shots";
+import { onBefore, photosOf, revealOf, type Shot } from "./shots";
 
 /** How long a new photo takes to arrive, and the old one to get out of its way. */
 const MOVE_SEC = 0.24;
@@ -181,32 +181,35 @@ const Hook: React.FC<{ text: string; ratio: Ratio; accent: string; until: number
   );
 };
 
-/** A line's label as a sticker slapped on the picture: it lands with a bounce, leans a little, and peels off when the line is over. */
-const Stickers: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: number }> = ({ lines, brand, ratio, until }) => {
+/**
+ * Each scene's headline in a steady band across the top: it fades in as its line starts and gives way to the
+ * next. Read with the sound off, the headlines alone tell the story: the problem, the turn, the finished work.
+ */
+const Scenes: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: number }> = ({ lines, brand, ratio, until }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const zone = ZONES[ratio].head;
+  const size = ratio === "9x16" ? 60 : 50;
   return (
     <>
       {lines.map((line, i) => {
         if (!line.label) return null;
-        const from = Math.round((line.start + 0.1) * fps);
-        const to = Math.round((Math.min(lines[i + 1]?.start ?? until, until) - 0.1) * fps);
-        if (frame < from || frame > to + 6) return null;
-        const land = spring({ frame: frame - from, fps, config: { damping: 9, mass: 0.6, stiffness: 170 } });
-        const peel = interpolate(frame - to, [0, 6], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-        const lean = i % 2 === 0 ? -4 : 3;
-        const size = ratio === "9x16" ? 64 : 52;
+        const from = Math.round((line.start + 0.05) * fps);
+        const to = Math.round((Math.min(lines[i + 1]?.start ?? until, until) - 0.05) * fps);
+        if (frame < from || frame > to + 5) return null;
+        const show = interpolate(frame - from, [0, 6], [0, 1], { extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) }) * interpolate(frame - to, [0, 5], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
         return (
           <div
             key={i}
             style={{
               position: "absolute",
-              left: 60,
-              top: zone.top + (ratio === "9x16" ? 30 : 10),
-              transformOrigin: "0% 50%",
-              opacity: interpolate(land, [0, 0.2], [0, 1], { extrapolateRight: "clamp" }) * (1 - peel),
-              transform: `rotate(${lean + (1 - land) * -10 + peel * 8}deg) scale(${interpolate(land, [0, 1], [0.4, 1]) * (1 - peel * 0.3)})`,
+              left: (1080 - WIDE) / 2,
+              width: WIDE,
+              top: zone.top + (ratio === "9x16" ? 20 : 0),
+              display: "flex",
+              justifyContent: "center",
+              opacity: show,
+              transform: `translateY(${(1 - show) * -16}px)`,
             }}
           >
             <div
@@ -214,14 +217,15 @@ const Stickers: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: n
                 fontFamily: display,
                 fontWeight: 800,
                 fontSize: size,
-                lineHeight: 1,
+                lineHeight: 1.12,
                 letterSpacing: -1,
-                textTransform: "uppercase",
-                color: INK,
-                backgroundColor: "#fff",
-                padding: `${size * 0.34}px ${size * 0.5}px`,
-                borderRadius: size * 0.22,
-                boxShadow: `${size * 0.16}px ${size * 0.16}px 0 ${brand.primaryColor}, 0 24px 60px rgba(0,0,0,0.5)`,
+                textAlign: "center",
+                color: "#fff",
+                backgroundColor: `${INK}d9`,
+                borderLeft: `${size * 0.16}px solid ${brand.accentColor}`,
+                padding: `${size * 0.3}px ${size * 0.46}px`,
+                borderRadius: size * 0.14,
+                boxShadow: "0 18px 50px rgba(0,0,0,0.4)",
               }}
             >
               {line.label}
@@ -236,16 +240,21 @@ const Stickers: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: n
 /**
  * The reel. The job's photos fill the whole frame and are cut like footage:
  * a few shots to every spoken line, wide then close, a new photo arriving
- * with a move and a flash. The headline is big while the first line is said,
- * then each line's label is stuck on the picture.
+ * with a move. The headline is big while the first line is said, then each
+ * line's headline sits in a band across the top.
+ *
+ * An ad that opens on a before starts on it, still, with the headline over it:
+ * no quick flashes of finished work first, which would give the story away.
+ * The one flash is on the reveal, when the first finished photo lands.
  */
 export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until }) => {
   const { fps } = useVideoConfig();
   // The opening shows two of the ad's other photos first, so the first thing seen is already moving; never one a line calls the before.
-  const before = new Set(lines.flatMap((line, i) => (photos[Math.min(i, photos.length - 1)]?.before || /\bbefore\b/i.test(line.label ?? "") ? [photos[Math.min(i, photos.length - 1)]?.src] : [])));
-  const others = photos.filter((ph, i) => ph.src !== photos[0]?.src && !before.has(ph.src) && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);
+  const before = new Set(lines.flatMap((_, i) => (onBefore(photos, lines, i) ? [photosOf(photos, lines, i)[0]?.src] : [])));
+  const others = onBefore(photos, lines, 0) ? [] : photos.filter((ph, i) => ph.src !== photos[0]?.src && !before.has(ph.src) && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);
   const openingSec = others.length * FLASH_SEC;
-  const moves = shots.filter((s) => s.opens && s.start > 0).map((s) => s.start);
+  const reveal = revealOf(photos, lines);
+  const flashes = [...others.map((_, i) => (i + 1) * FLASH_SEC), ...(reveal > 0 ? [shots.find((s) => s.line === reveal)?.start ?? lines[reveal].start] : [])];
   return (
     <>
       {shots.map((shot, i) => {
@@ -263,11 +272,11 @@ export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ sho
           <Opening photos={others} />
         </Sequence>
       ) : null}
-      <Flashes at={[...others.map((_, i) => (i + 1) * FLASH_SEC), ...moves]} />
+      {flashes.length ? <Flashes at={flashes} /> : null}
       {/* Dark at the top and bottom so the words read on any photo. */}
       <AbsoluteFill style={{ background: `linear-gradient(180deg, ${INK}d9 0%, ${INK}66 16%, ${INK}00 34%, ${INK}00 62%, ${INK}73 80%, ${INK}cc 100%)` }} />
       <Hook text={headline} ratio={ratio} accent={brand.accentColor} until={(lines[1]?.start ?? until) - 0.1} />
-      <Stickers lines={lines} brand={brand} ratio={ratio} until={until} />
+      <Scenes lines={lines} brand={brand} ratio={ratio} until={until} />
     </>
   );
 };

@@ -33,14 +33,14 @@ export function wordsOf(lines: Line[]): Word[] {
 }
 
 /** Words grouped as they are shown: a few at a time, never across two spoken lines, breaking after a sentence ends. */
-export function chunksOf(words: Word[], maxLetters = 16, maxWords = 3): Word[][] {
+export function chunksOf(words: Word[], maxLetters = 16, maxWords = 3, atCommas = false): Word[][] {
   const out: Word[][] = [];
   let now: Word[] = [];
   let letters = 0;
   for (const w of words) {
     const last = now[now.length - 1];
     const full = now.length >= maxWords || letters + w.text.length > maxLetters;
-    if (last && (full || last.line !== w.line || /[.!?]$/.test(last.text))) {
+    if (last && (full || last.line !== w.line || /[.!?]$/.test(last.text) || (atCommas && now.length >= 2 && /[,;:]$/.test(last.text)))) {
       out.push(now);
       now = [];
       letters = 0;

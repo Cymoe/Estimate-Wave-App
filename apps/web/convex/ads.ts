@@ -2768,6 +2768,61 @@ async function writePlan<P extends { fits?: boolean; reason?: string }>(
 }
 
 /** The voice-over for one hook, from ElevenLabs, shared by both sizes. */
+/**
+ * How the narrator reads. Lower stability lets the read rise and fall instead of holding one flat tone; a little
+ * style adds the voice's own expression; similarity keeps it sounding like itself.
+ */
+const VOICE_SETTINGS = { stability: 0.35, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true, speed: 1.0 };
+
+/** What the ElevenLabs plan on file allows, and the voices it can use: read only, nothing is spent. */
+export const voicePlan = internalAction({
+  args: {},
+  handler: async () => {
+    const key = process.env.ELEVENLABS_API_KEY;
+    if (!key) return { error: "ELEVENLABS_API_KEY isn't set" };
+    const get = async (path: string) => {
+      const res = await fetch(`https://api.elevenlabs.io${path}`, { headers: { "xi-api-key": key } });
+      return res.ok ? await res.json() : { status: res.status, error: (await res.text()).slice(0, 200) };
+    };
+    const sub = await get("/v1/user/subscription");
+    const voices = await get("/v1/voices");
+    const models = await get("/v1/models");
+    return {
+      plan: { tier: sub.tier, used: sub.character_count, limit: sub.character_limit, resetsAt: sub.next_character_count_reset_unix, status: sub.status, error: sub.error },
+      voices: (voices.voices ?? []).map((x: { voice_id: string; name: string; category?: string; labels?: Record<string, string> }) => ({
+        id: x.voice_id,
+        name: x.name,
+        category: x.category,
+        labels: x.labels,
+      })),
+      models: Array.isArray(models) ? models.map((m: { model_id: string; can_do_text_to_speech?: boolean }) => ({ id: m.model_id, tts: m.can_do_text_to_speech })) : models,
+    };
+  },
+});
+
+/** One script read by several voices, for the owner to choose between. Each read is stored and its link returned. */
+export const voiceSamples = internalAction({
+  args: { text: v.string(), voiceIds: v.array(v.string()), model: v.optional(v.string()) },
+  handler: async (ctx, { text, voiceIds, model }) => {
+    const out: Array<{ voiceId: string; url?: string | null; error?: string }> = [];
+    for (const voiceId of voiceIds.slice(0, 4)) {
+      try {
+        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "xi-api-key": process.env.ELEVENLABS_API_KEY! },
+          body: JSON.stringify({ text: text.slice(0, 600), model_id: model ?? "eleven_multilingual_v2", voice_settings: VOICE_SETTINGS }),
+        });
+        if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 160)}`);
+        const id = await ctx.storage.store(new Blob([await res.arrayBuffer()], { type: "audio/mpeg" }));
+        out.push({ voiceId, url: await ctx.storage.getUrl(id) });
+      } catch (e) {
+        out.push({ voiceId, error: errText(e) });
+      }
+    }
+    return out;
+  },
+});
+
 export const voice = internalAction({
   args: { ids: v.array(v.id("adCreatives")) },
   handler: async (ctx, { ids }) => {
@@ -2786,7 +2841,7 @@ export const voice = internalAction({
         {
           method: "POST",
           headers: { "content-type": "application/json", "xi-api-key": process.env.ELEVENLABS_API_KEY! },
-          body: JSON.stringify({ text: lines.join(" "), model_id: "eleven_multilingual_v2" }),
+          body: JSON.stringify({ text: lines.join(" "), model_id: "eleven_multilingual_v2", voice_settings: VOICE_SETTINGS }),
         },
       );
       const body = await readJson(res, "ElevenLabs");

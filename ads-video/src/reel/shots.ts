@@ -36,6 +36,8 @@ const GLANCE_MAX_SEC = 1.2;
 const LOOK_BACK_SHARE = 0.6;
 /** The shortest a photo is up when a line shows several, one after another. */
 const TURN_SEC = 0.95;
+/** The first finished photo after a before is held this long, drawing in, before anything cuts. */
+const REVEAL_SEC = 2.4;
 
 /** How much of a photo the frame cuts off when the photo fills it, 0 to 1. */
 export function hidden(photo: Shape, frame: Shape): number {
@@ -72,6 +74,16 @@ export const photosOf = (photos: Photo[], lines: Line[], i: number): Photo[] => 
   return unique(own.filter(Boolean));
 };
 
+/** Whether a line opens on a before: its photo is marked as one, or its label says so. */
+export const onBefore = (photos: Photo[], lines: Line[], i: number): boolean => {
+  const ph = photosOf(photos, lines, i)[0];
+  return Boolean(ph && (ph.before || /\bbefore\b/i.test(lines[i]?.label ?? "")));
+};
+
+/** The line where the after first shows: the first one that isn't a before, after one that is. -1 when there is none. */
+export const revealOf = (photos: Photo[], lines: Line[]): number =>
+  lines.findIndex((_, i) => i > 0 && onBefore(photos, lines, i - 1) && !onBefore(photos, lines, i));
+
 /**
  * The ad as a list of shots. Each spoken line has its photos, and the time the
  * line is up is cut into a few shots. A line with several photos shows them one
@@ -102,6 +114,7 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
     count.set(key, n + 1);
     return n;
   };
+  const reveal = revealOf(photos, lines);
   // Every photo a line shows, in the order shown.
   const shown = unique(lines.flatMap((_, i) => photosOf(photos, lines, i)));
   lines.forEach((line, i) => {
@@ -134,6 +147,12 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
     const each = glances.length ? Math.min(GLANCE_MAX_SEC, room / glances.length) : 0;
     const own = glances.length ? seen - each * glances.length : to;
     if (set.length === 1 && photo.motion && fresh) add(photo, own - from - CLIP_SEC < SHORTEST ? own : from + CLIP_SEC, "clip", true);
+    // The reveal lands and is held: one slow push in on the finished work before anything cuts.
+    if (i === reveal && at < own) {
+      const end = own - (at + REVEAL_SEC) < SHORTEST ? own : at + REVEAL_SEC;
+      next(photo.src);
+      add(photo, end, "push", fresh);
+    }
     if (at < own) {
       const several = set.length > 1;
       const ends = [...cuts(at, own, beats, several ? set.length : 1, several ? TURN_SEC : SHORTEST), own];
@@ -142,7 +161,7 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
         const order = orderFor(of, frame);
         const times = next(of.src) + (of.motion ? 1 : 0);
         // After its first time through, a photo isn't shown wide again.
-        add(of, end, times < order.length ? order[times] : order[1 + ((times - 1) % (order.length - 1))], fresh && k === 0);
+        add(of, end, times < order.length ? order[times] : order[1 + ((times - 1) % (order.length - 1))], fresh && k === 0 && i !== reveal);
       });
     }
     glances.forEach((ph, k) => add(ph, k === glances.length - 1 ? to : at + each, k % 2 === 0 ? "punch" : "pull"));

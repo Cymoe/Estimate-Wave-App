@@ -135,4 +135,6 @@ export type StillProps = {
   sub: string;
   /** Fills the frame behind the words; without one the brand's colours do. */
   photo?: Photo;
+  /** A before and its after from the same job: shown one above the other, the before on top, each marked. */
+  pair?: [Photo, Photo];
 };

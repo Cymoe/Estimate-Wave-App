@@ -12,11 +12,17 @@ import { BeforeAfter } from "./styles/BeforeAfter";
 import { Counter } from "./styles/Counter";
 import { LightUp } from "./styles/LightUp";
 import { Reel } from "./reel/Reel";
-import { shotsOf } from "./reel/shots";
+import { revealOf, shotsOf } from "./reel/shots";
 import { Sound } from "./reel/Sound";
 import { INK } from "./theme";
 import { askAt, runsOf } from "./timing";
 import type { AdProps } from "./types";
+
+/** When a reel's finished work is first revealed: the one moment it marks with a sound. */
+const revealAt = (props: AdProps, shots: { line: number; start: number }[]): number[] => {
+  const i = revealOf(props.photos, props.lines);
+  return i > 0 ? [shots.find((s) => s.line === i)?.start ?? props.lines[i].start] : [];
+};
 
 /** A link stays a link; anything else is a file under public/. */
 export const source = (src: string) => (/^https?:\/\//.test(src) ? src : staticFile(src));
@@ -62,14 +68,14 @@ export const Ad: React.FC<AdProps> = (props) => {
       )}
       {style.kind === "chat" ? null : <BrandChip brand={props.brand} ratio={props.ratio} />}
       <EndCard brand={props.brand} ratio={props.ratio} from={closeAt} />
-      {wordsOnly ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} />}
+      {wordsOnly ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel} />}
       <ProgressBar color={props.brand.accentColor} />
       {props.audio ? <Audio src={source(props.audio)} /> : null}
       {props.sound ? (
         <Sound
           sound={props.sound}
-          moves={shots.filter((s) => s.opens && s.start > 0).map((s) => s.start)}
-          lands={props.lines.filter((l) => l.label && l.start < closeAt).map((l) => l.start + 0.1)}
+          moves={reel ? [] : shots.filter((s) => s.opens && s.start > 0).map((s) => s.start)}
+          lands={reel ? revealAt(props, shots) : props.lines.filter((l) => l.label && l.start < closeAt).map((l) => l.start + 0.1)}
           askAt={closeAt}
           voiceEnd={props.audioSec}
         />

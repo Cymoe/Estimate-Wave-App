@@ -3,14 +3,15 @@ import { source } from "../Ad";
 import type { Sound as SoundPlan } from "../types";
 
 /** How loud the music is under the voice, and once the voice has finished. */
-const UNDER = 0.2;
+const UNDER = 0.15;
 const OPEN = 0.55;
 const hold = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
 /**
  * Everything heard besides the voice. The music comes up quickly, sits low
- * while the voice talks, lifts on the ask and fades with the last frames. A
- * short effect marks a new photo arriving, a label landing and the ask.
+ * while the voice talks, lifts on the ask and fades with the last frames.
+ * Effects are few: one as the finished work is revealed, and one on the ask.
+ * A cut is not an event; a whoosh on every one makes the ad sound like a template.
  */
 export const Sound: React.FC<{ sound: SoundPlan; moves: number[]; lands: number[]; askAt: number; voiceEnd: number }> = ({ sound, moves, lands, askAt, voiceEnd }) => {
   const { fps, durationInFrames } = useVideoConfig();
@@ -30,8 +31,8 @@ export const Sound: React.FC<{ sound: SoundPlan; moves: number[]; lands: number[
   return (
     <>
       {sound.music ? <Audio src={source(sound.music)} trimBefore={Math.round((sound.musicFrom ?? 0) * fps)} volume={bed} /> : null}
-      {/* The move is heard a touch before it is seen, as a cut is. */}
-      {cue(sound.move, moves, 0.34, 0.06)}
+      {/* A move is heard a touch before it is seen, as a cut is. */}
+      {cue(sound.move, moves, 0.3, 0.06)}
       {cue(sound.land, lands, 0.5)}
       {cue(sound.ask, [askAt + 0.25], 0.36)}
     </>
