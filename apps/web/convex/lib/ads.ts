@@ -487,11 +487,8 @@ export const AD_STYLE_LABELS: Record<AdStyle, string> = { reel: "Reel", lightUp:
 export const NEW_AD_STYLE: AdStyle = "reel";
 /** The effects a reel plays, files the renderer carries (ads-video/public/sound). */
 export const REEL_SOUNDS = { move: "sound/whip.wav", land: "sound/switch.wav", ask: "sound/whoosh.wav" } as const;
-/** Where a shot of a photo moves in on, each 0 to 100 across and down it. */
-export interface FocusPoint {
-  x: number;
-  y: number;
-}
+/** The narrowest part of a photo that may be shown on its own, as a share of its width out of 100. */
+export const PART_MIN = 20;
 
 export const TITLE_MAX = 30;
 export const LABEL_MAX = 24;
@@ -506,8 +503,11 @@ export interface Design {
   stats?: Array<{ value: number; label: string }>;
   /** The word the after is revealed on, in a before/after. */
   revealOn?: string;
-  /** In a reel: where each photo's close shots look. */
-  focus?: Array<{ assetId: string; points: FocusPoint[] }>;
+  /**
+   * In a reel, for each line in order: where on its photo the line is about (x, y), and, when the photo is two
+   * pictures side by side, which part of its width to show (from, to). All 0 to 100; x and y are within the part.
+   */
+  frames?: Array<{ x?: number; y?: number; from?: number; to?: number }>;
 }
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
@@ -570,7 +570,8 @@ export function motionPrompt(
     ...examplesText(examples),
     "How it is drawn:",
     "- Each line after the first may have a label of at most 3 words that is stuck on the picture while the line is said.",
-    "- For each photo you use, give one or two focus points: where the camera should move in on, as x (0 at the left to 100 at the right) and y (0 at the top to 100 at the bottom). Choose the part of the photo its line is about.",
+    "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
+    `- A photo may itself be two pictures side by side, such as a before and its after in one image. Then give the line "cut": [from, to], the part of the photo's width to show (for example [0, 50] for the left picture), so a line about the before never shows the after. x and y are then within that part.`,
     "- Use three or more different photos when that many fit the hook, so the picture keeps changing.",
     "- When two of the photos are one pair, one tagged before and one tagged after, show the before first, and let the words say which is which.",
     "",
@@ -585,9 +586,9 @@ export function motionPrompt(
     "- If these photos can't carry the hook honestly, don't force it.",
     "",
     "Return only JSON, one of:",
-    `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"voice":"spoken line","label":"short label"}],"focus":[{"photo":1,"x":60,"y":55}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
+    `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"voice":"spoken line","label":"short label","x":60,"y":55}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
     '{"fits":false,"reason":"why the photos do not fit"}',
-    "Leave out label where a line has none.",
+    "Leave out label where a line has none, and cut unless the photo is two pictures side by side.",
   ]
     .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
     .join("\n");
@@ -598,11 +599,10 @@ export interface MotionPlan {
   reason?: string;
   style?: string;
   title?: string;
-  lines?: Array<{ photo?: number; voice?: string; label?: string }>;
+  /** In a reel a line also says where on its photo it is about (x, y) and, for a photo that is two pictures side by side, which part to show (cut). */
+  lines?: Array<{ photo?: number; voice?: string; label?: string; x?: number; y?: number; cut?: number[] }>;
   stats?: Array<{ value?: number; label?: string }>;
   revealOn?: string;
-  /** In a reel: where to move in on, by photo number. */
-  focus?: Array<{ photo?: number; x?: number; y?: number }>;
   headline?: string;
   primaryText?: string;
 }
@@ -682,16 +682,15 @@ export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: S
   }));
   const style = AD_STYLES.find((x) => x === plan.style) ?? NEW_AD_STYLE;
   const title = (plan.title ?? "").trim();
-  // A reel's focus points, by the photo they are on: only ones that land on the photo, two at most to each.
-  const used = new Set(shots.map((x) => x.assetId));
-  const focus = new Map<string, FocusPoint[]>();
-  for (const f of plan.focus ?? []) {
-    const assetId = assetIds[(f.photo ?? 0) - 1];
-    const ok = (n: unknown): n is number => typeof n === "number" && n >= 0 && n <= 100;
-    if (!assetId || !used.has(assetId) || !ok(f.x) || !ok(f.y)) continue;
-    const points = focus.get(assetId) ?? [];
-    if (points.length < 2) focus.set(assetId, [...points, { x: Math.round(f.x), y: Math.round(f.y) }]);
-  }
+  // A reel's framing, line by line: only a point that lands on the photo, and only a part wide enough to show.
+  const pct = (n: unknown): n is number => typeof n === "number" && n >= 0 && n <= 100;
+  const frames = (plan.lines ?? []).map((line) => {
+    const [from, to] = Array.isArray(line.cut) ? line.cut : [];
+    return {
+      ...(pct(line.x) && pct(line.y) ? { x: Math.round(line.x), y: Math.round(line.y) } : {}),
+      ...(pct(from) && pct(to) && to - from >= PART_MIN && to - from < 100 ? { from: Math.round(from), to: Math.round(to) } : {}),
+    };
+  });
   return {
     script: {
       voice: shots.map((x) => x.voice).join(" "),
@@ -705,7 +704,7 @@ export function composeMotion(plan: MotionPlan, assetIds: string[]): { script: S
       title,
       ...(style === "counter" ? { stats: (plan.stats ?? []).map((x) => ({ value: x.value ?? 0, label: (x.label ?? "").trim() })) } : {}),
       ...(style === "beforeAfter" && plan.revealOn?.trim() ? { revealOn: plan.revealOn.trim() } : {}),
-      ...(style === "reel" && focus.size ? { focus: [...focus].map(([assetId, points]) => ({ assetId, points })) } : {}),
+      ...(style === "reel" && frames.some((f) => Object.keys(f).length) ? { frames } : {}),
     },
   };
 }
@@ -776,7 +775,6 @@ export function renderProps(input: {
     style = { kind: "beforeAfter", ...(design.revealOn ? { crossOn: design.revealOn } : {}), crossAt: lines[turned].start };
   } else if (design.style === "counter") style = { kind: "counter", stats: design.stats ?? [] };
   if (design.style === "reel") {
-    const focus = new Map((design.focus ?? []).map((f) => [f.assetId, f.points]));
     return {
       ratio: input.ratio,
       style,
@@ -785,7 +783,15 @@ export function renderProps(input: {
       lines,
       audio: input.audioUrl,
       audioSec: input.audioSec,
-      photos: shots.map((x, i) => ({ src: perLine[i]!.url, ...(focus.has(x.assetId) ? { focus: focus.get(x.assetId) } : {}) })),
+      // Each line's photo with where to move in on it, and the part of it to show when it is two pictures in one.
+      photos: shots.map((_, i) => {
+        const f = design.frames?.[i] ?? {};
+        return {
+          src: perLine[i]!.url,
+          ...(f.x !== undefined && f.y !== undefined ? { focus: [{ x: f.x, y: f.y }] } : {}),
+          ...(f.from !== undefined && f.to !== undefined ? { crop: { from: f.from, to: f.to } } : {}),
+        };
+      }),
       sound: {
         ...(input.music
           ? { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}), ...(input.music.beats?.length ? { beats: input.music.beats } : {}) }

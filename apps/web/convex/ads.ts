@@ -2095,7 +2095,7 @@ const adDesign = v.object({
   title: v.string(),
   stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
   revealOn: v.optional(v.string()),
-  focus: v.optional(v.array(v.object({ assetId: v.id("adAssets"), points: v.array(v.object({ x: v.number(), y: v.number() })) }))),
+  frames: v.optional(v.array(v.object({ x: v.optional(v.number()), y: v.optional(v.number()), from: v.optional(v.number()), to: v.optional(v.number()) }))),
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */

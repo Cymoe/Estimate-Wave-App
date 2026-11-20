@@ -29,8 +29,11 @@ const SHOT_SEC = 1.9;
 const SHORTEST = 1.1;
 /** How long a moving clip holds before the cuts start. */
 const CLIP_SEC = 3.4;
-/** The last line looks back over the other photos, each up for at least this long. */
+/** The last line looks back over the other photos: each up for at least this long, and no longer than the second. */
 const GLANCE_SEC = 0.8;
+const GLANCE_MAX_SEC = 1.2;
+/** How much of the last line the look-back may take. */
+const LOOK_BACK_SHARE = 0.6;
 
 /** How much of a photo the frame cuts off when the photo fills it, 0 to 1. */
 export function hidden(photo: Shape, frame: Shape): number {
@@ -60,10 +63,14 @@ function cuts(from: number, to: number, beats: number[]): number[] {
  * The ad as a list of shots. Each spoken line has its photo, and the time the
  * line is up is cut into a few shots of that photo: wide first, then close,
  * across, and back out. The last line then looks back over the other photos,
- * quickly, ending on the first. Nothing is up for long, and nothing is still.
+ * quickly, ending on the first; a photo labelled as the before is left out of
+ * that, so the ad never closes on unfinished work. Nothing is up for long, and
+ * nothing is still.
  */
 export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Shape, beats: number[] = []): Shot[] {
   const out: Shot[] = [];
+  // Photos a line labels as the before.
+  const unfinished = new Set(lines.flatMap((line, i) => (/\bbefore\b/i.test(line.label ?? "") ? [photos[Math.min(i, photos.length - 1)]?.src ?? ""] : [])));
   const count = new Map<string, number>();
   const next = (key: string) => {
     const n = count.get(key) ?? 0;
@@ -82,11 +89,14 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
       out.push({ photo: of, start: at, end, framing, opens, line: i, turn: next(of.src + framing) });
       at = end;
     };
-    // The other photos, in the order they were shown, the first one last.
-    const others = photos.filter((ph, k) => ph.src !== photo.src && photos.findIndex((q) => q.src === ph.src) === k);
+    // The other photos, in the order they were shown, the first one last; never one shown as a before.
+    const others = photos.filter((ph, k) => ph.src !== photo.src && !unfinished.has(ph.src) && photos.findIndex((q) => q.src === ph.src) === k);
     if (others.length > 1) others.push(others.shift() as Photo);
-    const lookBack = i === lines.length - 1 && i > 0 && to - from >= 4.2 && others.length >= 2;
-    const own = lookBack ? from + Math.max(1.6, (to - from) * 0.4) : to;
+    const span = to - from;
+    const room = i === lines.length - 1 && i > 0 && span >= 4.2 ? span * LOOK_BACK_SHARE : 0;
+    const glances = others.slice(others.length - Math.min(others.length, Math.floor(room / GLANCE_SEC)));
+    const each = glances.length ? Math.min(GLANCE_MAX_SEC, room / glances.length) : 0;
+    const own = to - each * glances.length;
     if (photo.motion && fresh) add(photo, own - from - CLIP_SEC < SHORTEST ? own : from + CLIP_SEC, "clip", true);
     if (at < own) {
       const order = orderFor(photo, frame);
@@ -96,11 +106,7 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
         add(photo, end, seen < order.length ? order[seen] : order[1 + ((seen - 1) % (order.length - 1))], fresh && at === from);
       }
     }
-    if (lookBack) {
-      const glances = others.slice(-Math.min(others.length, Math.floor((to - own) / GLANCE_SEC)));
-      const each = (to - own) / glances.length;
-      glances.forEach((ph, k) => add(ph, k === glances.length - 1 ? to : at + each, k % 2 === 0 ? "punch" : "pull"));
-    }
+    glances.forEach((ph, k) => add(ph, k === glances.length - 1 ? to : at + each, k % 2 === 0 ? "punch" : "pull"));
   });
   return out;
 }

@@ -10,6 +10,11 @@ export interface Photo {
   focus?: Array<{ x: number; y: number }>;
   /** A few seconds of this same photo with the camera moving, when one has been made and checked. */
   motion?: { src: string };
+  /**
+   * The part of the photo's width to show, 0 to 100, when it is two pictures side by side (a before and its after
+   * in one image). The queue script cuts the file to it before anything is drawn, so the page never sees the rest.
+   */
+  crop?: { from: number; to: number };
 }
 
 /** One spoken line, and when ElevenLabs says it. */

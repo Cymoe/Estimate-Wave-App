@@ -105,6 +105,19 @@ async function evenMusic(file, from = 0) {
 }
 
 /**
+ * Cuts a photo down to a part of its width. A photo that is a before and its after side by side is shown one
+ * picture at a time, so the cut has to be right: if it can't be made, the ad isn't drawn.
+ */
+async function cutPhoto(file, size, crop) {
+  const out = file.replace(/(\.[a-z]+)$/i, `-${crop.from}-${crop.to}.jpg`);
+  const width = Math.max(2, Math.round((size.width * (crop.to - crop.from)) / 100));
+  const left = Math.round((size.width * crop.from) / 100);
+  await run("npx", ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-i", file, "-vf", `crop=${width}:${size.height}:${left}:0`, "-q:v", "2", out], { cwd: root });
+  if (!existsSync(out)) throw new Error("a photo couldn't be cut to the part it should show");
+  return { file: out, width };
+}
+
+/**
  * Brings an ad's photos, voice and music into the bundle and points its props
  * at them, with each photo's size. Drawn from files beside the page, a frame
  * never waits on the network.
@@ -116,25 +129,32 @@ async function localProps(job, serveDir, base) {
   const seen = new Map();
   const photos = [];
   for (const photo of job.props.photos) {
-    if (!seen.has(photo.src)) {
+    // The same file shown whole and shown in part are two different pictures.
+    const key = photo.crop ? `${photo.src}#${photo.crop.from}-${photo.crop.to}` : photo.src;
+    if (!seen.has(key)) {
       const bytes = await bytesOf(photo.src, base);
       const size = imageSize(bytes);
       if (!size.width || !size.height) throw new Error("a photo's size couldn't be read");
       // A phone photo stored on its side is shown upright, so its sides swap.
       const turned = (size.orientation ?? 1) >= 5;
+      const upright = { width: turned ? size.height : size.width, height: turned ? size.width : size.height };
       const file = `${folder}/p${seen.size}.${size.type === "jpg" ? "jpg" : (size.type ?? "jpg")}`;
       await writeFile(path.join(serveDir, "public", file), bytes);
-      const local = { src: file, width: turned ? size.height : size.width, height: turned ? size.width : size.height };
-      // The same photo with the camera moving, when a clip of it has been made.
-      if (photo.motion?.src) {
+      let local = { src: file, ...upright };
+      if (photo.crop) {
+        const cut = await cutPhoto(path.join(serveDir, "public", file), upright, photo.crop);
+        local = { src: `${folder}/${path.basename(cut.file)}`, width: cut.width, height: upright.height };
+      }
+      // The same photo with the camera moving, when a clip of it has been made. A clip shows the whole photo, so a part doesn't use it.
+      if (photo.motion?.src && !photo.crop) {
         const clip = `${folder}/m${seen.size}.mp4`;
         await writeFile(path.join(serveDir, "public", clip), await bytesOf(photo.motion.src, base));
         local.motion = { src: clip };
       }
-      seen.set(photo.src, local);
+      seen.set(key, local);
     }
     // Where to move in on belongs to the line's photo, so it is kept as the line gave it.
-    photos.push({ ...seen.get(photo.src), ...(photo.focus ? { focus: photo.focus } : {}) });
+    photos.push({ ...seen.get(key), ...(photo.focus ? { focus: photo.focus } : {}) });
   }
   let audio = "";
   if (job.props.audio) {

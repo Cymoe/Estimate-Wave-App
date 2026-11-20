@@ -210,8 +210,11 @@ describe("an animated ad's pure parts", () => {
     // A new ad is a reel: the photos fill the frame, each with where to move in on, and a pair is shown before first.
     expect(text).toContain("each photo fills the whole frame and is cut like footage");
     expect(text).toContain('"style":"reel"');
-    expect(text).toContain('"focus":[{"photo":1,"x":60,"y":55}]');
-    expect(text).toContain("give one or two focus points");
+    expect(text).toContain('"lines":[{"photo":1,"voice":"spoken line","label":"short label","x":60,"y":55}]');
+    expect(text).toContain("For each line give x and y");
+    // A photo that is a before and an after in one image is shown a half at a time.
+    expect(text).toContain('give the line "cut": [from, to]');
+    expect(text).toContain("so a line about the before never shows the after");
     expect(text).toContain("show the before first");
     expect(text).not.toContain("lightUp");
     expect(text).toContain("never as a homeowner or customer");
@@ -345,49 +348,46 @@ describe("an animated ad's pure parts", () => {
     expect((wipe.lines[1] as { label?: string }).label).toBeUndefined();
     const counter = renderProps({ ...base, design: { style: "counter", title: "T", stats: [{ value: 1, label: "painter" }] } });
     expect(counter.style).toEqual({ kind: "counter", stats: [{ value: 1, label: "painter" }] });
-    // A reel: every line's photo with where to move in on, labels stuck on the picture, the effects, and the music when a track is on.
-    const reelPlan = motionPlanFor(2, {
+    // A reel: every line's photo with where that line looks, labels stuck on the picture, the effects, and the music when a track is on.
+    const base4 = motionPlanFor(2);
+    const reelPlan = {
+      ...base4,
       style: "reel",
-      focus: [
-        { photo: 1, x: 60.4, y: 55 },
-        { photo: 1, x: 20, y: 30 },
-        { photo: 1, x: 5, y: 5 },
-        { photo: 2, x: 140, y: 50 },
-        { photo: 9, x: 50, y: 50 },
+      lines: [
+        { ...base4.lines[0], x: 60.4, y: 55 },
+        // The second photo of this line is a before and an after side by side: only its left picture is shown.
+        { ...base4.lines[1], x: 50, y: 40, cut: [0, 50] },
+        // A point off the photo is dropped; so is a part too narrow to show, or one that is the whole photo.
+        { ...base4.lines[2], x: 140, y: 50, cut: [40, 45] },
+        { ...base4.lines[3], cut: [0, 100] },
       ],
-    });
+    };
     expect(motionPlanProblems(reelPlan, loose)).toEqual([]);
     const made = composeMotion(reelPlan, ["a", "b"]);
-    // Two points to a photo at most; one that is off the photo, or on a photo that wasn't offered, is dropped.
     expect(made.design).toEqual({
       style: "reel",
       title: "Paint them, don't replace",
-      focus: [
-        {
-          assetId: "a",
-          points: [
-            { x: 60, y: 55 },
-            { x: 20, y: 30 },
-          ],
-        },
-      ],
+      frames: [{ x: 60, y: 55 }, { x: 50, y: 40, from: 0, to: 50 }, {}, {}],
     });
-    const reel = renderProps({ ...base, design: made.design, music: { url: "https://files.example/m.mp3", beats: [0.5, 1.05] } });
+    const reel = renderProps({ ...base, design: made.design, music: { url: "https://files.example/m.mp3", from: 12, beats: [0.5, 1.05] } });
     expect(reel.style).toEqual({ kind: "reel" });
     expect(reel.photos).toEqual([
-      { src: "https://files.example/a.jpg", focus: made.design.focus![0].points },
-      { src: "https://files.example/a.jpg", focus: made.design.focus![0].points },
+      { src: "https://files.example/a.jpg", focus: [{ x: 60, y: 55 }] },
+      { src: "https://files.example/a.jpg", focus: [{ x: 50, y: 40 }], crop: { from: 0, to: 50 } },
       { src: "https://files.example/b.jpg" },
       { src: "https://files.example/b.jpg" },
     ]);
     expect((reel.lines[1] as { label?: string }).label).toBe("No tear-out");
     expect((reel as { sound?: unknown }).sound).toEqual({
       music: "https://files.example/m.mp3",
+      musicFrom: 12,
       beats: [0.5, 1.05],
       move: "sound/whip.wav",
       land: "sound/switch.wav",
       ask: "sound/whoosh.wav",
     });
+    // A reel with nothing said about framing stores none.
+    expect(composeMotion({ ...base4, style: "reel" }, ["a", "b"]).design).toEqual({ style: "reel", title: "Paint them, don't replace" });
     // With no track on, a reel still has its effects; an ad in an older style carries no sound plan at all.
     expect((renderProps({ ...base, design: made.design }) as { sound?: unknown }).sound).toEqual({ move: "sound/whip.wav", land: "sound/switch.wav", ask: "sound/whoosh.wav" });
     expect((lit as { sound?: unknown }).sound).toBeUndefined();
@@ -1022,7 +1022,10 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         else if (opts.scriptsFail) reply = motionPlanFor(offered, { primaryText: "Only $999 this week" });
         else if (opts.badFirst && !retry) reply = motionPlanFor(offered, { lines: [] });
         else if (opts.style === "beforeAfter") reply = motionPlanFor(offered, { style: "beforeAfter", revealOn: "finish" });
-        else if (opts.style === "reel") reply = motionPlanFor(offered, { style: "reel", focus: [{ photo: 1, x: 60, y: 55 }] });
+        else if (opts.style === "reel") {
+          const plan = motionPlanFor(offered);
+          reply = { ...plan, style: "reel", lines: plan.lines.map((l, i) => (i === 0 ? { ...l, x: 60, y: 55 } : i === 1 ? { ...l, x: 50, y: 40, cut: [0, 50] } : l)) };
+        }
         else reply = motionPlanFor(offered);
         return new Response(JSON.stringify({ content: [{ type: "text", text: "Here it is: " + JSON.stringify(reply) }] }));
       }
@@ -1456,9 +1459,11 @@ describe("the weekly run", () => {
     expect(batch.creatives[0].style).toEqual({ id: "reel", label: "Reel" });
     const jobs = await claim();
     expect(jobs.length).toBe(2);
-    const props = jobs[0].props as { style: unknown; photos: Array<{ focus?: unknown }>; sound?: { music?: string; musicFrom?: number; beats?: number[]; move?: string } };
+    const props = jobs[0].props as { style: unknown; photos: Array<{ focus?: unknown; crop?: unknown }>; sound?: { music?: string; musicFrom?: number; beats?: number[]; move?: string } };
     expect(props.style).toEqual({ kind: "reel" });
-    expect(props.photos[0].focus).toEqual([{ x: 60, y: 55 }]);
+    expect(props.photos[0]).toMatchObject({ focus: [{ x: 60, y: 55 }] });
+    expect(props.photos[0].crop).toBeUndefined();
+    expect(props.photos[1]).toMatchObject({ focus: [{ x: 50, y: 40 }], crop: { from: 0, to: 50 } });
     expect(props.sound).toMatchObject({ music: expect.stringContaining("/api/storage/"), musicFrom: 12, beats: [0.49, 1.03], move: "sound/whip.wav" });
     expect(props.sound!.music).toBe(await t.run((ctx) => ctx.storage.getUrl(tracks[1].storageId)));
   });

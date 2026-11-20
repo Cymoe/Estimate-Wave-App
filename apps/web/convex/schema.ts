@@ -2596,7 +2596,9 @@ export default defineSchema({
         title: v.string(),
         stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
         revealOn: v.optional(v.string()),
-        // In a reel: where each photo's close shots look, 0 to 100 across and down it.
+        // In a reel, for each line: where on its photo it is about, and which part of the photo to show (lib/ads.ts Design).
+        frames: v.optional(v.array(v.object({ x: v.optional(v.number()), y: v.optional(v.number()), from: v.optional(v.number()), to: v.optional(v.number()) }))),
+        // How the first reel stored where to look, by photo. No longer written or read.
         focus: v.optional(v.array(v.object({ assetId: v.id("adAssets"), points: v.array(v.object({ x: v.number(), y: v.number() })) }))),
       }),
     ),
