@@ -34,7 +34,8 @@ const Chip: React.FC<{ text: string; color: string; ink: string }> = ({ text, co
 );
 
 /**
- * A before and its after, one above the other, under a headline that names the job. Nothing moves and nothing
+ * A before and its after, under a headline that names the job: one above the other, or side by side when the
+ * photos stand upright, so each is cut as little as possible. Nothing moves and nothing
  * needs sound: it reads at a glance in a muted feed. The tall size keeps its words clear of the app's own buttons.
  */
 const Split: React.FC<StillProps & { pair: [Photo, Photo] }> = ({ ratio, brand, headline, sub, pair }) => {
@@ -45,10 +46,13 @@ const Split: React.FC<StillProps & { pair: [Photo, Photo] }> = ({ ratio, brand, 
   // The tall size leaves its last fifth to the app's own buttons and caption.
   const foot = tall ? 440 : 150;
   const gap = 10;
-  const each = Math.floor((H - head.top - head.height - foot - gap) / 2);
+  const side = pair[0].height > pair[0].width && pair[1].height > pair[1].width;
+  const area = H - head.top - head.height - foot;
+  const each = side ? area : Math.floor((area - gap) / 2);
+  const wide = side ? Math.floor((W - gap) / 2) : W;
   const size = headline.length <= 24 ? (tall ? 96 : 84) : headline.length <= 36 ? (tall ? 80 : 70) : tall ? 68 : 60;
-  const photoAt = (top: number, ph: Photo, label: string, color: string, ink: string) => (
-    <div style={{ position: "absolute", left: 0, top, width: W, height: each, overflow: "hidden" }}>
+  const photoAt = (top: number, left: number, ph: Photo, label: string, color: string, ink: string) => (
+    <div style={{ position: "absolute", left, top, width: wide, height: each, overflow: "hidden" }}>
       <Img src={source(ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${ph.focus?.[0]?.x ?? 50}% ${ph.focus?.[0]?.y ?? 50}%` }} />
       <Chip text={label} color={color} ink={ink} />
     </div>
@@ -60,15 +64,19 @@ const Split: React.FC<StillProps & { pair: [Photo, Photo] }> = ({ ratio, brand, 
         <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, lineHeight: 1.05, letterSpacing: -2, color: "#fff" }}>{headline}</div>
         {sub ? <div style={{ fontFamily: body, fontWeight: 600, fontSize: tall ? 40 : 34, lineHeight: 1.25, color: "rgba(255,255,255,0.82)", marginTop: 16 }}>{sub}</div> : null}
       </div>
-      {photoAt(top, pair[0], "Before", "#ffffff", INK)}
-      <div style={{ position: "absolute", left: 0, top: top + each, width: W, height: gap, backgroundColor: brand.accentColor }} />
-      {photoAt(top + each + gap, pair[1], "After", brand.accentColor, INK)}
+      {photoAt(top, 0, pair[0], "Before", "#ffffff", INK)}
+      {side ? (
+        <div style={{ position: "absolute", left: wide, top, width: gap, height: each, backgroundColor: brand.accentColor }} />
+      ) : (
+        <div style={{ position: "absolute", left: 0, top: top + each, width: W, height: gap, backgroundColor: brand.accentColor }} />
+      )}
+      {side ? photoAt(top, wide + gap, pair[1], "After", brand.accentColor, INK) : photoAt(top + each + gap, 0, pair[1], "After", brand.accentColor, INK)}
       <div
         style={{
           position: "absolute",
           left: 56,
           right: 56,
-          top: top + 2 * each + gap,
+          top: side ? top + each : top + 2 * each + gap,
           height: tall ? 150 : foot,
           display: "flex",
           alignItems: "center",
