@@ -55,7 +55,7 @@ export const Ad: React.FC<AdProps> = (props) => {
   const shots = reel ? shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats, 0.6, props.spare ?? []) : [];
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
-      {reel ? <Reel {...props} shots={shots} until={closeAt} /> : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
+      {reel ? <Reel {...props} shots={shots} until={closeAt} /> : explainer && props.photos.length ? null : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
       {style.kind === "stockMix" ? <StockMix {...props} clip={style.clip} runs={runs} /> : null}
       {style.kind === "chat" || reel || explainer ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
       {style.kind === "beforeAfter" ? (

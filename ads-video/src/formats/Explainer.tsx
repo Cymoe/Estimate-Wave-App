@@ -1,6 +1,7 @@
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { source } from "../Ad";
 import { body, display, INK, WIDE, ZONES } from "../theme";
-import { askAt } from "../timing";
+import { askAt, runsOf } from "../timing";
 import type { AdProps } from "../types";
 
 /** A cross is for what a quote leaves out: a warm red that reads as "missing" on the dark canvas. */
@@ -8,17 +9,24 @@ const CROSS = "#e5484d";
 
 const sec = (frame: number, fps: number) => frame / fps;
 
+/** Where the points sit when a photo fills the frame: low, so the photo shows above them. */
+const LOW = { "9x16": { top: 980, height: 430 }, "4x5": { top: 640, height: 312 } } as const;
+
 /**
- * A short lesson drawn as graphics, with no photo. The headline slams in word
+ * A short lesson drawn as graphics over the job's own photos. Each line's
+ * photo fills the frame and moves in slowly; the cut to the next comes as its
+ * line starts. Without photos it is drawn on the brand's canvas alone. The headline slams in word
  * by word under a small tag, holds while the first line is said, then rises
  * to the top. Each line after it adds a numbered point; once the voice has
  * said it, the number turns into a tick (or a cross, for what's left out),
  * drawn on with a small burst. The points stay, so the frame always shows
  * the whole list so far.
  */
-export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, brand, headline, tag }) => {
+export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, brand, headline, tag, photos }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, durationInFrames } = useVideoConfig();
+  const withPhotos = photos.length > 0;
+  const runs = withPhotos ? runsOf(photos, lines, durationInFrames / fps) : [];
   const t = sec(frame, fps);
   const tall = ratio === "9x16";
   const zones = ZONES[ratio];
@@ -39,15 +47,40 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
   const titleScale = interpolate(rise, [0, 1], [1, small]);
   const tagIn = spring({ frame: frame + 8, fps, config: { damping: 14, mass: 0.6 } });
 
-  // The points sit in the middle band, as tall as fits.
-  const gap = tall ? 34 : 22;
-  const rowH = Math.min(tall ? 230 : 176, points.length ? (zones.card.height - gap * (points.length - 1)) / points.length : 0);
-  const listTop = zones.card.top + (zones.card.height - (rowH * points.length + gap * Math.max(0, points.length - 1))) / 2;
+  // The points sit in the middle band on the canvas; over a photo they sit low and compact, so the photo shows.
+  const band = withPhotos ? LOW[ratio] : zones.card;
+  const gap = withPhotos ? (tall ? 20 : 14) : tall ? 34 : 22;
+  const rowH = Math.min(withPhotos ? (tall ? 128 : 92) : tall ? 230 : 176, points.length ? (band.height - gap * (points.length - 1)) / points.length : 0);
+  const listTop = withPhotos ? band.top + band.height - (rowH * points.length + gap * Math.max(0, points.length - 1)) : band.top + (band.height - (rowH * points.length + gap * Math.max(0, points.length - 1))) / 2;
   const box = Math.round(Math.min(rowH * 0.66, tall ? 130 : 104));
-  const labelSize = tall ? 74 : 58;
+  const labelSize = withPhotos ? (tall ? 56 : 42) : tall ? 74 : 58;
 
   return (
     <>
+      {runs.map((run, i) => {
+        if (t < run.start || t >= run.end) return null;
+        // A slow push-in over the line, towards the part of the photo the line is about.
+        const zoom = interpolate(t, [run.start, run.end], [1, 1.08], { extrapolateRight: "clamp" });
+        const at = run.photo.focus?.[0] ?? { x: 50, y: 42 };
+        return (
+          <AbsoluteFill key={run.photo.src + i} style={{ overflow: "hidden" }}>
+            <Img
+              src={source(run.photo.src)}
+              style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${at.x}% ${at.y}%`, transform: `scale(${zoom})`, transformOrigin: `${at.x}% ${at.y}%` }}
+            />
+          </AbsoluteFill>
+        );
+      })}
+      {withPhotos ? (
+        <>
+          {/* Dark at the top for the title and low down for the points; the photo reads clearly between. */}
+          <AbsoluteFill
+            style={{ background: `linear-gradient(180deg, ${INK}c7 0%, ${INK}26 ${tall ? 20 : 22}%, ${INK}00 ${tall ? 30 : 32}%, ${INK}00 ${tall ? 46 : 42}%, ${INK}99 ${tall ? 60 : 56}%, ${INK}e6 100%)` }}
+          />
+          {/* While the title is up in the middle, the whole frame is darker so it reads. */}
+          <AbsoluteFill style={{ backgroundColor: INK, opacity: 0.32 * (1 - rise) }} />
+        </>
+      ) : null}
       {/* A faint grid gives the canvas the look of a chart, and drifts so the frame never sits still. */}
       <div
         style={{
@@ -57,6 +90,7 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
           backgroundSize: "120px 120px",
           backgroundPosition: `0px ${-(frame * 0.6) % 120}px`,
           maskImage: "radial-gradient(circle at 50% 45%, black 20%, transparent 75%)",
+          display: withPhotos ? "none" : undefined,
         }}
       />
 
@@ -150,9 +184,10 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
               gap: tall ? 34 : 26,
               padding: `0 ${tall ? 30 : 24}px`,
               borderRadius: 30,
-              backgroundColor: current ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
-              border: `3px solid ${current ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.08)"}`,
-              opacity: interpolate(enter, [0, 0.5], [0, 1], { extrapolateRight: "clamp" }) * (current ? 1 : 0.62),
+              // Over a photo each point has its own dark box, so it reads whatever is behind it.
+              backgroundColor: withPhotos ? (current ? `${INK}e6` : `${INK}b3`) : current ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
+              border: `3px solid ${current ? (withPhotos ? brand.accentColor : "rgba(255,255,255,0.22)") : "rgba(255,255,255,0.08)"}`,
+              opacity: interpolate(enter, [0, 0.5], [0, 1], { extrapolateRight: "clamp" }) * (current ? 1 : withPhotos ? 0.85 : 0.62),
               transform: `translateX(${interpolate(enter, [0, 1], [140, 0])}px)`,
               boxSizing: "border-box",
             }}
