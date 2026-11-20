@@ -1983,14 +1983,16 @@ export const rankLive = internalMutation({
  * are left alone.
  */
 export const pullUnpublished = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  // `names`: only these ads, so one trade's ads can be pulled and another's left waiting for review.
+  args: { names: v.optional(v.array(v.string())) },
+  handler: async (ctx, { names }) => {
     const pulled: string[] = [];
     const inMeta: string[] = [];
     // The ideas the pulled ads were made from, so one can be made again (weeklyRun's `only`).
     const hooks = new Set<Id<"adHooks">>();
     for (const c of await ctx.db.query("adCreatives").take(2000)) {
       if (c.status === "live" || c.status === "retired" || c.status === "rejected" || c.status === "failed") continue;
+      if (names && !names.includes(c.name)) continue;
       // One already created in Meta is retired there by a person, not orphaned from here.
       if (c.meta?.adId) {
         inMeta.push(c.name);
@@ -2156,6 +2158,7 @@ const adDesign = v.object({
               from: v.optional(v.number()),
               to: v.optional(v.number()),
               down: v.optional(v.boolean()),
+              before: v.optional(v.boolean()),
               more: v.optional(v.array(v.id("adAssets"))),
             }),
           ),

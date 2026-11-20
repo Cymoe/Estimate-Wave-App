@@ -88,8 +88,14 @@ export const photosOf = (photos: Photo[], lines: Line[], i: number): Photo[] => 
  */
 export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Shape, beats: number[] = [], covered = 0, spare: Photo[] = []): Shot[] {
   const out: Shot[] = [];
-  // Photos a line labels as the before.
-  const unfinished = new Set(lines.flatMap((line, i) => (/\bbefore\b/i.test(line.label ?? "") ? photosOf(photos, lines, i).map((ph) => ph.src) : [])));
+  // Photos that are a before: marked as one, or shown under a label that says so.
+  const unfinished = new Set(
+    lines.flatMap((line, i) =>
+      photosOf(photos, lines, i)
+        .filter((ph) => ph.before || /\bbefore\b/i.test(line.label ?? ""))
+        .map((ph) => ph.src),
+    ),
+  );
   const count = new Map<string, number>();
   const next = (key: string) => {
     const n = count.get(key) ?? 0;

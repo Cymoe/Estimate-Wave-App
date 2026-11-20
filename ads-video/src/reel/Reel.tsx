@@ -242,7 +242,7 @@ const Stickers: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: n
 export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until }) => {
   const { fps } = useVideoConfig();
   // The opening shows two of the ad's other photos first, so the first thing seen is already moving; never one a line calls the before.
-  const before = new Set(lines.flatMap((line, i) => (/\bbefore\b/i.test(line.label ?? "") ? [photos[Math.min(i, photos.length - 1)]?.src] : [])));
+  const before = new Set(lines.flatMap((line, i) => (photos[Math.min(i, photos.length - 1)]?.before || /\bbefore\b/i.test(line.label ?? "") ? [photos[Math.min(i, photos.length - 1)]?.src] : [])));
   const others = photos.filter((ph, i) => ph.src !== photos[0]?.src && !before.has(ph.src) && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);
   const openingSec = others.length * FLASH_SEC;
   const moves = shots.filter((s) => s.opens && s.start > 0).map((s) => s.start);

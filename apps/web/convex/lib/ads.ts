@@ -304,6 +304,7 @@ export interface Candidate {
 const RULES = (brand: string, town: string) => [
   `- The voice speaks only as ${brand}, never as a homeowner or customer. No testimonials, no "I hired", no invented reviews or names.`,
   "- No prices, dollar amounts, discounts, percentages off, warranties, guarantees, or promised completion times. A cost-education hook may say prices vary by size and condition and that a quote is free.",
+  `- Never promise how fast, or whether, a contractor answers: no "never wait", no "always calls back". ${brand} matches a homeowner with one contractor; how quickly that contractor replies is not ours to promise.`,
   `- Do not address the viewer by a personal attribute (no "is your home in...", no age, income or ethnicity). Say "${town} homeowners" style phrasing instead.`,
   "- Close the last shot with a plain ask: get a quote.",
 ];
@@ -373,6 +374,7 @@ const FORBIDDEN: Array<[RegExp, string]> = [
   [/\$\s?\d|\d+\s?%|percent off|% off|discount/i, "a price or discount"],
   [/warrant|guarantee/i, "a warranty or guarantee"],
   [/\bin \d+ days?\b|same[- ]day/i, "a completion time"],
+  [/\bnever (have to )?wait|\bno (more )?waiting\b|\balways (answers?|calls? back|picks? up|responds?)\b/i, "a promise about how fast a contractor answers"],
   [/\bI hired\b|\bthey painted my\b|\bmy painter\b/i, "a customer voice"],
   [/is your home in|are you over/i, "a personal attribute"],
 ];
@@ -521,9 +523,10 @@ export interface Design {
    * In a reel, for each line in order: where on its photo the line is about (x, y), and, when the photo is two
    * pictures side by side, which part of its width to show (from, to). All 0 to 100; x and y are within the part.
    * `down` says the part is measured down the photo, for two pictures one above the other.
+   * `before` says the line's picture is the unfinished state, which an ad never opens or closes on.
    * `more` is the other photos shown while the line is said, after its own, by asset id.
    */
-  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; down?: boolean; more?: string[] }>;
+  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; down?: boolean; before?: boolean; more?: string[] }>;
   /** In a reel, photos offered for the ad that no line uses, by asset id: its opening and closing show these before showing one again. */
   spare?: string[];
 }
@@ -593,6 +596,7 @@ export function motionPrompt(
     "- Use as many different photos as honestly fit the hook, each one once where you can, so the picture keeps changing and nothing comes back.",
     `- Besides its own photo, a line may name up to ${LINE_MORE_MAX} more in "more": other photos that show the same thing the line says. They are shown one after another while the line is said, the line's own photo first. Never put a photo in more that the line's words don't fit. A line with a cut takes no more, and a photo tagged before, or one of a pair, is never one of the more.`,
     "- When two of the photos are one pair, one tagged before and one tagged after, show the before first, and let the words say which is which.",
+    `- Add "before": true to any line whose picture is a before, the unfinished state, whether a photo of its own or one half of a photo. The ad never opens or closes on such a picture.`,
     "",
     "Write:",
     `- title: at most 5 words and ${TITLE_MAX} characters.`,
@@ -601,7 +605,7 @@ export function motionPrompt(
     `- The last line names ${brand}, and its final sentence asks the viewer to get a quote.`,
     "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
     `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
-    ...RULES(brand, town).slice(0, 3),
+    ...RULES(brand, town).slice(0, 4),
     "- If these photos can't carry the hook honestly, don't force it.",
     "",
     "Return only JSON, one of:",
@@ -619,7 +623,7 @@ export interface MotionPlan {
   style?: string;
   title?: string;
   /** In a reel a line also says where on its photo it is about (x, y) and, for a photo that is two pictures side by side, which part to show (cut). */
-  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[]; stacked?: boolean }>;
+  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[]; stacked?: boolean; before?: boolean }>;
   stats?: Array<{ value?: number; label?: string }>;
   revealOn?: string;
   headline?: string;
@@ -730,6 +734,7 @@ export function composeMotion(plan: MotionPlan, assetIds: string[], offered: Arr
     return {
       ...(pct(line.x) && pct(line.y) ? { x: Math.round(line.x), y: Math.round(line.y) } : {}),
       ...(part ? { from: Math.round(from), to: Math.round(to), ...(line.stacked === true ? { down: true } : {}) } : {}),
+      ...(line.before === true ? { before: true } : {}),
       ...(more.length ? { more: more.map((m) => assetIds[m - 1]) } : {}),
     };
   });
@@ -822,10 +827,21 @@ export function renderProps(input: {
   } else if (design.style === "counter") style = { kind: "counter", stats: design.stats ?? [] };
   if (design.style === "reel") {
     // Each line's photo with where to move in on it, and the part of it to show when it is two pictures in one.
-    const own = shots.map((_, i) => {
+    // The part of a photo a line shows, as one word, to tell two lines on the same photo apart.
+    const partOf = (i: number) => {
       const f = design.frames?.[i] ?? {};
+      return f.from === undefined ? "" : `${f.down ? "d" : ""}${f.from}-${f.to}`;
+    };
+    const own = shots.map((x, i) => {
+      const f = design.frames?.[i] ?? {};
+      const tags = perLine[i]!.tags;
+      // A before: said to be one, tagged as one, or the first of two different parts shown of one photo (the before is always shown first).
+      const firstOfTwo =
+        partOf(i) !== "" && !shots.slice(0, i).some((y) => y.assetId === x.assetId) && shots.some((y, j) => j > i && y.assetId === x.assetId && partOf(j) !== "" && partOf(j) !== partOf(i));
+      const before = f.before === true || (tags.includes("before") && !tags.includes("after")) || firstOfTwo;
       return {
         src: perLine[i]!.url,
+        ...(before ? { before: true } : {}),
         ...(f.x !== undefined && f.y !== undefined ? { focus: [{ x: f.x, y: f.y }] } : {}),
         ...(f.from !== undefined && f.to !== undefined ? { crop: { from: f.from, to: f.to, ...(f.down ? { down: true } : {}) } } : {}),
       };

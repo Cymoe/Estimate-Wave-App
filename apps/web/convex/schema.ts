@@ -2606,6 +2606,7 @@ export default defineSchema({
               from: v.optional(v.number()),
               to: v.optional(v.number()),
               down: v.optional(v.boolean()),
+              before: v.optional(v.boolean()),
               more: v.optional(v.array(v.id("adAssets"))),
             }),
           ),

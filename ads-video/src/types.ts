@@ -16,6 +16,8 @@ export interface Photo {
    * cuts the file to it before anything is drawn, so the page never sees the rest.
    */
   crop?: { from: number; to: number; down?: boolean };
+  /** The unfinished state of a job. A reel never opens or closes on one. */
+  before?: boolean;
 }
 
 /** One spoken line, and when ElevenLabs says it. */

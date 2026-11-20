@@ -254,6 +254,8 @@ describe("an animated ad's pure parts", () => {
     const good = motionPlanFor(2);
     expect(motionPlanProblems(good, loose)).toEqual([]);
     expect(motionPlanProblems({ ...good, style: "explode" }, loose)).toEqual(['style "explode" (write reel)']);
+    // How fast a contractor answers isn't ours to promise.
+    expect(motionPlanProblems({ ...good, title: "Never Wait on a Quote" }, loose)).toEqual(["mentions a promise about how fast a contractor answers"]);
     expect(motionPlanProblems({ ...good, title: "x".repeat(31) }, loose)).toEqual(["title over 30 characters"]);
     expect(motionPlanProblems({ ...good, lines: good.lines.slice(0, 2) }, loose)).toEqual(expect.arrayContaining(["2 lines (write 3 to 5)"]));
     expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], photo: 3 }, ...good.lines.slice(1)] }, loose)).toEqual(["line 1 names photo 3"]);
@@ -379,9 +381,10 @@ describe("an animated ad's pure parts", () => {
     });
     const reel = renderProps({ ...base, design: made.design, music: { url: "https://files.example/m.mp3", from: 12, beats: [0.5, 1.05] } });
     expect(reel.style).toEqual({ kind: "reel" });
+    // Photo a is tagged before, so every line on it is marked as one: the ad won't open or close on it.
     expect(reel.photos).toEqual([
-      { src: "https://files.example/a.jpg", focus: [{ x: 60, y: 55 }] },
-      { src: "https://files.example/a.jpg", focus: [{ x: 50, y: 40 }], crop: { from: 0, to: 50 } },
+      { src: "https://files.example/a.jpg", before: true, focus: [{ x: 60, y: 55 }] },
+      { src: "https://files.example/a.jpg", before: true, focus: [{ x: 50, y: 40 }], crop: { from: 0, to: 50 } },
       { src: "https://files.example/b.jpg" },
       { src: "https://files.example/b.jpg" },
     ]);
@@ -467,6 +470,24 @@ describe("an animated ad's pure parts", () => {
     }) as { photos: Array<{ crop?: unknown }> };
     expect(stackedProps.photos[0].crop).toEqual({ from: 50, to: 100, down: true });
     expect(stackedProps.photos[1].crop).toBeUndefined();
+    // Which picture is the before: the line says so, or it is the first of two different parts shown of one photo.
+    const said = composeMotion({ ...plan, lines: plan.lines.map((l, i) => (i === 2 ? { ...l, more: undefined, before: true } : l)) }, ids, offered);
+    expect(said.design.frames![2]).toEqual({ before: true });
+    const halves = composeMotion(
+      { ...plan, lines: plan.lines.map((l, i) => ({ ...l, more: undefined, ...(i === 0 ? { cut: [0, 48], stacked: true } : i === 1 ? { cut: [52, 100], stacked: true } : {}) })) },
+      ids,
+      offered,
+    );
+    const halvesProps = renderProps({
+      ratio: "9x16",
+      design: halves.design,
+      script: { ...halves.script, shots: halves.script.shots!.map((x, i) => ({ ...x, start: i * 5, end: i * 5 + 4 })) },
+      photos: new Map(ids.map((id) => [id, { url: `https://files.example/${id}.jpg`, tags: [] as string[] }])),
+      audioUrl: "https://files.example/v.mp3",
+      audioSec: 20,
+      brand,
+    }) as { photos: Array<{ before?: boolean }> };
+    expect(halvesProps.photos.map((x) => x.before)).toEqual([true, undefined, undefined, undefined]);
 
     const photos = new Map(ids.map((id) => [id, { url: `https://files.example/${id}.jpg`, tags: [] as string[] }]));
     const timed = { ...script, shots: script.shots!.map((x, i) => ({ ...x, start: i * 5, end: i * 5 + 4 })) };
@@ -1573,6 +1594,8 @@ describe("the weekly run", () => {
     // A second idea, written and voiced but never drawn, is pulled.
     await draft();
     const waiting = (await latest()).creatives.map((c) => c.name);
+    // Named, only those are pulled; unnamed, every one still waiting.
+    expect((await t.mutation(internal.ads.pullUnpublished, { names: ["no such ad"] })).pulled).toEqual([]);
     expect((await t.mutation(internal.ads.pullUnpublished, {})).pulled.sort()).toEqual([...waiting].sort());
     expect(states(await latest())).toEqual(["9x16 rejected", "4x5 rejected"]);
   });

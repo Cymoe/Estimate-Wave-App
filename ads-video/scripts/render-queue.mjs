@@ -158,7 +158,7 @@ async function localProps(job, serveDir, base) {
       seen.set(key, fetched);
     }
     // Where to move in on belongs to the line's photo, so it is kept as the line gave it.
-    return { ...seen.get(key), ...(photo.focus ? { focus: photo.focus } : {}) };
+    return { ...seen.get(key), ...(photo.focus ? { focus: photo.focus } : {}), ...(photo.before ? { before: true } : {}) };
   };
   const photos = [];
   for (const photo of job.props.photos) photos.push(await local(photo));
