@@ -2760,6 +2760,8 @@ export default defineSchema({
   }),
 
   adSettings: defineTable({
+    // Beside each reel that shows a before and its after from one job, a still of that pair.
+    stills: v.optional(v.boolean()),
     adAccountId: v.optional(v.string()),
     pageId: v.optional(v.string()),
     leadFormId: v.optional(v.string()),

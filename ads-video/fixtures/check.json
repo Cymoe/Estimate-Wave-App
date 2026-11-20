@@ -214,5 +214,39 @@
         }
       ]
     }
+  },
+  {
+    "name": "check_still_4x5",
+    "kind": "image",
+    "props": {
+      "ratio": "4x5",
+      "brand": {
+        "name": "GoodFit Pros",
+        "primaryColor": "#336699",
+        "accentColor": "#8fb6e0",
+        "markets": [
+          "Midland",
+          "Odessa"
+        ]
+      },
+      "headline": "Same room, new walls",
+      "sub": "Every wall painted",
+      "pair": [
+        {
+          "src": "room.jpg",
+          "crop": {
+            "from": 0,
+            "to": 50
+          }
+        },
+        {
+          "src": "room.jpg",
+          "crop": {
+            "from": 50,
+            "to": 100
+          }
+        }
+      ]
+    }
   }
 ]

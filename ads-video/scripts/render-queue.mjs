@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { imageSize } from "image-size";
 
 const run = promisify(execFile);
@@ -160,6 +160,12 @@ async function localProps(job, serveDir, base) {
     // Where to move in on belongs to the line's photo, so it is kept as the line gave it.
     return { ...seen.get(key), ...(photo.focus ? { focus: photo.focus } : {}), ...(photo.before ? { before: true } : {}) };
   };
+  // A still: its before and its after, nothing else to bring.
+  if (job.props.pair) {
+    const pair = [];
+    for (const photo of job.props.pair) pair.push(await local(photo));
+    return { props: { ...job.props, pair }, dir };
+  }
   const photos = [];
   for (const photo of job.props.photos) photos.push(await local(photo));
   // A reel's lines may each have photos of their own, and the ad a few to spare.
@@ -193,8 +199,14 @@ async function localProps(job, serveDir, base) {
 
 async function draw(job, serveUrl, base) {
   const { props, dir } = await localProps(job, serveUrl, base);
-  const file = path.join(outDir, `${job.name}.mp4`);
+  const still = job.kind === "image" || Boolean(job.props.pair);
+  const file = path.join(outDir, `${job.name}.${still ? "jpg" : "mp4"}`);
   try {
+    if (still) {
+      const composition = await selectComposition({ serveUrl, id: "Still", inputProps: props, browserExecutable, logLevel: "error" });
+      await renderStill({ composition, serveUrl, output: file, inputProps: props, imageFormat: "jpeg", jpegQuality: 90, browserExecutable, logLevel: "error" });
+      return file;
+    }
     const composition = await selectComposition({ serveUrl, id: "Ad", inputProps: props, browserExecutable, logLevel: "error" });
     await renderMedia({ composition, serveUrl, codec: "h264", outputLocation: file, inputProps: props, concurrency, browserExecutable, logLevel: "error" });
   } finally {
@@ -230,7 +242,7 @@ async function main() {
         try {
           const file = await draw(job, serveUrl, root);
           const uploadUrl = await convex("ads:renderUploadUrl");
-          const res = await fetch(uploadUrl, { method: "POST", headers: { "content-type": "video/mp4" }, body: await readFile(file) });
+          const res = await fetch(uploadUrl, { method: "POST", headers: { "content-type": file.endsWith(".jpg") ? "image/jpeg" : "video/mp4" }, body: await readFile(file) });
           if (!res.ok) throw new Error(`the file couldn't be stored (${res.status})`);
           const { storageId } = await res.json();
           await convex("ads:renderDone", { id: job.id, storageId });

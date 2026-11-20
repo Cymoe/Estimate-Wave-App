@@ -803,6 +803,43 @@ export interface RenderPhoto {
  * photos' sizes). A before/after is given its two photos, before first; any
  * other style, the photo for each line.
  */
+/**
+ * Which of a reel's lines show a before: marked as one by the writer, on a photo tagged before and not after,
+ * or the first of two different parts shown of one photo (the before is always shown first).
+ */
+export function beforeLines(shots: Array<{ assetId: string }>, frames: Design["frames"], tagsOf: (assetId: string) => string[]): boolean[] {
+  const partOf = (i: number) => {
+    const f = frames?.[i] ?? {};
+    return f.from === undefined ? "" : `${f.down ? "d" : ""}${f.from}-${f.to}`;
+  };
+  return shots.map((x, i) => {
+    const f = frames?.[i] ?? {};
+    const tags = tagsOf(x.assetId);
+    const firstOfTwo =
+      partOf(i) !== "" && !shots.slice(0, i).some((y) => y.assetId === x.assetId) && shots.some((y, j) => j > i && y.assetId === x.assetId && partOf(j) !== "" && partOf(j) !== partOf(i));
+    return f.before === true || (tags.includes("before") && !tags.includes("after")) || firstOfTwo;
+  });
+}
+
+/**
+ * The before and the after of one job that a reel shows, for a still of the same ad: the first line on a before,
+ * and the first line after it on finished work from the same photo or the same tagged pair. Never two jobs side by side.
+ */
+export function stillPairOf(
+  shots: Array<{ assetId: string }>,
+  frames: Design["frames"],
+  assets: Map<string, { tags: string[]; pairKey?: string }>,
+): { before: number; after: number } | null {
+  const tagsOf = (id: string) => assets.get(id)?.tags ?? [];
+  const before = beforeLines(shots, frames, tagsOf);
+  const b = before.indexOf(true);
+  if (b < 0) return null;
+  const from = shots[b].assetId;
+  const key = assets.get(from)?.pairKey;
+  const a = shots.findIndex((x, j) => j > b && !before[j] && (x.assetId === from || (key !== undefined && assets.get(x.assetId)?.pairKey === key)));
+  return a < 0 ? null : { before: b, after: a };
+}
+
 export function renderProps(input: {
   ratio: "9x16" | "4x5";
   design: Design;
@@ -838,17 +875,10 @@ export function renderProps(input: {
   if (design.style === "reel") {
     // Each line's photo with where to move in on it, and the part of it to show when it is two pictures in one.
     // The part of a photo a line shows, as one word, to tell two lines on the same photo apart.
-    const partOf = (i: number) => {
-      const f = design.frames?.[i] ?? {};
-      return f.from === undefined ? "" : `${f.down ? "d" : ""}${f.from}-${f.to}`;
-    };
+    const befores = beforeLines(shots, design.frames, (id) => input.photos.get(id)?.tags ?? []);
     const own = shots.map((x, i) => {
       const f = design.frames?.[i] ?? {};
-      const tags = perLine[i]!.tags;
-      // A before: said to be one, tagged as one, or the first of two different parts shown of one photo (the before is always shown first).
-      const firstOfTwo =
-        partOf(i) !== "" && !shots.slice(0, i).some((y) => y.assetId === x.assetId) && shots.some((y, j) => j > i && y.assetId === x.assetId && partOf(j) !== "" && partOf(j) !== partOf(i));
-      const before = f.before === true || (tags.includes("before") && !tags.includes("after")) || firstOfTwo;
+      const before = befores[i];
       return {
         src: perLine[i]!.url,
         ...(before ? { before: true } : {}),
@@ -882,6 +912,22 @@ export function renderProps(input: {
     };
   }
   return { ratio: input.ratio, style, brand: input.brand, headline: design.title, lines, audio: input.audioUrl, audioSec: input.audioSec, photos };
+}
+
+/**
+ * A still of a reel: its before above or beside its after, under the reel's title, with the headline of the line
+ * where the after shows beneath it. Null when the reel shows no before and after of one job.
+ */
+export function stillProps(reel: ReturnType<typeof renderProps>, pair: { before: number; after: number } | null) {
+  if (!pair || !reel.photos[pair.before] || !reel.photos[pair.after]) return null;
+  const strip = ({ focus, crop, src }: { src: string; focus?: unknown; crop?: unknown }) => ({ src, ...(focus ? { focus } : {}), ...(crop ? { crop } : {}) });
+  return {
+    ratio: "4x5" as const,
+    brand: reel.brand,
+    headline: reel.headline,
+    sub: ("label" in reel.lines[pair.after] ? (reel.lines[pair.after] as { label?: string }).label : undefined) ?? "",
+    pair: [strip(reel.photos[pair.before] as never), strip(reel.photos[pair.after] as never)],
+  };
 }
 
 // ------------------------------------------------------------ Swipe file

@@ -34,6 +34,8 @@ import {
   readPlaybook,
   readSwipeTags,
   renderProps,
+  stillPairOf,
+  stillProps,
   shotTimings,
   swipeScore,
   tagSwipePrompt,
@@ -2233,6 +2235,29 @@ export const addCreatives = internalMutation({
         name = `${creativeName(hookId, ratio, now)}_${n}`;
       ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, name, script, design, assetIds, status: "draft", createdAt: nowIso() }));
     }
+    // A still of the same ad when it shows a before and its after from one job: it shares the words and needs no voice of its own.
+    if ((await settingsRow(ctx))?.stills && design.style === "reel") {
+      const assets = new Map<string, { tags: string[]; pairKey?: string }>();
+      for (const id of assetIds) {
+        const a = await ctx.db.get(id);
+        if (a) assets.set(id, { tags: a.tags, pairKey: a.pairKey });
+      }
+      if (stillPairOf(script.shots ?? [], design.frames, assets))
+        ids.push(
+          await ctx.db.insert("adCreatives", {
+            batchId,
+            hookId,
+            ratio: "4x5",
+            kind: "image",
+            name: `${creativeName(hookId, "4x5", now)}_still`,
+            script,
+            design,
+            assetIds,
+            status: "draft",
+            createdAt: nowIso(),
+          }),
+        );
+    }
     const hook = await ctx.db.get(hookId);
     if (hook) await ctx.db.patch(hookId, { uses: hook.uses + 1, lastUsedAt: nowIso() });
     // The library rotates: a photo used in an ad this week waits behind fresher ones next week.
@@ -2453,20 +2478,20 @@ export const claimRenders = internalMutation({
     const track = (await ctx.db.query("adMusic").order("desc").take(20)).find((m) => m.active);
     const musicUrl = track ? await ctx.storage.getUrl(track.storageId) : null;
     const music = track && musicUrl ? { url: musicUrl, from: track.from, beats: track.beats } : undefined;
-    const jobs: Array<{ id: Id<"adCreatives">; name: string; props: ReturnType<typeof renderProps> }> = [];
+    const jobs: Array<{ id: Id<"adCreatives">; name: string; kind: "video" | "image"; props: ReturnType<typeof renderProps> | NonNullable<ReturnType<typeof stillProps>> }> = [];
     for (const c of [...waiting, ...stale].slice(0, Math.max(1, Math.min(RENDER_BATCH, limit)))) {
       try {
         if (!c.design) throw new Error("This ad was made before ads were drawn this way");
         const audioUrl = c.audioStorageId ? await ctx.storage.getUrl(c.audioStorageId) : null;
         if (!audioUrl) throw new Error("No voice track");
-        const photos = new Map<string, { url: string; tags: string[] }>();
+        const photos = new Map<string, { url: string; tags: string[]; pairKey?: string }>();
         for (const assetId of c.assetIds) {
           const a = await ctx.db.get(assetId);
           // The still Claude looked at: the photo itself, or its JPEG still when the browser can't read it (HEIC).
           const url = a ? await lookUrl(ctx, a) : undefined;
-          if (a && url) photos.set(assetId, { url, tags: a.tags });
+          if (a && url) photos.set(assetId, { url, tags: a.tags, pairKey: a.pairKey });
         }
-        const props = renderProps({
+        const reel = renderProps({
           ratio: c.ratio,
           design: c.design,
           script: c.script,
@@ -2476,8 +2501,14 @@ export const claimRenders = internalMutation({
           brand,
           music,
         });
+        let props: ReturnType<typeof renderProps> | NonNullable<ReturnType<typeof stillProps>> = reel;
+        if (c.kind === "image") {
+          const still = stillProps(reel, c.design ? stillPairOf(c.script.shots ?? [], c.design.frames, photos) : null);
+          if (!still) throw new Error("This ad shows no before and after of one job to put in a still");
+          props = still;
+        }
         await ctx.db.patch(c._id, { status: "rendering", renderStartedAt: nowIso(), error: undefined });
-        jobs.push({ id: c._id, name: c.name, props });
+        jobs.push({ id: c._id, name: c.name, kind: c.kind === "image" ? "image" : "video", props });
       } catch (e) {
         await ctx.db.patch(c._id, { status: "failed", error: errText(e) });
         await ctx.scheduler.runAfter(0, internal.ads.finishIfDone, { batchId: c.batchId });
@@ -2524,6 +2555,13 @@ export const renderDone = internalMutation({
       await ctx.storage.delete(storageId);
       return { kept: false };
     }
+    // A still keeps its picture where an image ad does; a reel its video.
+    if (c.kind === "image") {
+      if (c.imageStorageId) await ctx.storage.delete(c.imageStorageId);
+      await ctx.db.patch(id, { status: "rendered", imageStorageId: storageId, error: undefined });
+      await ctx.scheduler.runAfter(0, internal.ads.publishPaused, { id });
+      return { kept: true };
+    }
     if (c.videoStorageId) await ctx.storage.delete(c.videoStorageId);
     await ctx.db.patch(id, { status: "rendered", videoStorageId: storageId, error: undefined });
     await ctx.scheduler.runAfter(0, internal.ads.publishPaused, { id });
@@ -2537,7 +2575,7 @@ export const renderFailed = internalMutation({
   handler: async (ctx, { id, error }) => {
     const c = await ctx.db.get(id);
     if (c === null || c.status !== "rendering") return;
-    await ctx.db.patch(id, { status: "failed", error: `Couldn't draw the video: ${error}`.slice(0, 500) });
+    await ctx.db.patch(id, { status: "failed", error: `Couldn't draw the ${c.kind === "image" ? "still" : "video"}: ${error}`.slice(0, 500) });
     await ctx.scheduler.runAfter(0, internal.ads.finishIfDone, { batchId: c.batchId });
   },
 });
@@ -2795,6 +2833,17 @@ const VOICE_SETTINGS = { stability: 0.35, similarity_boost: 0.75, style: 0.3, us
 /** The model the narrator reads with, and the one used when it can't time the words. */
 const VOICE_MODELS = ["eleven_v4", "eleven_multilingual_v2"];
 
+/** Whether each reel showing a before and after of one job also gets a still of that pair. */
+export const setStills = internalMutation({
+  args: { on: v.boolean() },
+  handler: async (ctx, { on }) => {
+    const row = await settingsRow(ctx);
+    if (row) await ctx.db.patch(row._id, { stills: on });
+    else fail("INVALID", "Save the ad settings once first");
+    return { stills: on };
+  },
+});
+
 /** The narrator the owner picked from the samples. */
 export const setVoice = internalMutation({
   args: { voiceId: v.string() },
@@ -2917,9 +2966,15 @@ export const publishPaused = internalAction({
   args: { id: v.id("adCreatives") },
   handler: async (ctx, { id }) => {
     const c: CreativeInput | null = await ctx.runQuery(internal.ads.creativeInput, { id });
-    if (!c || !c.videoUrl) return;
+    if (!c || !(c.videoUrl || (c.kind === "image" && c.imageUrl))) return;
     const cfg = await ctx.runQuery(internal.ads.config, {});
     const adsetId = cfg.adsetId;
+    // A still is watched and approved here like the rest; it is put into Meta by hand for now.
+    if (!c.videoUrl) {
+      await ctx.runMutation(internal.ads.patchCreative, { id, error: "A still: download it and add it in Meta by hand" });
+      await ctx.runMutation(internal.ads.finishIfDone, { batchId: c.batchId });
+      return;
+    }
     if (!process.env.META_ACCESS_TOKEN || !cfg.adAccountId || !cfg.pageId || !adsetId) {
       // Rendered and watchable in Ops; it goes to Meta by hand until the account is set up.
       await ctx.runMutation(internal.ads.patchCreative, {

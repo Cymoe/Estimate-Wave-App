@@ -32,6 +32,7 @@ import {
   qualifies,
   readPlaybook,
   readSwipeTags,
+  stillPairOf,
   tagSwipePrompt,
   renderProps,
   swipeScore,
@@ -191,6 +192,27 @@ function motionPlanFor(photoCount: number, over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+describe("a still's pair", () => {
+  test("a before and its after from one job only: the same photo cut in two, or one tagged pair; never two jobs", () => {
+    const assets = new Map<string, { tags: string[]; pairKey?: string }>([
+      ["two", { tags: ["exterior", "before", "after"] }],
+      ["b", { tags: ["cabinets", "before"], pairKey: "k" }],
+      ["a", { tags: ["cabinets", "after"], pairKey: "k" }],
+      ["other", { tags: ["cabinets", "after"], pairKey: "z" }],
+      ["room", { tags: ["interior"] }],
+    ]);
+    const shots = (...ids: string[]) => ids.map((assetId) => ({ assetId }));
+    // One photo, its left half then its right half.
+    expect(stillPairOf(shots("two", "two", "room"), [{ from: 0, to: 50 }, { from: 50, to: 100 }, {}], assets)).toEqual({ before: 0, after: 1 });
+    // A tagged pair, with another photo between them.
+    expect(stillPairOf(shots("b", "room", "a"), [], assets)).toEqual({ before: 0, after: 2 });
+    // A before and somebody else's after.
+    expect(stillPairOf(shots("b", "other"), [], assets)).toBeNull();
+    // No before at all.
+    expect(stillPairOf(shots("room", "a"), [], assets)).toBeNull();
+  });
+});
 
 describe("an animated ad's pure parts", () => {
   const brand = { name: "Webb Leads", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
@@ -1657,6 +1679,28 @@ describe("the weekly run", () => {
     expect(job.props.photos[0].src).not.toBe(job.props.photos[1].src);
     // No ticked labels on a before/after.
     expect(job.props.lines.every((l: { label?: string }) => l.label === undefined)).toBe(true);
+  });
+
+  test("with stills on, a reel that shows a before and its after from one job also gets a still of that pair, drawn as a picture", async () => {
+    const { t, calls, draft, claim, handIn, latest } = await ready();
+    stubServices(calls, { style: "reel" });
+    await t.mutation(internal.ads.setStills, { on: true });
+    const batch = await draft();
+    const still = batch.creatives.find((c) => c.name.endsWith("_still"));
+    expect(still).toMatchObject({ ratio: "4x5", kind: "image", status: "voiced" });
+    // The words and the voice are the reel's own: one read for all three.
+    expect(to(calls, "elevenlabs").length).toBe(1);
+    const jobs = await claim();
+    const job = jobs.find((j) => j.name === still!.name)!;
+    expect(job.kind).toBe("image");
+    const props = job.props as unknown as { headline: string; sub: string; pair: Array<{ src: string }> };
+    expect(props.headline).toBe("Paint them, don't replace");
+    expect(props.pair.length).toBe(2);
+    expect(props.pair[0].src).not.toBe(props.pair[1].src);
+    expect(jobs.filter((j) => j.kind === "video").length).toBe(jobs.length - 1);
+    await handIn(job);
+    const after = (await latest()).creatives.find((c) => c.name === still!.name)!;
+    expect(after).toMatchObject({ status: "rendered", error: "A still: download it and add it in Meta by hand" });
   });
 
   test("a video that can't be drawn fails that ad with the reason and the batch still finishes; drawn again, it keeps its words and voice", async () => {
