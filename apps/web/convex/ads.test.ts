@@ -193,6 +193,79 @@ function motionPlanFor(photoCount: number, over: Record<string, unknown> = {}) {
   };
 }
 
+describe("a checklist ad (explainer)", () => {
+  const brand = { name: "GoodFit Pros", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
+  const offered = [{ tags: ["interior"] }, { tags: ["interior", "process"] }, { tags: ["interior", "process"] }, { tags: ["interior", "before"] }];
+  const plan = {
+    fits: true,
+    style: "explainer",
+    tag: "Painting quotes",
+    title: "2 things to check in a painting quote",
+    lines: [
+      { photo: 1, voice: "Two painting quotes for the same room can look nothing alike.", x: 50, y: 45 },
+      { photo: 2, voice: "First, does it say how many coats, and which paint?", label: "Coats and paint named", mark: "check", x: 40, y: 60 },
+      { photo: 3, voice: "Second, is the prep written down: patching, sanding, caulk?", label: "Prep written down", mark: "check" },
+      { photo: 1, voice: "GoodFit Pros matches you with one local painter. Get a free quote." },
+    ],
+    headline: GOOD.headline,
+    primaryText: GOOD.primaryText,
+  };
+
+  test("a cost-education idea is asked for as a checklist over the job's photos; other ideas stay reels", () => {
+    const ask = motionPrompt({ textEn: "What to check in a quote", family: "education", scope: "interior" }, "GoodFit Pros", [], true);
+    expect(ask).toContain("a short checklist over the job's own photos");
+    expect(ask).toContain('"style":"explainer"');
+    expect(ask).toContain("Each point's photo must show what the point is about");
+    expect(ask).toContain("No prices, ranges or dollar amounts");
+    const reel = motionPrompt({ textEn: "Same house, new look", family: "before_after", scope: "exterior" }, "GoodFit Pros", [], true);
+    expect(reel).not.toContain("checklist");
+    expect(reel).toContain('"style":"reel"');
+  });
+
+  test("the checks: points with labels and marks, no befores, one photo a line, a number in the title that matches", () => {
+    expect(motionPlanProblems(plan, offered)).toEqual([]);
+    const lines = plan.lines;
+    expect(motionPlanProblems({ ...plan, lines: [lines[0], { ...lines[1], mark: "maybe" }, lines[2], lines[3]] }, offered)).toEqual(['line 2\'s mark is "maybe" (write check or cross)']);
+    expect(motionPlanProblems({ ...plan, lines: [lines[0], { ...lines[1], label: "" }, lines[2], lines[3]] }, offered)).toEqual(["line 2 is a point with no label"]);
+    expect(motionPlanProblems({ ...plan, lines: [lines[0], lines[1], { ...lines[2], photo: 4 }, lines[3]] }, offered)).toEqual([
+      "line 3's photo is a before (a checklist shows finished work and work under way)",
+    ]);
+    expect(motionPlanProblems({ ...plan, title: "3 things to check in a painting quote" }, offered)).toEqual(["the title says 3 but there are 2 points"]);
+    expect(motionPlanProblems({ ...plan, lines: [{ ...lines[0], mark: "check" }, lines[1], lines[2], lines[3]] }, offered)).toEqual([
+      "the first line has a label or mark (only points have them)",
+    ]);
+    expect(motionPlanProblems({ ...plan, tag: "Lowest price painters" }, offered).some((p) => p.startsWith("mentions"))).toBe(false);
+  });
+
+  test("what the renderer is given: each line's whole photo, where to move in, the points' labels and marks, and the tag", () => {
+    const { script, design } = composeMotion(plan, ["a", "b", "c", "d"], offered);
+    expect(design).toMatchObject({ style: "explainer", tag: "Painting quotes", title: "2 things to check in a painting quote" });
+    expect(design.frames?.map((f) => f.mark)).toEqual([undefined, "check", "check", undefined]);
+    const photos = new Map([
+      ["a", { url: "https://files.example/a.jpg", tags: ["interior"] }],
+      ["b", { url: "https://files.example/b.jpg", tags: ["interior", "process"] }],
+      ["c", { url: "https://files.example/c.jpg", tags: ["interior", "process"] }],
+    ]);
+    const timed = { ...script, shots: script.shots!.map((x, i) => ({ ...x, start: i * 4, end: i * 4 + 3 })) };
+    const props = renderProps({ ratio: "9x16", design, script: timed, photos, audioUrl: "https://files.example/v.mp3", audioSec: 16, brand, music: { url: "https://files.example/m.mp3" } });
+    expect(props.style).toEqual({ kind: "explainer", tag: "Painting quotes" });
+    expect(props.photos).toEqual([
+      { src: "https://files.example/a.jpg", focus: [{ x: 50, y: 45 }] },
+      { src: "https://files.example/b.jpg", focus: [{ x: 40, y: 60 }] },
+      { src: "https://files.example/c.jpg" },
+      { src: "https://files.example/a.jpg" },
+    ]);
+    expect(props.lines.map((l) => [(l as { label?: string }).label, (l as { mark?: string }).mark])).toEqual([
+      [undefined, undefined],
+      ["Coats and paint named", "check"],
+      ["Prep written down", "check"],
+      [undefined, undefined],
+    ]);
+    // A soft knock as each point is ticked and the ask; no whoosh on every cut.
+    expect(props.sound).toEqual({ music: "https://files.example/m.mp3", land: "sound/switch.wav", ask: "sound/whoosh.wav" });
+  });
+});
+
 describe("a still's pair", () => {
   test("a before and its after from one job only: the same photo cut in two, or one tagged pair; never two jobs", () => {
     const assets = new Map<string, { tags: string[]; pairKey?: string }>([

@@ -494,9 +494,13 @@ export interface Brand {
 // ----------------------------------------------------------- Animated ads
 
 /** How an ad moves. The renderer (ads-video/) draws each one. */
-export const AD_STYLES = ["reel", "lightUp", "beforeAfter", "counter"] as const;
+export const AD_STYLES = ["reel", "lightUp", "beforeAfter", "counter", "explainer"] as const;
 export type AdStyle = (typeof AD_STYLES)[number];
-export const AD_STYLE_LABELS: Record<AdStyle, string> = { reel: "Reel", lightUp: "Light-up", beforeAfter: "Before / after", counter: "Counter" };
+export const AD_STYLE_LABELS: Record<AdStyle, string> = { reel: "Reel", lightUp: "Light-up", beforeAfter: "Before / after", counter: "Counter", explainer: "Checklist" };
+/** A cost-education idea is drawn as a checklist over the job's photos; every other idea as a reel. */
+export const styleFor = (family: Family): AdStyle => (family === "education" ? "explainer" : NEW_AD_STYLE);
+/** A checklist's title names the lesson ("3 things to check in a painting quote"), so it may run longer than a reel's. */
+export const EXPLAINER_TITLE_MAX = 42;
 /** What a new ad is drawn as: the photos fill the frame and are cut like footage. The others are how ads were drawn before, and still are when one is drawn again. */
 export const NEW_AD_STYLE: AdStyle = "reel";
 /** The effects a reel plays, files the renderer carries (ads-video/public/sound). */
@@ -528,9 +532,11 @@ export interface Design {
    * `before` says the line's picture is the unfinished state, which an ad never opens or closes on.
    * `more` is the other photos shown while the line is said, after its own, by asset id.
    */
-  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; down?: boolean; before?: boolean; more?: string[] }>;
+  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; down?: boolean; before?: boolean; more?: string[]; mark?: "check" | "cross" }>;
   /** In a reel, photos offered for the ad that no line uses, by asset id: its opening and closing show these before showing one again. */
   spare?: string[];
+  /** In an explainer, a few words above the title naming the subject ("Painting quotes"). */
+  tag?: string;
 }
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
@@ -578,11 +584,15 @@ export function motionPrompt(
       .filter(Boolean)
       .join(" · "),
   );
+  // A cost-education idea is a checklist drawn over the job's photos; everything else is a reel.
+  const explain = styleFor(hook.family) === "explainer";
   return [
     `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one local ${trade.contractor}.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
     "",
-    "On screen: each photo fills the whole frame and is cut like footage while its line is said. A line can show up to three photos, one after another. The title is large across the top while the first line is said; after that each line's label is the headline across the top. Captions show the voice a few words at a time. It ends on a Get a quote button. Each attached photo is labelled with its number.",
+    explain
+      ? "On screen: a short checklist over the job's own photos. Each line's photo fills the whole frame and moves in slowly; the cut to the next photo comes as its line starts. The title is large in the middle under a small tag while the first line is said, then moves to the top. Each line between the first and the last adds a numbered point (its label) to a list low on the screen, ticked once it has been said. Captions show the voice a few words at a time. It ends on a Get a quote button. Each attached photo is labelled with its number."
+      : "On screen: each photo fills the whole frame and is cut like footage while its line is said. A line can show up to three photos, one after another. The title is large across the top while the first line is said; after that each line's label is the headline across the top. Captions show the voice a few words at a time. It ends on a Get a quote button. Each attached photo is labelled with its number.",
     ...list,
     inScope ? "" : `None of these photos is tagged ${hook.scope}. Only go ahead if the ad still works honestly with them.`,
     "",
@@ -592,6 +602,20 @@ export function motionPrompt(
       : []),
     ...examplesText(examples),
     "How it is drawn:",
+    ...(explain
+      ? [
+          "- The first line names the question the checklist answers (\"Two painting quotes for the same room can look nothing alike.\"). Its photo is finished work.",
+          `- The lines between the first and the last are the points: 2 or 3 of them, each one thing a homeowner can check or ask about in any quote, in the order the competitor ad makes its points. Each has a label of 2 to 5 words naming the point ("Prep written down", at most ${LABEL_MAX} characters) and a mark: "check" for something to look for, "cross" for something a quote leaves out.`,
+          "- Each point's photo must show what the point is about (taped trim for prep, plastic over counters for protecting the home). If no photo shows it, choose another point; never pair a point with a photo its words don't fit.",
+          "- Never use a photo tagged before, or a photo that is two pictures in one. The last line's photo is finished work.",
+          "- For each line give x and y: the point on its photo to move in on (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
+          "- Use a different photo for each line where you can.",
+          "",
+          "Teach one useful thing, plainly:",
+          "- No prices, ranges or dollar amounts: say what to look for, never what anything costs.",
+          "- Each point is something the homeowner can check in any quote, said in a few words they could repeat to a painter.",
+        ]
+      : [
     "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. Read in order with the title, the headlines alone tell the story to someone watching with the sound off (\"Bare dirt, every summer\", \"Base dug and packed\", \"Same yard, finished\").",
     "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
     `- A photo may itself be two pictures in one, such as a before and its after, side by side or one above the other. Then give the line "cut": [from, to], the part of the photo to show, so a line about the before never shows the after. For two side by side it is measured across ([0, 50] is the left picture). For one above the other add "stacked": true and it is measured down ([0, 50] is the top picture). Where a word such as Before or After is printed on the photo by the join, stop the cut short of it. x and y are then within that part. A photo tagged both before and after is one of these, and always needs a cut.`,
@@ -604,6 +628,7 @@ export function motionPrompt(
     "- Open on the problem. Where there is a before, the first line's picture is the before and the first words name the problem you can see in it (\"This back yard was bare dirt.\"). Never open on a statement about the trade (\"cabinet redos come in plenty of looks\").",
     "- Then the turn: one concrete thing the pro did that you can see in the photos (doors off and every pane taped, the base dug and packed). One detail, said plainly, beats a list.",
     "- Then the after, from the same spot where you have it, given time to land. The ad ends on finished work.",
+        ]),
     "- Facts come only from what is visible and from the photo descriptions above. Never invent an age, a street, a homeowner, what anyone said, or anything you cannot see.",
     `- Never say or hint where a pictured job was, ${town} included: the photos don't say.`,
     "- Name only what anyone would see at a glance. A detail that is small, blurred, or could be something else (a decoration behind glass, a reflection, a shadow) is left out: never call something peeling, cracked, rotten or damaged unless that is plain in the photo or its description says so.",
@@ -612,8 +637,12 @@ export function motionPrompt(
     `- ${brand} speaks as itself, about the pro in the third person (\"the painter took every door off\"), never as the contractor and never as a homeowner. Its name comes only in the last line.`,
     "",
     "Write:",
-    `- title: at most 5 words and ${TITLE_MAX} characters: the problem or the change, not the brand.`,
-    `- lines: 3 to 5 spoken lines, each at most ${LINE_WORDS_MAX} words (a line may be two short sentences), 45 to 55 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
+    explain
+      ? `- tag: 1 to 3 words naming the subject ("Painting quotes"). title: at most 9 words and ${EXPLAINER_TITLE_MAX} characters naming the lesson ("3 things to check in a painting quote"); a number in it matches the points.`
+      : `- title: at most 5 words and ${TITLE_MAX} characters: the problem or the change, not the brand.`,
+    explain
+      ? `- lines: 4 or 5 spoken lines: the opening, one per point, then the ask. Each at most ${LINE_WORDS_MAX} words, 45 to 55 words in all. Each names the photo on screen while it is said.`
+      : `- lines: 3 to 5 spoken lines, each at most ${LINE_WORDS_MAX} words (a line may be two short sentences), 45 to 55 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
     hook.opening ? `- The first line is the opening the owner chose, or very close to it: "${hook.opening}"` : "- The first line opens on the hook, in as few words as it takes.",
     `- The last line is close to: "${brand} matches you with one local ${trade.pro}. Get a free quote." It may name the kind of job; it adds no other claim.`,
     "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
@@ -622,9 +651,13 @@ export function motionPrompt(
     "- If these photos can't carry the hook honestly, don't force it.",
     "",
     "Return only JSON, one of:",
-    `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"before":true,"voice":"spoken line","x":60,"y":55},{"photo":2,"more":[4,6],"voice":"spoken line","label":"scene headline","x":50,"y":40}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
+    explain
+      ? `{"fits":true,"style":"explainer","tag":"...","title":"...","lines":[{"photo":1,"voice":"spoken line","x":50,"y":45},{"photo":3,"voice":"spoken line","label":"point in a few words","mark":"check","x":40,"y":60},{"photo":2,"voice":"spoken line","label":"point in a few words","mark":"check","x":55,"y":50},{"photo":4,"voice":"spoken line","x":50,"y":50}],"headline":"<=40 chars","primaryText":"<=125 chars"}`
+      : `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"before":true,"voice":"spoken line","x":60,"y":55},{"photo":2,"more":[4,6],"voice":"spoken line","label":"scene headline","x":50,"y":40}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
     '{"fits":false,"reason":"why the photos do not fit"}',
-    "The first line has no label (the title is up). Leave out more where a line shows only its own photo, before unless its picture is a before, and cut (and stacked) unless the photo is two pictures in one.",
+    explain
+      ? "The first and last lines have no label and no mark."
+      : "The first line has no label (the title is up). Leave out more where a line shows only its own photo, before unless its picture is a before, and cut (and stacked) unless the photo is two pictures in one.",
   ]
     .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
     .join("\n");
@@ -636,7 +669,9 @@ export interface MotionPlan {
   style?: string;
   title?: string;
   /** In a reel a line also says where on its photo it is about (x, y) and, for a photo that is two pictures side by side, which part to show (cut). */
-  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[]; stacked?: boolean; before?: boolean }>;
+  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[]; stacked?: boolean; before?: boolean; mark?: string }>;
+  /** In an explainer, the few words above the title. */
+  tag?: string;
   stats?: Array<{ value?: number; label?: string }>;
   revealOn?: string;
   headline?: string;
@@ -651,8 +686,9 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   const style = AD_STYLES.find((x) => x === plan.style);
   if (!style) out.push(`style "${plan.style ?? ""}" (write ${NEW_AD_STYLE})`);
   const title = plan.title?.trim() ?? "";
+  const titleMax = style === "explainer" ? EXPLAINER_TITLE_MAX : TITLE_MAX;
   if (!title) out.push("no title");
-  else if (title.length > TITLE_MAX) out.push(`title over ${TITLE_MAX} characters`);
+  else if (title.length > titleMax) out.push(`title over ${titleMax} characters`);
   const lines = plan.lines ?? [];
   if (lines.length < 3 || lines.length > 5) out.push(`${lines.length} lines (write 3 to 5)`);
   lines.forEach((line, i) => {
@@ -703,6 +739,26 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
     }
     if (plan.revealOn && !spoken.split(/\s+/).some((w) => bare(w) === bare(plan.revealOn!))) out.push(`revealOn "${plan.revealOn}" isn't a word of the script`);
   }
+  if (style === "explainer") {
+    // The opening, two or three points, then the ask: each point a labelled, marked thing to check on a photo that shows it.
+    const points = lines.slice(1, -1);
+    if (lines.length < 4) out.push(`${lines.length} lines (a checklist has the opening, 2 or 3 points, then the ask)`);
+    points.forEach((line, k) => {
+      const i = k + 2;
+      if (!line.label?.trim()) out.push(`line ${i} is a point with no label`);
+      if (line.mark !== "check" && line.mark !== "cross") out.push(`line ${i}'s mark is "${line.mark ?? ""}" (write check or cross)`);
+    });
+    [lines[0], lines[lines.length - 1]].forEach((line, k) => {
+      if (line?.label?.trim() || line?.mark) out.push(`the ${k === 0 ? "first" : "last"} line has a label or mark (only points have them)`);
+    });
+    lines.forEach((line, i) => {
+      const own = typeof line.photo === "number" ? photos[line.photo - 1] : undefined;
+      if (own?.tags.includes("before")) out.push(`line ${i + 1}'s photo is a before (a checklist shows finished work and work under way)`);
+      if (line.more?.length || line.cut) out.push(`line ${i + 1} has more photos or a cut (a checklist shows one whole photo per line)`);
+    });
+    const number = title.match(/\b(\d)\b/);
+    if (number && Number(number[1]) !== points.length) out.push(`the title says ${number[1]} but there are ${points.length} points`);
+  }
   if (style === "counter") {
     const stats = plan.stats ?? [];
     if (stats.length < 2 || stats.length > 3) out.push(`${stats.length} numbers (a counter has 2 or 3)`);
@@ -720,7 +776,7 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   else if (plan.headline.trim().length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
   if (!plan.primaryText?.trim()) out.push("no primary text");
   else if (plan.primaryText.trim().length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
-  const text = [title, spoken, ...lines.map((l) => l.label), ...(plan.stats ?? []).map((x) => x.label), plan.headline, plan.primaryText].filter(Boolean).join(" ");
+  const text = [plan.tag, title, spoken, ...lines.map((l) => l.label), ...(plan.stats ?? []).map((x) => x.label), plan.headline, plan.primaryText].filter(Boolean).join(" ");
   for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
   return out;
 }
@@ -769,6 +825,16 @@ export function composeMotion(plan: MotionPlan, assetIds: string[], offered: Arr
       ...(style === "beforeAfter" && plan.revealOn?.trim() ? { revealOn: plan.revealOn.trim() } : {}),
       ...(style === "reel" && frames.some((f) => Object.keys(f).length) ? { frames } : {}),
       ...(style === "reel" && spare.length ? { spare } : {}),
+      ...(style === "explainer"
+        ? {
+            // Where to move in on each line's photo, and how each point is marked once said.
+            frames: (plan.lines ?? []).map((line) => ({
+              ...(pct(line.x) && pct(line.y) ? { x: Math.round(line.x), y: Math.round(line.y) } : {}),
+              ...(line.mark === "check" || line.mark === "cross" ? { mark: line.mark } : {}),
+            })),
+            ...(plan.tag?.trim() ? { tag: plan.tag.trim().slice(0, 30) } : {}),
+          }
+        : {}),
     },
   };
 }
@@ -863,7 +929,7 @@ export function renderProps(input: {
     voice: x.voice,
     start: x.start ?? 0,
     end: x.end ?? 0,
-    ...((design.style === "lightUp" || design.style === "reel") && x.onScreen ? { label: x.onScreen } : {}),
+    ...((design.style === "lightUp" || design.style === "reel" || design.style === "explainer") && x.onScreen ? { label: x.onScreen } : {}),
     ...(x.words ? { words: x.words } : {}),
   }));
   let style: Record<string, unknown> = { kind: design.style };
@@ -875,6 +941,32 @@ export function renderProps(input: {
     photos = [{ src: before.url }, { src: perLine[turned]!.url }];
     style = { kind: "beforeAfter", ...(design.revealOn ? { crossOn: design.revealOn } : {}), crossAt: lines[turned].start };
   } else if (design.style === "counter") style = { kind: "counter", stats: design.stats ?? [] };
+  if (design.style === "explainer") {
+    // One whole photo per line, moved in on where the line is about; each point ticked or crossed once said.
+    return {
+      ratio: input.ratio,
+      style: { kind: "explainer", ...(design.tag ? { tag: design.tag } : {}) },
+      brand: input.brand,
+      headline: design.title,
+      lines: lines.map((line, i) => {
+        const mark = design.frames?.[i]?.mark;
+        return mark && "label" in line ? { ...line, mark } : line;
+      }),
+      audio: input.audioUrl,
+      audioSec: input.audioSec,
+      photos: shots.map((x, i) => {
+        const f = design.frames?.[i] ?? {};
+        return { src: perLine[i]!.url, ...(f.x !== undefined && f.y !== undefined ? { focus: [{ x: f.x, y: f.y }] } : {}) };
+      }),
+      sound: {
+        ...(input.music
+          ? { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}) }
+          : {}),
+        land: REEL_SOUNDS.land,
+        ask: REEL_SOUNDS.ask,
+      },
+    };
+  }
   if (design.style === "reel") {
     // Each line's photo with where to move in on it, and the part of it to show when it is two pictures in one.
     // The part of a photo a line shows, as one word, to tell two lines on the same photo apart.

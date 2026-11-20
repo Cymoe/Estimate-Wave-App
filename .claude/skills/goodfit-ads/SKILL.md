@@ -17,7 +17,7 @@ trades are painting and hardscaping (`outdoor-construction`).
 | The weekly run, voice, renders, Meta | `apps/web/convex/ads.ts` |
 | Tests | `apps/web/convex/ads.test.ts` (`npx vitest run --config vitest.convex.config.ts convex/ads.test.ts` from `apps/web`) |
 | The screen | `apps/web/src/components/ops/AdsCard.tsx` |
-| The drawing (Remotion) | `ads-video/src` — `reel/` for photo reels, `formats/Still.tsx` for before/after stills, `formats/Explainer.tsx` for graphic lessons |
+| The drawing (Remotion) | `ads-video/src` — `reel/` for photo reels, `formats/Still.tsx` for before/after stills, `formats/Explainer.tsx` for checklists over photos |
 
 ## Honesty rules (never break these)
 
@@ -47,10 +47,12 @@ trades are painting and hardscaping (`outdoor-construction`).
   - Captions show short phrases.
   - There is one sound on the reveal.
 - **Stills:** the before and the after of the same job, side by side or stacked, with Before/After chips.
-- **Explainers:** no photos.
-  - A tagged title opens the ad.
-  - Each point is numbered, then ticked (or crossed for what a quote leaves out) once it has been said.
-  - Never show dollar numbers.
+- **Checklists (explainers):** made for cost-education ideas, over the job's own photos.
+  - Each line's photo fills the screen and moves in slowly. A tagged title opens the ad over finished work.
+  - Each point sits low in its own dark box, numbered, then ticked (or crossed for what a quote leaves out) once
+    it has been said.
+  - Each point's photo must show what the point says. Never a before, and never dollar numbers.
+  - The owner said graphics alone aren't enough: always use photos.
 - **Never change the look of live ads without showing the owner a sample first and getting a yes.**
 
 ## Running things from a cloud session

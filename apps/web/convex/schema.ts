@@ -2594,7 +2594,7 @@ export default defineSchema({
     // How the ad moves and what the renderer shows beyond the script (lib/ads.ts Design). Absent on those older ads.
     design: v.optional(
       v.object({
-        style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
+        style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter"), v.literal("explainer")),
         title: v.string(),
         stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
         revealOn: v.optional(v.string()),
@@ -2610,11 +2610,14 @@ export default defineSchema({
               down: v.optional(v.boolean()),
               before: v.optional(v.boolean()),
               more: v.optional(v.array(v.id("adAssets"))),
+              mark: v.optional(v.union(v.literal("check"), v.literal("cross"))),
             }),
           ),
         ),
         // Photos offered for a reel that no line uses, for its opening and closing.
         spare: v.optional(v.array(v.id("adAssets"))),
+        // In an explainer, the few words above its title naming the subject.
+        tag: v.optional(v.string()),
         // How the first reel stored where to look, by photo. No longer written or read.
         focus: v.optional(v.array(v.object({ assetId: v.id("adAssets"), points: v.array(v.object({ x: v.number(), y: v.number() })) }))),
       }),

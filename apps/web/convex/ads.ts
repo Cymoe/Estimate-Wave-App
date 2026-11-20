@@ -2244,7 +2244,7 @@ export const failBatch = internalMutation({
 });
 
 const adDesign = v.object({
-  style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter")),
+  style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter"), v.literal("explainer")),
   title: v.string(),
   stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
   revealOn: v.optional(v.string()),
@@ -2258,10 +2258,12 @@ const adDesign = v.object({
               down: v.optional(v.boolean()),
               before: v.optional(v.boolean()),
               more: v.optional(v.array(v.id("adAssets"))),
+              mark: v.optional(v.union(v.literal("check"), v.literal("cross"))),
             }),
           ),
   ),
   spare: v.optional(v.array(v.id("adAssets"))),
+  tag: v.optional(v.string()),
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */
