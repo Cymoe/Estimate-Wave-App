@@ -190,14 +190,17 @@ export interface AssetRow {
 }
 
 export const MAX_CANDIDATES = 6;
+/** How many photos that are a before and an after in one image are offered ahead of the rest. */
+export const JOINED_FIRST = 2;
 /** How many photos a reel is offered: it shows several to a line, so it needs more to choose from. */
 export const REEL_CANDIDATES = 12;
 
 /**
  * The footage Claude chooses shots from for one hook: assets tagged with the
  * hook's scope, never one another hook this week already used. Before/after
- * pairs come first (least used pair first, before then after), then the
- * least used, newest first among equals. With nothing in scope it falls back
+ * pairs come first (least used pair first, before then after), then up to
+ * two single images that hold a before and its after, then the least used,
+ * newest first among equals. With nothing in scope it falls back
  * to process or crew footage and says so (inScope false), so the prompt can
  * tell Claude.
  */
@@ -231,7 +234,12 @@ export function pickAssets<A extends AssetRow>(
   pairs.sort((x, y) => (x[0].uses ?? 0) + (x[1].uses ?? 0) - ((y[0].uses ?? 0) + (y[1].uses ?? 0)));
   const out: A[] = [];
   for (const [before, after] of pairs) if (out.length + 2 <= max) out.push(before, after);
-  for (const a of pool) if (!out.includes(a) && out.length < max) out.push(a);
+  // One image that holds a before and its after counts as a pair too. Two of those at most go in ahead of the rest,
+  // so there is a before/after to show and still mostly finished work; any others only fill what is left over.
+  const joined = pool.filter((a) => !a.pairKey && a.tags.includes("before") && a.tags.includes("after"));
+  for (const a of joined.slice(0, JOINED_FIRST)) if (out.length < max) out.push(a);
+  for (const a of pool) if (!out.includes(a) && !joined.includes(a) && out.length < max) out.push(a);
+  for (const a of joined) if (!out.includes(a) && out.length < max) out.push(a);
   return { assets: out, inScope };
 }
 

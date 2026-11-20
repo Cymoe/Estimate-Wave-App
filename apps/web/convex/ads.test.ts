@@ -117,6 +117,11 @@ describe("the pure parts", () => {
       { _id: "q2", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "m", createdAt: "2026-09-01", uses: 0 },
     ];
     expect(pickAssets(two, "cabinets", new Set()).assets.map((a) => a._id)).toEqual(["q1", "q2", "p1", "p2"]);
+    // One image that holds a before and its after: two of those go ahead of the rest, however old; the others only fill what is left.
+    const yard = (id: string, day: string, extra: string[] = []) => ({ _id: id, kind: "photo" as const, tags: ["patio", "after", ...extra], createdAt: `2026-10-${day}`, uses: 0 });
+    const yards = [yard("j1", "01", ["before"]), yard("j2", "02", ["before"]), yard("j3", "03", ["before"]), yard("f1", "10"), yard("f2", "11"), yard("f3", "12")];
+    expect(pickAssets(yards, "patio", new Set(), 4).assets.map((a) => a._id)).toEqual(["j3", "j2", "f3", "f2"]);
+    expect(pickAssets(yards, "patio", new Set(), 6).assets.map((a) => a._id)).toEqual(["j3", "j2", "f3", "f2", "f1", "j1"]);
   });
 
   test("shot timings come from ElevenLabs' character times, or an even estimate without them", () => {
