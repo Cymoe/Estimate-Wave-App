@@ -1469,6 +1469,8 @@ describe("the weekly run", () => {
     expect(to(calls, "anthropic").length).toBe(2);
     expect(to(calls, "elevenlabs").length).toBe(2);
     expect(to(calls, "elevenlabs")[0].url).toContain("/text-to-speech/ven/with-timestamps");
+    // Read on the newer, livelier model, with delivery settings that keep it from sounding flat.
+    expect(JSON.parse(to(calls, "elevenlabs")[0].body!)).toMatchObject({ model_id: "eleven_v4", voice_settings: { stability: 0.35, style: 0.3 } });
     const starts = to(calls, "api.github.com");
     expect(starts.length).toBe(2);
     expect(starts[0]).toMatchObject({

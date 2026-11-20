@@ -2792,6 +2792,19 @@ async function writePlan<P extends { fits?: boolean; reason?: string }>(
  * style adds the voice's own expression; similarity keeps it sounding like itself.
  */
 const VOICE_SETTINGS = { stability: 0.35, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true, speed: 1.0 };
+/** The model the narrator reads with, and the one used when it can't time the words. */
+const VOICE_MODELS = ["eleven_v4", "eleven_multilingual_v2"];
+
+/** The narrator the owner picked from the samples. */
+export const setVoice = internalMutation({
+  args: { voiceId: v.string() },
+  handler: async (ctx, { voiceId }) => {
+    const row = await settingsRow(ctx);
+    if (row) await ctx.db.patch(row._id, { voiceId });
+    else fail("INVALID", "Save the ad settings once first");
+    return { voiceId };
+  },
+});
 
 /** What the ElevenLabs plan on file allows, and the voices it can use: read only, nothing is spent. */
 export const voicePlan = internalAction({
@@ -2855,14 +2868,15 @@ export const voice = internalAction({
       const shots = first.script.shots ?? [];
       const lines = shots.length ? shots.map((s) => s.voice) : [first.script.voice];
       // The text read is the lines joined by single spaces, which is what shotTimings counts characters against.
-      const res = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`,
-        {
+      // The newer model reads with more life; if it won't give word timings, the older one does.
+      const say = (model: string) =>
+        fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`, {
           method: "POST",
           headers: { "content-type": "application/json", "xi-api-key": process.env.ELEVENLABS_API_KEY! },
-          body: JSON.stringify({ text: lines.join(" "), model_id: "eleven_multilingual_v2", voice_settings: VOICE_SETTINGS }),
-        },
-      );
+          body: JSON.stringify({ text: lines.join(" "), model_id: model, voice_settings: VOICE_SETTINGS }),
+        });
+      let res = await say(VOICE_MODELS[0]);
+      if (!res.ok && res.status >= 400 && res.status < 500 && res.status !== 401) res = await say(VOICE_MODELS[1]);
       const body = await readJson(res, "ElevenLabs");
       if (!body?.audio_base64) throw new Error("ElevenLabs sent no audio");
       const bytes = Uint8Array.from(atob(body.audio_base64), (ch) => ch.charCodeAt(0));
