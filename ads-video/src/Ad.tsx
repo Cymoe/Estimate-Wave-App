@@ -42,7 +42,7 @@ export const Ad: React.FC<AdProps> = (props) => {
         : runsOf(props.photos, props.lines, total);
   // A reel is cut into shots; they run until the ask has covered the frame.
   const reel = style.kind === "reel";
-  const shots = reel ? shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats) : [];
+  const shots = reel ? shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats, 0.6) : [];
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
       {reel ? <Reel {...props} shots={shots} until={closeAt} /> : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}

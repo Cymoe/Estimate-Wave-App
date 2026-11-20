@@ -66,8 +66,12 @@ function cuts(from: number, to: number, beats: number[]): number[] {
  * quickly, ending on the first; a photo labelled as the before is left out of
  * that, so the ad never closes on unfinished work. Nothing is up for long, and
  * nothing is still.
+ *
+ * `covered` is how long before `until` the closing card starts to cover the
+ * frame. The look-back is fitted into what can still be seen, so its last
+ * photo gets its full time on screen and then stays up under the card.
  */
-export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Shape, beats: number[] = []): Shot[] {
+export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Shape, beats: number[] = [], covered = 0): Shot[] {
   const out: Shot[] = [];
   // Photos a line labels as the before.
   const unfinished = new Set(lines.flatMap((line, i) => (/\bbefore\b/i.test(line.label ?? "") ? [photos[Math.min(i, photos.length - 1)]?.src ?? ""] : [])));
@@ -83,6 +87,8 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
     const from = i === 0 ? 0 : line.start - LEAD;
     const to = i === lines.length - 1 ? until : lines[i + 1].start - LEAD;
     if (to - from < 0.2) return;
+    // What of this line can be seen: the closing card takes the end of the last one.
+    const seen = i === lines.length - 1 ? Math.max(from, to - covered) : to;
     const fresh = out[out.length - 1]?.photo.src !== photo.src;
     let at = from;
     const add = (of: Photo, end: number, framing: Framing, opens = false) => {
@@ -92,11 +98,11 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
     // The other photos, in the order they were shown, the first one last; never one shown as a before.
     const others = photos.filter((ph, k) => ph.src !== photo.src && !unfinished.has(ph.src) && photos.findIndex((q) => q.src === ph.src) === k);
     if (others.length > 1) others.push(others.shift() as Photo);
-    const span = to - from;
+    const span = seen - from;
     const room = i === lines.length - 1 && i > 0 && span >= 4.2 ? span * LOOK_BACK_SHARE : 0;
     const glances = others.slice(others.length - Math.min(others.length, Math.floor(room / GLANCE_SEC)));
     const each = glances.length ? Math.min(GLANCE_MAX_SEC, room / glances.length) : 0;
-    const own = to - each * glances.length;
+    const own = glances.length ? seen - each * glances.length : to;
     if (photo.motion && fresh) add(photo, own - from - CLIP_SEC < SHORTEST ? own : from + CLIP_SEC, "clip", true);
     if (at < own) {
       const order = orderFor(photo, frame);
