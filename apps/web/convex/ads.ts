@@ -1548,7 +1548,7 @@ export const ideasOutside = internalQuery({
         .take(200)) {
         if (!inTrade(i, trade)) continue;
         const x = i.swipeId ? await ctx.db.get(i.swipeId) : null;
-        out.push({ status, opening: i.opening, line: i.line, scope: i.scope, family: FAMILY_LABELS[i.family], writer: i.writer, builtOn: x ? `${x.company}, ${runDays(x) ?? "?"} days` : undefined });
+        out.push({ id: i._id, status, opening: i.opening, line: i.line, scope: i.scope, family: FAMILY_LABELS[i.family], writer: i.writer, builtOn: x ? `${x.company}, ${runDays(x) ?? "?"} days` : undefined });
       }
     return { round: round ? { status: round.status, error: round.error, offered: round.offered, writers: round.notes } : null, ideas: out };
   },
@@ -1568,6 +1568,51 @@ export const decideIdea = mutation({
 });
 
 /** Turns the kept ideas into ads: each becomes a hook of its own and goes down the usual path (script, voice, render). */
+/** Turns ideas into the hooks their ads are made from, and marks them made. */
+async function hooksFor(ctx: MutationCtx, ideas: Doc<"adIdeas">[]): Promise<Id<"adHooks">[]> {
+  const only: Id<"adHooks">[] = [];
+  for (const idea of ideas) {
+    // Off, so Monday's own run never picks it up a second time.
+    const hookId =
+      idea.hookId ??
+      (await ctx.db.insert("adHooks", {
+        family: idea.family,
+        scope: idea.scope,
+        trade: tradeOf(idea.trade).slug,
+        textEn: idea.line,
+        opening: idea.opening,
+        active: false,
+        uses: 0,
+        wins: 0,
+        losses: 0,
+        createdAt: nowIso(),
+        swipeId: idea.swipeId,
+      }));
+    await ctx.db.patch(idea._id, { status: "made", hookId, note: undefined });
+    only.push(hookId);
+  }
+  return only;
+}
+
+/**
+ * Makes ads from the ideas named, from the deployment: for when the owner asks for some to be chosen for them.
+ * Only ideas still on offer (new or kept) of one trade; the rest of the set is left as it is.
+ */
+export const makeIdeas = internalMutation({
+  args: { ids: v.array(v.id("adIdeas")) },
+  handler: async (ctx, { ids }) => {
+    const ideas = (await Promise.all(ids.slice(0, MAKE_AT_ONCE).map((id) => ctx.db.get(id)))).filter(
+      (i): i is Doc<"adIdeas"> => i !== null && (i.status === "new" || i.status === "kept"),
+    );
+    if (ideas.length === 0) return { made: 0 };
+    const trade = tradeOf(ideas[0].trade).slug;
+    const same = ideas.filter((i) => tradeOf(i.trade).slug === trade);
+    const only = await hooksFor(ctx, same);
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only, trade });
+    return { made: same.length, trade, lines: same.map((i) => i.line) };
+  },
+});
+
 export const makeKept = mutation({
   args: { trade: v.optional(v.string()) },
   handler: async (ctx, { trade }) => {
@@ -1586,27 +1631,7 @@ export const makeKept = mutation({
       .filter((i) => inTrade(i, trade))
       .slice(0, MAKE_AT_ONCE);
     if (kept.length === 0) fail("INVALID", "Keep at least one idea first");
-    const only: Id<"adHooks">[] = [];
-    for (const idea of kept) {
-      // Off, so Monday's own run never picks it up a second time.
-      const hookId =
-        idea.hookId ??
-        (await ctx.db.insert("adHooks", {
-          family: idea.family,
-          scope: idea.scope,
-          trade: tradeOf(idea.trade).slug,
-          textEn: idea.line,
-          opening: idea.opening,
-          active: false,
-          uses: 0,
-          wins: 0,
-          losses: 0,
-          createdAt: nowIso(),
-          swipeId: idea.swipeId,
-        }));
-      await ctx.db.patch(idea._id, { status: "made", hookId, note: undefined });
-      only.push(hookId);
-    }
+    const only = await hooksFor(ctx, kept);
     await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only, trade: tradeOf(trade).slug });
     await ctx.scheduler.runAfter(0, internal.ads.learnTaste, {});
     return kept.length;
@@ -2304,6 +2329,7 @@ export const lastBatch = internalQuery({
       .withIndex("by_batch", (q) => q.eq("batchId", batch._id))
       .collect();
     return {
+      trade: tradeOf(batch.trade).slug,
       weekOf: batch.weekOf,
       status: batch.status,
       summary: batch.summary,

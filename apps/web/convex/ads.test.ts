@@ -2140,6 +2140,21 @@ describe("the weekly run", () => {
       // Its hook is filed under the trade, and painting's hook list doesn't show it.
       expect((await owner.as.query(api.ads.listHooks, { trade })).map((h) => h.textEn)).toEqual([mine.ideas[0].line]);
       expect((await owner.as.query(api.ads.listHooks, {})).some((h) => h.textEn === mine.ideas[0].line)).toBe(false);
+
+      // Ideas chosen for the owner, from the deployment: those are made, in their own trade, and the rest stay on offer.
+      const outside = (await t.query(internal.ads.ideasOutside, { trade })).ideas;
+      expect(outside.length).toBe(IDEAS_SHOWN - 1);
+      const picked = outside.slice(0, 2);
+      const result = await settle(() => t.mutation(internal.ads.makeIdeas, { ids: picked.map((i) => i.id) }));
+      expect(result).toMatchObject({ made: 2, trade, lines: picked.map((i) => i.line) });
+      // The library has one photo, so the second has none left: it goes back on offer, kept, to be made when there are photos.
+      const after = (await t.query(internal.ads.ideasOutside, { trade })).ideas;
+      expect(after.length).toBe(IDEAS_SHOWN - 2);
+      expect(after.find((i) => i.id === picked[1].id)?.status).toBe("kept");
+      expect(after.some((i) => i.id === picked[0].id)).toBe(false);
+      expect((await t.query(internal.ads.lastBatch, {}))!.trade).toBe(trade);
+      // One already made isn't made twice.
+      expect(await t.mutation(internal.ads.makeIdeas, { ids: [picked[0].id] })).toEqual({ made: 0 });
     });
   });
 });
