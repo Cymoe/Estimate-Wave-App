@@ -606,6 +606,7 @@ export function motionPrompt(
     "- Then the after, from the same spot where you have it, given time to land. The ad ends on finished work.",
     "- Facts come only from what is visible and from the photo descriptions above. Never invent an age, a street, a homeowner, what anyone said, or anything you cannot see.",
     `- Never say or hint where a pictured job was, ${town} included: the photos don't say.`,
+    "- Name only what anyone would see at a glance. A detail that is small, blurred, or could be something else (a decoration behind glass, a reflection, a shadow) is left out: never call something peeling, cracked, rotten or damaged unless that is plain in the photo or its description says so.",
     "- The title and every headline must be true of the picture under it: a title over a before doesn't describe the after.",
     "- Write for the ear: sentences of 6 to 12 words, one idea each, in words you'd say to a neighbour over the fence. Put the important word last. No rhyme, no lists of adjectives, and none of: transform your space, the range is wide, done right, peace of mind, quality work, top-notch, look no further.",
     `- ${brand} speaks as itself, about the pro in the third person (\"the painter took every door off\"), never as the contractor and never as a homeowner. Its name comes only in the last line.`,
