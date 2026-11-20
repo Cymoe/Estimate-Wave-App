@@ -425,6 +425,11 @@ describe("an animated ad's pure parts", () => {
     expect(motionPlanProblems(withMore([2, 3, 6]), offered)).toEqual(["line 2 has 3 more photos (at most 2)"]);
     expect(motionPlanProblems(withMore([5]), offered)).toEqual(["line 2's more has a photo tagged before or after"]);
     expect(motionPlanProblems(withMore([3], { cut: [0, 50] }), offered)).toEqual(["line 2 shows part of a photo, so it takes no more photos"]);
+    // One image that is a before and an after side by side is only ever shown a half at a time.
+    const twoInOne = [...offered.slice(0, 2), { tags: ["cabinets", "before", "after"] }];
+    const onIt = (cut?: number[]) => ({ ...plan, lines: plan.lines.map((l, i) => ({ ...l, more: undefined, ...(i === 1 ? { photo: 3, ...(cut ? { cut } : {}) } : {}) })) }) as never;
+    expect(motionPlanProblems(onIt(), twoInOne)).toEqual(["line 2's photo is a before and an after side by side: give it a cut, the half the line is about"]);
+    expect(motionPlanProblems(onIt([0, 50]), twoInOne)).toEqual([]);
     // An older style doesn't read more at all.
     expect(motionPlanProblems({ ...withMore([9]), style: "lightUp" } as never, offered)).toEqual([]);
 

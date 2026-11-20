@@ -580,7 +580,7 @@ export function motionPrompt(
     "How it is drawn:",
     "- Each line after the first may have a label of at most 3 words that is stuck on the picture while the line is said.",
     "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
-    `- A photo may itself be two pictures side by side, such as a before and its after in one image. Then give the line "cut": [from, to], the part of the photo's width to show (for example [0, 50] for the left picture), so a line about the before never shows the after. x and y are then within that part.`,
+    `- A photo may itself be two pictures side by side, such as a before and its after in one image. Then give the line "cut": [from, to], the part of the photo's width to show (for example [0, 50] for the left picture), so a line about the before never shows the after. x and y are then within that part. A photo tagged both before and after is one of these, and always needs a cut.`,
     "- Use as many different photos as honestly fit the hook, each one once where you can, so the picture keeps changing and nothing comes back.",
     `- Besides its own photo, a line may name up to ${LINE_MORE_MAX} more in "more": other photos that show the same thing the line says. They are shown one after another while the line is said, the line's own photo first. Never put a photo in more that the line's words don't fit. A line with a cut takes no more, and a photo tagged before or after is never one of the more.`,
     "- When two of the photos are one pair, one tagged before and one tagged after, show the before first, and let the words say which is which.",
@@ -634,6 +634,10 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photos.length) out.push(`line ${i + 1} names photo ${n ?? "nothing"}`);
     if (!line.voice?.trim()) out.push(`line ${i + 1} has no voice`);
     if (line.label && line.label.trim().length > LABEL_MAX) out.push(`line ${i + 1}'s label is over ${LABEL_MAX} characters`);
+    // One image tagged both before and after is the two side by side: a reel shows one half of it, never the whole.
+    const own = typeof n === "number" ? photos[n - 1] : undefined;
+    if (style === "reel" && own && own.tags.includes("before") && own.tags.includes("after") && !(Array.isArray(line.cut) && line.cut.length === 2))
+      out.push(`line ${i + 1}'s photo is a before and an after side by side: give it a cut, the half the line is about`);
     // The other photos a reel's line shows: real ones, not its own, not twice, and never half of a before/after.
     if (style === "reel" && line.more !== undefined) {
       const more = Array.isArray(line.more) ? line.more : [];

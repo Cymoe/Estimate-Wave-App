@@ -307,6 +307,30 @@ export const tagAsset = mutation({
   },
 });
 
+/**
+ * Sets what library files are tagged and what they show, many at once, from the deployment: for a library
+ * whose tags were all given as one. Only tags of the file's own trade are kept; a file's pair is left as it is.
+ */
+export const retagAssets = internalMutation({
+  args: { items: v.array(v.object({ id: v.id("adAssets"), tags: v.array(v.string()), description: v.optional(v.string()) })) },
+  handler: async (ctx, { items }) => {
+    const changed: string[] = [];
+    const missing: string[] = [];
+    for (const item of items) {
+      const a = await ctx.db.get(item.id);
+      if (a === null) {
+        missing.push(item.id);
+        continue;
+      }
+      const allowed = assetTagsOf(tradeOf(a.trade));
+      const tags = cleanTags(item.tags).filter((t) => allowed.includes(t));
+      await ctx.db.patch(item.id, { tags, ...(item.description?.trim() ? { description: item.description.trim().slice(0, 300) } : {}) });
+      changed.push(a.fileName);
+    }
+    return { changed: changed.length, missing };
+  },
+});
+
 export const removeAsset = mutation({
   args: { id: v.id("adAssets") },
   handler: async (ctx, { id }) => {
@@ -1938,6 +1962,8 @@ export const pullUnpublished = internalMutation({
   handler: async (ctx) => {
     const pulled: string[] = [];
     const inMeta: string[] = [];
+    // The ideas the pulled ads were made from, so one can be made again (weeklyRun's `only`).
+    const hooks = new Set<Id<"adHooks">>();
     for (const c of await ctx.db.query("adCreatives").take(2000)) {
       if (c.status === "live" || c.status === "retired" || c.status === "rejected" || c.status === "failed") continue;
       // One already created in Meta is retired there by a person, not orphaned from here.
@@ -1947,8 +1973,9 @@ export const pullUnpublished = internalMutation({
       }
       await ctx.db.patch(c._id, { status: "rejected" });
       pulled.push(c.name);
+      hooks.add(c.hookId);
     }
-    return { pulled, leftInMeta: inMeta };
+    return { pulled, leftInMeta: inMeta, hooks: [...hooks] };
   },
 });
 
