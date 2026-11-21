@@ -128,6 +128,11 @@ export type AdProps = {
   sound?: Sound;
   /** Sharper moves, for a sample until the owner says yes: photos ramp in fast then drift, kick on the beat, the music drops out just before the ask, and the ask lands hard. */
   punch?: boolean;
+  /**
+   * The steady reel, for a sample until the owner says yes: each photo up once while its line is said, shown whole
+   * over a soft copy of itself instead of cropped, drifting in slowly; photos change with a soft fade; no flashes.
+   */
+  steady?: boolean;
 };
 
 export const FPS = 30;

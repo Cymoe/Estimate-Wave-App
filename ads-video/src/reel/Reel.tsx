@@ -2,7 +2,7 @@ import { AbsoluteFill, Easing, Img, interpolate, OffthreadVideo, Sequence, sprin
 import { source } from "../Ad";
 import { display, INK, WIDE, ZONES } from "../theme";
 import type { AdProps, Photo, Ratio } from "../types";
-import { onBefore, photosOf, revealOf, type Shot } from "./shots";
+import { hidden, onBefore, photosOf, revealOf, type Shot } from "./shots";
 import { thump } from "../parts/motion";
 
 /** How long a new photo takes to arrive, and the old one to get out of its way. */
@@ -85,6 +85,52 @@ const ShotLayer: React.FC<{ shot: Shot; leaves: boolean; seed: number; punch?: b
       ) : (
         <Img src={source(shot.photo.src)} style={media} />
       )}
+    </AbsoluteFill>
+  );
+};
+
+/** How long one photo takes to fade into the next in the steady reel. */
+const FADE_SEC = 0.35;
+/** How far a steady shot drifts in over its whole time: barely, so the photo never softens. */
+const DRIFT = 0.035;
+
+/**
+ * One steady shot: the whole photo, over a dark, soft copy of itself that fills the frame, drifting in slowly.
+ * A photo shaped close to the frame fills it instead, the same slow drift. It fades in over the shot before.
+ */
+const SteadyLayer: React.FC<{ shot: Shot; first: boolean }> = ({ shot, first }) => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const t = frame / fps;
+  const length = shot.end - shot.start;
+  const p = Math.min(1, t / Math.max(length, 0.1));
+  const fills = hidden(shot.photo, { width, height }) < 0.12;
+  const at = focusOf(shot.photo);
+  const scale = 1 + DRIFT * Easing.inOut(Easing.quad)(p);
+  const show = first ? 1 : interpolate(t, [0, FADE_SEC], [0, 1], { extrapolateRight: "clamp", easing: Easing.inOut(Easing.quad) });
+  const src = source(shot.photo.src);
+  return (
+    <AbsoluteFill style={{ overflow: "hidden", backgroundColor: INK, opacity: show }}>
+      {fills ? null : (
+        <Img
+          src={src}
+          style={{ position: "absolute", inset: -60, width: width + 120, height: height + 120, objectFit: "cover", filter: "blur(36px) brightness(0.5) saturate(1.1)" }}
+        />
+      )}
+      <Img
+        src={src}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: fills ? "cover" : "contain",
+          objectPosition: fills ? `${at.x}% ${at.y}%` : "50% 50%",
+          transformOrigin: fills ? `${at.x}% ${at.y}%` : "50% 50%",
+          transform: `scale(${scale})`,
+          filter: fills ? undefined : "drop-shadow(0 24px 48px rgba(0,0,0,0.55))",
+        }}
+      />
     </AbsoluteFill>
   );
 };
@@ -251,8 +297,27 @@ const Scenes: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: num
  * no quick flashes of finished work first, which would give the story away.
  * The one flash is on the reveal, when the first finished photo lands.
  */
-export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until, punch, sound }) => {
+export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until, punch, sound, steady }) => {
   const { fps } = useVideoConfig();
+  if (steady) {
+    return (
+      <>
+        {shots.map((shot, i) => {
+          const from = Math.round(shot.start * fps);
+          // Each shot stays up a moment past its end, under the next one fading in.
+          const length = Math.max(1, Math.round((shot.end + (shots[i + 1] ? FADE_SEC : 0.6)) * fps) - from);
+          return (
+            <Sequence key={i} from={from} durationInFrames={length} layout="none">
+              <SteadyLayer shot={shot} first={i === 0} />
+            </Sequence>
+          );
+        })}
+        <AbsoluteFill style={{ background: `linear-gradient(180deg, ${INK}d9 0%, ${INK}66 16%, ${INK}00 34%, ${INK}00 62%, ${INK}73 80%, ${INK}cc 100%)` }} />
+        <Hook text={headline} ratio={ratio} accent={brand.accentColor} until={(lines[1]?.start ?? until) - 0.1} now={onBefore(photos, lines, 0)} />
+        <Scenes lines={lines} brand={brand} ratio={ratio} until={until} />
+      </>
+    );
+  }
   // The opening shows two of the ad's other photos first, so the first thing seen is already moving; never one a line calls the before.
   const before = new Set(lines.flatMap((_, i) => (onBefore(photos, lines, i) ? [photosOf(photos, lines, i)[0]?.src] : [])));
   const others = onBefore(photos, lines, 0) ? [] : photos.filter((ph, i) => ph.src !== photos[0]?.src && !before.has(ph.src) && photos.findIndex((q) => q.src === ph.src) === i).slice(0, 2);

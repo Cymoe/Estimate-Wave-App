@@ -168,3 +168,34 @@ export function shotsOf(photos: Photo[], lines: Line[], until: number, frame: Sh
   });
   return out;
 }
+
+/**
+ * The steady reel: each photo is up once while its line is said, whole, with no cuts within a line. A line with
+ * several photos shares its time between them; a photo that carries on into the next line stays up, uncut. Nothing
+ * looks back at the end: the last photo holds under the closing card.
+ */
+export function steadyShotsOf(photos: Photo[], lines: Line[], until: number): Shot[] {
+  const out: Shot[] = [];
+  lines.forEach((line, i) => {
+    const set = photosOf(photos, lines, i);
+    if (!set.length) return;
+    const from = i === 0 ? 0 : line.start - LEAD;
+    const to = i === lines.length - 1 ? until : lines[i + 1].start - LEAD;
+    if (to - from < 0.2) return;
+    // Each photo gets an even share of the line, but never so little it flickers.
+    const fits = Math.max(1, Math.min(set.length, Math.floor((to - from) / TURN_SEC)));
+    const each = (to - from) / fits;
+    set.slice(0, fits).forEach((photo, k) => {
+      const start = from + each * k;
+      const end = k === fits - 1 ? to : start + each;
+      const last = out[out.length - 1];
+      // The same photo again: it simply stays up.
+      if (last && last.photo.src === photo.src) {
+        last.end = end;
+        return;
+      }
+      out.push({ photo, start, end, framing: "push", opens: true, line: i, turn: 0 });
+    });
+  });
+  return out;
+}
