@@ -57,11 +57,22 @@ trades are painting and hardscaping (`outdoor-construction`).
     out in red, then the prepped way ticked over a real prep photo. The no-prep side is words only: we have no
     photos of bad work, so never show or call a photo the no-prep way, and never blame damage on skipped prep.
     Make one with `ads:weeklyRun {force, only:[hookId], trade, style:"explainer"}`.
-- **Looks for checklists** (`design.look`, same words, voice and photos): none is the dark-box look
-  (`Explainer.tsx`); `"collage"` is cards, stickers and a hand-drawn ring (`Collage.tsx`); `"swiss"` is a dark
-  grid, heavy type, one blue signal colour and hard wipes (`Swiss.tsx`, renderer only for now). Copy a made
-  checklist into another look with `ads:addLook {name, look}`: it copies the newest batch's ads of that name as
-  `<name>_<look>` and starts their drawing. Run two looks side by side to see which costs less per lead.
+- **Looks for checklists** (`design.look`, same words, voice and photos):
+  - none: the dark-box look (`Explainer.tsx`);
+  - `"collage"`: printed cards, stickers and a hand-drawn ring (`Collage.tsx`);
+  - `"markup"`: the photo marked up with a pen (`Markup.tsx`). Brackets snap onto the spot the writer's x/y
+    names, a ring draws round it, the label types on, and the no-prep note is scribbled out. The x/y must be on
+    the real detail the point names.
+  - `"versus"`: a face-off (`Versus.tsx`). The no-prep words fill the screen in red, then the prep photo pushes
+    them up with a VS, strikes them and shoves them off.
+
+  Renderer-only looks the owner turned down: swiss, kinetic, slices, and the `snappy` dark-box mode.
+
+  Copy a made checklist into another look with `ads:addLook {name, look}`. It copies only the original ads of
+  that name in the newest batch, never earlier copies, as `<name>_<look>`, and starts their drawing (dispatch
+  `ads-render.yml`). Run looks side by side to see which costs less per lead.
+- Moves are timed to Chris's words (`line.words`) and the music's beats (`sound.beats`). The motion helpers are
+  in `ads-video/src/parts/motion.ts`.
 - **Never change the look of live ads without showing the owner a sample first and getting a yes.**
 
 ## Running things from a cloud session
