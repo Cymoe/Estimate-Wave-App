@@ -1,7 +1,8 @@
 import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { source } from "../Ad";
 import { body, display, INK, WIDE, ZONES } from "../theme";
-import { askAt, runsOf } from "../timing";
+import { HARD, jolt, quick, SNAP, thump, turnOf } from "../parts/motion";
+import { askAt, runsOf, wordsOf } from "../timing";
 import type { AdProps } from "../types";
 
 /** A cross is for what a quote leaves out: a warm red that reads as "missing" on the dark canvas. */
@@ -22,7 +23,7 @@ const LOW = { "9x16": { top: 980, height: 430 }, "4x5": { top: 640, height: 312 
  * drawn on with a small burst. The points stay, so the frame always shows
  * the whole list so far.
  */
-export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, brand, headline, tag, photos }) => {
+export const Explainer: React.FC<AdProps & { tag?: string; snappy?: boolean }> = ({ lines, ratio, brand, headline, tag, photos, sound, snappy = false }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const withPhotos = photos.length > 0;
@@ -31,6 +32,8 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
   const tall = ratio === "9x16";
   const zones = ZONES[ratio];
   const closeAt = askAt(lines);
+  const spoken = snappy ? wordsOf(lines) : [];
+  const kick = snappy ? thump(t, sound?.beats ?? []) : 0;
   // The points: every line between the opening and the ask that has a label.
   const points = lines.map((line, i) => ({ line, i })).filter(({ line, i }) => i > 0 && i < lines.length - 1 && line.label);
   const listAt = points[0]?.line.start ?? closeAt;
@@ -60,7 +63,9 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
       {runs.map((run, i) => {
         if (t < run.start || t >= run.end) return null;
         // A slow push-in over the line, towards the part of the photo the line is about.
-        const zoom = interpolate(t, [run.start, run.end], [1, 1.08], { extrapolateRight: "clamp" });
+        // Snappy: the photo cuts in hard, a touch big, with a flash, and kicks on the beat.
+        const cutIn = snappy && run.start > 0 ? quick(frame, fps, run.start, 9) : 1;
+        const zoom = interpolate(t, [run.start, run.end], [1, 1.08], { extrapolateRight: "clamp" }) + (1 - cutIn) * 0.14 + kick * 0.02;
         const at = run.photo.focus?.[0] ?? { x: 50, y: 42 };
         return (
           <AbsoluteFill key={run.photo.src + i} style={{ overflow: "hidden" }}>
@@ -68,6 +73,7 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
               src={source(run.photo.src)}
               style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${at.x}% ${at.y}%`, transform: `scale(${zoom})`, transformOrigin: `${at.x}% ${at.y}%` }}
             />
+            {cutIn < 1 ? <AbsoluteFill style={{ backgroundColor: "#fff", opacity: (1 - quick(frame, fps, run.start, 4)) * 0.5 }} /> : null}
           </AbsoluteFill>
         );
       })}
@@ -162,8 +168,12 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
         const from = line.start - 0.05;
         const until = (lines[i + 1]?.start ?? line.end) - 0.15;
         if (t < from || t > until + 0.3) return null;
-        const enter = spring({ frame: frame - Math.round(from * fps), fps, config: { damping: 15, mass: 0.6 } });
-        const strike = spring({ frame: frame - Math.round((from + 0.35) * fps), fps, config: { damping: 200 }, durationInFrames: 10 });
+        const enter = snappy ? quick(frame, fps, from + 0.05, 7, SNAP) : spring({ frame: frame - Math.round(from * fps), fps, config: { damping: 15, mass: 0.6 } });
+        // Snappy: struck hard just before the voice turns to the prepped way, with a jolt.
+        const strikeAt = snappy ? turnOf(spoken, lines, i) - 0.45 : from + 0.35;
+        const strike = snappy ? quick(frame, fps, strikeAt, 5, HARD) : spring({ frame: frame - Math.round((from + 0.35) * fps), fps, config: { damping: 200 }, durationInFrames: 10 });
+        const hit = snappy ? jolt(frame, fps, strikeAt + 5 / fps, 12) : { x: 0, y: 0 };
+        const skipBlur = snappy && enter < 0.9 ? `blur(${((1 - enter) * 12).toFixed(1)}px)` : undefined;
         const leave = interpolate(t, [until, until + 0.3], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
         const len = 120;
         return (
@@ -183,7 +193,8 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
               backgroundColor: `${INK}e6`,
               border: `3px solid ${CROSS}`,
               opacity: interpolate(enter, [0, 0.5], [0, 1], { extrapolateRight: "clamp" }) * leave,
-              transform: `translateX(${interpolate(enter, [0, 1], [-140, 0])}px)`,
+              transform: `translateX(${interpolate(enter, [0, 1], [snappy ? -420 : -140, 0]) + hit.x}px) translateY(${hit.y}px)`,
+              filter: skipBlur,
               boxSizing: "border-box",
             }}
           >
@@ -204,13 +215,15 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
       })}
       {points.map(({ line, i }, k) => {
         // With a crossed-out corner up first, the prepped way comes in a beat later.
-        const shown = line.skip ? line.start + Math.min(1.2, (line.end - line.start) * 0.4) : line.start - 0.05;
+        // Snappy: it lands as the voice turns to it.
+        const shown = line.skip ? (snappy ? turnOf(spoken, lines, i) - 0.05 : line.start + Math.min(1.2, (line.end - line.start) * 0.4)) : line.start - 0.05;
         if (t < shown) return null;
-        const enter = spring({ frame: frame - Math.round(shown * fps), fps, config: { damping: 15, mass: 0.6 } });
+        const enter = snappy ? quick(frame, fps, shown, 7, SNAP) : spring({ frame: frame - Math.round(shown * fps), fps, config: { damping: 15, mass: 0.6 } });
         // Marked once it has been said: as the next line starts.
         const doneAt = (lines[i + 1]?.start ?? line.end) - 0.1;
         const draw = spring({ frame: frame - Math.round(doneAt * fps), fps, config: { damping: 200 }, durationInFrames: 10 });
-        const pop = spring({ frame: frame - Math.round(doneAt * fps), fps, config: { damping: 9, mass: 0.5 } });
+        const pop = spring({ frame: frame - Math.round(doneAt * fps), fps, config: snappy ? { damping: 7, mass: 0.45, stiffness: 220 } : { damping: 9, mass: 0.5 } });
+        const thud = snappy ? jolt(frame, fps, doneAt, 10) : { x: 0, y: 0 };
         const marked = t >= doneAt;
         const cross = line.mark === "cross";
         const fill = cross ? CROSS : brand.accentColor;
@@ -236,7 +249,8 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
               backgroundColor: withPhotos ? (current ? `${INK}e6` : `${INK}b3`) : current ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
               border: `3px solid ${current ? (withPhotos ? brand.accentColor : "rgba(255,255,255,0.22)") : "rgba(255,255,255,0.08)"}`,
               opacity: interpolate(enter, [0, 0.5], [0, 1], { extrapolateRight: "clamp" }) * (current ? 1 : withPhotos ? 0.85 : 0.62),
-              transform: `translateX(${interpolate(enter, [0, 1], [140, 0])}px)`,
+              transform: `translateX(${interpolate(enter, [0, 1], [snappy ? 420 : 140, 0]) + thud.x}px) translateY(${thud.y}px)`,
+              filter: snappy && enter < 0.9 ? `blur(${((1 - enter) * 12).toFixed(1)}px)` : undefined,
               boxSizing: "border-box",
             }}
           >
@@ -263,7 +277,7 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  transform: `scale(${marked ? interpolate(pop, [0, 1], [0.8, 1]) : 1})`,
+                  transform: `scale(${marked ? interpolate(pop, [0, 1], [snappy ? 0.4 : 0.8, 1]) : 1})`,
                   boxSizing: "border-box",
                 }}
               >

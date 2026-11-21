@@ -8,6 +8,10 @@ import { Canvas } from "./formats/Canvas";
 import { Chat } from "./formats/Chat";
 import { Collage } from "./formats/Collage";
 import { Swiss } from "./formats/Swiss";
+import { Kinetic } from "./formats/Kinetic";
+import { Markup } from "./formats/Markup";
+import { Slices } from "./formats/Slices";
+import { Versus } from "./formats/Versus";
 import { Explainer } from "./formats/Explainer";
 import { KineticText } from "./formats/KineticText";
 import { StockMix } from "./formats/StockMix";
@@ -25,6 +29,13 @@ import type { AdProps } from "./types";
 const revealAt = (props: AdProps, shots: { line: number; start: number }[]): number[] => {
   const i = revealOf(props.photos, props.lines);
   return i > 0 ? [shots.find((s) => s.line === i)?.start ?? props.lines[i].start] : [];
+};
+
+/** A checklist in the look asked for; the dark-box look when none is. */
+const ExplainerLook: React.FC<AdProps & { look?: string; tag?: string; snappy?: boolean }> = ({ look, snappy, ...props }) => {
+  if (!look) return <Explainer {...props} snappy={snappy} />;
+  const Look = { collage: Collage, swiss: Swiss, kinetic: Kinetic, markup: Markup, slices: Slices, versus: Versus }[look ?? ""] ?? Explainer;
+  return <Look {...props} />;
 };
 
 /** A link stays a link; anything else is a file under public/. */
@@ -65,7 +76,7 @@ export const Ad: React.FC<AdProps> = (props) => {
       ) : style.kind === "counter" ? (
         <Counter {...props} stats={style.stats} />
       ) : style.kind === "explainer" ? (
-        style.look === "collage" ? <Collage {...props} tag={style.tag} /> : style.look === "swiss" ? <Swiss {...props} tag={style.tag} /> : <Explainer {...props} tag={style.tag} />
+        <ExplainerLook {...props} look={style.look} tag={style.tag} snappy={style.snappy} />
       ) : style.kind === "kineticText" ? (
         <KineticText {...props} />
       ) : style.kind === "chat" ? (
@@ -75,7 +86,7 @@ export const Ad: React.FC<AdProps> = (props) => {
       )}
       {style.kind === "chat" ? null : <BrandChip brand={props.brand} ratio={props.ratio} />}
       <EndCard brand={props.brand} ratio={props.ratio} from={closeAt} />
-      {wordsOnly && !explainer ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel || explainer} />}
+      {(wordsOnly && !explainer) || (style.kind === "explainer" && style.look === "kinetic") ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel || explainer} />}
       <ProgressBar color={props.brand.accentColor} />
       {props.audio ? <Audio src={source(props.audio)} /> : null}
       {props.sound ? (
