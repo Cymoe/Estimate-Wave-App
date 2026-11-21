@@ -2921,7 +2921,8 @@ export const weeklyRun = internalAction({
       }
       // Each week also asks people who have seen us before: a quick offer on one job from the week's story.
       if (!only && storyHook && cfg.quickOffer) {
-        const offered = pickOfferPhotos(pickAssets(photos, storyHook.scope, used, REEL_CANDIDATES, []).assets);
+        // The same job as the story is welcome here: the offer is for people who have seen it.
+        const offered = pickOfferPhotos(pickAssets(photos, storyHook.scope, new Set<string>(), REEL_CANDIDATES, []).assets);
         if (offered.length) {
           try {
             await makeAd(storyHook, NEW_AD_STYLE, true, offered, true);
