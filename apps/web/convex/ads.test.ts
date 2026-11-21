@@ -237,11 +237,15 @@ describe("a quick offer", () => {
     // Its 27 words are too few for a story reel.
     expect(motionPlanProblems(good, pair).join()).toContain("words of voice (write 45 to 55)");
   });
-  test("its photos: a tagged pair first, else one finished photo; never a lone before", () => {
+  test("its photos: a tagged pair first, then one image holding both, else one finished photo; never a lone before or an untagged photo", () => {
     const other = { tags: ["cabinets", "after"] };
     expect(pickOfferPhotos([other, ...pair])).toEqual(pair);
     expect(pickOfferPhotos([{ tags: ["cabinets", "before"] }, other])).toEqual([other]);
     expect(pickOfferPhotos([{ tags: ["cabinets", "before"] }])).toEqual([]);
+    // One image holding a before and its after counts as the job; an untagged photo never does, as it may be the before.
+    const both = { tags: ["cabinets", "before", "after"] };
+    expect(pickOfferPhotos([{ tags: ["cabinets"] }, both, other])).toEqual([both]);
+    expect(pickOfferPhotos([{ tags: ["cabinets"] }])).toEqual([]);
   });
   test("each ad's angle and label: a story, a lesson in its look, or a quick offer", () => {
     expect(angleOf({ style: "reel" })).toBe("story");

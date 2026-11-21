@@ -168,7 +168,7 @@ export function pickHooks<H extends HookRow>(hooks: H[], liveFamilies: Set<Famil
 
 /**
  * The photos a quick offer is drawn from: one job only. A before and its after where there is a pair, else one
- * finished photo, else the first offered.
+ * image holding both, else one photo tagged finished; nothing when none is.
  */
 export function pickOfferPhotos<A extends { tags: string[]; pairKey?: string }>(offered: A[]): A[] {
   for (const before of offered) {
@@ -176,7 +176,11 @@ export function pickOfferPhotos<A extends { tags: string[]; pairKey?: string }>(
     const after = offered.find((a) => a !== before && a.pairKey === before.pairKey && a.tags.includes("after"));
     if (after) return [before, after];
   }
-  const finished = offered.find((a) => a.tags.includes("after") && !a.tags.includes("before")) ?? offered.find((a) => !a.tags.includes("before") && !a.pairKey);
+  // One image that holds a before and its after: the reel shows each half in turn.
+  const both = offered.find((a) => a.tags.includes("before") && a.tags.includes("after"));
+  if (both) return [both];
+  // Else one photo tagged finished. Never an untagged one: it may be the before.
+  const finished = offered.find((a) => a.tags.includes("after") && !a.tags.includes("before"));
   return finished ? [finished] : [];
 }
 
