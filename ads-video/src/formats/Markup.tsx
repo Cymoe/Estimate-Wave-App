@@ -25,7 +25,7 @@ const onScreen = (p: Photo, W: number, H: number, at: { x: number; y: number }) 
  * Once said, the name gets a drawn tick. Everything pointed at is in the photo;
  * nothing is added to it.
  */
-export const Markup: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, headline, tag, photos }) => {
+export const Markup: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, headline, tag, photos, punch }) => {
   const frame = useCurrentFrame();
   const { fps, width: W, height: H } = useVideoConfig();
   const t = frame / fps;
@@ -145,6 +145,17 @@ export const Markup: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
               })
             : null}
 
+          {/* Punch: a spotlight. The rest of the photo dims and greys as the ring draws, so the eye goes to the detail. */}
+          {punch && ring > 0 ? (
+            <AbsoluteFill
+              style={{
+                backgroundColor: `rgba(11, 18, 28, ${0.5 * ring})`,
+                backdropFilter: `grayscale(${0.8 * ring})`,
+                WebkitMaskImage: `radial-gradient(circle at ${spot.x}px ${spot.y}px, transparent ${box * 0.6}px, black ${box * 0.95}px)`,
+                maskImage: `radial-gradient(circle at ${spot.x}px ${spot.y}px, transparent ${box * 0.6}px, black ${box * 0.95}px)`,
+              }}
+            />
+          ) : null}
           {/* The marker ring round the detail, and the line out to its name. */}
           <svg width={W} height={H} style={{ position: "absolute", left: 0, top: 0 }}>
             {t >= markAt + 0.4 ? (

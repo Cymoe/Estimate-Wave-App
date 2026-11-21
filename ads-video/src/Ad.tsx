@@ -85,7 +85,7 @@ export const Ad: React.FC<AdProps> = (props) => {
         <LightUp {...props} runs={runs} />
       )}
       {style.kind === "chat" ? null : <BrandChip brand={props.brand} ratio={props.ratio} />}
-      <EndCard brand={props.brand} ratio={props.ratio} from={closeAt} />
+      <EndCard brand={props.brand} ratio={props.ratio} from={closeAt} punch={props.punch} />
       {(wordsOnly && !explainer) || (style.kind === "explainer" && style.look === "kinetic") ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel || explainer} />}
       <ProgressBar color={props.brand.accentColor} />
       {props.audio ? <Audio src={source(props.audio)} /> : null}
@@ -103,6 +103,7 @@ export const Ad: React.FC<AdProps> = (props) => {
           }
           askAt={closeAt}
           voiceEnd={props.audioSec}
+          punch={props.punch}
         />
       ) : null}
     </AbsoluteFill>

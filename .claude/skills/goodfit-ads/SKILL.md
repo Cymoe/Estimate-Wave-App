@@ -73,6 +73,26 @@ trades are painting and hardscaping (`outdoor-construction`).
   `ads-render.yml`). Run looks side by side to see which costs less per lead.
 - Moves are timed to Chris's words (`line.words`) and the music's beats (`sound.beats`). The motion helpers are
   in `ads-video/src/parts/motion.ts`.
+- **Three angles, each with a job** (research, Nov 2026):
+  - **Story:** one job, problem, the turn, the after. It stops strangers. Story ads were about 2x as effective as
+    feature ads in a 15,000-ad study.
+  - **Lesson:** checklist, marked-up or face-off. It earns trust with people who have seen us.
+  - **Quick offer** (`design.quick`): about 9 seconds and 3 lines on one job's photos (a before and its after, or
+    one finished photo).
+    - The hook speaks to the area ("Midland homeowners, look at this."), never placing the job.
+    - Then the one thing the pro did, then the free quote. Checked in `motionPlanProblems(plan, photos, { town })`.
+
+  Each week: a lesson comes second, and a quick offer is made on one job from the week's story (setting
+  `quickOffer`, on by default). Make one on demand with
+  `ads:weeklyRun {force, only:[hookId], trade, style:"quick"}`. Cards say Story, Lesson (look) or Quick offer.
+  Meta favours many truly different ads in one ad set, so keep the angles varied. Judge by cost per booked job,
+  not just cost per lead.
+- **Sharper moves** (`punch` prop, sample only until the owner says yes):
+  - photos ramp in fast and then drift, with a kick on each music beat;
+  - the music drops out about half a second before the ask, then the end card slams in;
+  - a spotlight in Markup dims and greys the rest of the photo.
+- **Remotion license:** free only for companies of 3 people or fewer; above that it's $25 per seat per month.
+  HyperFrames (HeyGen, Apache-2.0) is the free alternative, and the fastest-growing Claude video tool.
 - **Never change the look of live ads without showing the owner a sample first and getting a yes.**
 
 ## Running things from a cloud session

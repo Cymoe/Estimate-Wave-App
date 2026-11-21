@@ -41,6 +41,9 @@ import {
   weekOf,
   wordTimings,
   type Script,
+  angleOf,
+  designLabel,
+  pickOfferPhotos,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
 import { SWIPE_SEEDS } from "./catalog/swipes";
@@ -193,6 +196,63 @@ function motionPlanFor(photoCount: number, over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+/** A quick offer as the writer would answer: a local hook, the one thing done, the ask, on one job's photos. */
+function quickPlanFor(photoCount: number) {
+  const after = Math.min(2, photoCount);
+  return {
+    fits: true,
+    style: "reel",
+    title: "Cabinets, finished",
+    lines: [
+      { photo: 1, voice: "Midland homeowners, look at this.", x: 50, y: 50, ...(photoCount > 1 ? { before: true } : {}) },
+      { photo: after, voice: "Every door came off and every frame was masked.", label: "Doors off, frames masked", x: 40, y: 50 },
+      { photo: after, voice: "GoodFit Pros matches you with one local painter. Get a free quote.", label: "One free quote" },
+    ],
+    headline: GOOD.headline,
+    primaryText: GOOD.primaryText,
+  };
+}
+
+describe("a quick offer", () => {
+  const pair = [{ tags: ["cabinets", "before"], pairKey: "k1" }, { tags: ["cabinets", "after"], pairKey: "k1" }];
+  test("the prompt asks for three lines, a hook that speaks to the town but never places the job, and one job only", () => {
+    const ask = motionPrompt({ textEn: "One local painter, one free quote", family: "proof", scope: "cabinets", style: "reel", quick: true }, "GoodFit Pros", [], true, [], "Midland");
+    expect(ask).toContain("about 9 seconds");
+    expect(ask).toContain("exactly 3 spoken lines");
+    expect(ask).toContain("One job only");
+    expect(ask).toContain("may name Midland to speak to the viewer, never about the job");
+    // A story reel keeps its own shape.
+    const story = motionPrompt({ textEn: "Paint them, don't replace them", family: "before_after", scope: "cabinets", style: "reel" }, "GoodFit Pros", [], true, [], "Midland");
+    expect(story).not.toContain("quick offer");
+    expect(story).toContain("Tell it as one small story");
+  });
+  test("the checks: three lines, short, a hook naming the town, one job's photos", () => {
+    const good = quickPlanFor(2);
+    expect(motionPlanProblems(good, pair, { town: "Midland" })).toEqual([]);
+    expect(motionPlanProblems({ ...good, lines: [{ ...good.lines[0], voice: "Look at these cabinets right here." }, ...good.lines.slice(1)] }, pair, { town: "Midland" })).toContain("the first line doesn't speak to Midland");
+    expect(motionPlanProblems({ ...good, lines: good.lines.slice(0, 2) }, pair, { town: "Midland" }).join()).toContain("2 lines (a quick offer has 3)");
+    const twoJobs = [{ tags: ["cabinets", "after"], pairKey: "a" }, { tags: ["cabinets", "after"], pairKey: "b" }];
+    expect(motionPlanProblems(good, twoJobs, { town: "Midland" })).toContain("a quick offer shows one job: one photo, or a before and its after");
+    // Its 27 words are too few for a story reel.
+    expect(motionPlanProblems(good, pair).join()).toContain("words of voice (write 45 to 55)");
+  });
+  test("its photos: a tagged pair first, else one finished photo; never a lone before", () => {
+    const other = { tags: ["cabinets", "after"] };
+    expect(pickOfferPhotos([other, ...pair])).toEqual(pair);
+    expect(pickOfferPhotos([{ tags: ["cabinets", "before"] }, other])).toEqual([other]);
+    expect(pickOfferPhotos([{ tags: ["cabinets", "before"] }])).toEqual([]);
+  });
+  test("each ad's angle and label: a story, a lesson in its look, or a quick offer", () => {
+    expect(angleOf({ style: "reel" })).toBe("story");
+    expect(angleOf({ style: "explainer" })).toBe("lesson");
+    expect(angleOf({ style: "reel", quick: true })).toBe("offer");
+    expect(designLabel({ style: "reel", quick: true })).toBe("Quick offer");
+    expect(designLabel({ style: "explainer", look: "markup" })).toBe("Lesson, marked-up");
+    expect(designLabel({ style: "explainer" })).toBe("Lesson, checklist");
+    expect(designLabel({ style: "reel" })).toBe("Story");
+  });
+});
 
 describe("a checklist ad (explainer)", () => {
   const brand = { name: "GoodFit Pros", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
@@ -1296,6 +1356,7 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
             ),
           );
         else if (opts.scriptsFail) reply = motionPlanFor(offered, { primaryText: "Only $999 this week" });
+        else if (prompt.includes("This one is a quick offer")) reply = quickPlanFor(offered);
         else if (opts.badFirst && !retry) reply = motionPlanFor(offered, { lines: [] });
         else if (opts.style === "beforeAfter") reply = motionPlanFor(offered, { style: "beforeAfter", revealOn: "finish" });
         else if (opts.style === "reel") {
@@ -1540,7 +1601,7 @@ describe("the weekly run", () => {
   type Call = { url: string; body?: string; auth?: string | null };
 
   /** A fresh backend with the library in, Claude and the voice set; one ad idea a week unless told otherwise. */
-  async function ready(opts: { hooks?: number; meta?: boolean; token?: boolean } = {}) {
+  async function ready(opts: { hooks?: number; meta?: boolean; token?: boolean; quick?: boolean } = {}) {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     await library(t, owner);
@@ -1555,6 +1616,8 @@ describe("the weekly run", () => {
       weeklyEnabled: false,
       hooksPerWeek: opts.hooks ?? 1,
       liveTarget: 6,
+      // The weekly quick offer is tested on its own; elsewhere a week is just its ideas.
+      quickOffer: opts.quick ?? false,
     });
     const calls: Call[] = [];
     // One scheduled function at a time: the voice step saves a file, and convex-test's storage can't take
@@ -1736,7 +1799,7 @@ describe("the weekly run", () => {
       ["Music 1", true],
     ]);
     const batch = await draft();
-    expect(batch.creatives[0].style).toEqual({ id: "reel", label: "Reel" });
+    expect(batch.creatives[0].style).toEqual({ id: "reel", label: "Story" });
     const jobs = await claim();
     expect(jobs.length).toBe(2);
     const props = jobs[0].props as { style: unknown; photos: Array<{ focus?: unknown; crop?: unknown }>; sound?: { music?: string; musicFrom?: number; beats?: number[]; move?: string } };
@@ -1842,6 +1905,24 @@ describe("the weekly run", () => {
     // Asked again, nothing is copied twice.
     expect((await t.mutation(internal.ads.addLook, { name: prefix, look: "collage" })).made).toEqual([]);
     expect((await latest()).creatives.some((c) => c.name.endsWith("_collage"))).toBe(true);
+  });
+
+  test("each week also makes a quick offer: one job from the week's story, a hook that speaks to the area, about 9 seconds", async () => {
+    const { t, calls, draft } = await ready({ quick: true });
+    stubServices(calls);
+    const batch = await draft();
+    const ask = to(calls, "anthropic")
+      .map((c) => (JSON.parse(c.body!).messages[0].content as Array<{ text?: string }>)[0].text ?? "")
+      .find((text) => text.includes("This one is a quick offer"))!;
+    expect(ask).toContain("about 9 seconds");
+    expect(ask).toContain('"Midland homeowners, look at this."');
+    expect(ask).toContain("never says or suggests the pictured job was there");
+    const quick = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.design?.quick));
+    expect(quick.length).toBe(2);
+    // One job: a before and its after, or one photo.
+    expect(new Set(quick[0].script.shots!.map((s) => s.assetId)).size).toBeLessThanOrEqual(2);
+    const labels = batch.creatives.map((c: { style?: { label: string } }) => c.style?.label);
+    expect(labels).toEqual(expect.arrayContaining(["Quick offer"]));
   });
 
   test("a checklist ad can be copied in the marked-up and face-off looks too; copies are never copied again, and the renderer is told the look", async () => {

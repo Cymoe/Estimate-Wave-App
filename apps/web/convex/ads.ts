@@ -7,7 +7,10 @@ import { adScript } from "./schema";
 import {
   ASSET_TAGS,
   DEFAULT_APIFY_ACTOR,
-  AD_STYLE_LABELS,
+  designLabel,
+  pickOfferPhotos,
+  type AdStyle,
+  NEW_AD_STYLE,
   DESCRIBE_PROMPT,
   FAMILY_LABELS,
   PAINTING_HOOKS,
@@ -1342,6 +1345,7 @@ export const settings = query({
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
+      quickOffer: row?.quickOffer ?? true,
       ...research(row),
     };
   },
@@ -1359,6 +1363,7 @@ export const saveSettings = mutation({
     weeklyEnabled: v.boolean(),
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
+    quickOffer: v.optional(v.boolean()),
     researchKeywords: v.optional(v.array(v.string())),
     researchMarkets: v.optional(v.array(v.string())),
     researchMinDays: v.optional(v.number()),
@@ -1815,7 +1820,7 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
       : null,
     kind: c.kind ?? ("video" as AdKind),
     // How it moves; none on ads from before they were drawn with Remotion.
-    style: c.design ? { id: c.design.style, label: AD_STYLE_LABELS[c.design.style] } : undefined,
+    style: c.design ? { id: c.design.style, label: designLabel(c.design) } : undefined,
     videoUrl: c.videoStorageId ? ((await ctx.storage.getUrl(c.videoStorageId)) ?? undefined) : undefined,
     imageUrl: c.imageStorageId ? ((await ctx.storage.getUrl(c.imageStorageId)) ?? undefined) : undefined,
     meta: c.meta,
@@ -2130,6 +2135,7 @@ export const config = internalQuery({
       voiceId: row?.voiceId,
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
+      quickOffer: row?.quickOffer ?? true,
       ...research(row),
     };
   },
@@ -2272,6 +2278,7 @@ const adDesign = v.object({
   spare: v.optional(v.array(v.id("adAssets"))),
   tag: v.optional(v.string()),
   look: v.optional(adLook),
+  quick: v.optional(v.boolean()),
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */
@@ -2800,8 +2807,8 @@ export const weeklyRun = internalAction({
     only: v.optional(v.array(v.id("adHooks"))),
     // The trade to draft for; painting when none is given.
     trade: v.optional(v.string()),
-    // For the ideas named in only: draw them as a checklist, whatever their family.
-    style: v.optional(v.literal("explainer")),
+    // For the ideas named in only: draw them as a checklist, or as a quick offer, whatever their family.
+    style: v.optional(v.union(v.literal("explainer"), v.literal("quick"))),
   },
   handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
@@ -2825,6 +2832,9 @@ export const weeklyRun = internalAction({
         (kinds.has(h.family) ? seconds : firsts).push(h);
         kinds.add(h.family);
       }
+      // A lesson second, so even a small week has a story and a lesson; the quick offer comes after.
+      const lesson = firsts.findIndex((h: { family: Family }) => styleFor(h.family) === "explainer");
+      if (lesson > 1) firsts.splice(1, 0, ...firsts.splice(lesson, 1));
       const hooks = only ? ranked : [...firsts, ...seconds];
       if (liveCount >= cfg.liveTarget)
         throw new Error(`${liveCount} ads are live and the target is ${cfg.liveTarget}. Retire one under Live, or raise the target in Settings.`);
@@ -2835,6 +2845,41 @@ export const weeklyRun = internalAction({
       const used = new Set<string>();
       let made = 0;
       let delay = 0;
+      let storyHook: (typeof hooks)[number] | undefined;
+      // Writes, checks and saves one ad, then sends it to be voiced.
+      const makeAd = async (hook: (typeof hooks)[number], shape: AdStyle, quick: boolean, offered: typeof photos, inScope: boolean) => {
+        const playbook = playbooks[hook.scope] ?? playbooks.general;
+        const plan = await writePlan<MotionPlan>(
+          motionPrompt(
+            { ...hook, style: shape, quick, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
+            cfg.brand.name,
+            offered,
+            inScope,
+            // The ad it is built around is told in full above; the others are for tone.
+            (examples[hook.scope] ?? []).filter((e: Example) => !(hook.basedOn && e.company === hook.basedOn.company && e.hook === hook.basedOn.angle)),
+            town,
+            playbook?.text,
+            hook.basedOn,
+            trade,
+          ),
+          offered,
+          "ad",
+          (p) => motionPlanProblems(p, offered, quick ? { town: cfg.researchMarkets[0] ?? "" } : undefined),
+        );
+        const { script, design } = composeMotion(
+          plan,
+          offered.map((a: { _id: string }) => a._id),
+          offered,
+        );
+        if (quick) design.quick = true;
+        // What a line shows is this ad's; what it only keeps to spare may still carry another.
+        script.shots!.forEach((s) => used.add(s.assetId));
+        (design.frames ?? []).forEach((f) => (f.more ?? []).forEach((id) => used.add(id)));
+        const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, { batchId, hookId: hook._id, script: script as never, design: design as never });
+        // One voice per hook, shared by its two sizes.
+        await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
+        delay += 1500;
+      };
       for (const hook of hooks) {
         if (made >= (only ? only.length : (hookCount ?? cfg.hooksPerWeek))) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
@@ -2861,41 +2906,28 @@ export const weeklyRun = internalAction({
           continue;
         }
         // How it is drawn: as asked for the ideas named, else by the idea's family.
-        const shape = only && asked ? asked : styleFor(hook.family);
+        const shape = only && asked === "explainer" ? "explainer" : styleFor(hook.family);
+        const quick = Boolean(only && asked === "quick");
+        // A quick offer shows one job: a before and its after, or one finished photo.
+        const offered = quick ? pickOfferPhotos(picked.assets) : picked.assets;
         try {
-          const plan = await writePlan<MotionPlan>(
-            motionPrompt(
-              { ...hook, style: shape, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
-              cfg.brand.name,
-              picked.assets,
-              picked.inScope,
-              // The ad it is built around is told in full above; the others are for tone.
-              (examples[hook.scope] ?? []).filter((e: Example) => !(hook.basedOn && e.company === hook.basedOn.company && e.hook === hook.basedOn.angle)),
-              town,
-              playbook?.text,
-              hook.basedOn,
-              trade,
-            ),
-            picked.assets,
-            "ad",
-            (p) => motionPlanProblems(p, picked.assets),
-          );
-          const { script, design } = composeMotion(
-            plan,
-            picked.assets.map((a) => a._id),
-            picked.assets,
-          );
-          // What a line shows is this ad's; what it only keeps to spare may still carry another.
-          script.shots!.forEach((s) => used.add(s.assetId));
-          (design.frames ?? []).forEach((f) => (f.more ?? []).forEach((id) => used.add(id)));
-          const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, { batchId, hookId: hook._id, script: script as never, design: design as never });
-          // One voice per hook, shared by its two sizes.
-          await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
-          delay += 1500;
+          await makeAd(hook, quick ? NEW_AD_STYLE : shape, quick, offered, picked.inScope);
           made += 1;
+          if (!quick && shape !== "explainer" && !storyHook) storyHook = hook;
         } catch (e) {
           skipped.push(`${label}: ${errText(e)}`);
           if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why: errText(e) });
+        }
+      }
+      // Each week also asks people who have seen us before: a quick offer on one job from the week's story.
+      if (!only && storyHook && cfg.quickOffer) {
+        const offered = pickOfferPhotos(pickAssets(photos, storyHook.scope, used, REEL_CANDIDATES, []).assets);
+        if (offered.length) {
+          try {
+            await makeAd(storyHook, NEW_AD_STYLE, true, offered, true);
+          } catch (e) {
+            skipped.push(`Quick offer: ${errText(e)}`);
+          }
         }
       }
       await ctx.runMutation(internal.ads.noteSkipped, { batchId, skipped });
