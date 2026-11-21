@@ -2339,8 +2339,10 @@ export const addLook = internalMutation({
   args: { name: v.string(), look: v.literal("collage") },
   handler: async (ctx, { name, look }) => {
     const recent = await ctx.db.query("adCreatives").order("desc").take(300);
-    const from = recent.filter((c) => c.name.startsWith(`${name}_`) && !c.name.endsWith(`_${look}`) && c.kind !== "image");
-    if (from.length === 0) fail("NOT_FOUND", `No ad named ${name} among the recent ones`);
+    // The same idea can have ads from earlier weeks under the same name: only the newest batch's are copied.
+    const named = recent.filter((c) => c.name.startsWith(`${name}_`) && !c.name.endsWith(`_${look}`) && c.kind !== "image");
+    if (named.length === 0) fail("NOT_FOUND", `No ad named ${name} among the recent ones`);
+    const from = named.filter((c) => c.batchId === named[0].batchId);
     const made: string[] = [];
     for (const c of from) {
       if (c.design?.style !== "explainer") fail("INVALID", `${c.name} isn't a checklist ad; only those have a ${look} look`);
