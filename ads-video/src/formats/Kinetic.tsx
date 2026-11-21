@@ -47,11 +47,12 @@ export const Kinetic: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, he
 
   // The words said now: the chunk whose first word has started, until the next one starts.
   const ci = chunks.findIndex((c, i) => t >= c[0].start - 0.06 && t < (chunks[i + 1]?.[0].start ?? c[c.length - 1].end + 0.6) - 0.06);
-  const chunk = ci >= 0 && chunks[ci][0].line < lines.length - 1 ? chunks[ci] : null;
+  // A chunk shows only while its own line is on: a new line starts clean.
+  const chunk = ci >= 0 && chunks[ci][0].line < lines.length - 1 && chunks[ci][0].line === now ? chunks[ci] : null;
   const keys = keyWords(line);
   const red = isPoint && !!line.skip && chunk !== null && chunk[0].start < turn - 0.02;
   const longest = chunk ? Math.max(...chunk.map((w) => w.text.length)) : 1;
-  const size = Math.round(Math.min(tall ? 190 : 150, (tall ? 1500 : 1400) / Math.max(5, longest)));
+  const size = Math.round(Math.min(tall ? 180 : 150, 1240 / Math.max(5, longest)));
 
   // Once the line has been said, its name lands up top with a tick.
   const doneAt = until - 0.6;
@@ -129,7 +130,7 @@ export const Kinetic: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, he
                     letterSpacing: -2,
                     textTransform: "uppercase",
                     color: red ? NO_PREP : key ? INK : "#fff",
-                    transform: `scale(${interpolate(land, [0, 1], [1.6, 1])}) translateY(${(1 - land) * 30}px)`,
+                    transform: `scale(${interpolate(land, [0, 1], [1.3, 1])}) translateY(${(1 - land) * 30}px)`,
                     filter: blur > 0.3 ? `blur(${blur.toFixed(1)}px)` : undefined,
                     textShadow: key ? undefined : "0 6px 30px rgba(0,0,0,0.45)",
                   }}

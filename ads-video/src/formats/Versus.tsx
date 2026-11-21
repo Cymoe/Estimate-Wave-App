@@ -51,7 +51,10 @@ export const Versus: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
   const tick = pop(frame, fps, doneAt);
   const shake = jolt(frame, fps, turn - 0.02, 14);
   const tickShake = jolt(frame, fps, doneAt, 9);
-  const redSize = Math.round(interpolate(push, [0, 1], [tall ? 104 : 84, tall ? 66 : 52]));
+  // Once squeezed into the band, the red words sit on one line so the strike runs through all of them.
+  const redSize = Math.round(Math.min(interpolate(push, [0, 1], [tall ? 128 : 96, tall ? 66 : 52]), push > 0.5 ? (tall ? 1600 : 1480) / Math.max(10, (line.skip ?? "").length) : 999));
+  // While the red holds the screen it creeps in, so it never sits still.
+  const creep = interpolate(t, [lineAt, Math.max(turn, lineAt + 0.1)], [1, 1.06], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
@@ -92,7 +95,7 @@ export const Versus: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
             <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: seam, backgroundColor: RED, overflow: "hidden" }}>
               <div style={{ position: "absolute", left: 60, right: 60, top: 0, height: Math.min(seam, H * 0.62), display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: tall ? 54 : 40, boxSizing: "border-box" }}>
               <div style={{ fontFamily: body, fontWeight: 600, fontSize: tall ? 28 : 22, letterSpacing: 6, color: "rgba(255,255,255,0.75)" }}>NO PREP</div>
-              <div style={{ position: "relative", alignSelf: "flex-start", fontFamily: display, fontWeight: 800, fontSize: redSize, lineHeight: 1.04, color: "#fff", transform: `scale(${interpolate(redText, [0, 1], [1.3, 1])})`, transformOrigin: "left bottom", opacity: Math.min(1, redText * 3) }}>
+              <div style={{ position: "relative", alignSelf: "flex-start", fontFamily: display, fontWeight: 800, fontSize: redSize, lineHeight: 1.04, color: "#fff", whiteSpace: push > 0.5 ? "nowrap" : undefined, transform: `scale(${interpolate(redText, [0, 1], [1.15, 1]) * (push > 0 ? 1 : creep)})`, transformOrigin: "left bottom", opacity: Math.min(1, redText * 3) }}>
                 {line.skip}
                 <div style={{ position: "absolute", left: -6, top: "50%", height: tall ? 10 : 8, width: `calc(${strike * 100}% + 12px)`, backgroundColor: INK }} />
               </div>
