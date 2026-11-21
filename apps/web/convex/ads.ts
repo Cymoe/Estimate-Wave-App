@@ -66,6 +66,8 @@ import {
   pickIdeas,
   tastePrompt,
   type IdeaDraft,
+  PREP_ANGLE,
+  styleFor,
 } from "./lib/ads";
 import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
@@ -2259,6 +2261,7 @@ const adDesign = v.object({
               before: v.optional(v.boolean()),
               more: v.optional(v.array(v.id("adAssets"))),
               mark: v.optional(v.union(v.literal("check"), v.literal("cross"))),
+              skip: v.optional(v.string()),
             }),
           ),
   ),
@@ -2752,8 +2755,10 @@ export const weeklyRun = internalAction({
     only: v.optional(v.array(v.id("adHooks"))),
     // The trade to draft for; painting when none is given.
     trade: v.optional(v.string()),
+    // For the ideas named in only: draw them as a checklist, whatever their family.
+    style: v.optional(v.literal("explainer")),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     const trade = tradeOf(slug);
@@ -2810,10 +2815,12 @@ export const weeklyRun = internalAction({
           if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why });
           continue;
         }
+        // How it is drawn: as asked for the ideas named, else by the idea's family.
+        const shape = only && asked ? asked : styleFor(hook.family);
         try {
           const plan = await writePlan<MotionPlan>(
             motionPrompt(
-              hook,
+              { ...hook, style: shape, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
               cfg.brand.name,
               picked.assets,
               picked.inScope,

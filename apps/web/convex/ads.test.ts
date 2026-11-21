@@ -22,6 +22,7 @@ import {
   isFatigued,
   isLocal,
   mergeSwipeCsvs,
+  PREP_ANGLE,
   motionPlanProblems,
   motionPrompt,
   parseCsv,
@@ -235,6 +236,44 @@ describe("a checklist ad (explainer)", () => {
       "the first line has a label or mark (only points have them)",
     ]);
     expect(motionPlanProblems({ ...plan, tag: "Lowest price painters" }, offered).some((p) => p.startsWith("mentions"))).toBe(false);
+  });
+
+  test("prep against no prep: a prep idea drawn as a checklist asks for each point's skipped corner, in words only", () => {
+    const ask = motionPrompt({ textEn: "Process + minimal disruption", family: "objection", scope: "cabinets", style: "explainer", versus: true }, "GoodFit Pros", [], true);
+    expect(ask).toContain("a short checklist over the job's own photos");
+    expect(ask).toContain("This one sets prep against no prep. Give every point a skip");
+    expect(ask).toContain("never blame damage or a bad result on skipped prep");
+    expect(ask).toContain('"skip":"the corner a no-prep quote cuts"');
+    // The same idea without the ask stays a reel, and a plain checklist asks for no skips.
+    expect(motionPrompt({ textEn: "Process + minimal disruption", family: "objection", scope: "cabinets" }, "GoodFit Pros", [], true)).not.toContain("checklist");
+    expect(motionPrompt({ textEn: "What to check", family: "education", scope: "interior" }, "GoodFit Pros", [], true)).not.toContain("skip");
+    expect(PREP_ANGLE.test("Process + minimal disruption")).toBe(true);
+    expect(PREP_ANGLE.test("Curb appeal")).toBe(false);
+  });
+
+  test("skips: every point has one or none, short, and never on the opening or the ask; they reach the renderer", () => {
+    const lines = plan.lines;
+    const versus = { ...plan, title: "Prep vs no prep", lines: [lines[0], { ...lines[1], skip: "Paint goes on as is" }, { ...lines[2], skip: "Paint over the trim" }, lines[3]] };
+    expect(motionPlanProblems(versus, offered)).toEqual([]);
+    expect(motionPlanProblems({ ...versus, lines: [lines[0], versus.lines[1], lines[2], lines[3]] }, offered)).toEqual([
+      "some points have a skip and some don't (give every point one, or none)",
+    ]);
+    expect(motionPlanProblems({ ...versus, lines: [lines[0], versus.lines[1], { ...versus.lines[2], skip: "x".repeat(41) }, lines[3]] }, offered)).toEqual([
+      "line 3's skip is over 40 characters",
+    ]);
+    expect(motionPlanProblems({ ...versus, lines: [{ ...lines[0], skip: "Nothing" }, versus.lines[1], versus.lines[2], lines[3]] }, offered)).toEqual([
+      "the first line has a label or mark (only points have them)",
+    ]);
+    const { script, design } = composeMotion(versus, ["a", "b", "c", "d"], offered);
+    expect(design.frames?.map((f) => f.skip)).toEqual([undefined, "Paint goes on as is", "Paint over the trim", undefined]);
+    const photos = new Map([
+      ["a", { url: "https://files.example/a.jpg", tags: ["interior"] }],
+      ["b", { url: "https://files.example/b.jpg", tags: ["interior", "process"] }],
+      ["c", { url: "https://files.example/c.jpg", tags: ["interior", "process"] }],
+    ]);
+    const timed = { ...script, shots: script.shots!.map((x, i) => ({ ...x, start: i * 4, end: i * 4 + 3 })) };
+    const props = renderProps({ ratio: "4x5", design, script: timed, photos, audioUrl: "https://files.example/v.mp3", audioSec: 16, brand });
+    expect(props.lines.map((l) => (l as { skip?: string }).skip)).toEqual([undefined, "Paint goes on as is", "Paint over the trim", undefined]);
   });
 
   test("what the renderer is given: each line's whole photo, where to move in, the points' labels and marks, and the tag", () => {

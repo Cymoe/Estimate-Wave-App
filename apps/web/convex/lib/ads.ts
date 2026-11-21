@@ -499,6 +499,8 @@ export type AdStyle = (typeof AD_STYLES)[number];
 export const AD_STYLE_LABELS: Record<AdStyle, string> = { reel: "Reel", lightUp: "Light-up", beforeAfter: "Before / after", counter: "Counter", explainer: "Checklist" };
 /** A cost-education idea is drawn as a checklist over the job's photos; every other idea as a reel. */
 export const styleFor = (family: Family): AdStyle => (family === "education" ? "explainer" : NEW_AD_STYLE);
+/** An idea about prep or the process: drawn as a checklist, it sets prep against no prep. */
+export const PREP_ANGLE = /\b(prep|prepped|preparation|process|craftsmanship|tap(e|ed|ing)|mask(ed|ing)?)\b/i;
 /** A checklist's title names the lesson ("3 things to check in a painting quote"), so it may run longer than a reel's. */
 export const EXPLAINER_TITLE_MAX = 42;
 /** What a new ad is drawn as: the photos fill the frame and are cut like footage. The others are how ads were drawn before, and still are when one is drawn again. */
@@ -532,7 +534,7 @@ export interface Design {
    * `before` says the line's picture is the unfinished state, which an ad never opens or closes on.
    * `more` is the other photos shown while the line is said, after its own, by asset id.
    */
-  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; down?: boolean; before?: boolean; more?: string[]; mark?: "check" | "cross" }>;
+  frames?: Array<{ x?: number; y?: number; from?: number; to?: number; down?: boolean; before?: boolean; more?: string[]; mark?: "check" | "cross"; skip?: string }>;
   /** In a reel, photos offered for the ad that no line uses, by asset id: its opening and closing show these before showing one again. */
   spare?: string[];
   /** In an explainer, a few words above the title naming the subject ("Painting quotes"). */
@@ -541,7 +543,7 @@ export interface Design {
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
-  hook: { textEn: string; family: Family; scope: string; opening?: string },
+  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean },
   brand: string,
   photos: Candidate[],
   inScope: boolean,
@@ -585,7 +587,9 @@ export function motionPrompt(
       .join(" · "),
   );
   // A cost-education idea is a checklist drawn over the job's photos; everything else is a reel.
-  const explain = styleFor(hook.family) === "explainer";
+  const explain = (hook.style ?? styleFor(hook.family)) === "explainer";
+  // A checklist that sets prep against no prep: each point says the corner a no-prep quote cuts, then the prepped way.
+  const versus = explain && hook.versus === true;
   return [
     `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one local ${trade.contractor}.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
@@ -610,6 +614,12 @@ export function motionPrompt(
           "- Never use a photo tagged before, or a photo that is two pictures in one. The last line's photo is finished work.",
           "- For each line give x and y: the point on its photo to move in on (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
           "- Use a different photo for each line where you can.",
+          ...(versus
+            ? [
+                `- This one sets prep against no prep. Give every point a skip: what a quote that skips that prep does instead, in 2 to 6 words ("Paint over the trim", at most ${LABEL_MAX} characters). It is shown crossed out, in words only, just before the point. The point's label is the prepped way ("Trim taped first"), and its photo shows that prep being done.`,
+                "- Each point's line says both, in that order: the corner some quotes cut, then what prep looks like (\"Some quotes paint right over the trim. Prep means taping it first.\"). Never say or suggest that a photo shows the no-prep way, and never blame damage or a bad result on skipped prep: say only what prep is.",
+              ]
+            : []),
           "",
           "Teach one useful thing, plainly:",
           "- No prices, ranges or dollar amounts: say what to look for, never what anything costs.",
@@ -652,7 +662,7 @@ export function motionPrompt(
     "",
     "Return only JSON, one of:",
     explain
-      ? `{"fits":true,"style":"explainer","tag":"...","title":"...","lines":[{"photo":1,"voice":"spoken line","x":50,"y":45},{"photo":3,"voice":"spoken line","label":"point in a few words","mark":"check","x":40,"y":60},{"photo":2,"voice":"spoken line","label":"point in a few words","mark":"check","x":55,"y":50},{"photo":4,"voice":"spoken line","x":50,"y":50}],"headline":"<=40 chars","primaryText":"<=125 chars"}`
+      ? `{"fits":true,"style":"explainer","tag":"...","title":"...","lines":[{"photo":1,"voice":"spoken line","x":50,"y":45},{"photo":3,"voice":"spoken line","label":"point in a few words",${versus ? '"skip":"the corner a no-prep quote cuts",' : ""}"mark":"check","x":40,"y":60},{"photo":2,"voice":"spoken line","label":"point in a few words","mark":"check","x":55,"y":50},{"photo":4,"voice":"spoken line","x":50,"y":50}],"headline":"<=40 chars","primaryText":"<=125 chars"}`
       : `{"fits":true,"style":"${NEW_AD_STYLE}","title":"...","lines":[{"photo":1,"before":true,"voice":"spoken line","x":60,"y":55},{"photo":2,"more":[4,6],"voice":"spoken line","label":"scene headline","x":50,"y":40}],"headline":"<=40 chars","primaryText":"<=125 chars"}`,
     '{"fits":false,"reason":"why the photos do not fit"}',
     explain
@@ -669,7 +679,7 @@ export interface MotionPlan {
   style?: string;
   title?: string;
   /** In a reel a line also says where on its photo it is about (x, y) and, for a photo that is two pictures side by side, which part to show (cut). */
-  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[]; stacked?: boolean; before?: boolean; mark?: string }>;
+  lines?: Array<{ photo?: number; more?: number[]; voice?: string; label?: string; x?: number; y?: number; cut?: number[]; stacked?: boolean; before?: boolean; mark?: string; skip?: string }>;
   /** In an explainer, the few words above the title. */
   tag?: string;
   stats?: Array<{ value?: number; label?: string }>;
@@ -747,9 +757,13 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
       const i = k + 2;
       if (!line.label?.trim()) out.push(`line ${i} is a point with no label`);
       if (line.mark !== "check" && line.mark !== "cross") out.push(`line ${i}'s mark is "${line.mark ?? ""}" (write check or cross)`);
+      if (line.skip && line.skip.trim().length > LABEL_MAX) out.push(`line ${i}'s skip is over ${LABEL_MAX} characters`);
     });
+    // Either every point says what a no-prep quote does instead, or none does: half a comparison reads as a mistake.
+    const skips = points.filter((l) => l.skip?.trim()).length;
+    if (skips > 0 && skips < points.length) out.push("some points have a skip and some don't (give every point one, or none)");
     [lines[0], lines[lines.length - 1]].forEach((line, k) => {
-      if (line?.label?.trim() || line?.mark) out.push(`the ${k === 0 ? "first" : "last"} line has a label or mark (only points have them)`);
+      if (line?.label?.trim() || line?.mark || line?.skip) out.push(`the ${k === 0 ? "first" : "last"} line has a label or mark (only points have them)`);
     });
     lines.forEach((line, i) => {
       const own = typeof line.photo === "number" ? photos[line.photo - 1] : undefined;
@@ -776,7 +790,7 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   else if (plan.headline.trim().length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
   if (!plan.primaryText?.trim()) out.push("no primary text");
   else if (plan.primaryText.trim().length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
-  const text = [plan.tag, title, spoken, ...lines.map((l) => l.label), ...(plan.stats ?? []).map((x) => x.label), plan.headline, plan.primaryText].filter(Boolean).join(" ");
+  const text = [plan.tag, title, spoken, ...lines.map((l) => l.label), ...lines.map((l) => l.skip), ...(plan.stats ?? []).map((x) => x.label), plan.headline, plan.primaryText].filter(Boolean).join(" ");
   for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
   return out;
 }
@@ -831,6 +845,7 @@ export function composeMotion(plan: MotionPlan, assetIds: string[], offered: Arr
             frames: (plan.lines ?? []).map((line) => ({
               ...(pct(line.x) && pct(line.y) ? { x: Math.round(line.x), y: Math.round(line.y) } : {}),
               ...(line.mark === "check" || line.mark === "cross" ? { mark: line.mark } : {}),
+              ...(line.skip?.trim() ? { skip: line.skip.trim().slice(0, LABEL_MAX) } : {}),
             })),
             ...(plan.tag?.trim() ? { tag: plan.tag.trim().slice(0, 30) } : {}),
           }
@@ -950,7 +965,8 @@ export function renderProps(input: {
       headline: design.title,
       lines: lines.map((line, i) => {
         const mark = design.frames?.[i]?.mark;
-        return mark && "label" in line ? { ...line, mark } : line;
+        const skip = design.frames?.[i]?.skip;
+        return mark && "label" in line ? { ...line, mark, ...(skip ? { skip } : {}) } : line;
       }),
       audio: input.audioUrl,
       audioSec: input.audioSec,

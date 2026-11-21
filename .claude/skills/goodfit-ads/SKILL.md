@@ -53,6 +53,10 @@ trades are painting and hardscaping (`outdoor-construction`).
     it has been said.
   - Each point's photo must show what the point says. Never a before, and never dollar numbers.
   - The owner said graphics alone aren't enough: always use photos.
+  - **Prep vs no prep** (prep or process ideas): each point first shows the corner a no-prep quote cuts, crossed
+    out in red, then the prepped way ticked over a real prep photo. The no-prep side is words only: we have no
+    photos of bad work, so never show or call a photo the no-prep way, and never blame damage on skipped prep.
+    Make one with `ads:weeklyRun {force, only:[hookId], trade, style:"explainer"}`.
 - **Never change the look of live ads without showing the owner a sample first and getting a yes.**
 
 ## Running things from a cloud session

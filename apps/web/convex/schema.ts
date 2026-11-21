@@ -2611,6 +2611,7 @@ export default defineSchema({
               before: v.optional(v.boolean()),
               more: v.optional(v.array(v.id("adAssets"))),
               mark: v.optional(v.union(v.literal("check"), v.literal("cross"))),
+              skip: v.optional(v.string()),
             }),
           ),
         ),

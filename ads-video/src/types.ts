@@ -33,6 +33,8 @@ export interface Line {
   photos?: Photo[];
   /** In an explainer, how this line's point is marked once it has been said: a tick for what to look for, a cross for what's left out. */
   mark?: "check" | "cross";
+  /** In an explainer, the corner a no-prep quote cuts on this point ("Paint over the trim"): shown crossed out first, in words only. */
+  skip?: string;
 }
 
 export interface Brand {

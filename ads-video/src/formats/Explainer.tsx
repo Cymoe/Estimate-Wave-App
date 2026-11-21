@@ -156,9 +156,57 @@ export const Explainer: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, 
         </div>
       </div>
 
+      {points.map(({ line, i }) => {
+        // The corner a no-prep quote cuts on this point: crossed out above the list while the point is said, then gone.
+        if (!line.skip) return null;
+        const from = line.start - 0.05;
+        const until = (lines[i + 1]?.start ?? line.end) - 0.15;
+        if (t < from || t > until + 0.3) return null;
+        const enter = spring({ frame: frame - Math.round(from * fps), fps, config: { damping: 15, mass: 0.6 } });
+        const strike = spring({ frame: frame - Math.round((from + 0.35) * fps), fps, config: { damping: 200 }, durationInFrames: 10 });
+        const leave = interpolate(t, [until, until + 0.3], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+        const len = 120;
+        return (
+          <div
+            key={`skip${i}`}
+            style={{
+              position: "absolute",
+              left: (1080 - WIDE) / 2,
+              width: WIDE,
+              top: listTop - rowH * 1.18 - gap * 2,
+              height: rowH * 1.18,
+              display: "flex",
+              alignItems: "center",
+              gap: tall ? 34 : 26,
+              padding: `0 ${tall ? 30 : 24}px`,
+              borderRadius: 30,
+              backgroundColor: `${INK}e6`,
+              border: `3px solid ${CROSS}`,
+              opacity: interpolate(enter, [0, 0.5], [0, 1], { extrapolateRight: "clamp" }) * leave,
+              transform: `translateX(${interpolate(enter, [0, 1], [-140, 0])}px)`,
+              boxSizing: "border-box",
+            }}
+          >
+            <div style={{ width: box, height: box, flexShrink: 0, borderRadius: box * 0.24, backgroundColor: CROSS, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width={box * 0.62} height={box * 0.62} viewBox="0 0 40 40">
+                <path d="M10 10 L30 30 M30 10 L10 30" stroke="#fff" strokeWidth="6" fill="none" strokeLinecap="round" strokeDasharray={len} strokeDashoffset={len * (1 - strike)} />
+              </svg>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <div style={{ fontFamily: body, fontWeight: 600, fontSize: tall ? 26 : 20, letterSpacing: 3, textTransform: "uppercase", color: CROSS, lineHeight: 1.2 }}>No prep</div>
+              <div style={{ position: "relative", fontFamily: display, fontWeight: 800, fontSize: labelSize * 0.86, lineHeight: 1.12, color: "rgba(255,255,255,0.82)", whiteSpace: "nowrap" }}>
+                {line.skip}
+                <div style={{ position: "absolute", left: 0, top: "52%", height: 6, width: `${strike * 100}%`, backgroundColor: CROSS, borderRadius: 3 }} />
+              </div>
+            </div>
+          </div>
+        );
+      })}
       {points.map(({ line, i }, k) => {
-        if (t < line.start - 0.05) return null;
-        const enter = spring({ frame: frame - Math.round((line.start - 0.05) * fps), fps, config: { damping: 15, mass: 0.6 } });
+        // With a crossed-out corner up first, the prepped way comes in a beat later.
+        const shown = line.skip ? line.start + Math.min(1.2, (line.end - line.start) * 0.4) : line.start - 0.05;
+        if (t < shown) return null;
+        const enter = spring({ frame: frame - Math.round(shown * fps), fps, config: { damping: 15, mass: 0.6 } });
         // Marked once it has been said: as the next line starts.
         const doneAt = (lines[i + 1]?.start ?? line.end) - 0.1;
         const draw = spring({ frame: frame - Math.round(doneAt * fps), fps, config: { damping: 200 }, durationInFrames: 10 });
