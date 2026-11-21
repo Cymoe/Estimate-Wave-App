@@ -6,6 +6,7 @@ import { EndCard } from "./parts/EndCard";
 import { Headline } from "./parts/Headline";
 import { Canvas } from "./formats/Canvas";
 import { Chat } from "./formats/Chat";
+import { Collage } from "./formats/Collage";
 import { Explainer } from "./formats/Explainer";
 import { KineticText } from "./formats/KineticText";
 import { StockMix } from "./formats/StockMix";
@@ -63,7 +64,7 @@ export const Ad: React.FC<AdProps> = (props) => {
       ) : style.kind === "counter" ? (
         <Counter {...props} stats={style.stats} />
       ) : style.kind === "explainer" ? (
-        <Explainer {...props} tag={style.tag} />
+        style.look === "collage" ? <Collage {...props} tag={style.tag} /> : <Explainer {...props} tag={style.tag} />
       ) : style.kind === "kineticText" ? (
         <KineticText {...props} />
       ) : style.kind === "chat" ? (
