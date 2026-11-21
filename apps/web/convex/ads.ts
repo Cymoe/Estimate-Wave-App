@@ -2528,6 +2528,38 @@ export const recentCreatives = internalQuery({
   },
 });
 
+/**
+ * Every ad still waiting or running, from outside the app: its name, kind, look, the idea it was made from and the
+ * competitor ad behind it, so a remake can name the idea (weeklyRun's `only`) and the looks to copy it into.
+ */
+export const waitingAds = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = (await ctx.db.query("adCreatives").order("desc").take(500)).filter((c) => !["rejected", "failed", "retired"].includes(c.status));
+    const hooks = new Map<string, Doc<"adHooks"> | null>();
+    const out = [];
+    for (const c of rows) {
+      if (!hooks.has(c.hookId)) hooks.set(c.hookId, await ctx.db.get(c.hookId));
+      const h = hooks.get(c.hookId);
+      const x = h?.swipeId ? await ctx.db.get(h.swipeId) : null;
+      out.push({
+        name: c.name,
+        status: c.status,
+        kind: c.kind ?? "video",
+        style: c.design?.style,
+        look: c.design?.look,
+        quick: c.design?.quick === true,
+        words: c.script.voice.split(/\s+/).filter(Boolean).length,
+        hookId: c.hookId,
+        idea: h?.textEn,
+        builtOn: x ? { company: x.company, scriptWords: scriptLength(x)?.words } : undefined,
+        createdAt: c.createdAt,
+      });
+    }
+    return out;
+  },
+});
+
 /** The newest batch from outside the app: how it ended, the ideas it passed over and why, and its ads. */
 export const lastBatch = internalQuery({
   // `back`: how many batches before the newest (0, the newest, when left out).

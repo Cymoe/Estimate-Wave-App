@@ -612,6 +612,8 @@ export function onceOnly(text: string): string {
 
 /** Enough of a competitor's words to follow as a script, not just a headline. */
 const SCRIPT_WORDS = 12;
+/** The most points a checklist following a script shows: the looks still read at six. */
+export const CHECKLIST_POINTS_MAX = 6;
 /** The most lines a followed script takes: one per sentence of a minute-long ad. */
 export const SCRIPT_LINES_MAX = 14;
 /** The longest a line of a followed script may run, so the picture still changes every few seconds. */
@@ -651,7 +653,7 @@ export function motionPrompt(
   // A script to follow line by line, or only a headline's worth of words to take the angle from.
   // A script to follow: in full for a story, as its short version for a quick offer, as points for a checklist.
   const script = scriptLength(basedOn) !== undefined;
-  const length = script && !hook.quick && (hook.style ?? styleFor(hook.family)) !== "explainer" ? scriptLength(basedOn) : undefined;
+  const length = script && !hook.quick ? scriptLength(basedOn) : undefined;
   const source = basedOn
     ? [
         `Build this ad around a competitor's ad${basedOn.daysRunning ? ` that has been running for ${basedOn.daysRunning} days` : ""}. An ad that keeps running is the best sign it pays for itself, so stay close to what makes it work:`,
@@ -703,7 +705,7 @@ export function motionPrompt(
     ...(explain
       ? [
           "- The first line names the question the checklist answers (\"Two painting quotes for the same room can look nothing alike.\"). Its photo is finished work.",
-          `- The lines between the first and the last are the points: 2 or 3 of them, each one thing a homeowner can check or ask about in any quote, in the order the competitor ad makes its points. Each has a label of 2 to 5 words naming the point ("Prep written down", at most ${LABEL_MAX} characters) and a mark: "check" for something to look for, "cross" for something a quote leaves out.`,
+          `- The lines between the first and the last are the points: ${length ? `one for each point their script makes, ${CHECKLIST_POINTS_MAX} at most` : "2 or 3 of them"}, each one thing a homeowner can check or ask about in any quote, in the order the competitor ad makes its points. Each has a label of 2 to 5 words naming the point ("Prep written down", at most ${LABEL_MAX} characters) and a mark: "check" for something to look for, "cross" for something a quote leaves out.`,
           "- Each point's photo must show what the point is about (taped trim for prep, plastic over counters for protecting the home). If no photo shows it, choose another point; never pair a point with a photo its words don't fit.",
           "- Never use a photo tagged before, or a photo that is two pictures in one. The last line's photo is finished work.",
           "- For each line give x and y: the spot on its photo that shows what the line names (the taped trim, the masked frame), where the camera moves in and a ring may be drawn (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
@@ -755,7 +757,9 @@ export function motionPrompt(
       ? `- tag: 1 to 3 words naming the subject ("Painting quotes"). title: at most 9 words and ${EXPLAINER_TITLE_MAX} characters naming the lesson ("3 things to check in a painting quote"); a number in it matches the points.`
       : `- title: at most 5 words and ${TITLE_MAX} characters: the problem or the change, not the brand.`,
     explain
-      ? `- lines: 4 or 5 spoken lines: the opening, one per point, then the ask. Each at most ${LINE_WORDS_MAX} words, 45 to 55 words in all. Each names the photo on screen while it is said.`
+      ? length
+        ? `- lines: the opening, one line per point, then the ask, ${Math.round(length.words * 0.85)} to ${Math.round(length.words * 1.1)} words in all (theirs is ${length.words}): say each point the way their script does, at full length, each line at most ${SCRIPT_LINE_WORDS_MAX} words. Each names the photo on screen while it is said.`
+        : `- lines: 4 or 5 spoken lines: the opening, one per point, then the ask. Each at most ${LINE_WORDS_MAX} words, 45 to 55 words in all. Each names the photo on screen while it is said.`
       : quick
         ? `- lines: exactly 3 spoken lines, ${QUICK_WORDS.min + 4} to ${QUICK_WORDS.max - 4} words in all. Each names the photo on screen while it is said.`
         : length
@@ -817,7 +821,7 @@ export function motionPlanProblems(
   else if (title.length > titleMax) out.push(`title over ${titleMax} characters`);
   const lines = plan.lines ?? [];
   // A followed script takes a line per sentence; anything else is three to five.
-  const most = follow && style !== "explainer" && !quick ? SCRIPT_LINES_MAX : 5;
+  const most = follow && !quick ? (style === "explainer" ? CHECKLIST_POINTS_MAX + 2 : SCRIPT_LINES_MAX) : 5;
   if (lines.length < 3 || lines.length > most) out.push(`${lines.length} lines (write 3 to ${most})`);
   lines.forEach((line, i) => {
     const n = line.photo;
@@ -855,12 +859,12 @@ export function motionPlanProblems(
     if (!one) out.push("a quick offer shows one job: one photo, or a before and its after");
   }
   // Following a script: about as long as theirs. Otherwise about 20 seconds at the voice's pace.
-  else if (follow && style !== "explainer") {
+  else if (follow) {
     if (words < Math.round(follow.words * 0.75) || words > Math.round(follow.words * 1.2))
       out.push(`${words} words of voice (their script is ${follow.words}: write ${Math.round(follow.words * 0.85)} to ${Math.round(follow.words * 1.1)}, keeping every point)`);
   } else if (words < 30 || words > 62) out.push(`${words} words of voice (write 45 to 55)`);
   // No line so long the screen sits still.
-  const lineMax = follow && style !== "explainer" && !quick ? SCRIPT_LINE_WORDS_MAX : LINE_WORDS_MAX;
+  const lineMax = follow && !quick ? SCRIPT_LINE_WORDS_MAX : LINE_WORDS_MAX;
   lines.forEach((line, i) => {
     const n = (line.voice ?? "").split(/\s+/).filter(Boolean).length;
     if (n > lineMax) out.push(`line ${i + 1} is ${n} words (at most ${lineMax})`);

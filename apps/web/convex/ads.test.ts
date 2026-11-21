@@ -476,6 +476,14 @@ describe("an animated ad's pure parts", () => {
     expect(motionPlanProblems(summary, [{ tags: [] }, { tags: [] }], undefined, follow).join(" | ")).toContain("50 words of voice (their script is 130: write 111 to 143, keeping every point)");
     const full = { ...summary, lines: [...Array.from({ length: 6 }, (_, i) => line(20, (i % 2) + 1)), { photo: 1, voice: "Get a free quote today." }] };
     expect(motionPlanProblems(full, [{ tags: [] }, { tags: [] }], undefined, follow)).toEqual([]);
+    // A checklist follows a script too: a point for each of theirs, up to six, at their length.
+    const longScript = { company: "Squeegee Squad", angle: "Cost education", offer: "Free estimate", creative: "", adaptation: "", transcript: Array.from({ length: 120 }, (_, i) => `w${i}`).join(" ") };
+    const checklistAsk = motionPrompt({ ...hook, family: "education", style: "explainer" }, "Webb Leads", [], true, [], "Midland", undefined, longScript);
+    expect(checklistAsk).toContain("one for each point their script makes, 6 at most");
+    expect(checklistAsk).toContain("(theirs is 120)");
+    const point = (photo: number, k: number) => ({ ...line(18, photo), label: `Point ${k}`, mark: "check" });
+    const checklist = { ...summary, style: "explainer", tag: "Quotes", title: "6 things to check in a quote", lines: [line(10, 1), ...[1, 2, 3, 4, 5, 6].map((k) => point((k % 2) + 1, k)), { photo: 2, voice: "Get a free quote today." }] };
+    expect(motionPlanProblems(checklist, [{ tags: [] }, { tags: [] }], undefined, scriptLength(longScript))).toEqual([]);
     // Without a script to follow, the same long plan is too long.
     expect(motionPlanProblems(full, [{ tags: [] }, { tags: [] }])).toContain("7 lines (write 3 to 5)");
     expect(around).toContain("Their offer becomes ours: a free quote from Webb Leads.");
