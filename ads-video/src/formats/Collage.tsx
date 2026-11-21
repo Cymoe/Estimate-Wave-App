@@ -99,7 +99,8 @@ export const Collage: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, br
         const nextStart = lines[i + 1]?.start ?? closeAt;
         const circle = spring({ frame: frame - Math.round((dropAt + 0.35) * fps), fps, config: { damping: 200 }, durationInFrames: 14 });
         const sticker = spring({ frame: frame - Math.round((dropAt + 0.55) * fps), fps, config: { damping: 11, mass: 0.6 } });
-        const doneAt = nextStart - 0.1;
+        // Ticked a beat before the next card lands, so the tick is seen.
+        const doneAt = nextStart - 0.6;
         const ticked = t >= doneAt;
         const showSkip = isPoint && line.skip && t < nextStart;
         const skipIn = spring({ frame: frame - Math.round(at * fps), fps, config: { damping: 12, mass: 0.6 } });
@@ -253,7 +254,7 @@ export const Collage: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, br
           position: "absolute",
           left: 60,
           right: 60,
-          top: ZONES[ratio].head.top - (tall ? 20 : 40),
+          top: ZONES[ratio].head.top - (tall ? 20 : 0),
           display: "flex",
           flexWrap: "wrap",
           justifyContent: "center",
