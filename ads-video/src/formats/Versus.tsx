@@ -93,7 +93,7 @@ export const Versus: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
           {/* The red: no prep, words only. */}
           {seam > 1 ? (
             <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: seam, backgroundColor: RED, overflow: "hidden" }}>
-              <div style={{ position: "absolute", left: 60, right: 60, top: 0, height: Math.min(seam, H * 0.62), display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: tall ? 54 : 40, boxSizing: "border-box" }}>
+              <div style={{ position: "absolute", left: 60, right: 60, top: 0, height: Math.min(seam, H * 0.62), display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: tall ? 100 : 78, boxSizing: "border-box" }}>
               <div style={{ fontFamily: body, fontWeight: 600, fontSize: tall ? 28 : 22, letterSpacing: 6, color: "rgba(255,255,255,0.75)" }}>NO PREP</div>
               <div style={{ position: "relative", alignSelf: "flex-start", fontFamily: display, fontWeight: 800, fontSize: redSize, lineHeight: 1.04, color: "#fff", whiteSpace: push > 0.5 ? "nowrap" : undefined, transform: `scale(${interpolate(redText, [0, 1], [1.15, 1]) * (push > 0 ? 1 : creep)})`, transformOrigin: "left bottom", opacity: Math.min(1, redText * 3) }}>
                 {line.skip}
@@ -124,7 +124,7 @@ export const Versus: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
                 fontWeight: 800,
                 fontSize: tall ? 60 : 48,
                 color: INK,
-                transform: `scale(${vs}) rotate(${(1 - vs) * -200}deg)`,
+                transform: `scale(${vs * (1 - shove)}) rotate(${(1 - vs) * -200}deg)`,
               }}
             >
               VS
