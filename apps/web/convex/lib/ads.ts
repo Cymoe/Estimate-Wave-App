@@ -151,6 +151,20 @@ export function pickHooks<H extends HookRow>(hooks: H[], liveFamilies: Set<Famil
     .slice(0, Math.max(0, n));
 }
 
+/**
+ * The photos a quick offer is drawn from: one job only. A before and its after where there is a pair, else one
+ * finished photo, else the first offered.
+ */
+export function pickOfferPhotos<A extends { tags: string[]; pairKey?: string }>(offered: A[]): A[] {
+  for (const before of offered) {
+    if (!before.pairKey || !before.tags.includes("before") || before.tags.includes("after")) continue;
+    const after = offered.find((a) => a !== before && a.pairKey === before.pairKey && a.tags.includes("after"));
+    if (after) return [before, after];
+  }
+  const finished = offered.find((a) => a.tags.includes("after") && !a.tags.includes("before")) ?? offered.find((a) => !a.tags.includes("before") && !a.pairKey);
+  return finished ? [finished] : [];
+}
+
 /** The scope of an idea that isn't about one kind of job: any photo in the library can carry it. */
 export const ANY_SCOPE = "general";
 
@@ -545,11 +559,28 @@ export interface Design {
   tag?: string;
   /** An explainer drawn as printed photo cards piled on a board, instead of a list over a full-frame photo. */
   look?: AdLook;
+  /** A quick offer: a reel of about 9 seconds, one job, a local hook, then the free quote. */
+  quick?: boolean;
 }
+
+/** The three jobs an ad can do: a story stops a stranger, a lesson earns trust, a quick offer asks people who have already seen us. */
+export type AdAngle = "story" | "lesson" | "offer";
+export const ANGLE_LABELS: Record<AdAngle, string> = { story: "Story", lesson: "Lesson", offer: "Quick offer" };
+export const angleOf = (design: { style: AdStyle; quick?: boolean }): AdAngle => (design.quick ? "offer" : design.style === "explainer" ? "lesson" : "story");
+/** What the card in Ops → Ads calls an ad: its angle and, for a lesson, its look. */
+export const LOOK_LABELS: Record<AdLook, string> = { collage: "collage", markup: "marked-up", versus: "face-off" };
+export function designLabel(design: { style: AdStyle; quick?: boolean; look?: AdLook }): string {
+  const angle = angleOf(design);
+  if (angle === "offer") return ANGLE_LABELS.offer;
+  if (angle === "lesson") return `Lesson, ${design.look ? LOOK_LABELS[design.look] : "checklist"}`;
+  return design.style === "reel" ? "Story" : AD_STYLE_LABELS[design.style];
+}
+/** A quick offer's length, in words of voice: about 9 seconds. */
+export const QUICK_WORDS = { min: 14, max: 30 } as const;
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
-  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean },
+  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean },
   brand: string,
   photos: Candidate[],
   inScope: boolean,
@@ -596,8 +627,10 @@ export function motionPrompt(
   const explain = (hook.style ?? styleFor(hook.family)) === "explainer";
   // A checklist that sets prep against no prep: each point says the corner a no-prep quote cuts, then the prepped way.
   const versus = explain && hook.versus === true;
+  // A quick offer: a reel of about 9 seconds for people who have seen us before, one job and the free quote.
+  const quick = !explain && hook.quick === true;
   return [
-    `You write one short animated ad for Facebook and Instagram, about 20 seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one local ${trade.contractor}.`,
+    `You write one short animated ad for Facebook and Instagram, about ${quick ? 9 : 20} seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one local ${trade.contractor}.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
     "",
     explain
@@ -640,13 +673,23 @@ export function motionPrompt(
     "- When two of the photos are one pair, one tagged before and one tagged after, show the before first, and let the words say which is which.",
     `- Add "before": true to any line whose picture is a before, the unfinished state, whether a photo of its own or one half of a photo. The ad never opens or closes on such a picture.`,
     "",
+    ...(quick
+      ? [
+          "This one is a quick offer: about 9 seconds, three lines, one job. It is for people nearby who have scrolled past us before, so it gets to the point.",
+          `- Line 1, the hook: 3 to 6 words that speak to the viewer where they live ("${town} homeowners, look at this.", "Cabinets like these, ${town}?"). It names the area to speak to the viewer; it never says or suggests the pictured job was there. Its picture is the finished work, or the before when line 2 shows its after.`,
+          "- Line 2: the one plain thing the pro did that you can see (\"Every door off, every frame masked.\"), on the photo that shows it, or the after of the pair.",
+          "- Line 3: the ask, on finished work.",
+          "- One job only: use only the photos of one job, a before and its after or a single photo. Never mix jobs.",
+        ]
+      : [
     "Tell it as one small story: one job, one problem, one change.",
     "- Open on the problem. Where there is a before, the first line's picture is the before and the first words name the problem you can see in it (\"This back yard was bare dirt.\"). Never open on a statement about the trade (\"cabinet redos come in plenty of looks\").",
     "- Then the turn: one concrete thing the pro did that you can see in the photos (doors off and every pane taped, the base dug and packed). One detail, said plainly, beats a list.",
     "- Then the after, from the same spot where you have it, given time to land. The ad ends on finished work.",
         ]),
+        ]),
     "- Facts come only from what is visible and from the photo descriptions above. Never invent an age, a street, a homeowner, what anyone said, or anything you cannot see.",
-    `- Never say or hint where a pictured job was, ${town} included: the photos don't say.`,
+    `- Never say or hint where a pictured job was, ${town} included: the photos don't say.${quick ? ` (The quick offer's first line may name ${town} to speak to the viewer, never about the job.)` : ""}`,
     "- Name only what anyone would see at a glance. A detail that is small, blurred, or could be something else (a decoration behind glass, a reflection, a shadow) is left out: never call something peeling, cracked, rotten or damaged unless that is plain in the photo or its description says so.",
     "- The title and every headline must be true of the picture under it: a title over a before doesn't describe the after.",
     "- Write for the ear: sentences of 6 to 12 words, one idea each, in words you'd say to a neighbour over the fence. Put the important word last. No rhyme, no lists of adjectives, and none of: transform your space, the range is wide, done right, peace of mind, quality work, top-notch, look no further.",
@@ -658,8 +701,10 @@ export function motionPrompt(
       : `- title: at most 5 words and ${TITLE_MAX} characters: the problem or the change, not the brand.`,
     explain
       ? `- lines: 4 or 5 spoken lines: the opening, one per point, then the ask. Each at most ${LINE_WORDS_MAX} words, 45 to 55 words in all. Each names the photo on screen while it is said.`
-      : `- lines: 3 to 5 spoken lines, each at most ${LINE_WORDS_MAX} words (a line may be two short sentences), 45 to 55 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
-    hook.opening ? `- The first line is the opening the owner chose, or very close to it: "${hook.opening}"` : "- The first line opens on the hook, in as few words as it takes.",
+      : quick
+        ? `- lines: exactly 3 spoken lines, ${QUICK_WORDS.min + 4} to ${QUICK_WORDS.max - 4} words in all. Each names the photo on screen while it is said.`
+        : `- lines: 3 to 5 spoken lines, each at most ${LINE_WORDS_MAX} words (a line may be two short sentences), 45 to 55 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
+    quick ? "" : hook.opening ? `- The first line is the opening the owner chose, or very close to it: "${hook.opening}"` : "- The first line opens on the hook, in as few words as it takes.",
     `- The last line is close to: "${brand} matches you with one local ${trade.pro}. Get a free quote." It may name the kind of job; it adds no other claim.`,
     "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
     `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
@@ -697,7 +742,7 @@ export interface MotionPlan {
 const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9']/g, "");
 
 /** What's wrong with an animated ad Claude returned, against the photos it was offered. */
-export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: string[]; pairKey?: string }>): string[] {
+export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: string[]; pairKey?: string }>, quick?: { town: string }): string[] {
   const out: string[] = [];
   const style = AD_STYLES.find((x) => x === plan.style);
   if (!style) out.push(`style "${plan.style ?? ""}" (write ${NEW_AD_STYLE})`);
@@ -731,8 +776,19 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   });
   const spoken = lines.map((l) => l.voice ?? "").join(" ");
   const words = spoken.split(/\s+/).filter(Boolean).length;
+  if (quick) {
+    // About 9 seconds: a hook that speaks to the area, the one thing done, the ask; one job's photos only.
+    if (lines.length !== 3) out.push(`${lines.length} lines (a quick offer has 3)`);
+    if (words < QUICK_WORDS.min || words > QUICK_WORDS.max) out.push(`${words} words of voice (a quick offer has ${QUICK_WORDS.min + 4} to ${QUICK_WORDS.max - 4})`);
+    const hook = lines[0]?.voice ?? "";
+    if (hook.split(/\s+/).filter(Boolean).length > 8) out.push("the first line is over 8 words (a quick offer's hook is 3 to 6)");
+    if (quick.town && !hook.toLowerCase().includes(quick.town.toLowerCase())) out.push(`the first line doesn't speak to ${quick.town}`);
+    const shown = [...new Set(lines.flatMap((l) => [l.photo, ...(Array.isArray(l.more) ? l.more : [])]).filter((n): n is number => typeof n === "number" && n >= 1 && n <= photos.length))];
+    const one = shown.length <= 1 || (shown.length === 2 && photos[shown[0] - 1].pairKey && photos[shown[0] - 1].pairKey === photos[shown[1] - 1].pairKey);
+    if (!one) out.push("a quick offer shows one job: one photo, or a before and its after");
+  }
   // About 20 seconds at the voice's pace, and no line so long the screen sits still.
-  if (words < 30 || words > 62) out.push(`${words} words of voice (write 45 to 55)`);
+  else if (words < 30 || words > 62) out.push(`${words} words of voice (write 45 to 55)`);
   lines.forEach((line, i) => {
     const n = (line.voice ?? "").split(/\s+/).filter(Boolean).length;
     if (n > LINE_WORDS_MAX) out.push(`line ${i + 1} is ${n} words (at most ${LINE_WORDS_MAX})`);
