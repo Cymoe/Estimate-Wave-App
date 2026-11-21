@@ -2110,6 +2110,24 @@ describe("the weekly run", () => {
     expect((await owner.as.query(api.ads.batches, {})).length).toBe(1);
   });
 
+  test("the batch list keeps older ads waiting for review on the page: a run of remakes or pulled batches never pushes them off", async () => {
+    const { t, owner } = await ready();
+    const now = new Date().toISOString();
+    await t.run(async (ctx) => {
+      const hook = (await ctx.db.query("adHooks").first())!;
+      const batch = async (n: number, status: "voiced" | "rejected" | null) => {
+        const batchId = await ctx.db.insert("adBatches", { weekOf: `2026-11-${String(n).padStart(2, "0")}`, status: "ready", createdAt: now });
+        if (status) await ctx.db.insert("adCreatives", { batchId, hookId: hook._id, ratio: "9x16", name: `WL_b${n}_916`, script: GOOD, assetIds: [], status, createdAt: now });
+      };
+      // Eight batches with an ad waiting, then ten newer ones that were pulled or came out empty, then the newest (empty).
+      for (let n = 1; n <= 8; n++) await batch(n, "voiced");
+      for (let n = 9; n <= 18; n++) await batch(n, n % 2 ? "rejected" : null);
+      await batch(19, null);
+    });
+    const shown = await owner.as.query(api.ads.batches, {});
+    expect(shown.map((b) => b.weekOf)).toEqual(["2026-11-19", ...[8, 7, 6, 5, 4, 3, 2, 1].map((n) => `2026-11-0${n}`)]);
+  });
+
   test("Claude passes on an idea the photos can't carry: it is passed over with the reason and the next one is drafted", async () => {
     const { t, owner, calls, draft } = await ready();
     stubServices(calls, { passOnScope: "cabinets" });

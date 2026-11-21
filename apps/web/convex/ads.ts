@@ -1837,11 +1837,29 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
 }
 
 /** The last few weeks' batches with their creatives, newest first. */
+/** How many batches Ops → Ads lists: the newest, then the older ones still holding an ad that wasn't rejected. */
+const BATCHES_SHOWN = 20;
+
 export const batches = query({
   args: { trade: v.optional(v.string()) },
   handler: async (ctx, { trade }) => {
     await requireStaff(ctx);
-    const rows = (await ctx.db.query("adBatches").order("desc").take(60)).filter((b) => inTrade(b, trade)).slice(0, 6);
+    const recent = (await ctx.db.query("adBatches").order("desc").take(100)).filter((b) => inTrade(b, trade));
+    // The newest batch always shows, so a failed or empty run says why. Older ones show while they still hold an ad
+    // that hasn't been rejected: a run of remakes never pushes the ads waiting for review off the page.
+    const rows: typeof recent = [];
+    for (const [i, b] of recent.entries()) {
+      if (rows.length >= BATCHES_SHOWN) break;
+      if (i === 0) {
+        rows.push(b);
+        continue;
+      }
+      const made = await ctx.db
+        .query("adCreatives")
+        .withIndex("by_batch", (q) => q.eq("batchId", b._id))
+        .collect();
+      if (made.some((c) => c.status !== "rejected")) rows.push(b);
+    }
     const hooks = new Map((await ctx.db.query("adHooks").take(500)).map((h) => [h._id as string, h]));
     return await Promise.all(
       rows.map(async (b) => ({
