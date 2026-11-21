@@ -67,7 +67,9 @@ export const Markup: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
 
   // The label sits above the detail when the detail is low, below when high; inside the frame either way.
   const above = spot.y > H * 0.46;
-  const ly = above ? spot.y - box / 2 - (tall ? 250 : 190) : spot.y + box / 2 + (tall ? 130 : 100);
+  // Kept clear of the step line at the top and the captions at the bottom, wherever the detail is.
+  const ly = Math.max(tall ? 240 : 150, Math.min(tall ? 1300 : 860, above ? spot.y - box / 2 - (tall ? 250 : 190) : spot.y + box / 2 + (tall ? 130 : 100)));
+  const cross = line.mark === "cross";
   const lx = Math.max(60, Math.min(W - 60 - (tall ? 640 : 560), spot.x - (tall ? 320 : 280)));
   const leadFrom = { x: spot.x, y: above ? spot.y - box / 2 + 10 : spot.y + box / 2 - 10 };
   const leadTo = { x: lx + 40, y: above ? ly + (tall ? 110 : 84) : ly };
@@ -196,7 +198,7 @@ export const Markup: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
               </div>
               {tick > 0 ? (
                 <svg width={tall ? 64 : 50} height={tall ? 64 : 50} viewBox="0 0 40 40" style={{ flexShrink: 0 }}>
-                  <path d="M5 22 C 9 25, 13 29, 16 32 C 22 22, 27 15, 36 6" stroke={PEN} strokeWidth="6" fill="none" strokeLinecap="round" pathLength={100} strokeDasharray={100} strokeDashoffset={100 * (1 - tick)} />
+                  <path d={cross ? "M8 8 L32 32 M32 8 L8 32" : "M5 22 C 9 25, 13 29, 16 32 C 22 22, 27 15, 36 6"} stroke={cross ? NO_PREP : PEN} strokeWidth="6" fill="none" strokeLinecap="round" pathLength={100} strokeDasharray={100} strokeDashoffset={100 * (1 - tick)} />
                 </svg>
               ) : null}
             </div>

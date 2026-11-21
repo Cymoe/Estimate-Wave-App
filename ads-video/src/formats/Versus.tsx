@@ -147,10 +147,10 @@ export const Versus: React.FC<AdProps & { tag?: string }> = ({ lines, ratio, hea
                 PREP · STEP {step} OF {points.length}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 20, marginTop: 8 }}>
-                <div style={{ width: tall ? 76 : 58, height: tall ? 76 : 58, flexShrink: 0, borderRadius: "50%", backgroundColor: t >= doneAt ? accent : "rgba(255,255,255,0.2)", border: `5px solid ${accent}`, display: "flex", alignItems: "center", justifyContent: "center", transform: `scale(${t >= doneAt ? interpolate(tick, [0, 1], [1.6, 1]) : 1})` }}>
+                <div style={{ width: tall ? 76 : 58, height: tall ? 76 : 58, flexShrink: 0, borderRadius: "50%", backgroundColor: t >= doneAt ? (line.mark === "cross" ? RED : accent) : "rgba(255,255,255,0.2)", border: `5px solid ${line.mark === "cross" ? RED : accent}`, display: "flex", alignItems: "center", justifyContent: "center", transform: `scale(${t >= doneAt ? interpolate(tick, [0, 1], [1.6, 1]) : 1})` }}>
                   {t >= doneAt ? (
                     <svg width="62%" height="62%" viewBox="0 0 40 40">
-                      <path d="M6 21 L16 31 L34 9" stroke={INK} strokeWidth="7" fill="none" strokeLinecap="round" strokeLinejoin="round" pathLength={100} strokeDasharray={100} strokeDashoffset={100 * (1 - Math.min(1, tick))} />
+                      <path d={line.mark === "cross" ? "M10 10 L30 30 M30 10 L10 30" : "M6 21 L16 31 L34 9"} stroke={line.mark === "cross" ? "#fff" : INK} strokeWidth="7" fill="none" strokeLinecap="round" strokeLinejoin="round" pathLength={100} strokeDasharray={100} strokeDashoffset={100 * (1 - Math.min(1, tick))} />
                     </svg>
                   ) : null}
                 </div>

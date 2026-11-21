@@ -520,6 +520,10 @@ export const STAT_LABEL_MAX = 30;
 /** The most words in one spoken line: about six seconds, so the picture never sits still for longer. */
 export const LINE_WORDS_MAX = 15;
 
+/** Other ways to draw a checklist, same words and voice: printed cards on a board, the photo marked up with a pen, or a red no-prep side pushed off by the prep photo. */
+export const AD_LOOKS = ["collage", "markup", "versus"] as const;
+export type AdLook = (typeof AD_LOOKS)[number];
+
 /** What the renderer needs beyond the script: the style, the words at the top, and what the style itself shows. */
 export interface Design {
   style: AdStyle;
@@ -540,7 +544,7 @@ export interface Design {
   /** In an explainer, a few words above the title naming the subject ("Painting quotes"). */
   tag?: string;
   /** An explainer drawn as printed photo cards piled on a board, instead of a list over a full-frame photo. */
-  look?: "collage";
+  look?: AdLook;
 }
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
@@ -614,7 +618,7 @@ export function motionPrompt(
           `- The lines between the first and the last are the points: 2 or 3 of them, each one thing a homeowner can check or ask about in any quote, in the order the competitor ad makes its points. Each has a label of 2 to 5 words naming the point ("Prep written down", at most ${LABEL_MAX} characters) and a mark: "check" for something to look for, "cross" for something a quote leaves out.`,
           "- Each point's photo must show what the point is about (taped trim for prep, plastic over counters for protecting the home). If no photo shows it, choose another point; never pair a point with a photo its words don't fit.",
           "- Never use a photo tagged before, or a photo that is two pictures in one. The last line's photo is finished work.",
-          "- For each line give x and y: the point on its photo to move in on (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
+          "- For each line give x and y: the spot on its photo that shows what the line names (the taped trim, the masked frame), where the camera moves in and a ring may be drawn (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
           "- Use a different photo for each line where you can.",
           ...(versus
             ? [
@@ -978,7 +982,7 @@ export function renderProps(input: {
       }),
       sound: {
         ...(input.music
-          ? { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}) }
+          ? { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}), ...(input.music.beats?.length ? { beats: input.music.beats } : {}) }
           : {}),
         land: REEL_SOUNDS.land,
         ask: REEL_SOUNDS.ask,

@@ -1835,6 +1835,28 @@ describe("the weekly run", () => {
     expect((await latest()).creatives.some((c) => c.name.endsWith("_collage"))).toBe(true);
   });
 
+  test("a checklist ad can be copied in the marked-up and face-off looks too; copies are never copied again, and the renderer is told the look", async () => {
+    const { t, calls, draft, claim } = await ready();
+    stubServices(calls);
+    const batch = await draft();
+    const prefix = batch.creatives[0].name.replace(/_(916|45)_.*$/, "");
+    await t.run(async (ctx) => {
+      for (const c of await ctx.db.query("adCreatives").collect()) if (c.design) await ctx.db.patch(c._id, { design: { ...c.design, style: "explainer" } });
+    });
+    expect((await t.mutation(internal.ads.addLook, { name: prefix, look: "collage" })).made.length).toBe(2);
+    const markup = await t.mutation(internal.ads.addLook, { name: prefix, look: "markup" });
+    const versus = await t.mutation(internal.ads.addLook, { name: prefix, look: "versus" });
+    expect(markup.made.length).toBe(2);
+    expect(versus.made.length).toBe(2);
+    // Made from the originals, not from the collage copies.
+    expect([...markup.made, ...versus.made].some((n: string) => n.includes("_collage_"))).toBe(false);
+    const all = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).map((c) => c.name));
+    expect(all.filter((n) => n.endsWith("_markup")).length).toBe(2);
+    const jobs = await claim();
+    const looks = jobs.map((j: { props: { style: { look?: string } } }) => j.props.style.look);
+    expect(looks).toEqual(expect.arrayContaining(["markup", "versus"]));
+  });
+
   test("with stills on, a reel that shows a before and its after from one job also gets a still of that pair, drawn as a picture", async () => {
     const { t, calls, draft, claim, handIn, latest } = await ready();
     stubServices(calls, { style: "reel" });

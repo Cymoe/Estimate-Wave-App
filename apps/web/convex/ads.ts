@@ -2245,6 +2245,9 @@ export const failBatch = internalMutation({
   },
 });
 
+/** The other ways a checklist can be drawn (AD_LOOKS). */
+const adLook = v.union(v.literal("collage"), v.literal("markup"), v.literal("versus"));
+
 const adDesign = v.object({
   style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter"), v.literal("explainer")),
   title: v.string(),
@@ -2267,7 +2270,7 @@ const adDesign = v.object({
   ),
   spare: v.optional(v.array(v.id("adAssets"))),
   tag: v.optional(v.string()),
-  look: v.optional(v.literal("collage")),
+  look: v.optional(adLook),
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */
@@ -2336,11 +2339,12 @@ export const addCreatives = internalMutation({
  * its own batch, already voiced, and they wait to be drawn.
  */
 export const addLook = internalMutation({
-  args: { name: v.string(), look: v.literal("collage") },
+  args: { name: v.string(), look: adLook },
   handler: async (ctx, { name, look }) => {
     const recent = await ctx.db.query("adCreatives").order("desc").take(300);
     // The same idea can have ads from earlier weeks under the same name: only the newest batch's are copied.
-    const named = recent.filter((c) => c.name.startsWith(`${name}_`) && !c.name.endsWith(`_${look}`) && c.kind !== "image");
+    // Only the originals: a copy already in another look is never copied again.
+    const named = recent.filter((c) => c.name.startsWith(`${name}_`) && !c.design?.look && c.kind !== "image");
     if (named.length === 0) fail("NOT_FOUND", `No ad named ${name} among the recent ones`);
     const from = named.filter((c) => c.batchId === named[0].batchId);
     const made: string[] = [];
