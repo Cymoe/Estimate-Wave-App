@@ -11,8 +11,8 @@ const placeholder: AdProps = {
   headline: "Fresh paint, one call",
   lines: [
     { voice: "Thinking about painting this year?", start: 0, end: 2.4 },
-    { voice: "We match you with one vetted local painter.", start: 2.6, end: 5.6 },
-    { voice: "Get a quote from Webb Leads today.", start: 5.8, end: 8.2 },
+    { voice: "We prep every room and paint it clean.", start: 2.6, end: 5.6 },
+    { voice: "Get a free quote from GoodFit Pros.", start: 5.8, end: 8.2 },
   ],
   audio: "",
   audioSec: 8.4,

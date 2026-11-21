@@ -6,8 +6,9 @@ description: How to work on the GoodFit Pros ad maker (Ops → Ads). Use wheneve
 # GoodFit Pros ads
 
 The ad maker writes, voices and draws short Facebook and Instagram ads for **GoodFit Pros**, the homeowner-facing
-brand. GoodFit Pros matches a homeowner with **one local pro** for a **free quote**. That is the only offer. The
-trades are painting and hardscaping (`outdoor-construction`).
+brand. The ads speak **as the painters** ("we", "our crew"), the way the competitor ads do. The only offer is a
+**free quote from GoodFit Pros**. Never say GoodFit Pros matches or connects anyone with a pro: the owner doesn't
+want that line. The trades are painting and hardscaping (`outdoor-construction`).
 
 ## Where things live
 
@@ -24,16 +25,22 @@ trades are painting and hardscaping (`outdoor-construction`).
 - **Real job photos only.** No AI people, no AI-made "after", no AI photo motion.
 - **No prices, dollar amounts, discounts, guarantees or warranties.** Don't promise how fast anyone answers.
 - **Never say vetted, screened, top-rated or "the best"** about the pros.
-- **No made-up customers, reviews or testimonials.** GoodFit Pros speaks as itself and talks about the pro in the
-  third person. It never speaks as the contractor or as a homeowner.
+- **No made-up customers, reviews or testimonials.** GoodFit Pros speaks as the company doing the work ("We took
+  every door off"), never as a homeowner or customer.
 - **Only facts you can see.** Use only facts visible in the photos or written in their descriptions. Never invent
   an age, a street or a town for a job. Never say or hint where a pictured job was.
 - **One job per story.**
   - An ad made for one photo (`makeFromPhoto`) shows that job only.
   - A before/after shows one job, before first.
   - Never open or close on a before.
-- **Every ad is built on a real competitor ad.** It must be a long-running one from the competitor table. Keep its
-  shape and kind of opening, never its claims. If a trade has no competitor ads on file, make no ads for it.
+- **Every ad is built on a real competitor ad.** It must be a long-running one from the competitor table
+  (`adSwipes`).
+  - When the ad has a real script (its transcript or copy, at least 12 words once repeats are taken out by
+    `onceOnly`), the writer follows that script line by line, in its voice.
+  - Change only what isn't true for us: their name, prices, discounts, warranties or guarantees, awards, review
+    counts, years in business, licensed or insured claims, and deadlines.
+  - With only a headline's worth of words, keep its angle and kind of opening.
+  - If a trade has no competitor ads on file, make no ads for it.
 - **The repo is public.** Never commit job photos, voice files or music. Samples go in `ads-video/public/sample`
   (gitignored).
 
@@ -80,7 +87,7 @@ trades are painting and hardscaping (`outdoor-construction`).
   - **Quick offer** (`design.quick`): about 9 seconds and 3 lines on one job's photos (a before and its after, or
     one finished photo).
     - The hook speaks to the area ("Midland homeowners, look at this."), never placing the job.
-    - Then the one thing the pro did, then the free quote. Checked in `motionPlanProblems(plan, photos, { town })`.
+    - Then the one thing we did, then the free quote. Checked in `motionPlanProblems(plan, photos, { town })`.
 
   Each week: a lesson comes second, and a quick offer is made on one job from the week's story (setting
   `quickOffer`, on by default). Make one on demand with

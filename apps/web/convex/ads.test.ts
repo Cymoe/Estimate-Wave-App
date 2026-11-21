@@ -56,7 +56,7 @@ const GOOD: Script = {
     "Paint them, don't replace them. Professionally painted cabinets change the whole kitchen without a full remodel. Midland painters prep every door, spray a smooth finish and put the hardware back. Tell us about your kitchen and one local painter calls you with a free quote. Get a quote today.",
   onScreen: ["Paint, don't replace", "Local Midland painters", "Get a quote"],
   headline: "Cabinets painted, kitchen transformed",
-  primaryText: "A fresh finish on the cabinets you have. One local painter, one free quote, no pressure.",
+  primaryText: "A fresh finish on the cabinets you have. One free quote, no pressure.",
 };
 
 afterEach(() => {
@@ -207,7 +207,7 @@ function quickPlanFor(photoCount: number) {
     lines: [
       { photo: 1, voice: "Midland homeowners, look at this.", x: 50, y: 50, ...(photoCount > 1 ? { before: true } : {}) },
       { photo: after, voice: "Every door came off and every frame was masked.", label: "Doors off, frames masked", x: 40, y: 50 },
-      { photo: after, voice: "GoodFit Pros matches you with one local painter. Get a free quote.", label: "One free quote" },
+      { photo: after, voice: "Get a free quote from GoodFit Pros.", label: "One free quote" },
     ],
     headline: GOOD.headline,
     primaryText: GOOD.primaryText,
@@ -270,7 +270,7 @@ describe("a checklist ad (explainer)", () => {
       { photo: 1, voice: "Two painting quotes for the same room can look nothing alike.", x: 50, y: 45 },
       { photo: 2, voice: "First, does it say how many coats, and which paint?", label: "Coats and paint named", mark: "check", x: 40, y: 60 },
       { photo: 3, voice: "Second, is the prep written down: patching, sanding, caulk?", label: "Prep written down", mark: "check" },
-      { photo: 1, voice: "GoodFit Pros matches you with one local painter. Get a free quote." },
+      { photo: 1, voice: "Get a free quote from GoodFit Pros today." },
     ],
     headline: GOOD.headline,
     primaryText: GOOD.primaryText,
@@ -426,7 +426,11 @@ describe("an animated ad's pure parts", () => {
     expect(text).toContain("show the before first");
     expect(text).not.toContain("lightUp");
     expect(text).toContain("never as a homeowner or customer");
-    expect(text).toContain("matches you with one local painter. Get a free quote.");
+    // It speaks as the painters, ends on the free quote, and never says it matches anyone with a painter.
+    expect(text).toContain('close to: "Get a free quote from Webb Leads."');
+    expect(text).toContain('"we" and "our crew"');
+    expect(text).not.toContain("third person");
+    expect(text).not.toMatch(/matches (homeowners|you)|one local painter/);
     expect(text).toContain("at most 15 words");
     expect(text).not.toContain("None of these photos is tagged");
     expect(motionPrompt(hook, "Webb Leads", [], false)).toContain("None of these photos is tagged cabinets");
@@ -439,14 +443,23 @@ describe("an animated ad's pure parts", () => {
       offer: "Free estimate; replacement-cost alternative",
       creative: "Finished dark kitchen with headline overlay",
       adaptation: "Use a real kitchen.",
-      adCopy: "Why replace\nwhen you can refinish?",
+      adCopy: "Why replace\nwhen you can refinish? We sand, prime and spray your cabinets for a factory finish.",
     });
     expect(around).toContain("Build this ad around a competitor's ad that has been running for 659 days.");
     expect(around).toContain("- Its angle: Paint instead of replace");
     expect(around).toContain("- Its offer: Free estimate; replacement-cost alternative");
-    expect(around).toContain("- Its words (Precision Painting NY INC.) · copy: Why replace when you can refinish?");
-    expect(around).toContain("Make the offer the nearest thing Webb Leads truly gives: a free quote from one local painter it matches the homeowner with.");
-    expect(around).toContain("Never their name, price, discount, warranty, award, review count or deadline.");
+    expect(around).toContain("- Its words (Precision Painting NY INC.) · copy: Why replace when you can refinish? We sand, prime and spray your cabinets for a factory finish.");
+    // With their words on file, it follows their script, changing only what isn't true for us.
+    expect(around).toContain("Use its script. Follow its words line by line, in the same order and the same voice");
+    expect(around).toContain("Change only what isn't true for us: their name, prices, discounts, warranties or guarantees, awards, review counts, years in business, licensed or insured claims, and deadlines.");
+    expect(around).toContain("Their offer becomes ours: a free quote from Webb Leads.");
+    expect(around).not.toContain("one local painter");
+    // A headline's worth of words, or card text repeated over and over, is no script: it takes the angle only.
+    const thin = { company: "The Cabinets Painter", angle: "Before / after", offer: "Learn more", creative: "", adaptation: "", adCopy: "Cabinet Painting: Expert Services Learn More ".repeat(6) };
+    const fromThin = motionPrompt(hook, "Webb Leads", [], true, [], "Midland", undefined, thin);
+    expect(fromThin).toContain("copy: Cabinet Painting: Expert Services Learn More\n");
+    expect(fromThin).not.toContain("Use its script");
+    expect(fromThin).toContain("Keep the same angle, the same kind of opening and the same order of points");
     expect(around).not.toContain("How it opens");
   });
 
@@ -2514,8 +2527,8 @@ describe("the weekly run", () => {
       });
       await settle(() => owner.as.mutation(api.ads.ideasNow, { trade }));
       const briefs = ideaBriefs();
-      expect(briefs[0]).toContain("matches homeowners with one local hardscaping contractor.");
-      expect(briefs[0]).toContain("with one local hardscaping contractor, and the quote is free.");
+      expect(briefs[0]).toContain("a hardscaping contractor in Midland, Texas.");
+      expect(briefs[0]).toContain("which speaks as the hardscaping contractor (\"we\"). Never say it matches or connects homeowners with anyone.");
       expect(briefs[0]).not.toContain("paint");
       expect(briefs[0]).toContain("1. Backyard Pavers Co, running 120 days. Angle: Dirt yard to finished patio.");
       expect(briefs[0]).not.toContain("Rodgers Painting");
@@ -2540,7 +2553,7 @@ describe("the weekly run", () => {
         .slice(before)
         .map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>)
         .find((content) => content[0].text!.includes("You write one short animated ad"))!;
-      expect(written[0].text).toContain("matches homeowners with one local hardscaping contractor.");
+      expect(written[0].text).toContain("a hardscaping contractor in Midland, Texas.");
       expect(written[0].text).toContain("Build this ad around a competitor's ad that has been running for 120 days.");
       expect(written[0].text).not.toContain("Rodgers Painting");
       expect(written.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(1);
@@ -2749,7 +2762,7 @@ describe("niche research", () => {
     expect(cabinets).toContain("What works in this category");
     expect(cabinets).toContain("Cabinets winners open on the owner.");
     // The home market from Settings, not a hardcoded town.
-    expect(cabinets).toContain("a service in Odessa, Texas");
+    expect(cabinets).toContain("a painting contractor in Odessa, Texas");
     expect(cabinets).toContain('Say "Odessa homeowners"');
     // A scope with no playbook of its own writes to the general one.
     const interior = prompts.find((p) => p.includes("Scope: interior."))!;

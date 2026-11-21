@@ -71,6 +71,7 @@ import {
   type IdeaDraft,
   PREP_ANGLE,
   styleFor,
+  onceOnly,
 } from "./lib/ads";
 import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
@@ -574,7 +575,7 @@ const runDays = (x: Doc<"adSwipes">): number | undefined => daysSince(x.startedA
 
 /** A competitor ad's words for the page: the times a transcript is stamped with taken out, and kept to a readable length. */
 const swipeWords = (text: string | undefined): string | undefined => {
-  const clean = (text ?? "").replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g, "").replace(/\s+/g, " ").trim();
+  const clean = onceOnly((text ?? "").replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g, ""));
   return clean ? (clean.length > 1200 ? `${clean.slice(0, 1200).replace(/\s+\S*$/, "")}…` : clean) : undefined;
 };
 

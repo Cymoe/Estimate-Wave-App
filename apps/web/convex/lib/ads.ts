@@ -125,7 +125,7 @@ export const PAINTING_HOOKS: HookSeed[] = [
     family: "proof",
     scope: "crew",
     trade: "painting",
-    textEn: "One local painter, one free quote, and no pressure. Tell us the job and a Midland painter calls you.",
+    textEn: "One free quote, and no pressure. Tell us the job and we call you back.",
   },
   {
     family: "owner_story",
@@ -337,7 +337,7 @@ export interface Candidate {
 const RULES = (brand: string, town: string) => [
   `- The voice speaks only as ${brand}, never as a homeowner or customer. No testimonials, no "I hired", no invented reviews or names.`,
   "- No prices, dollar amounts, discounts, percentages off, warranties, guarantees, or promised completion times. A cost-education hook may say prices vary by size and condition and that a quote is free.",
-  `- Never promise how fast, or whether, a contractor answers: no "never wait", no "always calls back". ${brand} matches a homeowner with one contractor; how quickly that contractor replies is not ours to promise.`,
+  `- Never promise how fast, or whether, anyone answers: no "never wait", no "always calls back", no "same-day".`,
   `- Do not address the viewer by a personal attribute (no "is your home in...", no age, income or ethnicity). Say "${town} homeowners" style phrasing instead.`,
   "- Close the last shot with a plain ask: get a quote.",
 ];
@@ -597,6 +597,22 @@ export function designLabel(design: { style: AdStyle; quick?: boolean; look?: Ad
 /** A quick offer's length, in words of voice: about 9 seconds. */
 export const QUICK_WORDS = { min: 14, max: 30 } as const;
 
+/**
+ * A competitor ad's words with repeats taken out. Carousel ads come out of the Ad Library as the same card text over
+ * and over, which is no script to follow.
+ */
+export function onceOnly(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 4000)
+    .replace(/(.{12,}?)(?:\s*\1)+/g, "$1")
+    .trim();
+}
+
+/** Enough of a competitor's words to follow as a script, not just a headline. */
+const SCRIPT_WORDS = 12;
+
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
   hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean },
@@ -609,15 +625,11 @@ export function motionPrompt(
   basedOn?: BasedOn,
   trade: AdTrade = AD_TRADES.painting,
 ): string {
-  const theirs = basedOn?.transcript
-    ? `spoken: ${basedOn.transcript
-        .replace(/\[\d\d:\d\d\]\s*/g, "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 600)}`
-    : basedOn?.adCopy
-      ? `copy: ${basedOn.adCopy.replace(/\s+/g, " ").trim().slice(0, 400)}`
-      : "";
+  const spoken = onceOnly((basedOn?.transcript ?? "").replace(/\[\d\d:\d\d\]\s*/g, "")).slice(0, 600);
+  const copy = onceOnly(basedOn?.adCopy ?? "").slice(0, 400);
+  const theirs = spoken ? `spoken: ${spoken}` : copy ? `copy: ${copy}` : "";
+  // A script to follow line by line, or only a headline's worth of words to take the angle from.
+  const script = (spoken || copy).split(" ").length >= SCRIPT_WORDS;
   const source = basedOn
     ? [
         `Build this ad around a competitor's ad${basedOn.daysRunning ? ` that has been running for ${basedOn.daysRunning} days` : ""}. An ad that keeps running is the best sign it pays for itself, so stay close to what makes it work:`,
@@ -627,7 +639,9 @@ export function motionPrompt(
         basedOn.creative ? `- What it shows: ${basedOn.creative}` : "",
         theirs ? `- Its words (${basedOn.company}) · ${theirs}` : "",
         basedOn.adaptation ? `- How to use it honestly: ${basedOn.adaptation}` : "",
-        `Keep the same angle, the same kind of opening and the same order of points: take its points in order and give each one a line of ours on one of our photos. Make the offer the nearest thing ${brand} truly gives: a free quote from one local ${trade.pro} it matches the homeowner with. Never their name, price, discount, warranty, award, review count or deadline.`,
+        script
+          ? `Use its script. Follow its words line by line, in the same order and the same voice (it speaks as the company, "we"), and put each line on one of our photos that fits it. Change only what isn't true for us: their name, prices, discounts, warranties or guarantees, awards, review counts, years in business, licensed or insured claims, and deadlines. Their offer becomes ours: a free quote from ${brand}.`
+          : `Keep the same angle, the same kind of opening and the same order of points: take its points in order and give each one a line of ours on one of our photos. Their offer becomes ours: a free quote from ${brand}. Never their name, price, discount, warranty, award, review count or deadline.`,
         "",
       ].filter((line, i, all) => line !== "" || i === all.length - 1)
     : [];
@@ -649,7 +663,7 @@ export function motionPrompt(
   // A quick offer: a reel of about 9 seconds for people who have seen us before, one job and the free quote.
   const quick = !explain && hook.quick === true;
   return [
-    `You write one short animated ad for Facebook and Instagram, about ${quick ? 9 : 20} seconds, for ${brand}, a service in ${town}, Texas that matches homeowners with one local ${trade.contractor}.`,
+    `You write one short animated ad for Facebook and Instagram, about ${quick ? 9 : 20} seconds, for ${brand}, a ${trade.contractor} in ${town}, Texas.`,
     `Concept family: ${FAMILY_LABELS[hook.family]}. Scope: ${hook.scope}. Hook: ${hook.textEn}`,
     "",
     explain
@@ -696,8 +710,8 @@ export function motionPrompt(
       ? [
           "This one is a quick offer: about 9 seconds, three lines, one job. It is for people nearby who have scrolled past us before, so it gets to the point.",
           `- Line 1, the hook: 3 to 6 words that speak to the viewer where they live ("${town} homeowners, look at this.", "Cabinets like these, ${town}?"). It names the area to speak to the viewer; it never says or suggests the pictured job was there. Its picture is the finished work, or the before when line 2 shows its after.`,
-          "- Line 2: the one plain thing the pro did that you can see (\"Every door off, every frame masked.\"), on the photo that shows it, or the after of the pair.",
-          "- Line 3: the ask, on finished work.",
+          "- Line 2: the one plain thing we did that you can see (\"We took every door off and masked every frame.\"), on the photo that shows it, or the after of the pair.",
+          `- Line 3: the ask (\"Get a free quote from ${brand}.\"), on finished work.`,
           "- One job only: use only the photos of one job, a before and its after or a single photo. Never mix jobs.",
         ]
       : [
@@ -712,7 +726,7 @@ export function motionPrompt(
     "- Name only what anyone would see at a glance. A detail that is small, blurred, or could be something else (a decoration behind glass, a reflection, a shadow) is left out: never call something peeling, cracked, rotten or damaged unless that is plain in the photo or its description says so.",
     "- The title and every headline must be true of the picture under it: a title over a before doesn't describe the after.",
     "- Write for the ear: sentences of 6 to 12 words, one idea each, in words you'd say to a neighbour over the fence. Put the important word last. No rhyme, no lists of adjectives, and none of: transform your space, the range is wide, done right, peace of mind, quality work, top-notch, look no further.",
-    `- ${brand} speaks as itself, about the pro in the third person (\"the painter took every door off\"), never as the contractor and never as a homeowner. Its name comes only in the last line.`,
+    `- ${brand} speaks as the company doing the work, the way the competitor ads do: \"we\" and \"our crew\" (\"We took every door off.\"). Never as a homeowner or customer. Its name comes only in the last line.`,
     "",
     "Write:",
     explain
@@ -724,7 +738,7 @@ export function motionPrompt(
         ? `- lines: exactly 3 spoken lines, ${QUICK_WORDS.min + 4} to ${QUICK_WORDS.max - 4} words in all. Each names the photo on screen while it is said.`
         : `- lines: 3 to 5 spoken lines, each at most ${LINE_WORDS_MAX} words (a line may be two short sentences), 45 to 55 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
     quick ? "" : hook.opening ? `- The first line is the opening the owner chose, or very close to it: "${hook.opening}"` : "- The first line opens on the hook, in as few words as it takes.",
-    `- The last line is close to: "${brand} matches you with one local ${trade.pro}. Get a free quote." It may name the kind of job; it adds no other claim.`,
+    `- The last line is the ask, close to: "Get a free quote from ${brand}." It may name the kind of job; it adds no other claim. Never say ${brand} matches or connects anyone with a ${trade.pro}.`,
     "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
     `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
     ...RULES(brand, town).slice(0, 4),
@@ -1399,7 +1413,7 @@ export function tagSwipePrompt(
   trade: AdTrade = AD_TRADES.painting,
 ): string {
   return [
-    `You read a competitor's Facebook ad for a service that matches homeowners with local ${trade.contractor}s.`,
+    `You read a competitor's Facebook ad, for a local ${trade.contractor} like ours.`,
     `Advertiser: ${ad.pageName}${ad.daysRunning ? ` · running ${ad.daysRunning} days` : ""}${ad.mediaType ? ` · ${ad.mediaType}` : ""}`,
     ad.title ? `Headline: ${ad.title}` : "",
     `Copy: ${(ad.adCopy ?? "").slice(0, 1500) || "(none)"}`,
@@ -1421,7 +1435,7 @@ export function tagSwipePrompt(
     '  "creative": "what the visual is, in one line",',
     `  "area": "the market the ad names, or empty" (the owner's markets are ${markets.join(", ")}),`,
     '  "cta": "the button text",',
-    `  "adaptation": "one sentence: how a ${markets[0] ?? "local"} lead service could use this angle honestly",`,
+    `  "adaptation": "one sentence: how a ${markets[0] ?? "local"} ${trade.contractor} could use this angle honestly",`,
     '  "claims": ["each price, discount, warranty, deadline, time promise or named person, as written"],',
     `  "opening": ${OPENINGS.map((o) => `"${o}"`).join("|")},`,
     `  "footage": [${FOOTAGE_KINDS.map((f) => `"${f}"`).join("|")}],`,
@@ -1520,7 +1534,7 @@ export function playbookPrompt(scope: string, swipes: PlaybookInput[], markets: 
     .map(([t, n]) => `${t} ${n}`)
     .join(", ");
   return [
-    `You advise a service in ${markets[0] ?? "Midland"}, Texas that matches homeowners with one local painting contractor. It runs short video ads on Facebook and Instagram, cut from its own photo and clip library, in the "${scope}" category.`,
+    `You advise a painting contractor in ${markets[0] ?? "Midland"}, Texas. It runs short video ads on Facebook and Instagram, cut from its own photo and clip library, in the "${scope}" category.`,
     `Below are competitor ads in this category that have been running for months (longevity is the only public signal; it hints that the ad pays for itself). The owner's markets are ${markets.join(", ")}; ads marked LOCAL name one of them.`,
     "",
     ...lines,
@@ -1658,7 +1672,7 @@ export interface IdeaDraft {
 
 /** What may and may not be promised, the same for every writer and for the pass that picks. */
 const IDEA_RULES = (brand: string, town: string, trade: AdTrade) => [
-  `- The only offer is the true one: ${brand} matches a ${town} homeowner with one local ${trade.pro}, and the quote is free. Never call the pros vetted, screened, top-rated or the best: nothing is said about them that the owner hasn't written down.`,
+  `- The only offer is a free quote from ${brand}, which speaks as the ${trade.contractor} ("we"). Never say it matches or connects homeowners with anyone. Never call the crew vetted, screened, top-rated or the best: nothing is said about it that the owner hasn't written down.`,
   "- No prices, discounts, guarantees, warranties, deadlines, awards, review counts or anything a customer is supposed to have said.",
   "- No people on camera and nothing that needs filming. An ad is made from the job photos on file, words on screen, a voice, music and simple graphics.",
   "- A photo of one stage of a job is never passed off as another, and nothing is shown as finished work that isn't.",
@@ -1676,7 +1690,7 @@ export function ideaPrompt(
   trade: AdTrade = AD_TRADES.painting,
 ): string {
   return [
-    `${IDEA_MARK} on Facebook and Instagram for ${brand}, a service in ${town}, Texas that matches homeowners with one local ${trade.contractor}.`,
+    `${IDEA_MARK} on Facebook and Instagram for ${brand}, a ${trade.contractor} in ${town}, Texas.`,
     writer.brief,
     "",
     "Competitor ads that have kept running, longest first. An ad that keeps running is the best sign an idea pays for itself. Every idea is built on one of them: keep what makes it work (its angle, its kind of opening, the order of its points) and make it honest for us:",
@@ -1768,7 +1782,7 @@ export function dropNearCopies(ideas: IdeaDraft[], before: string[] = []): IdeaD
 /** The brief for the one pass that picks. It ranks; it does not rewrite. */
 export function criticPrompt(ideas: IdeaDraft[], brand: string, town: string, want: number, houseStyle?: string, trade: AdTrade = AD_TRADES.painting): string {
   return [
-    `${PICK_MARK} for ${brand}, a service in ${town}, Texas that matches homeowners with one local ${trade.contractor}. Writers have offered the ad ideas below. Pick the ${want} to put in front of the owner.`,
+    `${PICK_MARK} for ${brand}, a ${trade.contractor} in ${town}, Texas. Writers have offered the ad ideas below. Pick the ${want} to put in front of the owner.`,
     "",
     ...ideas.map((idea, i) => `${i + 1}. ${idea.line} Opens: "${idea.opening}"`),
     "",
@@ -1806,7 +1820,7 @@ export function pickIdeas(ideas: IdeaDraft[], reply: string | null, want: number
 /** The brief that turns keeps and kills into a short note on the owner's taste. */
 export function tastePrompt(kept: string[], killed: string[], previous?: string): string {
   return [
-    `${TASTE_MARK} for a service that matches homeowners with local contractors and kept some and killed others. Write a short note for the writers on this owner's taste.`,
+    `${TASTE_MARK} for a local contractor and kept some and killed others. Write a short note for the writers on this owner's taste.`,
     "",
     "Kept:",
     ...(kept.length ? kept.map((k) => `- ${k}`) : ["(none yet)"]),
