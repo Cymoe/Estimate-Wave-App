@@ -25,6 +25,7 @@ import {
   PREP_ANGLE,
   motionPlanProblems,
   motionPrompt,
+  scriptLength,
   parseCsv,
   parseJson,
   pickAssets,
@@ -195,6 +196,19 @@ function motionPlanFor(photoCount: number, over: Record<string, unknown> = {}) {
     primaryText: GOOD.primaryText,
     ...over,
   };
+}
+
+/** A plan stretched or cut to about `words` words of voice, as a writer following a script of that length would write it. */
+function toLength<P extends { lines: Array<Record<string, unknown>> }>(plan: P, words: number): P {
+  const has = plan.lines.map((l) => String(l.voice ?? "")).join(" ").split(/\s+/).filter(Boolean).length;
+  if (has >= words * 0.85 && has <= words * 1.1) return plan;
+  const lines = [...plan.lines];
+  // Enough lines that none runs long: the line before the ask is repeated, photo and all.
+  while (lines.length < Math.ceil(words / 20)) lines.splice(lines.length - 1, 0, { ...lines[lines.length - 2] });
+  const filler = "we sand and prime every door before the finish goes on".split(" ");
+  const each = Math.max(1, Math.floor((words - 4) / (lines.length - 1)));
+  const voice = (n: number) => Array.from({ length: n }, (_, i) => filler[i % filler.length]).join(" ") + ".";
+  return { ...plan, lines: lines.map((l, i) => ({ ...l, voice: i === lines.length - 1 ? "Get a quote today." : voice(each) })) };
 }
 
 /** A quick offer as the writer would answer: a local hook, the one thing done, the ask, on one job's photos. */
@@ -448,16 +462,28 @@ describe("an animated ad's pure parts", () => {
     expect(around).toContain("Build this ad around a competitor's ad that has been running for 659 days.");
     expect(around).toContain("- Its angle: Paint instead of replace");
     expect(around).toContain("- Its offer: Free estimate; replacement-cost alternative");
-    expect(around).toContain("- Its words (Precision Painting NY INC.) · copy: Why replace when you can refinish? We sand, prime and spray your cabinets for a factory finish.");
+    expect(around).toContain("- Its words (Precision Painting NY INC.) · written: Why replace when you can refinish? We sand, prime and spray your cabinets for a factory finish.");
     // With their words on file, it follows their script, changing only what isn't true for us.
     expect(around).toContain("Use its script. Follow its words line by line, in the same order and the same voice");
-    expect(around).toContain("Change only what isn't true for us: their name, prices, discounts, warranties or guarantees, awards, review counts, years in business, licensed or insured claims, and deadlines.");
+    expect(around).toContain("Change only what isn't true for us: their name and town, prices, discounts, warranties or guarantees, awards, review counts, years in business, licensed or insured claims, and how many days the job takes.");
+    expect(around).toContain("Keep every point it makes and its length: never shorten it to a summary.");
+    expect(around).toContain("(theirs is 17)");
+    // A 130-word script can't come back as a 50-word summary; at its own length, a line a sentence, it passes.
+    const follow = scriptLength({ transcript: Array.from({ length: 130 }, (_, i) => `w${i}`).join(" ") })!;
+    expect(follow).toEqual({ words: 130, copyChars: 0 });
+    const line = (n: number, photo: number) => ({ photo, voice: "we sand and prime every door first ".repeat(4).split(" ").slice(0, n).join(" ") });
+    const summary = { fits: true, style: "reel", title: "Cabinets", headline: "Cabinets", primaryText: "Cabinets.", lines: [line(15, 1), line(15, 2), line(15, 1), { photo: 2, voice: "Get a free quote today." }] };
+    expect(motionPlanProblems(summary, [{ tags: [] }, { tags: [] }], undefined, follow).join(" | ")).toContain("50 words of voice (their script is 130: write 111 to 143, keeping every point)");
+    const full = { ...summary, lines: [...Array.from({ length: 6 }, (_, i) => line(20, (i % 2) + 1)), { photo: 1, voice: "Get a free quote today." }] };
+    expect(motionPlanProblems(full, [{ tags: [] }, { tags: [] }], undefined, follow)).toEqual([]);
+    // Without a script to follow, the same long plan is too long.
+    expect(motionPlanProblems(full, [{ tags: [] }, { tags: [] }])).toContain("7 lines (write 3 to 5)");
     expect(around).toContain("Their offer becomes ours: a free quote from Webb Leads.");
     expect(around).not.toContain("one local painter");
     // A headline's worth of words, or card text repeated over and over, is no script: it takes the angle only.
     const thin = { company: "The Cabinets Painter", angle: "Before / after", offer: "Learn more", creative: "", adaptation: "", adCopy: "Cabinet Painting: Expert Services Learn More ".repeat(6) };
     const fromThin = motionPrompt(hook, "Webb Leads", [], true, [], "Midland", undefined, thin);
-    expect(fromThin).toContain("copy: Cabinet Painting: Expert Services Learn More\n");
+    expect(fromThin).toContain("written: Cabinet Painting: Expert Services Learn More\n");
     expect(fromThin).not.toContain("Use its script");
     expect(fromThin).toContain("Keep the same angle, the same kind of opening and the same order of points");
     expect(around).not.toContain("How it opens");
@@ -1381,6 +1407,9 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
           reply = { ...plan, style: "reel", lines: plan.lines.map((l, i) => (i === 0 ? { ...l, x: 60, y: 55 } : i === 1 ? { ...l, x: 50, y: 40, cut: [0, 50] } : l)) };
         }
         else reply = motionPlanFor(offered);
+        // Following a competitor's script, the writer matches its length.
+        const theirs = prompt.match(/\(theirs is (\d+)\)/);
+        if (theirs && ((reply as { lines?: unknown[] }).lines ?? []).length > 0) reply = toLength(reply as { lines: Array<Record<string, unknown>> }, Number(theirs[1]));
         return new Response(JSON.stringify({ content: [{ type: "text", text: "Here it is: " + JSON.stringify(reply) }] }));
       }
       if (url.includes("api.apify.com")) {
@@ -1456,7 +1485,8 @@ async function library(t: T, staff: Awaited<ReturnType<typeof signUp>>) {
       offer: "Claimed 2–3 days; off-site doors, on-site boxes",
       startedAt: new Date(Date.now() - 160 * 86_400_000).toISOString(),
       starred: true,
-      transcript: "[00:00] We take the doors off site and spray the boxes at your home.",
+      transcript:
+        "[00:00] We take the doors off site and spray the boxes at your home. [00:04] You're thinking about new cabinets but unsure of the process. [00:08] First we take your doors and drawers back to our shop for a sprayed finish. [00:13] Your boxes we do on site. [00:15] Click the link below for a free estimate.",
       durationSec: 31,
     });
     await ad({
@@ -1709,7 +1739,7 @@ describe("the weekly run", () => {
     // Each ad is built around the competitor ad its idea came from: the longest-running one was written first.
     expect(cabinets.hook).toMatchObject({ textEn: "Process + minimal disruption", basedOn: { company: "Rodgers Painting", daysRunning: 160, offer: "Claimed 2–3 days; off-site doors, on-site boxes" } });
     // What their ad said goes with it, without the transcript's time stamps, to read beside ours.
-    expect(cabinets.hook!.basedOn).toMatchObject({ angle: "Process + minimal disruption", spoken: "We take the doors off site and spray the boxes at your home." });
+    expect(cabinets.hook!.basedOn).toMatchObject({ angle: "Process + minimal disruption", spoken: expect.stringMatching(/^We take the doors off site and spray the boxes at your home\. You're thinking/) });
     expect(other.hook).toMatchObject({ textEn: "Cost education", basedOn: { company: "Squeegee Squad", daysRunning: 90 } });
     expect(asks.indexOf(cabinetsAsk)).toBe(0);
     expect(cabinetsAsk[0].text).toContain("Build this ad around a competitor's ad that has been running for 160 days.");
@@ -2140,7 +2170,7 @@ describe("the weekly run", () => {
     expect(batch.creatives.length).toBe(2);
     const asks = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
     expect(asks.length).toBe(2);
-    expect(asks[1][asks[1].length - 1].text).toMatch(/^Your last answer had these problems: .*0 lines \(write 3 to 5\)/);
+    expect(asks[1][asks[1].length - 1].text).toMatch(/^Your last answer had these problems: .*0 lines \(write 3 to 14\)/);
   });
 
   test("the live table joins Meta's numbers with what intake and the sale say, and flags fatigue", async () => {

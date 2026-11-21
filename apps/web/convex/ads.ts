@@ -72,6 +72,7 @@ import {
   PREP_ANGLE,
   styleFor,
   onceOnly,
+  scriptLength,
 } from "./lib/ads";
 import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
@@ -2866,7 +2867,7 @@ export const weeklyRun = internalAction({
           ),
           offered,
           "ad",
-          (p) => motionPlanProblems(p, offered, quick ? { town: cfg.researchMarkets[0] ?? "" } : undefined),
+          (p) => motionPlanProblems(p, offered, quick ? { town: cfg.researchMarkets[0] ?? "" } : undefined, quick ? undefined : scriptLength(hook.basedOn)),
         );
         const { script, design } = composeMotion(
           plan,

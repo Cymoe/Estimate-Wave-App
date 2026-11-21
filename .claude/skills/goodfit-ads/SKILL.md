@@ -36,7 +36,10 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 - **Every ad is built on a real competitor ad.** It must be a long-running one from the competitor table
   (`adSwipes`).
   - When the ad has a real script (its transcript or copy, at least 12 words once repeats are taken out by
-    `onceOnly`), the writer follows that script line by line, in its voice.
+    `onceOnly`), the writer follows that script line by line, in its voice, **at its full length**: as many words
+    as they said (`scriptLength`, capped at 150), up to 14 lines of up to 28 words, and primary text as long as
+    their written copy (up to 1,500 characters). A summary of a long script is rejected by `motionPlanProblems`.
+    The quick offer is the one deliberate short version (hook and strongest point).
   - Change only what isn't true for us: their name, prices, discounts, warranties or guarantees, awards, review
     counts, years in business, licensed or insured claims, and deadlines.
   - With only a headline's worth of words, keep its angle and kind of opening.

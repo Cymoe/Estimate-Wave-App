@@ -612,6 +612,25 @@ export function onceOnly(text: string): string {
 
 /** Enough of a competitor's words to follow as a script, not just a headline. */
 const SCRIPT_WORDS = 12;
+/** The most lines a followed script takes: one per sentence of a minute-long ad. */
+export const SCRIPT_LINES_MAX = 14;
+/** The longest a line of a followed script may run, so the picture still changes every few seconds. */
+export const SCRIPT_LINE_WORDS_MAX = 28;
+/** The most primary text Facebook shows in full before "See more", and more than any long-running ad on file uses. */
+export const SCRIPT_PRIMARY_MAX = 1500;
+
+/**
+ * How long our ad runs when it follows a competitor's script: as many words as they said (or, for an ad with no
+ * voice, as their copy), and primary text as long as theirs. None when there is no script to follow.
+ */
+export function scriptLength(basedOn?: Pick<BasedOn, "transcript" | "adCopy">): { words: number; copyChars: number } | undefined {
+  const spoken = onceOnly((basedOn?.transcript ?? "").replace(/\[\d\d:\d\d(?::\d\d)?\]\s*/g, ""));
+  const copy = onceOnly(basedOn?.adCopy ?? "");
+  const words = (spoken || copy).split(" ").filter(Boolean).length;
+  if (words < SCRIPT_WORDS) return undefined;
+  // A voice reads about 2.5 words a second: past 150 words the ad runs over a minute, so it stops there.
+  return { words: Math.min(words, 150), copyChars: Math.min(copy.length, SCRIPT_PRIMARY_MAX) };
+}
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
@@ -625,11 +644,14 @@ export function motionPrompt(
   basedOn?: BasedOn,
   trade: AdTrade = AD_TRADES.painting,
 ): string {
-  const spoken = onceOnly((basedOn?.transcript ?? "").replace(/\[\d\d:\d\d\]\s*/g, "")).slice(0, 600);
-  const copy = onceOnly(basedOn?.adCopy ?? "").slice(0, 400);
-  const theirs = spoken ? `spoken: ${spoken}` : copy ? `copy: ${copy}` : "";
+  // Their words in full: a script cut short is followed short.
+  const spoken = onceOnly((basedOn?.transcript ?? "").replace(/\[\d\d:\d\d(?::\d\d)?\]\s*/g, "")).slice(0, 2500);
+  const copy = onceOnly(basedOn?.adCopy ?? "").slice(0, 2500);
+  const theirs = [spoken ? `spoken: ${spoken}` : "", copy ? `written: ${copy}` : ""].filter(Boolean).join(" · ");
   // A script to follow line by line, or only a headline's worth of words to take the angle from.
-  const script = (spoken || copy).split(" ").length >= SCRIPT_WORDS;
+  // A script to follow: in full for a story, as its short version for a quick offer, as points for a checklist.
+  const script = scriptLength(basedOn) !== undefined;
+  const length = script && !hook.quick && (hook.style ?? styleFor(hook.family)) !== "explainer" ? scriptLength(basedOn) : undefined;
   const source = basedOn
     ? [
         `Build this ad around a competitor's ad${basedOn.daysRunning ? ` that has been running for ${basedOn.daysRunning} days` : ""}. An ad that keeps running is the best sign it pays for itself, so stay close to what makes it work:`,
@@ -640,7 +662,7 @@ export function motionPrompt(
         theirs ? `- Its words (${basedOn.company}) · ${theirs}` : "",
         basedOn.adaptation ? `- How to use it honestly: ${basedOn.adaptation}` : "",
         script
-          ? `Use its script. Follow its words line by line, in the same order and the same voice (it speaks as the company, "we"), and put each line on one of our photos that fits it. Change only what isn't true for us: their name, prices, discounts, warranties or guarantees, awards, review counts, years in business, licensed or insured claims, and deadlines. Their offer becomes ours: a free quote from ${brand}.`
+          ? `Use its script. Follow its words line by line, in the same order and the same voice (it speaks as the company, "we"), and put each line on one of our photos that fits it. ${length ? "Keep every point it makes and its length: never shorten it to a summary. " : hook.quick ? "This is the short version: its hook and its strongest point, in its words. " : ""}Change only what isn't true for us: their name and town, prices, discounts, warranties or guarantees, awards, review counts, years in business, licensed or insured claims, and how many days the job takes. Their offer becomes ours: a free quote from ${brand}. The primary text follows its written words the same way.`
           : `Keep the same angle, the same kind of opening and the same order of points: take its points in order and give each one a line of ours on one of our photos. Their offer becomes ours: a free quote from ${brand}. Never their name, price, discount, warranty, award, review count or deadline.`,
         "",
       ].filter((line, i, all) => line !== "" || i === all.length - 1)
@@ -736,11 +758,15 @@ export function motionPrompt(
       ? `- lines: 4 or 5 spoken lines: the opening, one per point, then the ask. Each at most ${LINE_WORDS_MAX} words, 45 to 55 words in all. Each names the photo on screen while it is said.`
       : quick
         ? `- lines: exactly 3 spoken lines, ${QUICK_WORDS.min + 4} to ${QUICK_WORDS.max - 4} words in all. Each names the photo on screen while it is said.`
-        : `- lines: 3 to 5 spoken lines, each at most ${LINE_WORDS_MAX} words (a line may be two short sentences), 45 to 55 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
+        : length
+          ? `- lines: one spoken line for each sentence or point of their script, in their order, ${Math.round(length.words * 0.85)} to ${Math.round(length.words * 1.1)} words in all (theirs is ${length.words}), each line at most ${SCRIPT_LINE_WORDS_MAX} words. Each names the photo on screen while it is said; a photo may stay up for lines in a row, and "more" keeps the picture changing.`
+          : `- lines: 3 to 5 spoken lines, each at most ${LINE_WORDS_MAX} words (a line may be two short sentences), 45 to 55 words in all, so something new happens on screen every few seconds. Each names the photo on screen while it is said; a photo may stay up for lines in a row.`,
     quick ? "" : hook.opening ? `- The first line is the opening the owner chose, or very close to it: "${hook.opening}"` : "- The first line opens on the hook, in as few words as it takes.",
     `- The last line is the ask, close to: "Get a free quote from ${brand}." It may name the kind of job; it adds no other claim. Never say ${brand} matches or connects anyone with a ${trade.pro}.`,
     "- Each line must fit what is visibly in its photo. Do not name colours, rooms, materials or details you cannot see.",
-    `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
+    length && length.copyChars > PRIMARY_MAX
+      ? `- headline (at most ${HEADLINE_MAX} characters) and primaryText: the text Facebook shows around the ad. primaryText is their written words, changed the same way as the script, about as long as theirs (${length.copyChars} characters; at most ${SCRIPT_PRIMARY_MAX}), with their line breaks and emoji.`
+      : `- headline (at most ${HEADLINE_MAX} characters) and primaryText (at most ${PRIMARY_MAX} characters): the text Facebook shows around the ad.`,
     ...RULES(brand, town).slice(0, 4),
     "- If these photos can't carry the hook honestly, don't force it.",
     "",
@@ -775,7 +801,13 @@ export interface MotionPlan {
 const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9']/g, "");
 
 /** What's wrong with an animated ad Claude returned, against the photos it was offered. */
-export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: string[]; pairKey?: string }>, quick?: { town: string }): string[] {
+export function motionPlanProblems(
+  plan: MotionPlan,
+  photos: Array<{ tags: string[]; pairKey?: string }>,
+  quick?: { town: string },
+  // A competitor's script being followed: its length is ours, not the usual 20 seconds.
+  follow?: { words: number; copyChars: number },
+): string[] {
   const out: string[] = [];
   const style = AD_STYLES.find((x) => x === plan.style);
   if (!style) out.push(`style "${plan.style ?? ""}" (write ${NEW_AD_STYLE})`);
@@ -784,7 +816,9 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   if (!title) out.push("no title");
   else if (title.length > titleMax) out.push(`title over ${titleMax} characters`);
   const lines = plan.lines ?? [];
-  if (lines.length < 3 || lines.length > 5) out.push(`${lines.length} lines (write 3 to 5)`);
+  // A followed script takes a line per sentence; anything else is three to five.
+  const most = follow && style !== "explainer" && !quick ? SCRIPT_LINES_MAX : 5;
+  if (lines.length < 3 || lines.length > most) out.push(`${lines.length} lines (write 3 to ${most})`);
   lines.forEach((line, i) => {
     const n = line.photo;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photos.length) out.push(`line ${i + 1} names photo ${n ?? "nothing"}`);
@@ -820,11 +854,16 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
     const one = shown.length <= 1 || (shown.length === 2 && photos[shown[0] - 1].pairKey && photos[shown[0] - 1].pairKey === photos[shown[1] - 1].pairKey);
     if (!one) out.push("a quick offer shows one job: one photo, or a before and its after");
   }
-  // About 20 seconds at the voice's pace, and no line so long the screen sits still.
-  else if (words < 30 || words > 62) out.push(`${words} words of voice (write 45 to 55)`);
+  // Following a script: about as long as theirs. Otherwise about 20 seconds at the voice's pace.
+  else if (follow && style !== "explainer") {
+    if (words < Math.round(follow.words * 0.75) || words > Math.round(follow.words * 1.2))
+      out.push(`${words} words of voice (their script is ${follow.words}: write ${Math.round(follow.words * 0.85)} to ${Math.round(follow.words * 1.1)}, keeping every point)`);
+  } else if (words < 30 || words > 62) out.push(`${words} words of voice (write 45 to 55)`);
+  // No line so long the screen sits still.
+  const lineMax = follow && style !== "explainer" && !quick ? SCRIPT_LINE_WORDS_MAX : LINE_WORDS_MAX;
   lines.forEach((line, i) => {
     const n = (line.voice ?? "").split(/\s+/).filter(Boolean).length;
-    if (n > LINE_WORDS_MAX) out.push(`line ${i + 1} is ${n} words (at most ${LINE_WORDS_MAX})`);
+    if (n > lineMax) out.push(`line ${i + 1} is ${n} words (at most ${lineMax})`);
   });
   const last = lines[lines.length - 1]?.voice ?? "";
   // The word itself, so a brand with "Quotes" in its name doesn't pass for the ask.
@@ -884,7 +923,10 @@ export function motionPlanProblems(plan: MotionPlan, photos: Array<{ tags: strin
   if (!plan.headline?.trim()) out.push("no headline");
   else if (plan.headline.trim().length > HEADLINE_MAX) out.push(`headline over ${HEADLINE_MAX} characters`);
   if (!plan.primaryText?.trim()) out.push("no primary text");
-  else if (plan.primaryText.trim().length > PRIMARY_MAX) out.push(`primary text over ${PRIMARY_MAX} characters`);
+  else {
+    const primaryMax = follow && follow.copyChars > PRIMARY_MAX ? SCRIPT_PRIMARY_MAX : PRIMARY_MAX;
+    if (plan.primaryText.trim().length > primaryMax) out.push(`primary text over ${primaryMax} characters`);
+  }
   const text = [plan.tag, title, spoken, ...lines.map((l) => l.label), ...lines.map((l) => l.skip), ...(plan.stats ?? []).map((x) => x.label), plan.headline, plan.primaryText].filter(Boolean).join(" ");
   for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
   return out;
