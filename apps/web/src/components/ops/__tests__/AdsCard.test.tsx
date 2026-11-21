@@ -42,7 +42,7 @@ const uploadUrl = jest.fn(async () => 'https://upload.example/u1');
 const seedSwipes = jest.fn(async () => 30);
 const importSwipes = jest.fn(async () => ({ added: 1, updated: 1 }));
 const starSwipe = jest.fn(async () => undefined);
-const researchNow = jest.fn(async () => undefined);
+const researchNow = jest.fn(async (..._args: unknown[]) => undefined);
 const savePlaybook = jest.fn(async () => undefined);
 const rewritePlaybook = jest.fn(async () => undefined);
 
@@ -66,7 +66,7 @@ jest.mock('../../../lib/api', () => ({
     importSwipes: (...args: unknown[]) => importSwipes(...args),
     starSwipe: (...args: unknown[]) => starSwipe(...args),
     removeSwipe: async () => undefined,
-    researchNow: () => researchNow(),
+    researchNow: (...args: unknown[]) => researchNow(...args),
     savePlaybook: (...args: unknown[]) => savePlaybook(...args),
     rewritePlaybook: (...args: unknown[]) => rewritePlaybook(...args),
   },
@@ -341,6 +341,9 @@ describe('Ops → Ads', () => {
     // Competitors says none are on file yet, in place of painting's.
     await tab('Competitors');
     expect(document.body.textContent).toContain('No competitor ads on file for hardscaping yet.');
+    // The owner can search for this trade's own competitor ads from here.
+    await act(async () => byText('Search the niche')!.click());
+    expect(researchNow).toHaveBeenLastCalledWith('outdoor-construction');
 
     // The choice is remembered for the next visit.
     document.body.innerHTML = '';

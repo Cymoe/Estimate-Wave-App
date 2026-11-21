@@ -844,15 +844,16 @@ const PLAYBOOK_MIN_ADS = 3;
 const PER_KEYWORD = 200;
 
 export const researchNow = mutation({
-  args: {},
-  handler: async (ctx) => {
+  // `trade`: search for that trade's competitor ads; painting when none is given.
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     const me = await requireSuperAdmin(ctx);
     const k = keys();
     if (!k.apify) fail("INVALID", "Set APIFY_TOKEN on the Convex deployment first (an Apify account comes with free credit)");
     if (!k.anthropic) fail("INVALID", "Set ANTHROPIC_API_KEY on the Convex deployment first");
     const open = (await ctx.db.query("adResearchRuns").order("desc").take(1))[0];
     if (open && !open.finishedAt && Date.now() - new Date(open.startedAt).getTime() < 30 * 60_000) fail("INVALID", "A search is already running");
-    await ctx.scheduler.runAfter(0, internal.ads.researchRun, { startedBy: me._id, force: true });
+    await ctx.scheduler.runAfter(0, internal.ads.researchRun, { startedBy: me._id, force: true, trade: tradeOf(trade).slug });
   },
 });
 

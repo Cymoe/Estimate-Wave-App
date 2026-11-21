@@ -1294,21 +1294,17 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
   );
 };
 
-/** Competitor ads are researched for painting only so far; another trade's page says so instead of showing painting's. */
-const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = (props) => {
-  const trade = useTrade();
-  if (trade !== DEFAULT_TRADE)
-    return (
-      <div className="border border-dashed border-[#333] rounded p-8 text-center">
-        <p className="text-sm text-gray-300">No competitor ads on file for {tradeOf(trade).label.toLowerCase()} yet.</p>
-        <p className="text-sm text-gray-500 mt-1">Until they are researched, ideas for this trade come from the writers&apos; own angles and your photos.</p>
-      </div>
-    );
-  return <PaintingSwipes {...props} />;
-};
+/** The newest research run, when there has been one. */
+const lastRunOf = (runs: ResearchRun[] | undefined): ResearchRun | undefined => runs?.[0];
 
-const PaintingSwipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = ({ act, owner, onMakeHook }) => {
-  const swipes = useAdsSwipes<Swipe[]>();
+/**
+ * Each trade's competitor ads. Painting's page also has its playbooks and the older ways in (the October research,
+ * the sheet's CSVs); another trade's starts empty, with the owner's button to search for its ads.
+ */
+const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = ({ act, owner, onMakeHook }) => {
+  const trade = useTrade();
+  const painting = trade === DEFAULT_TRADE;
+  const swipes = useAdsSwipes<Swipe[]>(painting ? undefined : trade);
   const runs = useAdsResearchRuns<ResearchRun[]>();
   const settings = useAdsSettings<AdSettings>();
   const minDays = settings?.researchMinDays ?? 90;
@@ -1338,6 +1334,36 @@ const PaintingSwipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: H
     }
   };
   if (swipes === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
+  const searchButton = owner && (
+    <button
+      type="button"
+      className={primary}
+      disabled={Boolean(lastRunOf(runs) && !lastRunOf(runs)!.finishedAt)}
+      onClick={() =>
+        act(
+          () => adsAPI.researchNow(painting ? undefined : trade),
+          'Searching the niche. The new ads and the playbooks land here as Claude reads them.',
+        )
+      }
+    >
+      Search the niche
+    </button>
+  );
+  if (!painting && swipes.length === 0)
+    return (
+      <div className="border border-dashed border-[#333] rounded p-8 text-center space-y-3">
+        <p className="text-sm text-gray-300">No competitor ads on file for {tradeOf(trade).label.toLowerCase()} yet.</p>
+        <p className="text-sm text-gray-500">
+          Search the niche pulls this trade&apos;s ads still running after months from Meta&apos;s Ad Library, and Claude reads each one.
+        </p>
+        {(searchButton || lastRunOf(runs)) && (
+          <div className="flex flex-wrap gap-2 items-center justify-center">
+            {searchButton}
+            {lastRunOf(runs) && <span className="text-xs text-gray-400">{runLine(lastRunOf(runs)!)}</span>}
+          </div>
+        )}
+      </div>
+    );
   const types = ['All', ...Array.from(new Set(swipes.map((x) => x.paintingType))).sort()];
   const needle = search.trim().toLowerCase();
   const shown = swipes.filter(
@@ -1355,24 +1381,16 @@ const PaintingSwipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: H
         each one and writes a playbook per category that the Monday writer follows. Star the ones you like: they lead the examples the writer sees, as
         tone and shape, never as claims. "Make a hook" starts a hook from an ad's angle.
       </p>
-      <Playbooks act={act} />
+      {painting && <Playbooks act={act} />}
       <div className="flex flex-wrap gap-2 items-center">
-        {owner && (
-          <button
-            type="button"
-            className={primary}
-            disabled={Boolean(lastRun && !lastRun.finishedAt)}
-            onClick={() => act(() => adsAPI.researchNow(), 'Searching the niche. The new ads and the playbooks land here as Claude reads them.')}
-          >
-            Search the niche
-          </button>
-        )}
+        {searchButton}
         {lastRun && (
           <span className="text-xs text-gray-400" data-testid="research-run">
             {runLine(lastRun)}
           </span>
         )}
       </div>
+      {painting && (
       <details className="text-xs text-gray-400" open={swipes.length === 0}>
         <summary className="cursor-pointer">Other ways to add ads</summary>
         <div className="flex flex-wrap gap-2 items-center mt-2">
@@ -1394,6 +1412,7 @@ const PaintingSwipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: H
           <span className="text-xs text-gray-500">Download each tab of the research sheet as CSV and pick them all at once.</span>
         </div>
       </details>
+      )}
       {imported && (
         <p role="status" className="text-sm text-emerald-300">
           {imported}
@@ -1401,7 +1420,7 @@ const PaintingSwipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: H
       )}
       {swipes.length > 0 && (
         <div className="flex flex-wrap gap-2 items-center">
-          <div role="group" aria-label="Painting type" className="flex gap-1 flex-wrap">
+          <div role="group" aria-label={painting ? 'Painting type' : 'Job type'} className="flex gap-1 flex-wrap">
             {types.map((t) => (
               <button
                 key={t}
