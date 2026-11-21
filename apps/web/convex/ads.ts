@@ -2563,8 +2563,13 @@ export const waitingAds = internalQuery({
 /** The newest batch from outside the app: how it ended, the ideas it passed over and why, and its ads. */
 export const lastBatch = internalQuery({
   // `back`: how many batches before the newest (0, the newest, when left out).
-  args: { back: v.optional(v.number()) },
-  handler: async (ctx, { back }) => {
+  // `names`: just these ads, whatever batch they are in, for checking a redraw.
+  args: { back: v.optional(v.number()), names: v.optional(v.array(v.string())) },
+  handler: async (ctx, { back, names }) => {
+    if (names) {
+      const found = await Promise.all(names.map((name) => ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first()));
+      return { ads: await Promise.all(found.flatMap((c) => (c ? [outsideView(ctx, c)] : []))) };
+    }
     const batch = (await ctx.db.query("adBatches").order("desc").take((back ?? 0) + 1))[back ?? 0];
     if (!batch) return null;
     const rows = await ctx.db
