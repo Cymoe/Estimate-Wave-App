@@ -57,6 +57,11 @@ trades are painting and hardscaping (`outdoor-construction`).
     out in red, then the prepped way ticked over a real prep photo. The no-prep side is words only: we have no
     photos of bad work, so never show or call a photo the no-prep way, and never blame damage on skipped prep.
     Make one with `ads:weeklyRun {force, only:[hookId], trade, style:"explainer"}`.
+- **Looks for checklists** (`design.look`, same words, voice and photos): none is the dark-box look
+  (`Explainer.tsx`); `"collage"` is cards, stickers and a hand-drawn ring (`Collage.tsx`); `"swiss"` is a dark
+  grid, heavy type, one blue signal colour and hard wipes (`Swiss.tsx`, renderer only for now). Copy a made
+  checklist into another look with `ads:addLook {name, look}`: it copies the newest batch's ads of that name as
+  `<name>_<look>` and starts their drawing. Run two looks side by side to see which costs less per lead.
 - **Never change the look of live ads without showing the owner a sample first and getting a yes.**
 
 ## Running things from a cloud session

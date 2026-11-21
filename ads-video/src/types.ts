@@ -93,7 +93,7 @@ export type Style =
    * No photos: a short lesson drawn as graphics. The first line's words slam in as the title under a small tag;
    * each line after it adds a numbered point (its label) that is ticked, or crossed, once it has been said.
    */
-  | { kind: "explainer"; /** A few words above the title naming the subject ("Painting quotes"). */ tag?: string; /** Drawn as printed photo cards piled on a board, with rings and stickers, instead of a list over a full-frame photo. */ look?: "collage" };
+  | { kind: "explainer"; /** A few words above the title naming the subject ("Painting quotes"). */ tag?: string; /** Drawn as printed photo cards piled on a board, with rings and stickers, instead of a list over a full-frame photo. */ look?: "collage" | "swiss" };
 
 /** What plays under the voice. Every part is optional; an ad without any is the voice alone. */
 export interface Sound {
