@@ -2511,9 +2511,10 @@ export const recentCreatives = internalQuery({
 
 /** The newest batch from outside the app: how it ended, the ideas it passed over and why, and its ads. */
 export const lastBatch = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const [batch] = await ctx.db.query("adBatches").order("desc").take(1);
+  // `back`: how many batches before the newest (0, the newest, when left out).
+  args: { back: v.optional(v.number()) },
+  handler: async (ctx, { back }) => {
+    const batch = (await ctx.db.query("adBatches").order("desc").take((back ?? 0) + 1))[back ?? 0];
     if (!batch) return null;
     const rows = await ctx.db
       .query("adCreatives")
