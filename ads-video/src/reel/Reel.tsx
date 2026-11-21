@@ -3,6 +3,7 @@ import { source } from "../Ad";
 import { display, INK, WIDE, ZONES } from "../theme";
 import type { AdProps, Photo, Ratio } from "../types";
 import { onBefore, photosOf, revealOf, type Shot } from "./shots";
+import { thump } from "../parts/motion";
 
 /** How long a new photo takes to arrive, and the old one to get out of its way. */
 const MOVE_SEC = 0.24;
@@ -43,13 +44,15 @@ function framed(shot: Shot, p: number, frameW: number, frameH: number) {
 }
 
 /** One shot, filling the frame. It runs a little past its end so the next photo has something to push out. */
-const ShotLayer: React.FC<{ shot: Shot; leaves: boolean; seed: number }> = ({ shot, leaves, seed }) => {
+const ShotLayer: React.FC<{ shot: Shot; leaves: boolean; seed: number; punch?: boolean; beats?: number[] }> = ({ shot, leaves, seed, punch = false, beats = [] }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const t = frame / fps;
   const length = shot.end - shot.start;
-  const p = t / length;
+  // Punch: a speed ramp, most of the move in the first moments, then a slow drift; and a kick on each beat.
+  const p = punch ? Easing.out(Easing.cubic)(Math.min(1, t / length)) * 0.7 + (t / length) * 0.3 : t / length;
   const view = framed(shot, p, width, height);
+  const kick = punch ? 1 + 0.03 * thump(shot.start + t, beats, 0.2) : 1;
   // Arriving: a new photo comes across fast and settles; a cut on the same photo lands with a small bump.
   const arrive = shot.opens && shot.start > 0 ? interpolate(t, [0, MOVE_SEC], [0, 1], { extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) }) : 1;
   const bump = shot.opens ? 1 : interpolate(t, [0, 0.16], [1.045, 1], { extrapolateRight: "clamp", easing: Easing.out(Easing.quad) });
@@ -66,7 +69,7 @@ const ShotLayer: React.FC<{ shot: Shot; leaves: boolean; seed: number }> = ({ sh
     objectFit: "cover",
     objectPosition: `${view.x}% ${view.y}%`,
     transformOrigin: `${view.originX}% ${view.originY}%`,
-    transform: `translate(${sway}px, ${bob}px) rotate(${("turn" in view ? (view.turn ?? 0) : 0) * (p - 0.5)}deg) scale(${view.scale * bump * 1.02})`,
+    transform: `translate(${sway}px, ${bob}px) rotate(${("turn" in view ? (view.turn ?? 0) : 0) * (p - 0.5)}deg) scale(${view.scale * bump * 1.02 * kick})`,
   };
   return (
     <AbsoluteFill
@@ -248,7 +251,7 @@ const Scenes: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: num
  * no quick flashes of finished work first, which would give the story away.
  * The one flash is on the reveal, when the first finished photo lands.
  */
-export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until }) => {
+export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until, punch, sound }) => {
   const { fps } = useVideoConfig();
   // The opening shows two of the ad's other photos first, so the first thing seen is already moving; never one a line calls the before.
   const before = new Set(lines.flatMap((_, i) => (onBefore(photos, lines, i) ? [photosOf(photos, lines, i)[0]?.src] : [])));
@@ -264,7 +267,7 @@ export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ sho
         const length = Math.max(1, Math.round((shot.end + (leaves ? MOVE_SEC : 0)) * fps) - from);
         return (
           <Sequence key={i} from={from} durationInFrames={length} layout="none">
-            <ShotLayer shot={shot} leaves={leaves} seed={i} />
+            <ShotLayer shot={shot} leaves={leaves} seed={i} punch={punch} beats={sound?.beats} />
           </Sequence>
         );
       })}

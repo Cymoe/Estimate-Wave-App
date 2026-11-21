@@ -126,6 +126,8 @@ export type AdProps = {
   /** In a reel, photos that fit the ad and that no line uses: the opening and the closing look-back show these before showing one again. */
   spare?: Photo[];
   sound?: Sound;
+  /** Sharper moves, for a sample until the owner says yes: photos ramp in fast then drift, kick on the beat, the music drops out just before the ask, and the ask lands hard. */
+  punch?: boolean;
 };
 
 export const FPS = 30;

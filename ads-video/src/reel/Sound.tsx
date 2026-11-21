@@ -13,12 +13,14 @@ const hold = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
  * Effects are few: one as the finished work is revealed, and one on the ask.
  * A cut is not an event; a whoosh on every one makes the ad sound like a template.
  */
-export const Sound: React.FC<{ sound: SoundPlan; moves: number[]; lands: number[]; askAt: number; voiceEnd: number }> = ({ sound, moves, lands, askAt, voiceEnd }) => {
+export const Sound: React.FC<{ sound: SoundPlan; moves: number[]; lands: number[]; askAt: number; voiceEnd: number; punch?: boolean }> = ({ sound, moves, lands, askAt, voiceEnd, punch = false }) => {
   const { fps, durationInFrames } = useVideoConfig();
   const total = durationInFrames / fps;
   const bed = (f: number) => {
     const t = f / fps;
-    return interpolate(t, [0, 0.3], [0, 1], hold) * interpolate(t, [voiceEnd - 0.15, voiceEnd + 0.45], [UNDER, OPEN], hold) * interpolate(t, [total - 0.6, total], [1, 0], hold);
+    // Punch: the music drops out for a moment just before the ask, and comes back as it lands.
+    const drop = punch ? interpolate(t, [askAt - 0.55, askAt - 0.42, askAt - 0.02, askAt + 0.06], [1, 0, 0, 1.6], hold) : 1;
+    return interpolate(t, [0, 0.3], [0, 1], hold) * interpolate(t, [voiceEnd - 0.15, voiceEnd + 0.45], [UNDER, OPEN], hold) * interpolate(t, [total - 0.6, total], [1, 0], hold) * drop;
   };
   const cue = (file: string | undefined, times: number[], volume: number, early = 0) =>
     file
