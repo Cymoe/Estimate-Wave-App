@@ -539,6 +539,8 @@ export interface Design {
   spare?: string[];
   /** In an explainer, a few words above the title naming the subject ("Painting quotes"). */
   tag?: string;
+  /** An explainer drawn as printed photo cards piled on a board, instead of a list over a full-frame photo. */
+  look?: "collage";
 }
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
@@ -960,7 +962,7 @@ export function renderProps(input: {
     // One whole photo per line, moved in on where the line is about; each point ticked or crossed once said.
     return {
       ratio: input.ratio,
-      style: { kind: "explainer", ...(design.tag ? { tag: design.tag } : {}) },
+      style: { kind: "explainer", ...(design.tag ? { tag: design.tag } : {}), ...(design.look ? { look: design.look } : {}) },
       brand: input.brand,
       headline: design.title,
       lines: lines.map((line, i) => {

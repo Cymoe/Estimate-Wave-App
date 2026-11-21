@@ -2267,6 +2267,7 @@ const adDesign = v.object({
   ),
   spare: v.optional(v.array(v.id("adAssets"))),
   tag: v.optional(v.string()),
+  look: v.optional(v.literal("collage")),
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */
@@ -2326,6 +2327,43 @@ export const addCreatives = internalMutation({
       if (a) await ctx.db.patch(assetId, { uses: (a.uses ?? 0) + 1, lastUsedAt: nowIso() });
     }
     return ids;
+  },
+});
+
+/**
+ * The same checklist ad drawn in another look, to test one look against the other: same words, voice, photos and
+ * offer, so only the look differs. Copies the ad's two sizes (named by their shared start, e.g. "WL_wrdyop") into
+ * its own batch, already voiced, and they wait to be drawn.
+ */
+export const addLook = internalMutation({
+  args: { name: v.string(), look: v.literal("collage") },
+  handler: async (ctx, { name, look }) => {
+    const recent = await ctx.db.query("adCreatives").order("desc").take(300);
+    const from = recent.filter((c) => c.name.startsWith(`${name}_`) && !c.name.endsWith(`_${look}`) && c.kind !== "image");
+    if (from.length === 0) fail("NOT_FOUND", `No ad named ${name} among the recent ones`);
+    const made: string[] = [];
+    for (const c of from) {
+      if (c.design?.style !== "explainer") fail("INVALID", `${c.name} isn't a checklist ad; only those have a ${look} look`);
+      if (!c.audioStorageId) fail("INVALID", `${c.name} has no voice yet`);
+      const copy = `${c.name}_${look}`;
+      if (recent.some((x) => x.name === copy)) continue;
+      await ctx.db.insert("adCreatives", {
+        batchId: c.batchId,
+        hookId: c.hookId,
+        ratio: c.ratio,
+        name: copy,
+        script: c.script,
+        design: { ...c.design, look },
+        assetIds: c.assetIds,
+        audioStorageId: c.audioStorageId,
+        audioDurationSec: c.audioDurationSec,
+        status: "voiced",
+        createdAt: nowIso(),
+      });
+      made.push(copy);
+    }
+    if (made.length) await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
+    return { made };
   },
 });
 

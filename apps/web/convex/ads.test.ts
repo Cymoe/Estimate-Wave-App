@@ -1813,6 +1813,28 @@ describe("the weekly run", () => {
     expect((await latest()).creatives.length).toBeGreaterThan(0);
   });
 
+  test("a checklist ad can be copied in the collage look: same words and voice, its own name, waiting to be drawn; others can't", async () => {
+    const { t, calls, draft, latest } = await ready();
+    stubServices(calls);
+    const batch = await draft();
+    const first = batch.creatives[0];
+    const prefix = first.name.replace(/_(916|45)_.*$/, "");
+    // Drawn as a light-up, it has no collage look.
+    await expect(t.mutation(internal.ads.addLook, { name: prefix, look: "collage" })).rejects.toThrow("isn't a checklist ad");
+    await t.run(async (ctx) => {
+      for (const c of await ctx.db.query("adCreatives").collect()) if (c.design) await ctx.db.patch(c._id, { design: { ...c.design, style: "explainer" } });
+    });
+    const made = await t.mutation(internal.ads.addLook, { name: prefix, look: "collage" });
+    expect(made.made.length).toBe(2);
+    expect(made.made.every((n: string) => n.endsWith("_collage"))).toBe(true);
+    const copies = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.name.endsWith("_collage")));
+    const original = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).find((c) => c.name === first.name)!);
+    expect(copies.every((c) => c.status === "voiced" && c.design?.look === "collage" && c.audioStorageId === original.audioStorageId)).toBe(true);
+    // Asked again, nothing is copied twice.
+    expect((await t.mutation(internal.ads.addLook, { name: prefix, look: "collage" })).made).toEqual([]);
+    expect((await latest()).creatives.some((c) => c.name.endsWith("_collage"))).toBe(true);
+  });
+
   test("with stills on, a reel that shows a before and its after from one job also gets a still of that pair, drawn as a picture", async () => {
     const { t, calls, draft, claim, handIn, latest } = await ready();
     stubServices(calls, { style: "reel" });
