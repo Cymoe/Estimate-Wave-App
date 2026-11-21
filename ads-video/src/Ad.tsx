@@ -65,7 +65,7 @@ export const Ad: React.FC<AdProps> = (props) => {
   // A reel is cut into shots; they run until the ask has covered the frame.
   const reel = style.kind === "reel";
   // Photos no line uses are for the closing look-back. The opening shows the ad's own, which were chosen for it: the first frame matters most.
-  const shots = !reel ? [] : props.steady ? steadyShotsOf(props.photos, props.lines, closeAt + 0.6) : shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats, 0.6, props.spare ?? []);
+  const shots = !reel ? [] : props.steady !== false ? steadyShotsOf(props.photos, props.lines, closeAt + 0.6) : shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats, 0.6, props.spare ?? []);
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
       {reel ? <Reel {...props} shots={shots} until={closeAt} /> : explainer && props.photos.length ? null : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}

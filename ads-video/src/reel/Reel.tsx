@@ -299,7 +299,7 @@ const Scenes: React.FC<Pick<AdProps, "lines" | "brand" | "ratio"> & { until: num
  */
 export const Reel: React.FC<AdProps & { shots: Shot[]; until: number }> = ({ shots, photos, lines, headline, brand, ratio, until, punch, sound, steady }) => {
   const { fps } = useVideoConfig();
-  if (steady) {
+  if (steady !== false) {
     return (
       <>
         {shots.map((shot, i) => {

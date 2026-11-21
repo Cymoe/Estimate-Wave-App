@@ -49,13 +49,17 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 
 ## The look
 
-- The voice is **Chris** (ElevenLabs, set in Ops → Ads → Settings), about 45 to 55 words, sentences of 6 to 12
+- The voice is **Chris** (ElevenLabs, set in Ops → Ads → Settings). The length follows the competitor script; sentences of 6 to 12
   words, the brand name only in the last line.
 - **Reels:**
   - The first frame is the before, with the title.
   - Each later line gets a 3 to 7 word headline, so the ad can be followed with the sound off.
   - Captions show short phrases.
   - There is one sound on the reveal.
+  - **Steady photos** (the owner chose this over the old cut-and-zoom look, Nov 2026): each photo is up once
+    while its line is said, shown whole (a soft, dark copy of it fills the edges) and drifts in only about 3%.
+    Photos change with a soft fade. Never cut from a photo to the same photo, never zoom or pan hard, no opening
+    flashes. `steady: false` draws the old look, for comparison only.
 - **Stills:** the before and the after of the same job, side by side or stacked, with Before/After chips.
 - **Checklists (explainers):** made for cost-education ideas, over the job's own photos.
   - Each line's photo fills the screen and moves in slowly. A tagged title opens the ad over finished work.
