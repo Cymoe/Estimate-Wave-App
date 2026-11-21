@@ -2619,6 +2619,51 @@ const RENDER_BATCH = 8;
  * rendering, so a second renderer doesn't draw them too; one claimed over
  * twenty minutes ago with no file is offered again.
  */
+/**
+ * What one ad is drawn from, without claiming it: for drawing a sample of a finished ad another way, from outside
+ * the app (render-queue.mjs --fixture). Reels only.
+ */
+export const renderInputOf = internalQuery({
+  args: { name: v.string() },
+  handler: async (ctx, { name }) => {
+    const c = await ctx.db
+      .query("adCreatives")
+      .withIndex("by_name", (q) => q.eq("name", name))
+      .first();
+    if (!c?.design || !c.audioStorageId) fail("NOT_FOUND", `No drawn ad named ${name}`);
+    const row = await settingsRow(ctx);
+    const brand = {
+      name: consumerBrand(),
+      primaryColor: row?.primaryColor ?? "#336699",
+      accentColor: row?.accentColor ?? "#8fb6e0",
+      markets: research(row).researchMarkets,
+    };
+    const track = (await ctx.db.query("adMusic").order("desc").take(20)).find((m) => m.active);
+    const musicUrl = track ? await ctx.storage.getUrl(track.storageId) : null;
+    const music = track && musicUrl ? { url: musicUrl, from: track.from, beats: track.beats } : undefined;
+    const photos = new Map<string, { url: string; tags: string[]; pairKey?: string }>();
+    for (const assetId of c.assetIds) {
+      const a = await ctx.db.get(assetId);
+      const url = a ? await lookUrl(ctx, a) : undefined;
+      if (a && url) photos.set(assetId, { url, tags: a.tags, pairKey: a.pairKey });
+    }
+    const audioUrl = (await ctx.storage.getUrl(c.audioStorageId!))!;
+    return {
+      name: c.name,
+      props: renderProps({
+        ratio: c.ratio,
+        design: c.design!,
+        script: c.script,
+        photos,
+        audioUrl,
+        audioSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
+        brand,
+        music,
+      }),
+    };
+  },
+});
+
 export const claimRenders = internalMutation({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit = RENDER_BATCH }) => {
