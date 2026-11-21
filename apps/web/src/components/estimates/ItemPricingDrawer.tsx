@@ -1,0 +1,343 @@
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Minus, Plus } from 'lucide-react';
+import { formatCurrency } from '../../utils/format';
+import { priceAt, PriceRange, PRICING_OPTIONS } from '../../utils/priceRange';
+
+export interface PricedItem {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  red_line_price?: number;
+  cap_price?: number;
+  category?: string;
+  /** An allowance: the client picks the product; amount is set once their pick is approved. */
+  allowance?: Allowance | null;
+}
+
+type Allowance = { pickBy?: string; amount?: number };
+
+/** What Save hands back; the category only when it was changed. */
+export interface PricingChanges {
+  unit_price: number;
+  quantity: number;
+  category?: string;
+  category_chosen?: boolean;
+  /** The allowance as set, or null for a plain line. */
+  allowance: Allowance | null;
+}
+
+interface ItemPricingDrawerProps {
+  item: PricedItem | null;
+  onClose: () => void;
+  onSave: (changes: PricingChanges) => void;
+  /** Category names to suggest: the types of work and the estimate's own. */
+  categories?: string[];
+  /** Removes the item from the estimate. */
+  onRemove?: () => void;
+  /**
+   * Sales mode: the red line is a floor and the cap, pricing options and
+   * commission show. Off (an owner-operator), it's just the price and quantity.
+   */
+  salesMode?: boolean;
+}
+
+/** The item's range. Items saved before ranges were stored have no red line (floor 0) and their price as cap. */
+function rangeOf(item: PricedItem): PriceRange {
+  const redLine = item.red_line_price ?? 0;
+  return { redLine, cap: Math.max(item.cap_price ?? item.unit_price, redLine) };
+}
+
+/**
+ * Prices one estimate item between its red line and cap: price, quantity,
+ * the salesperson's commission and the pricing options. The price can't go
+ * below red line.
+ */
+export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave, onRemove, categories = [], salesMode = false }) => {
+  const [priceText, setPriceText] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [category, setCategory] = useState('');
+  const [isAllowance, setIsAllowance] = useState(false);
+  // The drawer stays mounted and slides like the estimate drawer. It keeps
+  // showing the last item while sliding out.
+  const [shownItem, setShownItem] = useState<PricedItem | null>(null);
+  const [visible, setVisible] = useState(false);
+  // Removing takes a second tap so a stray tap can't delete an item.
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  useEffect(() => {
+    if (!item) {
+      setVisible(false);
+      return;
+    }
+    setShownItem(item);
+    setConfirmRemove(false);
+    setPriceText(item.unit_price.toFixed(2));
+    setQuantity(item.quantity || 1);
+    setCategory(item.category ?? '');
+    setIsAllowance(Boolean(item.allowance));
+    // Wait for the closed position to paint so the slide-in animates.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setVisible(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [item]);
+
+  // Esc closes it (before the estimate drawer underneath).
+  useEffect(() => {
+    if (!item) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [item, onClose]);
+
+  if (!shownItem) return null;
+
+  const open = visible && item !== null;
+  // Without Sales mode there's no floor: any price goes.
+  const range = salesMode ? rangeOf(shownItem) : { redLine: 0, cap: shownItem.unit_price };
+  const typed = parseFloat(priceText);
+  const enteredPrice = Number.isFinite(typed) ? typed : 0;
+  const belowRedLine = enteredPrice < range.redLine;
+  const price = Math.max(enteredPrice, range.redLine);
+  const commission = (price - range.redLine) * quantity;
+  const maxCommission = Math.max(range.cap - range.redLine, 0) * quantity;
+  const share = maxCommission > 0 ? Math.min(commission / maxCommission, 1) : 0;
+
+  const save = () => {
+    const picked = category.trim();
+    const changed = shownItem && picked && picked !== (shownItem.category ?? '');
+    // The pick-by date (set on the project) and an approved pick's allowance ride along.
+    const allowance = isAllowance ? { ...(shownItem?.allowance ?? {}) } : null;
+    onSave(changed ? { unit_price: price, quantity, category: picked, category_chosen: true, allowance } : { unit_price: price, quantity, allowance });
+    onClose();
+  };
+
+  return createPortal(
+    <>
+      <div
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10002] ${
+          open ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-label={`Price ${shownItem.description}`}
+        aria-hidden={!open}
+        className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[720px] max-w-full bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10003] flex flex-col ${
+          open ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        {/* Header: close on the left, Save alone on the right */}
+        <div className="flex items-start gap-3 px-4 py-4 border-b border-[#333333] flex-shrink-0">
+          <button onClick={onClose} className="p-1 -ml-1 mt-0.5 text-gray-400 hover:text-white flex-shrink-0" aria-label="Close">
+            <X className="w-5 h-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold text-white">{shownItem.description}</h2>
+            {salesMode && (
+              <p className="text-xs text-gray-400 mt-1">
+                Red line {formatCurrency(range.redLine)} · Cap {formatCurrency(range.cap)}
+              </p>
+            )}
+          </div>
+          <button onClick={save} className="px-4 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580] flex-shrink-0">
+            Save
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
+          {/* Pricing options: the same column, in the same place, as the estimate's (Sales mode) */}
+          {salesMode && (
+          <div
+            className="sm:w-[168px] flex-shrink-0 bg-[#0A0A0A] border-b sm:border-b-0 sm:border-r border-[#333333] py-1 sm:overflow-y-auto"
+            role="group"
+            aria-label="Pricing options"
+          >
+            {PRICING_OPTIONS.map(option => {
+              const optionPrice = priceAt(range, option.position);
+              const selected = Math.abs(optionPrice - price) < 0.005;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setPriceText(optionPrice.toFixed(2))}
+                  aria-pressed={selected}
+                  className={`w-full px-3 py-1.5 flex sm:flex-col items-center sm:items-start justify-between gap-x-2 text-left text-[13px] transition-colors ${
+                    selected ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#22272d] hover:text-white'
+                  }`}
+                >
+                  <span>{option.name}</span>
+                  <span className={`font-mono text-[11px] ${selected ? 'text-white/80' : 'text-gray-500'}`}>{formatCurrency(optionPrice)}</span>
+                </button>
+              );
+            })}
+          </div>
+          )}
+
+          {/* Price, quantity and commission beside the options */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5">
+              {/* Price and quantity */}
+              <div className="flex gap-3">
+                <label className="flex-1 min-w-0">
+                  <span className="block text-xs text-gray-400 mb-1.5">Price each</span>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={priceText}
+                      onChange={(e) => setPriceText(e.target.value)}
+                      onBlur={() => setPriceText(price.toFixed(2))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+                      className="w-full pl-7 pr-3 py-2.5 bg-[#0A0A0A] border border-[#333333] text-white font-mono focus:outline-none focus:border-[#336699]"
+                    />
+                  </div>
+                </label>
+                <div>
+                  <span className="block text-xs text-gray-400 mb-1.5">Quantity</span>
+                  <div className="flex items-center border border-[#333333]">
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                      className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
+                      aria-label="Decrease quantity"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={quantity}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        setQuantity(Number.isFinite(n) && n > 0 ? n : 1);
+                      }}
+                      aria-label="Quantity"
+                      className="w-10 py-2 bg-transparent text-center text-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(q => q + 1)}
+                      className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
+                      aria-label="Increase quantity"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {belowRedLine && (
+                <p className="text-xs text-red-400 -mt-4">
+                  The price can't go below red line ({formatCurrency(range.redLine)}).
+                </p>
+              )}
+
+              {/* The type of work: what the agreement and the client's summary group this line under */}
+              <label className="block">
+                <span className="block text-sm text-gray-300 mb-1.5">Category</span>
+                <input
+                  type="text"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  list="item-categories"
+                  aria-label="Category"
+                  placeholder="e.g. Plumbing"
+                  className="w-full bg-[#1E1E1E] border border-[#333333] px-3 py-2 text-white focus:outline-none focus:border-[#336699]"
+                />
+                <datalist id="item-categories">
+                  {categories.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+                <span className="block text-xs text-gray-500 mt-1">Groups this line on the agreement and the client&rsquo;s summary.</span>
+              </label>
+
+              {/* An allowance: the client picks the product and this price is what's included */}
+              <div className="border border-[#333333] p-3 space-y-2" data-testid="allowance-setting">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isAllowance}
+                    onChange={(e) => setIsAllowance(e.target.checked)}
+                    aria-label="Allowance"
+                    className="mt-1 h-4 w-4 accent-[#336699]"
+                  />
+                  <span>
+                    <span className="block text-sm text-gray-200">Allowance: the client picks this</span>
+                    <span className="block text-xs text-gray-500">
+                      This price is what&rsquo;s included. Once the estimate is signed, it shows on the project&rsquo;s Selections for the client&rsquo;s pick.
+                    </span>
+                  </span>
+                </label>
+                {isAllowance && shownItem.allowance?.amount !== undefined && (
+                  <p className="text-xs text-gray-400 pl-7">
+                    Their pick is approved, so the price is what you approved ({formatCurrency(shownItem.allowance.amount)} each was included). To change it, reopen
+                    the pick on the project&rsquo;s Selections.
+                  </p>
+                )}
+              </div>
+
+              {/* Commission (Sales mode) */}
+              {salesMode && (
+              <div className="border border-[#333333] p-4">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm text-gray-300">Your commission</span>
+                  <span className={`font-mono text-lg ${commission > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatCurrency(commission)}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-[#333333] mt-3">
+                  <div className="h-full bg-[#336699]" style={{ width: `${share * 100}%` }} />
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1.5">
+                  <span>Red line</span>
+                  <span>Max at cap {formatCurrency(maxCommission)}</span>
+                </div>
+              </div>
+              )}
+
+              {onRemove && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!confirmRemove) {
+                      setConfirmRemove(true);
+                      return;
+                    }
+                    onRemove();
+                    onClose();
+                  }}
+                  className={`w-full py-2.5 text-sm border transition-colors ${
+                    confirmRemove
+                      ? 'bg-red-500/15 border-red-500/60 text-red-300'
+                      : 'border-[#333333] text-red-400 hover:bg-red-500/10'
+                  }`}
+                >
+                  {confirmRemove ? 'Tap again to remove this item' : 'Remove item'}
+                </button>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="border-t border-[#333333] px-4 py-4 flex items-center justify-between flex-shrink-0 text-sm text-gray-400">
+              <span>Total</span>
+              <span className="font-mono text-white">{formatCurrency(price * quantity)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+};

@@ -299,7 +299,7 @@ export const TemplateRow: React.FC<TemplateRowProps> = ({
               </button>
               
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 value={quantity}
                 onChange={(e) => handleInputChange(e.target.value)}
                 className="w-16 text-center bg-transparent text-white text-sm focus:outline-none"
