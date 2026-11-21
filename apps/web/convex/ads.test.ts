@@ -846,6 +846,15 @@ describe("niche research's pure parts", () => {
     expect(readSwipeTags(JSON.stringify(yard), AD_TRADES["outdoor-construction"])).toMatchObject({ painting: true, scope: "patio", paintingType: "Patios" });
     expect(readSwipeTags(JSON.stringify(yard))!.scope).toBeUndefined();
     expect(readSwipeTags(JSON.stringify({ ...yard, scope: "cabinets" }), AD_TRADES["outdoor-construction"])!.scope).toBeUndefined();
+    // A bathroom ad (walk-in showers) is read with that trade's kinds of job.
+    const bath = { company: "Shower Co", pageName: "Shower Co", adCopy: "New walk-in shower in one day" } as never;
+    const bathAsked = tagSwipePrompt(bath, ["Midland"], AD_TRADES["bathroom-remodeling"]);
+    expect(bathAsked).toContain(`${TAG_MARK} bathrooms service (walk-in showers`);
+    expect(bathAsked).toContain('"scope": "walk-in-shower"|"tub-to-shower"|"bathtub"|"full-bath"|null');
+    expect(bathAsked).not.toContain("cabinets");
+    const shower = { ...tagReplyFor("Advertiser: Shower Co"), scope: "walk-in-shower", paintingType: "Walk-in showers" };
+    expect(readSwipeTags(JSON.stringify(shower), AD_TRADES["bathroom-remodeling"])).toMatchObject({ scope: "walk-in-shower", paintingType: "Walk-in showers" });
+    expect(readSwipeTags(JSON.stringify({ ...shower, scope: "patio" }), AD_TRADES["bathroom-remodeling"])!.scope).toBeUndefined();
     expect(readSwipeTags(JSON.stringify({ paintingType: "Interior" }))).toBeNull();
     const pb = readPlaybook("```json\n" + JSON.stringify(PLAYBOOK_REPLY) + "\n```")!;
     expect(pb.footagePrefs).toEqual(["before", "after", "crew"]);

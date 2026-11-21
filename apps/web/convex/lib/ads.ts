@@ -51,6 +51,21 @@ export const AD_TRADES: Record<string, AdTrade> = {
     states: "bare ground, being dug or laid, finished",
     keywords: ["paver patio", "retaining wall", "hardscaping", "outdoor kitchen", "artificial turf"],
   },
+  "bathroom-remodeling": {
+    slug: "bathroom-remodeling",
+    label: "Bathrooms",
+    pro: "bathroom remodeler",
+    contractor: "bathroom remodeling contractor",
+    scopes: ["walk-in-shower", "tub-to-shower", "bathtub", "full-bath"],
+    scopeLabels: {
+      "walk-in-shower": "Walk-in showers",
+      "tub-to-shower": "Tub-to-shower conversions",
+      bathtub: "Tub replacements",
+      "full-bath": "Full bathroom remodels",
+    },
+    states: "old or worn, being torn out or installed, finished",
+    keywords: ["walk-in shower", "tub to shower conversion", "bathroom remodel", "shower replacement", "one day bath remodel"],
+  },
 };
 export const DEFAULT_TRADE = "painting";
 /** The trade by its slug; painting when none is given, as everything was before there was more than one. */
@@ -1304,6 +1319,8 @@ const TAG_SCOPE: Record<string, string> = {
   painting: "(house painting, cabinets, interior or exterior)? Painting classes, art, cars, commercial-only or unrelated ads are not.",
   "outdoor-construction":
     "(patios, pavers, walkways, driveways, retaining walls, artificial turf, outdoor kitchens, fire pits, backyard makeovers)? Lawn mowing, tree care, pools alone, commercial-only or unrelated ads are not.",
+  "bathroom-remodeling":
+    "(walk-in showers, tub-to-shower conversions, tub or shower replacements, bathroom remodels)? Plumbing repairs alone, bath products, commercial-only or unrelated ads are not.",
 };
 
 /** The text Claude gets with one competitor ad (and its still, when there is one). */
