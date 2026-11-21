@@ -2832,7 +2832,7 @@ export const weeklyRun = internalAction({
         kinds.add(h.family);
       }
       // A lesson second, so even a small week has a story and a lesson; the quick offer comes after.
-      const lesson = firsts.findIndex((h) => styleFor(h.family) === "explainer");
+      const lesson = firsts.findIndex((h: { family: Family }) => styleFor(h.family) === "explainer");
       if (lesson > 1) firsts.splice(1, 0, ...firsts.splice(lesson, 1));
       const hooks = only ? ranked : [...firsts, ...seconds];
       if (liveCount >= cfg.liveTarget)
