@@ -2155,7 +2155,7 @@ describe("the weekly run", () => {
     expect(batch.skipped[0]).toMatch(/: the ad still broke the rules: the reply wasn't JSON: it began "Looking at the photos, I'd open on the kitchen\."$/);
     // Asked twice (the retry names the problem), with room to finish.
     const asks = to(calls, "anthropic").map((c) => JSON.parse(c.body!));
-    expect(asks.filter((a) => a.messages[0].content[0].text.includes("Scope: cabinets.")).map((a) => a.max_tokens)).toEqual([4000, 4000]);
+    expect(asks.filter((a) => a.messages[0].content[0].text.includes("Scope: cabinets.")).map((a) => a.max_tokens)).toEqual([12000, 12000]);
 
     const again = await ready();
     stubServices(again.calls, { notJson: { scope: "cabinets", cutOff: true } });

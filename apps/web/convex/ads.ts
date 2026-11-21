@@ -2793,7 +2793,8 @@ async function claudeReply(content: unknown[], maxTokens = 1500): Promise<{ text
 const claude = async (content: unknown[], maxTokens = 1500): Promise<string> => (await claudeReply(content, maxTokens)).text;
 
 /** Room for a shot list, with whatever Claude says around it. */
-const SHOT_LIST_TOKENS = 4000;
+// Room for a full-length script: up to 14 lines, their photos and 1,500 characters of primary text.
+const SHOT_LIST_TOKENS = 12000;
 
 /**
  * Monday: works down the eligible hooks until hooksPerWeek of them have an ad
