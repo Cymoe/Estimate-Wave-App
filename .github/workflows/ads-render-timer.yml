@@ -1,0 +1,29 @@
+name: Draw waiting ads (timer)
+
+# GitHub only keeps timers on the default branch, and the ad maker lives on
+# fieldquote-convex. Every few minutes this starts the ad renderer there
+# (ads-render.yml with timed: true), which asks the backend first and stops at
+# once when no ad is waiting. An ad asked for with "make an ad for…" is drawn
+# without anyone starting the renderer by hand.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+concurrency:
+  group: ads-render-timer
+  cancel-in-progress: true
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Start the renderer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ads-render.yml --repo "${{ github.repository }}" --ref fieldquote-convex -f timed=true
