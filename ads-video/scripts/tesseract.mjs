@@ -2,7 +2,7 @@
 // compare the two side by side (the owner asked to test it on job site videos, Nov 2026).
 //
 // The same ad as the Remotion version (src/parts/Footage.tsx): the clip whole over a blurred, darkened copy of
-// itself with its own sound, the title for the opening moments, captions of what is said in it, the brand, music
+// itself with its own sound, no title, captions of what is said in it, the brand, music
 // under a clip nobody talks in, and the ask after the clip ends. Only the engine differs. The project is written
 // here as Tesseract actions (a fixed recipe, no model in the loop), applied with `tsrct project apply`, and exported
 // to MP4 through the runner's FFmpeg (the Linux build carries no H.264 encoder).
@@ -25,9 +25,8 @@ const ZONES = {
   "9x16": { chip: 84, head: { top: 180, height: 290 }, captions: { top: 1440, height: 220 } },
   "4x5": { chip: 40, head: { top: 104, height: 190 }, captions: { top: 972, height: 230 } },
 };
-/** How long the end card holds after the clip (src/types.ts HOLD_SEC), and how long the title is up. */
+/** How long the end card holds after the clip (src/types.ts HOLD_SEC). */
 const HOLD_MS = 1600;
-const TITLE_MS = 3500;
 /** Music under a clip nobody talks in: under the sound of the work, not hiding it (src/Ad.tsx FOOTAGE_MUSIC). */
 const FOOTAGE_MUSIC = 0.35;
 const INK = "#0b121c";
@@ -155,9 +154,7 @@ export function tesseractActions(props, { clipMs, musicMs }) {
     clip(3, "Clip", "contain", 1),
     // The brand, small at the top, while the clip plays.
     textLayer(4, "Brand", props.brand.name, { top: zone.chip - 24, height: 56, size: 30, start: 0, end: endMs, stroke: true, width: 600, frameWidth: width }),
-    // The title, for the opening moments.
-    textLayer(5, "Title", props.headline, { top: zone.head.top, height: zone.head.height, size: props.ratio === "9x16" ? 92 : 76, start: 0, end: Math.min(TITLE_MS, endMs), frameWidth: width }),
-    { type: "animatorSetLayerFade", compositionId: "main", layerId: 5, fadeInType: "fade", fadeOutType: "fade" },
+    // No title over a job site video: the owner wants the work on screen and nothing written across the top.
   ];
   // Captions of what is said, a short phrase at a time.
   let id = 100;

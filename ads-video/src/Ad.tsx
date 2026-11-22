@@ -1,4 +1,4 @@
-import { AbsoluteFill, Audio, Sequence, staticFile, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, staticFile, useVideoConfig } from "remotion";
 import { Backdrop } from "./parts/Backdrop";
 import { BrandChip, ProgressBar } from "./parts/Chrome";
 import { Captions } from "./parts/Captions";
@@ -77,14 +77,8 @@ export const Ad: React.FC<AdProps> = (props) => {
     <AbsoluteFill style={{ backgroundColor: INK }}>
       {footage && props.footage ? <Footage src={props.footage.src} /> : reel ? <Reel {...props} shots={shots} until={closeAt} /> : explainer && props.photos.length ? null : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
       {style.kind === "stockMix" ? <StockMix {...props} clip={style.clip} runs={runs} /> : null}
-      {style.kind === "chat" || reel || explainer ? null : footage ? (
-        // The title is up for the opening moments only, then the work has the frame.
-        <Sequence durationInFrames={Math.round(3.5 * fps)}>
-          <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />
-        </Sequence>
-      ) : (
-        <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />
-      )}
+      {/* A job site video has no title over it: the owner wants the work on screen and nothing written across the top. */}
+      {style.kind === "chat" || reel || explainer || footage ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
       {style.kind === "beforeAfter" ? (
         <BeforeAfter {...props} crossOn={style.crossOn} crossAt={style.crossAt} />
       ) : style.kind === "counter" ? (

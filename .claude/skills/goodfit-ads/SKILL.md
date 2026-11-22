@@ -160,8 +160,8 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 - It is stored as design style `"footage"` (card label "Job site video"), two sizes, status voiced. The clip
   itself is the audio. Its hook is inactive, so the weekly run never drafts it on its own.
 - The renderer (`ads-video/src/parts/Footage.tsx`) shows the clip whole over a soft, dark copy of itself, muted
-  (its sound is the levelled voice track). The title is up for the first 3.5 seconds, then captions, then the
-  end card after the clip ends. A clip with no sound plays silent.
+  (its sound is the levelled voice track). **No title or text across the top** (the owner said job site videos need
+  none, Nov 2026): only the small brand tag, captions of what is said, and the end card after the clip ends. A clip with no sound plays silent.
 - Real footage only, as with photos: never AI-made or AI-moved. Captions come from what is heard, so check a
   name or a word that could be misheard before approving.
 
