@@ -135,8 +135,10 @@ versions of the same offer, each in both sizes:
 
 How it works:
 - `ads:makeFor {ask}` (the Ops box) or `ads:makeForInternal {ask}` (from a cloud session, through
-  `convex-deploy.yml`) saves an `adRequests` row and returns `{link}`. That is the private page `/ads/<token>`: no
-  login, and it updates itself as each step finishes.
+  `convex-deploy.yml`) saves an `adRequests` row and returns `{link}`. That is the private page `/ads/<token>` on
+  the backend's own address (`<deployment>.convex.site`, served by `convex/lib/adRoutes.ts` with its data at
+  `/ads/<token>.json`). It needs no login, and updates itself as each step finishes. The app's preview address asks
+  for a Vercel sign-in, so links never point there.
 - `ads:readRequest` asks Claude for the trade, the kind of job (`trade.scopes`, else general), the town, and a
   one-line idea. Then `startRequestAds` builds two hooks (off, so Monday never repeats them):
   - the story on the best competitor ad with a script for that kind of job;

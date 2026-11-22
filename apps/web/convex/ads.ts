@@ -80,7 +80,7 @@ import {
   angleOf,
   ANGLE_LABELS,
 } from "./lib/ads";
-import { randomToken } from "./lib/oauth";
+import { apiOrigin, randomToken } from "./lib/oauth";
 import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
 import { siteUrl } from "./delivery";
@@ -1709,7 +1709,8 @@ export const makeFromPhoto = internalMutation({
 // job, in both sizes. They wait in Ops → Ads like any other, and /ads/<token> shows them being made, with no login.
 
 /** The private page for one request. */
-const requestLink = (token: string) => `${siteUrl()}/ads/${token}`;
+// On the backend's own address, not the app's: the app's preview address asks for a Vercel sign-in.
+const requestLink = (token: string) => `${apiOrigin()}/ads/${token}`;
 
 async function startRequest(ctx: MutationCtx, ask: string, startedBy?: Id<"users">) {
   const clean = ask.replace(/\s+/g, " ").trim().slice(0, 300);
@@ -1801,57 +1802,65 @@ export const startRequestAds = internalMutation({
 /** One request for its private page: what was asked, how far it has got, and each ad as it comes. No login: the long token is the key. */
 export const requestView = query({
   args: { token: v.string() },
-  handler: async (ctx, { token }) => {
-    if (token.length < 20) return null;
-    const request = await ctx.db
-      .query("adRequests")
-      .withIndex("by_token", (q) => q.eq("token", token))
-      .first();
-    if (!request) return null;
-    const batch = await ctx.db
-      .query("adBatches")
-      .withIndex("by_request", (q) => q.eq("requestId", request._id))
-      .first();
-    const rows = batch
-      ? (
-          await ctx.db
-            .query("adCreatives")
-            .withIndex("by_batch", (q) => q.eq("batchId", batch._id))
-            .collect()
-        ).filter((c) => c.status !== "rejected")
-      : [];
-    const ads = await Promise.all(
-      rows.map(async (c) => {
-        const hook = await ctx.db.get(c.hookId);
-        const source = hook?.swipeId ? await ctx.db.get(hook.swipeId) : null;
-        const file = c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : c.imageStorageId ? await ctx.storage.getUrl(c.imageStorageId) : null;
-        return {
-          name: c.name,
-          angle: c.design ? ANGLE_LABELS[angleOf(c.design)] : "Ad",
-          ratio: c.ratio,
-          image: Boolean(c.imageStorageId && !c.videoStorageId),
-          status: c.status,
-          file,
-          headline: c.script.headline,
-          lines: (c.script.shots ?? []).map((x) => x.voice).filter(Boolean),
-          primaryText: c.script.primaryText,
-          builtOn: source ? { company: source.company, daysRunning: runDays(source) } : undefined,
-        };
-      }),
-    );
-    return {
-      ask: request.ask,
-      idea: request.idea,
-      town: request.town,
-      trade: request.trade ? tradeOf(request.trade).label : undefined,
-      stage: requestStage(request, batch, rows),
-      error: request.error ?? batch?.error,
-      skipped: batch?.skipped ?? [],
-      createdAt: request.createdAt,
-      ads,
-    };
-  },
+  handler: async (ctx, { token }) => await requestViewOf(ctx, token),
 });
+
+/** The same, for the page the backend serves itself at /ads/<token> (lib/adRoutes.ts). */
+export const requestPage = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => await requestViewOf(ctx, token),
+});
+
+async function requestViewOf(ctx: QueryCtx, token: string) {
+  if (token.length < 20) return null;
+  const request = await ctx.db
+    .query("adRequests")
+    .withIndex("by_token", (q) => q.eq("token", token))
+    .first();
+  if (!request) return null;
+  const batch = await ctx.db
+    .query("adBatches")
+    .withIndex("by_request", (q) => q.eq("requestId", request._id))
+    .first();
+  const rows = batch
+    ? (
+        await ctx.db
+          .query("adCreatives")
+          .withIndex("by_batch", (q) => q.eq("batchId", batch._id))
+          .collect()
+      ).filter((c) => c.status !== "rejected")
+    : [];
+  const ads = await Promise.all(
+    rows.map(async (c) => {
+      const hook = await ctx.db.get(c.hookId);
+      const source = hook?.swipeId ? await ctx.db.get(hook.swipeId) : null;
+      const file = c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : c.imageStorageId ? await ctx.storage.getUrl(c.imageStorageId) : null;
+      return {
+        name: c.name,
+        angle: c.design ? ANGLE_LABELS[angleOf(c.design)] : "Ad",
+        ratio: c.ratio,
+        image: Boolean(c.imageStorageId && !c.videoStorageId),
+        status: c.status,
+        file,
+        headline: c.script.headline,
+        lines: (c.script.shots ?? []).map((x) => x.voice).filter(Boolean),
+        primaryText: c.script.primaryText,
+        builtOn: source ? { company: source.company, daysRunning: runDays(source) } : undefined,
+      };
+    }),
+  );
+  return {
+    ask: request.ask,
+    idea: request.idea,
+    town: request.town,
+    trade: request.trade ? tradeOf(request.trade).label : undefined,
+    stage: requestStage(request, batch, rows),
+    error: request.error ?? batch?.error,
+    skipped: batch?.skipped ?? [],
+    createdAt: request.createdAt,
+    ads,
+  };
+}
 
 /** The latest requests, for Ops → Ads: what was asked, how far it got, and its link. */
 export const recentRequests = query({
