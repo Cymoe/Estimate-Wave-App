@@ -2067,6 +2067,34 @@ describe("the weekly run", () => {
       expect(stills.every((n) => names.includes(n.replace(/_still$/, "")))).toBe(true);
     });
 
+    test("a request the network drops on the way to Claude is sent once more; a writer that never answers is said plainly", async () => {
+      const { t, owner, calls, settle } = await ready();
+      stubServices(calls);
+      vi.stubEnv("ADS_RETRY_MS", "0");
+      const answer = globalThis.fetch;
+      let dropped = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          if (String(input).includes("anthropic") && dropped === 0) {
+            dropped++;
+            throw new TypeError("error sending request for url (https://api.anthropic.com/v1/messages)");
+          }
+          return answer(input, init);
+        }),
+      );
+      const { link } = await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "painting in Odessa" }));
+      expect(dropped).toBe(1);
+      expect((await t.query(api.ads.requestView, { token: tokenOf(link) }))!.stage).toBe("drawing");
+
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("error sending request for url (https://api.anthropic.com/v1/messages)"); }));
+      const second = await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "painting in Midland" }));
+      expect(await t.query(api.ads.requestView, { token: tokenOf(second.link) })).toMatchObject({
+        stage: "failed",
+        error: "The writing service didn't answer just then. Ask again in a minute.",
+      });
+    });
+
     test("the page shows nothing for a wrong or short key, and only staff can ask from the app", async () => {
       const { t, owner, calls, settle } = await ready();
       stubServices(calls);

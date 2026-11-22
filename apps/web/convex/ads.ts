@@ -1855,6 +1855,12 @@ export const requestPage = internalQuery({
   handler: async (ctx, { token }) => await requestViewOf(ctx, token),
 });
 
+/** A failure as the owner reads it: a service that didn't answer is said plainly, the rest as it is. */
+const plainError = (error?: string) =>
+  error && /error sending request|fetch failed|timed out|ECONNRESET|network/i.test(error)
+    ? "The writing service didn't answer just then. Ask again in a minute."
+    : error;
+
 async function requestViewOf(ctx: QueryCtx, token: string) {
   if (token.length < 20) return null;
   const request = await ctx.db
@@ -1899,7 +1905,7 @@ async function requestViewOf(ctx: QueryCtx, token: string) {
     town: request.town,
     trade: request.trade ? tradeOf(request.trade).label : undefined,
     stage: requestStage(request, batch, rows),
-    error: request.error ?? batch?.error,
+    error: plainError(request.error ?? batch?.error),
     skipped: batch?.skipped ?? [],
     createdAt: request.createdAt,
     ads,
@@ -3150,10 +3156,18 @@ async function readJson(res: Response, what: string): Promise<any> {
 
 /** One Claude call: content blocks in; the reply's text out, and whether it ran out of room before finishing. */
 async function claudeReply(content: unknown[], maxTokens = 1500): Promise<{ text: string; cutOff: boolean }> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
+  const ask = () =>
+    fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
+    });
+  // A request that never reached Claude (the network dropped it) is sent once more after a moment.
+  const res = await ask().catch(async () => {
+    // ADS_RETRY_MS: how long to wait first (3 seconds; tests set 0).
+    const wait = Number(process.env.ADS_RETRY_MS ?? 3000);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    return await ask();
   });
   const body = await readJson(res, "Claude");
   return { text: (body?.content ?? []).map((c: { text?: string }) => c.text ?? "").join(""), cutOff: body?.stop_reason === "max_tokens" };
