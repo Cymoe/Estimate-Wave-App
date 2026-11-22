@@ -1107,6 +1107,10 @@ function drawnFrom(input: {
       audioSec: input.audioSec,
       photos: [] as Array<{ src: string }>,
       footage: { src: input.audioUrl },
+      // Nobody talks in it: the music plays low under the job site's own sound, as work-footage ads run.
+      ...(input.music && !(script.shots ?? []).length
+        ? { sound: { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}), ...(input.music.beats?.length ? { beats: input.music.beats } : {}) } }
+        : {}),
     };
   }
   const shots = script.shots ?? [];

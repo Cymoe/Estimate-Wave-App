@@ -5,7 +5,7 @@
 // are written by Claude from what can be seen and heard in the clip, following a long-running competitor ad's
 // written copy the way every other ad follows one, and are checked against the same banned claims.
 
-import { HEADLINE_MAX, PRIMARY_MAX, SCRIPT_PRIMARY_MAX, TITLE_MAX, forbiddenIn, onceOnly } from "./ads";
+import { HEADLINE_MAX, PRIMARY_MAX, SCRIPT_PRIMARY_MAX, TITLE_MAX, forbiddenIn, onceOnly, pickExamples } from "./ads";
 import type { HeardWord } from "./voiceActors";
 
 /** The longest clip that runs as an ad: Meta's reels and stories run to 90 seconds. */
@@ -13,6 +13,22 @@ export const FOOTAGE_MAX_SEC = 90;
 /** A caption line ends at a sentence's end, a pause this long, or this many words. */
 export const LINE_PAUSE_SEC = 0.8;
 export const LINE_WORDS = 12;
+
+/**
+ * Whether a competitor ad is itself work being done on camera: what the swipe tagging calls "process" footage, or,
+ * for an ad not tagged yet, a description of its creative that says so ("Door-painting process video"). Ads like
+ * that keep running (Spray Tex's process videos have run well over a year), so a job site video follows one.
+ */
+export function isWorkFootage(swipe: { footage?: string[]; creative?: string }): boolean {
+  if (swipe.footage?.length) return swipe.footage.includes("process");
+  const creative = swipe.creative ?? "";
+  return /\b(process|spray(ing|ed)?|working|in action|job ?site|on the job)\b/i.test(creative) && !/\b(graphic|carousel|collage)\b/i.test(creative);
+}
+
+/** The competitor ad a job site video follows: the best work-footage ad for its subject, else the best of any kind. */
+export function pickFootageSwipe<S extends Parameters<typeof pickExamples>[0][number] & { footage?: string[]; creative?: string }>(swipes: S[], scope: string): S | undefined {
+  return pickExamples(swipes.filter(isWorkFootage), scope, 1)[0] ?? pickExamples(swipes, scope, 1)[0];
+}
 
 /** Marks the prompt, so a test can tell it apart. */
 export const FOOTAGE_MARK = "This ad is a job site video";

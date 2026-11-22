@@ -10,9 +10,9 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
-import { ANY_SCOPE, creativeName, inTrade, parseJson, pickExamples, tradeOf, weekOf } from "./lib/ads";
+import { ANY_SCOPE, creativeName, inTrade, parseJson, tradeOf, weekOf } from "./lib/ads";
 import { callClaude } from "./lib/claude";
-import { FOOTAGE_MAX_SEC, footageProblems, footagePrompt, linesFromHeard, type FootageCopy } from "./lib/footage";
+import { FOOTAGE_MAX_SEC, footageProblems, footagePrompt, linesFromHeard, pickFootageSwipe, type FootageCopy } from "./lib/footage";
 import { consumerBrand } from "./lib/support";
 import { heardWords } from "./voiceActors";
 
@@ -33,9 +33,10 @@ export const make = mutation({
       fail("INVALID", `That clip runs ${Math.round(asset.durationSec)} seconds. Trim it to ${FOOTAGE_MAX_SEC} seconds or less and upload it again`);
     const trade = tradeOf(asset.trade);
     const scope = asset.tags.find((t) => trade.scopes.includes(t)) ?? ANY_SCOPE;
-    // The words around the clip follow a competitor ad that has kept running, like every ad's do.
+    // The words around the clip follow a competitor ad that has kept running, like every ad's do: one that is itself
+    // work on camera when there is one (lib/footage.ts isWorkFootage).
     const onFile = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade.slug) && x.hook.trim());
-    const swipe = pickExamples(onFile, scope, 1)[0];
+    const swipe = pickFootageSwipe(onFile, scope);
     if (!swipe) fail("INVALID", `No ${trade.label.toLowerCase()} competitor ad on file to build it on. Run the competitor search first`);
     const hookId = await ctx.db.insert("adHooks", {
       family: "proof",

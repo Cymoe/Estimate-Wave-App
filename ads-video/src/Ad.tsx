@@ -33,6 +33,9 @@ const revealAt = (props: AdProps, shots: { line: number; start: number }[]): num
   return i > 0 ? [shots.find((s) => s.line === i)?.start ?? props.lines[i].start] : [];
 };
 
+/** How loud the music sits under a job site video nobody talks in: under the sound of the work, not hiding it. */
+const FOOTAGE_MUSIC = 0.35;
+
 /** A checklist in the look asked for; the dark-box look when none is. */
 const ExplainerLook: React.FC<AdProps & { look?: string; tag?: string; snappy?: boolean }> = ({ look, snappy, ...props }) => {
   if (!look) return <Explainer {...props} snappy={snappy} />;
@@ -116,6 +119,7 @@ export const Ad: React.FC<AdProps> = (props) => {
           askAt={closeAt}
           voiceEnd={props.audioSec}
           punch={props.punch}
+          under={footage ? FOOTAGE_MUSIC : undefined}
         />
       ) : null}
     </AbsoluteFill>
