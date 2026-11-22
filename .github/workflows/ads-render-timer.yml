@@ -61,9 +61,10 @@ jobs:
         run: |
           end=$(( $(date +%s) + 340 * 60 ))
           while [ "$(date +%s)" -lt "$end" ]; do
-            n=$(npx convex run ads:waitingCount '{}' 2>/dev/null | tr -dc '0-9')
+            # A failed check is passed over, never the end of the watch.
+            n=$(npx convex run ads:waitingCount '{}' 2>/dev/null | tr -dc '0-9' || true)
             if [ "${n:-0}" != "0" ]; then
-              busy=$(gh run list --repo "${{ github.repository }}" --workflow ads-render.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length')
+              busy=$(gh run list --repo "${{ github.repository }}" --workflow ads-render.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' || echo 1)
               if [ "${busy:-0}" = "0" ]; then
                 echo "$(date -u +%H:%M) ${n} waiting: starting the renderer"
                 gh workflow run ads-render.yml --repo "${{ github.repository }}" --ref fieldquote-convex -f timed=true || true
@@ -72,8 +73,8 @@ jobs:
             sleep 60
           done
 
+      # Only after a full watch: a run that fails at once (no key) must not start the next one straight away.
       - name: Hand over to the next watcher
-        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run ads-render-timer.yml --repo "${{ github.repository }}" --ref main
