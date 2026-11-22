@@ -2309,7 +2309,7 @@ export const failBatch = internalMutation({
 const adLook = v.union(v.literal("collage"), v.literal("markup"), v.literal("versus"));
 
 const adDesign = v.object({
-  style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter"), v.literal("explainer")),
+  style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter"), v.literal("explainer"), v.literal("footage")),
   title: v.string(),
   stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
   revealOn: v.optional(v.string()),

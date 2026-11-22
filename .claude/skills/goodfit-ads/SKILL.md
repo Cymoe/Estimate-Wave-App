@@ -146,6 +146,22 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   the work. Real people only: never an AI presenter.
 - **The on-camera look is new: show the owner a sample with a real take before any of these ads go live.**
 
+## Job site videos
+
+- A clip the crew shot on the job runs as the ad, as it was shot. "Make a job site ad" on a video in Ops → Ads →
+  Library (`footage:make`) starts its own batch. Clips over 90 seconds are refused: trim them first.
+- ElevenLabs hears the clip, and what is said becomes the captions (`lib/footage.ts` `linesFromHeard`).
+  Claude writes the title, headline and primary text from what is heard and seen, following the trade's best
+  competitor ad (`pickExamples`, like `makeFromPhoto`). The text goes through the same banned claims
+  (`forbiddenIn`), with one retry. No competitor ad on file means no ad.
+- It is stored as design style `"footage"` (card label "Job site video"), two sizes, status voiced. The clip
+  itself is the audio. Its hook is inactive, so the weekly run never drafts it on its own.
+- The renderer (`ads-video/src/parts/Footage.tsx`) shows the clip whole over a soft, dark copy of itself, muted
+  (its sound is the levelled voice track). The title is up for the first 3.5 seconds, then captions, then the
+  end card after the clip ends. A clip with no sound plays silent.
+- Real footage only, as with photos: never AI-made or AI-moved. Captions come from what is heard, so check a
+  name or a word that could be misheard before approving.
+
 ## Running things from a cloud session
 
 - Local `npx convex run` doesn't work here. To run a function on the live deployment, dispatch the

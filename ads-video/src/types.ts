@@ -89,6 +89,8 @@ export type Style =
   | { kind: "stockMix"; clip: Clip }
   /** The photos fill the frame and never sit still: each line is cut into a few shots, close and wide, and a new line arrives with a move. */
   | { kind: "reel" }
+  /** A job site video run as it was shot (`footage`), its own sound the voice, with its title, captions and the ask. */
+  | { kind: "footage" }
   /**
    * No photos: a short lesson drawn as graphics. The first line's words slam in as the title under a small tag;
    * each line after it adds a numbered point (its label) that is ticked, or crossed, once it has been said.
@@ -139,6 +141,8 @@ export type AdProps = {
    * (parts/Presenter.tsx). Its sound is the voice, so `audio` is the same file.
    */
   presenter?: { src: string };
+  /** A job site video, for the footage style: the whole picture, and (as `audio`) the sound. */
+  footage?: { src: string };
 };
 
 export const FPS = 30;

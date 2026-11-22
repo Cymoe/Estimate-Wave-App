@@ -1,8 +1,9 @@
-import { AbsoluteFill, Audio, staticFile, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Sequence, staticFile, useVideoConfig } from "remotion";
 import { Backdrop } from "./parts/Backdrop";
 import { BrandChip, ProgressBar } from "./parts/Chrome";
 import { Captions } from "./parts/Captions";
 import { EndCard } from "./parts/EndCard";
+import { Footage } from "./parts/Footage";
 import { Headline } from "./parts/Headline";
 import { Presenter } from "./parts/Presenter";
 import { Canvas } from "./formats/Canvas";
@@ -51,7 +52,9 @@ export const Ad: React.FC<AdProps> = (props) => {
   const { fps, durationInFrames, width, height } = useVideoConfig();
   const total = durationInFrames / fps;
   const { style } = props;
-  const closeAt = style.kind === "chat" ? style.askAt : askAt(props.lines);
+  // A job site video plays to its end, and the ask comes after it.
+  const footage = style.kind === "footage";
+  const closeAt = style.kind === "chat" ? style.askAt : footage ? props.audioSec : askAt(props.lines);
   // Made of words alone: no photo behind, and the words on screen are the captions.
   const wordsOnly = style.kind === "kineticText" || style.kind === "chat" || style.kind === "explainer";
   // An explainer draws its own title, and its captions read in phrases like a reel's.
@@ -60,7 +63,7 @@ export const Ad: React.FC<AdProps> = (props) => {
   const runs =
     style.kind === "stockMix"
       ? runsOf(props.photos.slice(1), props.lines.slice(1), total).map((r, i) => (i === 0 ? { ...r, start: props.lines[1]?.start ?? 0 } : r))
-      : wordsOnly
+      : wordsOnly || footage
         ? []
         : runsOf(props.photos, props.lines, total);
   // A reel is cut into shots; they run until the ask has covered the frame.
@@ -69,9 +72,16 @@ export const Ad: React.FC<AdProps> = (props) => {
   const shots = !reel ? [] : props.steady !== false ? steadyShotsOf(props.photos, props.lines, closeAt + 0.6) : shotsOf(props.photos, props.lines, closeAt + 0.6, { width, height }, props.sound?.beats, 0.6, props.spare ?? []);
   return (
     <AbsoluteFill style={{ backgroundColor: INK }}>
-      {reel ? <Reel {...props} shots={shots} until={closeAt} /> : explainer && props.photos.length ? null : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
+      {footage && props.footage ? <Footage src={props.footage.src} /> : reel ? <Reel {...props} shots={shots} until={closeAt} /> : explainer && props.photos.length ? null : wordsOnly ? <Canvas brand={props.brand} /> : <Backdrop runs={runs} sharper={style.kind === "counter"} />}
       {style.kind === "stockMix" ? <StockMix {...props} clip={style.clip} runs={runs} /> : null}
-      {style.kind === "chat" || reel || explainer ? null : <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />}
+      {style.kind === "chat" || reel || explainer ? null : footage ? (
+        // The title is up for the opening moments only, then the work has the frame.
+        <Sequence durationInFrames={Math.round(3.5 * fps)}>
+          <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />
+        </Sequence>
+      ) : (
+        <Headline text={props.headline} ratio={props.ratio} accent={props.brand.accentColor} />
+      )}
       {style.kind === "beforeAfter" ? (
         <BeforeAfter {...props} crossOn={style.crossOn} crossAt={style.crossAt} />
       ) : style.kind === "counter" ? (
@@ -82,13 +92,13 @@ export const Ad: React.FC<AdProps> = (props) => {
         <KineticText {...props} />
       ) : style.kind === "chat" ? (
         <Chat messages={style.messages} brand={props.brand} ratio={props.ratio} />
-      ) : style.kind === "stockMix" || reel ? null : (
+      ) : style.kind === "stockMix" || reel || footage ? null : (
         <LightUp {...props} runs={runs} />
       )}
       {props.presenter ? <Presenter src={props.presenter.src} ratio={props.ratio} /> : null}
       {style.kind === "chat" ? null : <BrandChip brand={props.brand} ratio={props.ratio} />}
       <EndCard brand={props.brand} ratio={props.ratio} from={closeAt} punch={props.punch} />
-      {(wordsOnly && !explainer) || (style.kind === "explainer" && style.look === "kinetic") ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel || explainer} />}
+      {(wordsOnly && !explainer) || (style.kind === "explainer" && style.look === "kinetic") ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel || explainer || footage} />}
       <ProgressBar color={props.brand.accentColor} />
       {props.audio ? <Audio src={source(props.audio)} /> : null}
       {props.sound ? (

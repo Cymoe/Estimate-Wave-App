@@ -2594,7 +2594,8 @@ export default defineSchema({
     // How the ad moves and what the renderer shows beyond the script (lib/ads.ts Design). Absent on those older ads.
     design: v.optional(
       v.object({
-        style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter"), v.literal("explainer")),
+        // "footage": a job site video run as it was shot (footage.ts).
+        style: v.union(v.literal("reel"), v.literal("lightUp"), v.literal("beforeAfter"), v.literal("counter"), v.literal("explainer"), v.literal("footage")),
         title: v.string(),
         stats: v.optional(v.array(v.object({ value: v.number(), label: v.string() }))),
         revealOn: v.optional(v.string()),

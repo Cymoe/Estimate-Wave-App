@@ -1081,6 +1081,20 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
+        {a.kind === 'video' && (
+          <button
+            type="button"
+            className={`${secondary} text-xs py-1 w-full`}
+            onClick={() =>
+              act(
+                () => adsAPI.makeFootage(a.id),
+                'Making a job site ad from this clip. It shows under This week once it is written, then drawn.',
+              )
+            }
+          >
+            Make a job site ad
+          </button>
+        )}
       </div>
     </li>
   );

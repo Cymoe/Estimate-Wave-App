@@ -74,14 +74,14 @@ const VOICE_LUFS = -16;
  * Brings a voice up to the usual loudness with the ffmpeg Remotion carries.
  * If that can't be run, the voice goes in as it came: quieter, not broken.
  */
-async function evenVoice(file) {
+async function evenVoice(file, from = file) {
   const out = file.replace(/\.mp3$/, "-even.mp3");
   try {
-    await run("npx", ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-i", file, "-af", `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11`, "-ar", "44100", "-b:a", "192k", out], { cwd: root });
-    return existsSync(out) ? out : file;
+    await run("npx", ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-i", from, "-vn", "-af", `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11`, "-ar", "44100", "-b:a", "192k", out], { cwd: root });
+    return existsSync(out) ? out : from;
   } catch (e) {
     console.error(`The voice couldn't be brought up to level and is used as it came: ${short(e)}`);
-    return file;
+    return from;
   }
 }
 
@@ -181,7 +181,16 @@ async function localProps(job, serveDir, base) {
   const spare = [];
   for (const photo of job.props.spare ?? []) spare.push(await local(photo));
   let audio = "";
-  if (job.props.audio) {
+  // A job site video is fetched whole: it is the picture, and its sound (taken out and levelled) the voice.
+  let footage = job.props.footage;
+  if (footage?.src) {
+    const clip = path.join(serveDir, "public", folder, "clip.mp4");
+    await writeFile(clip, await bytesOf(footage.src, base));
+    footage = { src: `${folder}/clip.mp4` };
+    // A clip with no sound at all plays silent rather than failing the ad.
+    const voice = await evenVoice(clip.replace(/\.mp4$/, ".mp3"), clip);
+    audio = voice.endsWith(".mp4") ? "" : `${folder}/${path.basename(voice)}`;
+  } else if (job.props.audio) {
     const voice = path.join(serveDir, "public", folder, "voice.mp3");
     await writeFile(voice, await bytesOf(job.props.audio, base));
     audio = `${folder}/${path.basename(await evenVoice(voice))}`;
@@ -201,7 +210,7 @@ async function localProps(job, serveDir, base) {
     const even = await evenMusic(music, sound.musicFrom);
     sound = { ...sound, music: `${folder}/${path.basename(even.file)}`, musicFrom: even.from };
   }
-  return { props: { ...job.props, photos, lines, ...(spare.length ? { spare } : {}), audio, ...(sound ? { sound } : {}), ...(presenter ? { presenter } : {}) }, dir };
+  return { props: { ...job.props, photos, lines, ...(spare.length ? { spare } : {}), audio, ...(sound ? { sound } : {}), ...(presenter ? { presenter } : {}), ...(footage ? { footage } : {}) }, dir };
 }
 
 async function draw(job, serveUrl, base) {

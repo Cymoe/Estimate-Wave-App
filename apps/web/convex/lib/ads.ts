@@ -558,8 +558,11 @@ export const AD_LOOKS = ["collage", "markup", "versus"] as const;
 export type AdLook = (typeof AD_LOOKS)[number];
 
 /** What the renderer needs beyond the script: the style, the words at the top, and what the style itself shows. */
+/** How an ad is drawn: one of the styles Claude picks from, or a job site video run as it was shot (lib/footage.ts). */
+export type DesignStyle = AdStyle | "footage";
+
 export interface Design {
-  style: AdStyle;
+  style: DesignStyle;
   title: string;
   stats?: Array<{ value: number; label: string }>;
   /** The word the after is revealed on, in a before/after. */
@@ -585,10 +588,11 @@ export interface Design {
 /** The three jobs an ad can do: a story stops a stranger, a lesson earns trust, a quick offer asks people who have already seen us. */
 export type AdAngle = "story" | "lesson" | "offer";
 export const ANGLE_LABELS: Record<AdAngle, string> = { story: "Story", lesson: "Lesson", offer: "Quick offer" };
-export const angleOf = (design: { style: AdStyle; quick?: boolean }): AdAngle => (design.quick ? "offer" : design.style === "explainer" ? "lesson" : "story");
+export const angleOf = (design: { style: DesignStyle; quick?: boolean }): AdAngle => (design.quick ? "offer" : design.style === "explainer" ? "lesson" : "story");
 /** What the card in Ops → Ads calls an ad: its angle and, for a lesson, its look. */
 export const LOOK_LABELS: Record<AdLook, string> = { collage: "collage", markup: "marked-up", versus: "face-off" };
-export function designLabel(design: { style: AdStyle; quick?: boolean; look?: AdLook }): string {
+export function designLabel(design: { style: DesignStyle; quick?: boolean; look?: AdLook }): string {
+  if (design.style === "footage") return "Job site video";
   const angle = angleOf(design);
   if (angle === "offer") return ANGLE_LABELS.offer;
   if (angle === "lesson") return `Lesson, ${design.look ? LOOK_LABELS[design.look] : "checklist"}`;
@@ -932,8 +936,13 @@ export function motionPlanProblems(
     if (plan.primaryText.trim().length > primaryMax) out.push(`primary text over ${primaryMax} characters`);
   }
   const text = [plan.tag, title, spoken, ...lines.map((l) => l.label), ...lines.map((l) => l.skip), ...(plan.stats ?? []).map((x) => x.label), plan.headline, plan.primaryText].filter(Boolean).join(" ");
-  for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`mentions ${what}`);
+  out.push(...forbiddenIn(text));
   return out;
+}
+
+/** The banned claims a piece of ad text makes, as problems ("mentions a price or discount"). */
+export function forbiddenIn(text: string): string[] {
+  return FORBIDDEN.filter(([re]) => re.test(text)).map(([, what]) => `mentions ${what}`);
 }
 
 /**
@@ -1086,6 +1095,20 @@ function drawnFrom(input: {
   presenterUrl?: string;
 }) {
   const { design, script } = input;
+  if (design.style === "footage") {
+    // The clip is the picture and its sound the voice: the audio is the clip itself.
+    return {
+      ratio: input.ratio,
+      style: { kind: "footage" },
+      brand: input.brand,
+      headline: design.title,
+      lines: (script.shots ?? []).map((x) => ({ voice: x.voice, start: x.start ?? 0, end: x.end ?? 0, ...(x.words ? { words: x.words } : {}) })),
+      audio: input.audioUrl,
+      audioSec: input.audioSec,
+      photos: [] as Array<{ src: string }>,
+      footage: { src: input.audioUrl },
+    };
+  }
   const shots = script.shots ?? [];
   const perLine = shots.map((x) => input.photos.get(x.assetId));
   if (shots.length === 0 || perLine.some((p) => !p)) throw new Error("A line's photo is missing from the library");

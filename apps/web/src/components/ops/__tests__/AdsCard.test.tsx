@@ -48,6 +48,7 @@ const rewritePlaybook = jest.fn(async () => undefined);
 const checkActors = jest.fn(async () => undefined);
 const creatorBrief = jest.fn(async (..._args: unknown[]) => 'GoodFit Pros: on-camera read');
 const addTake = jest.fn(async (..._args: unknown[]) => 2);
+const makeFootage = jest.fn(async (..._args: unknown[]) => ({ batchId: 'b9', builtOn: 'Rodgers Painting' }));
 
 jest.mock('../../../lib/api', () => ({
   adsAPI: {
@@ -75,6 +76,7 @@ jest.mock('../../../lib/api', () => ({
     checkActors: () => checkActors(),
     creatorBrief: (...args: unknown[]) => creatorBrief(...args),
     addTake: (...args: unknown[]) => addTake(...args),
+    makeFootage: (...args: unknown[]) => makeFootage(...args),
   },
 }));
 jest.mock('../../../lib/live', () => ({
@@ -989,5 +991,21 @@ describe('Ops → Ads', () => {
     expect(timing.textContent).not.toContain('Check now');
     expect(timing.textContent).toContain('Replace on-camera take');
     expect(inMeta.textContent).not.toContain('on-camera take');
+  });
+
+  it('a job site video: a clip in the Library is made into an ad as it was shot; a photo has no such button', async () => {
+    assets = [
+      { id: 'v1', kind: 'video', fileName: 'spraying.mp4', tags: ['cabinets'], createdAt: new Date().toISOString() },
+      { id: 'p1', kind: 'photo', fileName: 'kitchen.jpg', tags: ['cabinets'], createdAt: new Date().toISOString() },
+    ];
+    await render();
+    await tab('Library');
+    const [clip, photo] = Array.from(document.body.querySelectorAll('[data-testid="asset"]'));
+    expect(photo.textContent).not.toContain('Make a job site ad');
+    const make = Array.from(clip.querySelectorAll('button')).find((b) => b.textContent === 'Make a job site ad')!;
+    await act(async () => make.click());
+    await flush();
+    expect(makeFootage).toHaveBeenCalledWith('v1');
+    expect(document.body.textContent).toContain('Making a job site ad from this clip');
   });
 });
