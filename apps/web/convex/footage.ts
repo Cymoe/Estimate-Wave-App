@@ -102,9 +102,14 @@ export const addFootage = internalMutation({
     };
     const now = new Date();
     const ids: Id<"adCreatives">[] = [];
+    // The test: each size also drawn with Tesseract, same clip and words, to compare (Settings → Tesseract).
+    const settings = (await ctx.db.query("adSettings").take(1))[0];
+    const engines = settings?.tesseractFootage === false ? [undefined] : [undefined, "tesseract" as const];
+    for (const engine of engines)
     for (const ratio of ["9x16", "4x5"] as const) {
-      let name = creativeName(hookId, ratio, now);
-      for (let n = 2; (await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first()) !== null; n++) name = `${creativeName(hookId, ratio, now)}_${n}`;
+      const base = `${creativeName(hookId, ratio, now)}${engine ? "_tx" : ""}`;
+      let name = base;
+      for (let n = 2; (await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first()) !== null; n++) name = `${base}_${n}`;
       ids.push(
         await ctx.db.insert("adCreatives", {
           batchId,
@@ -112,7 +117,7 @@ export const addFootage = internalMutation({
           ratio,
           name,
           script,
-          design: { style: "footage", title: copy.title },
+          design: { style: "footage", title: copy.title, ...(engine ? { engine } : {}) },
           assetIds: [assetId],
           // The clip's own sound is the voice.
           audioStorageId: asset.storageId,

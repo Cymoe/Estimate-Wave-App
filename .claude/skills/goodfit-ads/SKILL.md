@@ -165,6 +165,24 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 - Real footage only, as with photos: never AI-made or AI-moved. Captions come from what is heard, so check a
   name or a word that could be misheard before approving.
 
+## Tesseract test (job site videos)
+
+- The owner asked to try Tesseract (Mirage's local video engine, CLI `tsrct`) on job site videos (Nov 2026).
+  Each job site ad is also made as a Tesseract pair (`design.engine: "tesseract"`, names end `_tx`, card
+  "Job site video (Tesseract)") beside the Remotion pair: same clip, words, captions and end card. Settings →
+  "Also draw job site videos with Tesseract" switches it off.
+- The renderer sends those to `ads-video/scripts/tesseract.mjs`: a fixed recipe of Tesseract actions (no model in
+  the loop) applied with `tsrct project apply`, exported with the runner's FFmpeg. About 20 to 30 seconds per ad
+  on CPU.
+- The workflow installs the pinned CLI (0.8.0, its SHA-256 checked), Mesa lavapipe (software Vulkan, no GPU),
+  fonts-inter and FFmpeg, and turns telemetry off. If that step fails, only the Tesseract copies fail. A push
+  that changes the renderer also draws a made-up Tesseract job site video (`fixtures/tesseract.json`).
+- **Licence:** free, but commercial use by a business with US$1M or more in yearly revenue (with affiliates) needs
+  a written agreement with Mirage (terms s.2.2.3). The owner confirmed they are under it (Nov 2026). Recheck
+  if that changes. The terms also bar automated systems other than AI agents (s.3.1.1(f)); a scripted render in
+  CI is a grey area worth asking Mirage about before relying on it.
+- Judge the two by cost per booked job, as with looks. Remove whichever loses.
+
 ## Running things from a cloud session
 
 - Local `npx convex run` doesn't work here. To run a function on the live deployment, dispatch the

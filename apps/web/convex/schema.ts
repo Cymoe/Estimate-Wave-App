@@ -2644,6 +2644,8 @@ export default defineSchema({
         // In an explainer, the few words above its title naming the subject.
         tag: v.optional(v.string()),
         look: v.optional(v.union(v.literal("collage"), v.literal("markup"), v.literal("versus"))),
+        // Drawn with Tesseract instead of Remotion (ads-video/scripts/tesseract.mjs): job site videos, side by side.
+        engine: v.optional(v.literal("tesseract")),
         // A quick offer: about 9 seconds, one job, a local hook, then the free quote.
         quick: v.optional(v.boolean()),
         // How the first reel stored where to look, by photo. No longer written or read.
@@ -2836,6 +2838,8 @@ export default defineSchema({
     liveTarget: v.number(),
     // Each week also a quick offer on one job from the week's story. On unless switched off.
     quickOffer: v.optional(v.boolean()),
+    // Each job site video is also drawn with Tesseract, beside the Remotion one, to compare. On unless switched off.
+    tesseractFootage: v.optional(v.boolean()),
     // From when a batch could make several kinds of ad. No longer read.
     kinds: v.optional(v.object({ video: v.boolean(), image: v.boolean(), graphic: v.boolean() })),
     updatedAt: v.string(),

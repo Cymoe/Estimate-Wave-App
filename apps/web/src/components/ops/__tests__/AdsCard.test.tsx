@@ -159,6 +159,7 @@ beforeEach(() => {
     primaryColor: '#336699',
     accentColor: '#8fb6e0',
     voiceSource: 'elevenlabs',
+    tesseractFootage: true,
     actorVoice: 'middleAgeMale',
     actorLanguage: 'eng-us',
     weeklyEnabled: false,

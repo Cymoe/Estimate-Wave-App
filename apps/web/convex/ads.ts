@@ -1394,6 +1394,7 @@ export const settings = query({
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
       quickOffer: row?.quickOffer ?? true,
+      tesseractFootage: row?.tesseractFootage ?? true,
       ...research(row),
     };
   },
@@ -1416,6 +1417,7 @@ export const saveSettings = mutation({
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
     quickOffer: v.optional(v.boolean()),
+    tesseractFootage: v.optional(v.boolean()),
     researchKeywords: v.optional(v.array(v.string())),
     researchMarkets: v.optional(v.array(v.string())),
     researchMinDays: v.optional(v.number()),
@@ -2420,6 +2422,7 @@ export const config = internalQuery({
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       quickOffer: row?.quickOffer ?? true,
+      tesseractFootage: row?.tesseractFootage ?? true,
       ...research(row),
     };
   },
@@ -2563,6 +2566,7 @@ const adDesign = v.object({
   spare: v.optional(v.array(v.id("adAssets"))),
   tag: v.optional(v.string()),
   look: v.optional(adLook),
+  engine: v.optional(v.literal("tesseract")),
   quick: v.optional(v.boolean()),
 });
 

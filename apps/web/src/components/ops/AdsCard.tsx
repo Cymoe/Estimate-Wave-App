@@ -199,6 +199,8 @@ export interface AdSettings {
   actorVoice: string;
   actorLanguage: string;
   actorNotes?: string;
+  /** Each job site video is also drawn with Tesseract, to compare with the Remotion one. */
+  tesseractFootage: boolean;
   weeklyEnabled: boolean;
   hooksPerWeek: number;
   liveTarget: number;
@@ -1017,7 +1019,7 @@ async function stillOfClip(src: string, remote = false): Promise<{ still?: Blob;
 
 /** Whether a creator's take can still be added: a video ad not yet in Meta and not being drawn right now. */
 const takeable = (c: AdCreative) =>
-  c.kind !== 'image' && !c.meta?.adId && !['rendering', 'live', 'retired', 'rejected'].includes(c.status);
+  c.kind !== 'image' && c.style?.id !== 'footage' && !c.meta?.adId && !['rendering', 'live', 'retired', 'rejected'].includes(c.status);
 
 async function putFile(body: Blob, type: string): Promise<string> {
   const url = await adsAPI.uploadUrl();
@@ -1880,6 +1882,16 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
           disabled={!owner}
         />{' '}
         Draft a batch every Monday
+      </label>
+      <label className="text-sm text-gray-300 inline-flex items-center gap-2 ml-4">
+        <input
+          type="checkbox"
+          checked={form.tesseractFootage}
+          onChange={(e) => setForm({ ...form, tesseractFootage: e.target.checked })}
+          disabled={!owner}
+          aria-label="Also draw job site videos with Tesseract"
+        />{' '}
+        Also draw job site videos with Tesseract, to compare
       </label>
       <p className="text-xs text-gray-500">
         Each ad idea becomes one animated video in two sizes. The videos are drawn on GitHub, about three minutes each.{' '}

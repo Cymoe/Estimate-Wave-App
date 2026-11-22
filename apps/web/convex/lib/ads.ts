@@ -581,6 +581,8 @@ export interface Design {
   tag?: string;
   /** An explainer drawn as printed photo cards piled on a board, instead of a list over a full-frame photo. */
   look?: AdLook;
+  /** Drawn with Tesseract instead of Remotion: a job site video's side-by-side copy. */
+  engine?: "tesseract";
   /** A quick offer: a reel of about 9 seconds, one job, a local hook, then the free quote. */
   quick?: boolean;
 }
@@ -591,8 +593,8 @@ export const ANGLE_LABELS: Record<AdAngle, string> = { story: "Story", lesson: "
 export const angleOf = (design: { style: DesignStyle; quick?: boolean }): AdAngle => (design.quick ? "offer" : design.style === "explainer" ? "lesson" : "story");
 /** What the card in Ops → Ads calls an ad: its angle and, for a lesson, its look. */
 export const LOOK_LABELS: Record<AdLook, string> = { collage: "collage", markup: "marked-up", versus: "face-off" };
-export function designLabel(design: { style: DesignStyle; quick?: boolean; look?: AdLook }): string {
-  if (design.style === "footage") return "Job site video";
+export function designLabel(design: { style: DesignStyle; quick?: boolean; look?: AdLook; engine?: "tesseract" }): string {
+  if (design.style === "footage") return design.engine === "tesseract" ? "Job site video (Tesseract)" : "Job site video";
   const angle = angleOf(design);
   if (angle === "offer") return ANGLE_LABELS.offer;
   if (angle === "lesson") return `Lesson, ${design.look ? LOOK_LABELS[design.look] : "checklist"}`;
@@ -1107,6 +1109,8 @@ function drawnFrom(input: {
       audioSec: input.audioSec,
       photos: [] as Array<{ src: string }>,
       footage: { src: input.audioUrl },
+      // Drawn with Tesseract instead of Remotion (ads-video/scripts/tesseract.mjs).
+      ...(design.engine === "tesseract" ? { engine: "tesseract" as const } : {}),
       // Nobody talks in it: the music plays low under the job site's own sound, as work-footage ads run.
       ...(input.music && !(script.shots ?? []).length
         ? { sound: { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}), ...(input.music.beats?.length ? { beats: input.music.beats } : {}) } }

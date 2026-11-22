@@ -92,6 +92,26 @@ jobs:
             sudo apt-get install -y -qq "$pkg" >/dev/null 2>&1 || echo "skipped $pkg"
           done
 
+      # Job site videos are also drawn with Tesseract, to compare (ads-video/scripts/tesseract.mjs). A software
+      # Vulkan driver stands in for a GPU, the runner's FFmpeg writes the MP4, Inter is the font. The CLI is pinned
+      # and checked against its published checksum. If any of this fails, only the Tesseract copies fail.
+      - name: Tesseract (for the job site video test)
+        if: github.event_name == 'push' || !inputs.timed || steps.waiting.outputs.n != '0'
+        continue-on-error: true
+        env:
+          TSRCT_VERSION: 0.8.0
+          TSRCT_SHA256: ec64c9b4b6eebda8e685697b16f62f8c85283d99062d50af6000fd7bfc32a311
+        run: |
+          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan1 fonts-inter ffmpeg >/dev/null
+          zip="tesseract-${TSRCT_VERSION}-linux-x86_64.zip"
+          curl -sSLf -o "$RUNNER_TEMP/$zip" "https://github.com/mirage-hq/tesseract/releases/download/v${TSRCT_VERSION}/${zip}"
+          echo "${TSRCT_SHA256}  $RUNNER_TEMP/$zip" | sha256sum -c -
+          unzip -q -o "$RUNNER_TEMP/$zip" -d "$RUNNER_TEMP/tesseract-bundle"
+          bash "$RUNNER_TEMP/tesseract-bundle/tesseract-${TSRCT_VERSION}-linux-x86_64/install.sh" "$RUNNER_TEMP/tesseract"
+          "$RUNNER_TEMP/tesseract/bin/tsrct" telemetry disable
+          echo "TSRCT=$RUNNER_TEMP/tesseract/bin/tsrct" >> "$GITHUB_ENV"
+          echo "FFMPEG=$(command -v ffmpeg)" >> "$GITHUB_ENV"
+
       - name: Get the renderer's browser
         if: github.event_name == 'push' || !inputs.timed || steps.waiting.outputs.n != '0'
         working-directory: ads-video
@@ -106,6 +126,15 @@ jobs:
         if: github.event_name == 'push'
         working-directory: ads-video
         run: node scripts/render-queue.mjs --fixture fixtures/check.json --out out/check
+
+      # A made-up job site video drawn with Tesseract, from a test pattern made here: shows the Tesseract path works.
+      - name: Draw a made-up job site video with Tesseract
+        if: github.event_name == 'push'
+        continue-on-error: true
+        working-directory: ads-video
+        run: |
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=s=1920x1080:d=6:r=30" -f lavfi -i "sine=frequency=330:duration=6" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest fixtures/clip.mp4
+          node scripts/render-queue.mjs --fixture fixtures/tesseract.json --out out/check
 
       - name: Keep the made-up ad with the run
         if: github.event_name == 'push'

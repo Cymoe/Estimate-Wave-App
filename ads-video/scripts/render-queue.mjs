@@ -22,6 +22,7 @@ import { promisify } from "node:util";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { imageSize } from "image-size";
+import { drawWithTesseract } from "./tesseract.mjs";
 
 const run = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -221,6 +222,11 @@ async function draw(job, serveUrl, base) {
     if (still) {
       const composition = await selectComposition({ serveUrl, id: "Still", inputProps: props, browserExecutable, logLevel: "error" });
       await renderStill({ composition, serveUrl, output: file, inputProps: props, imageFormat: "jpeg", jpegQuality: 90, browserExecutable, logLevel: "error" });
+      return file;
+    }
+    // A job site video's side-by-side copy is drawn with Tesseract instead (scripts/tesseract.mjs).
+    if (props.engine === "tesseract") {
+      await drawWithTesseract(props, { publicDir: path.join(serveUrl, "public"), work: dir, output: file });
       return file;
     }
     const composition = await selectComposition({ serveUrl, id: "Ad", inputProps: props, browserExecutable, logLevel: "error" });

@@ -40,6 +40,7 @@ export const addTake = mutation({
     const c = await ctx.db.get(id);
     if (c === null) fail("NOT_FOUND", "That ad is gone");
     if (!c.design) fail("INVALID", "This ad was made before ads were drawn this way");
+    if (c.design.style === "footage") fail("INVALID", "A job site video's voice is its own sound: it takes no on-camera take");
     // Both sizes of the idea say the same lines; the still has no sound of its own.
     const sizes = (
       await ctx.db

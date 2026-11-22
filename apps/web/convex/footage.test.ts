@@ -141,7 +141,7 @@ const run = async <R>(t: T, step: () => Promise<R>) => {
 };
 
 describe("a job site video", () => {
-  test("made from a Library clip: heard, written around, and waiting to be drawn in two sizes with its own sound", async () => {
+  test("made from a Library clip: heard, written around, and waiting to be drawn in two sizes with its own sound, by each engine", async () => {
     vi.useFakeTimers();
     const { t, owner, assetId } = await ready();
     const calls: Call[] = [];
@@ -150,7 +150,14 @@ describe("a job site video", () => {
     expect(made.builtOn).toBe("Rodgers Painting");
     const batch = (await owner.as.query(api.ads.batches, {}))[0];
     expect(batch.id).toBe(made.batchId);
-    expect(batch.creatives.map((c: { ratio: string; status: string }) => `${c.ratio} ${c.status}`)).toEqual(["9x16 voiced", "4x5 voiced"]);
+    expect(batch.creatives.map((c: { ratio: string; status: string; style: { label: string } }) => `${c.ratio} ${c.status} ${c.style.label}`)).toEqual([
+      "9x16 voiced Job site video",
+      "4x5 voiced Job site video",
+      // The test: the same two sizes drawn with Tesseract, to compare.
+      "9x16 voiced Job site video (Tesseract)",
+      "4x5 voiced Job site video (Tesseract)",
+    ]);
+    expect(batch.creatives.map((c: { name: string }) => c.name).slice(2).every((n: string) => /_tx$/.test(n))).toBe(true);
     const card = batch.creatives[0] as { style: { label: string }; script: { headline: string; primaryText: string; onScreen: string[] }; hook: { basedOn?: { company: string } } };
     expect(card.style.label).toBe("Job site video");
     expect(card.script.headline).toBe("Cabinets sprayed smooth");
@@ -179,6 +186,21 @@ describe("a job site video", () => {
     const props = jobs[0].props as Record<string, any>;
     expect(props).toMatchObject({ style: { kind: "footage" }, headline: "Doors off, sprayed", footage: { src: url }, audio: url, audioSec: 9, photos: [] });
     expect(props.lines.map((l: { voice: string }) => l.voice)).toEqual(["We spray every door.", "Smooth."]);
+    expect(props.engine).toBeUndefined();
+    // The Tesseract copies are handed out the same, marked for Tesseract.
+    const tx = jobs.find((j: { name: string }) => j.name.endsWith("_tx"))!.props as Record<string, any>;
+    expect(tx).toMatchObject({ engine: "tesseract", style: { kind: "footage" }, footage: { src: url }, headline: "Doors off, sprayed" });
+  });
+
+  test("with the Tesseract test switched off in Settings, only the Remotion pair is made", async () => {
+    vi.useFakeTimers();
+    const { t, owner, assetId } = await ready();
+    await owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", weeklyEnabled: false, hooksPerWeek: 1, liveTarget: 6, tesseractFootage: false });
+    expect((await owner.as.query(api.ads.settings, {})).tesseractFootage).toBe(false);
+    stub([]);
+    await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
+    const rows = await t.run((ctx) => ctx.db.query("adCreatives").collect());
+    expect(rows.map((c) => c.design?.engine)).toEqual([undefined, undefined]);
   });
 
   test("a clip with nothing said runs with no captions; words that keep breaking the rules fail the batch with why", async () => {
@@ -187,7 +209,7 @@ describe("a job site video", () => {
     stub([], { silent: true });
     await run(silent.t, () => silent.owner.as.mutation(api.footage.make, { assetId: silent.assetId }));
     const rows = await silent.t.run((ctx) => ctx.db.query("adCreatives").collect());
-    expect(rows.map((c) => c.status)).toEqual(["voiced", "voiced"]);
+    expect(rows.map((c) => c.status)).toEqual(["voiced", "voiced", "voiced", "voiced"]);
     expect(rows[0].script.shots).toEqual([]);
 
     const bad = await ready();
