@@ -1857,6 +1857,12 @@ export const requestPage = internalQuery({
   handler: async (ctx, { token }) => await requestViewOf(ctx, token),
 });
 
+/** A failure as the owner reads it: a service that didn't answer is said plainly, the rest as it is. */
+const plainError = (error?: string) =>
+  error && /error sending request|fetch failed|timed out|ECONNRESET|network/i.test(error)
+    ? "The writing service didn't answer just then. Ask again in a minute."
+    : error;
+
 async function requestViewOf(ctx: QueryCtx, token: string) {
   if (token.length < 20) return null;
   const request = await ctx.db
@@ -1901,7 +1907,7 @@ async function requestViewOf(ctx: QueryCtx, token: string) {
     town: request.town,
     trade: request.trade ? tradeOf(request.trade).label : undefined,
     stage: requestStage(request, batch, rows),
-    error: request.error ?? batch?.error,
+    error: plainError(request.error ?? batch?.error),
     skipped: batch?.skipped ?? [],
     createdAt: request.createdAt,
     ads,
@@ -2583,6 +2589,8 @@ export const addCreatives = internalMutation({
     const assetIds = [...new Set([...(script.shots ?? []).map((s) => s.assetId), ...(design.frames ?? []).flatMap((f) => f.more ?? []), ...(design.spare ?? [])])];
     const now = new Date();
     const ids: Id<"adCreatives">[] = [];
+    // The 4:5 video's name, which its still takes: a second ad on the same idea (a quick offer, "…_2") keeps its own.
+    let fourFive = creativeName(hookId, "4x5", now);
     for (const ratio of ["9x16", "4x5"] as const) {
       let name = creativeName(hookId, ratio, now);
       for (
@@ -2594,6 +2602,7 @@ export const addCreatives = internalMutation({
         n++
       )
         name = `${creativeName(hookId, ratio, now)}_${n}`;
+      if (ratio === "4x5") fourFive = name;
       ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, name, script, design, assetIds, status: "draft", createdAt: nowIso() }));
     }
     // A still of the same ad when it shows a before and its after from one job: it shares the words and needs no voice of its own.
@@ -2610,7 +2619,7 @@ export const addCreatives = internalMutation({
             hookId,
             ratio: "4x5",
             kind: "image",
-            name: `${creativeName(hookId, "4x5", now)}_still`,
+            name: `${fourFive}_still`,
             script,
             design,
             assetIds,
@@ -3151,10 +3160,18 @@ async function readJson(res: Response, what: string): Promise<any> {
 
 /** One Claude call: content blocks in; the reply's text out, and whether it ran out of room before finishing. */
 async function claudeReply(content: unknown[], maxTokens = 1500): Promise<{ text: string; cutOff: boolean }> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
+  const ask = () =>
+    fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
+    });
+  // A request that never reached Claude (the network dropped it) is sent once more after a moment.
+  const res = await ask().catch(async () => {
+    // ADS_RETRY_MS: how long to wait first (3 seconds; tests set 0).
+    const wait = Number(process.env.ADS_RETRY_MS ?? 3000);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    return await ask();
   });
   const body = await readJson(res, "Claude");
   return { text: (body?.content ?? []).map((c: { text?: string }) => c.text ?? "").join(""), cutOff: body?.stop_reason === "max_tokens" };
