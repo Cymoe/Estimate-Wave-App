@@ -45,6 +45,8 @@ const starSwipe = jest.fn(async () => undefined);
 const researchNow = jest.fn(async (..._args: unknown[]) => undefined);
 const savePlaybook = jest.fn(async () => undefined);
 const rewritePlaybook = jest.fn(async () => undefined);
+const makeFor = jest.fn(async (..._args: unknown[]) => ({ link: 'https://app.example/ads/tok' }));
+let requests: Array<{ ask: string; createdAt: string; stage: string; link: string }> = [];
 
 jest.mock('../../../lib/api', () => ({
   adsAPI: {
@@ -69,6 +71,7 @@ jest.mock('../../../lib/api', () => ({
     researchNow: (...args: unknown[]) => researchNow(...args),
     savePlaybook: (...args: unknown[]) => savePlaybook(...args),
     rewritePlaybook: (...args: unknown[]) => rewritePlaybook(...args),
+    makeFor: (...args: unknown[]) => makeFor(...args),
   },
 }));
 jest.mock('../../../lib/live', () => ({
@@ -82,6 +85,7 @@ jest.mock('../../../lib/live', () => ({
   useAdsPlaybooks: () => playbooks,
   useAdsResearchRuns: () => runs,
   useAdsReadiness: () => readiness,
+  useAdRequests: () => requests,
 }));
 
 const flush = () =>
@@ -158,9 +162,29 @@ beforeEach(() => {
   playbooks = [];
   runs = [];
   readiness = undefined;
+  requests = [];
 });
 
 describe('Ops → Ads', () => {
+  it('"Make an ad for…" starts one from a line and lists the latest with their private links', async () => {
+    requests = [
+      { ask: 'cabinet painting in Odessa', createdAt: new Date().toISOString(), stage: 'drawing', link: 'https://app.example/ads/abc' },
+      { ask: 'roof repair', createdAt: new Date().toISOString(), stage: 'failed', link: 'https://app.example/ads/def' },
+    ];
+    await render();
+    const box = document.body.querySelector('section[aria-label="Make an ad for"]')!;
+    expect(box.textContent).toContain('"cabinet painting in Odessa"');
+    expect(box.textContent).toContain('Drawing');
+    expect(box.textContent).toContain("Couldn't be made");
+    expect(box.querySelector('a[href="https://app.example/ads/abc"]')).not.toBeNull();
+    const field = box.querySelector('#make-an-ad') as HTMLInputElement;
+    await act(async () => type(field, 'paver patio in Midland'));
+    await act(async () => (box.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(makeFor).toHaveBeenCalledWith('paver patio in Midland');
+    expect(field.value).toBe('');
+  });
+
   it('the readiness strip says whether Monday will draft, and each check opens the tab that fixes it', async () => {
     readiness = [
       { key: 'keys', label: 'Services', ok: true, hard: true, tab: 'settings', detail: 'Claude and ElevenLabs are set' },

@@ -73,7 +73,14 @@ import {
   styleFor,
   onceOnly,
   scriptLength,
+  requestPrompt,
+  readRequestReply,
+  pickRequestSwipes,
+  requestStage,
+  angleOf,
+  ANGLE_LABELS,
 } from "./lib/ads";
+import { randomToken } from "./lib/oauth";
 import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
 import { siteUrl } from "./delivery";
@@ -1696,6 +1703,198 @@ export const makeFromPhoto = internalMutation({
   },
 });
 
+// ── "Make an ad for…" ──────────────────────────────────────────────────────────
+// One line from the owner ("cabinet painting in Odessa"), from Ops → Ads or from Claude, becomes a few versions of
+// the same offer: a story and a lesson, each built on a different competitor ad, and a quick offer on the story's
+// job, in both sizes. They wait in Ops → Ads like any other, and /ads/<token> shows them being made, with no login.
+
+/** The private page for one request. */
+const requestLink = (token: string) => `${siteUrl()}/ads/${token}`;
+
+async function startRequest(ctx: MutationCtx, ask: string, startedBy?: Id<"users">) {
+  const clean = ask.replace(/\s+/g, " ").trim().slice(0, 300);
+  if (clean.length < 3) fail("INVALID", "Say what the ad is for, like \"cabinet painting in Odessa\"");
+  const token = randomToken(24);
+  const requestId = await ctx.db.insert("adRequests", { ask: clean, token, status: "reading", createdAt: nowIso(), ...(startedBy ? { startedBy } : {}) });
+  await ctx.scheduler.runAfter(0, internal.ads.readRequest, { requestId });
+  return { requestId, link: requestLink(token) };
+}
+
+/** "Make an ad for…" from Ops → Ads. */
+export const makeFor = mutation({
+  args: { ask: v.string() },
+  handler: async (ctx, { ask }) => {
+    const user = await requireStaff(ctx);
+    const { link } = await startRequest(ctx, ask, user._id);
+    return { link };
+  },
+});
+
+/** The same, from the deployment: what Claude runs when the owner asks it for an ad. */
+export const makeForInternal = internalMutation({
+  args: { ask: v.string() },
+  handler: async (ctx, { ask }) => ({ link: (await startRequest(ctx, ask)).link }),
+});
+
+export const requestRow = internalQuery({
+  args: { requestId: v.id("adRequests") },
+  handler: async (ctx, { requestId }) => await ctx.db.get(requestId),
+});
+
+export const failRequest = internalMutation({
+  args: { requestId: v.id("adRequests"), error: v.string() },
+  handler: async (ctx, { requestId, error }) => {
+    await ctx.db.patch(requestId, { status: "failed", error: error.slice(0, 400) });
+  },
+});
+
+/** Reads the line: which trade, which kind of job, which town, and what the ad offers. */
+export const readRequest = internalAction({
+  args: { requestId: v.id("adRequests") },
+  handler: async (ctx, { requestId }) => {
+    const request = await ctx.runQuery(internal.ads.requestRow, { requestId });
+    if (!request || request.status !== "reading") return;
+    try {
+      const cfg = await ctx.runQuery(internal.ads.config, {});
+      const trades = Object.values(AD_TRADES);
+      const reply = await claude([{ type: "text", text: requestPrompt(request.ask, cfg.brand.name, cfg.researchMarkets, trades) }], 500);
+      const read = readRequestReply(reply, trades);
+      if (!read) throw new Error(`Couldn't tell which kind of job that is. Name it, like "cabinet painting in Odessa" or "paver patio in Midland".`);
+      await ctx.runMutation(internal.ads.startRequestAds, { requestId, ...read });
+    } catch (e) {
+      await ctx.runMutation(internal.ads.failRequest, { requestId, error: errText(e) });
+    }
+  },
+});
+
+/** Builds the request's ideas on the competitor ads that fit it best and sends them to be written. */
+export const startRequestAds = internalMutation({
+  args: { requestId: v.id("adRequests"), trade: v.string(), scope: v.string(), town: v.optional(v.string()), idea: v.string() },
+  handler: async (ctx, { requestId, trade: slug, scope, town, idea }) => {
+    const trade = tradeOf(slug);
+    const onFile = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade.slug) && x.hook.trim());
+    const { story, lesson } = pickRequestSwipes(onFile, scope);
+    if (!story) {
+      await ctx.db.patch(requestId, { status: "failed", trade: trade.slug, scope, town, idea, error: `No ${trade.label.toLowerCase()} competitor ads on file to build it on yet.` });
+      return;
+    }
+    const hook = async (family: Family, swipe: Doc<"adSwipes">) =>
+      await ctx.db.insert("adHooks", {
+        family,
+        scope,
+        trade: trade.slug,
+        textEn: idea,
+        // Off, so the weekly run never picks it up a second time.
+        active: false,
+        uses: 0,
+        wins: 0,
+        losses: 0,
+        createdAt: nowIso(),
+        swipeId: swipe._id,
+      });
+    const hookIds = [await hook("before_after", story), ...(lesson ? [await hook("education", lesson)] : [])];
+    await ctx.db.patch(requestId, { status: "made", trade: trade.slug, scope, idea, hookIds, ...(town ? { town } : {}) });
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: hookIds, trade: trade.slug, requestId, town, quickToo: true });
+  },
+});
+
+/** One request for its private page: what was asked, how far it has got, and each ad as it comes. No login: the long token is the key. */
+export const requestView = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    if (token.length < 20) return null;
+    const request = await ctx.db
+      .query("adRequests")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .first();
+    if (!request) return null;
+    const batch = await ctx.db
+      .query("adBatches")
+      .withIndex("by_request", (q) => q.eq("requestId", request._id))
+      .first();
+    const rows = batch
+      ? (
+          await ctx.db
+            .query("adCreatives")
+            .withIndex("by_batch", (q) => q.eq("batchId", batch._id))
+            .collect()
+        ).filter((c) => c.status !== "rejected")
+      : [];
+    const ads = await Promise.all(
+      rows.map(async (c) => {
+        const hook = await ctx.db.get(c.hookId);
+        const source = hook?.swipeId ? await ctx.db.get(hook.swipeId) : null;
+        const file = c.videoStorageId ? await ctx.storage.getUrl(c.videoStorageId) : c.imageStorageId ? await ctx.storage.getUrl(c.imageStorageId) : null;
+        return {
+          name: c.name,
+          angle: c.design ? ANGLE_LABELS[angleOf(c.design)] : "Ad",
+          ratio: c.ratio,
+          image: Boolean(c.imageStorageId && !c.videoStorageId),
+          status: c.status,
+          file,
+          headline: c.script.headline,
+          lines: (c.script.shots ?? []).map((x) => x.voice).filter(Boolean),
+          primaryText: c.script.primaryText,
+          builtOn: source ? { company: source.company, daysRunning: runDays(source) } : undefined,
+        };
+      }),
+    );
+    return {
+      ask: request.ask,
+      idea: request.idea,
+      town: request.town,
+      trade: request.trade ? tradeOf(request.trade).label : undefined,
+      stage: requestStage(request, batch, rows),
+      error: request.error ?? batch?.error,
+      skipped: batch?.skipped ?? [],
+      createdAt: request.createdAt,
+      ads,
+    };
+  },
+});
+
+/** The latest requests, for Ops → Ads: what was asked, how far it got, and its link. */
+export const recentRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    const rows = await ctx.db.query("adRequests").order("desc").take(8);
+    return await Promise.all(
+      rows.map(async (r) => {
+        const batch = await ctx.db
+          .query("adBatches")
+          .withIndex("by_request", (q) => q.eq("requestId", r._id))
+          .first();
+        const ads = batch
+          ? await ctx.db
+              .query("adCreatives")
+              .withIndex("by_batch", (q) => q.eq("batchId", batch._id))
+              .collect()
+          : [];
+        return { ask: r.ask, createdAt: r.createdAt, stage: requestStage(r, batch, ads), link: requestLink(r.token) };
+      }),
+    );
+  },
+});
+
+/** How many ads wait to be drawn, so the scheduled renderer can stop at once when there are none. */
+export const waitingCount = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const voiced = await ctx.db
+      .query("adCreatives")
+      .withIndex("by_status", (q) => q.eq("status", "voiced"))
+      .take(50);
+    const stale = (
+      await ctx.db
+        .query("adCreatives")
+        .withIndex("by_status", (q) => q.eq("status", "rendering"))
+        .take(50)
+    ).filter((c) => !c.renderStartedAt || Date.now() - new Date(c.renderStartedAt).getTime() > RENDER_STALE_MS);
+    return voiced.length + stale.length;
+  },
+});
+
 /**
  * Makes ads from the ideas named, from the deployment: for when the owner asks for some to be chosen for them.
  * Only ideas still on offer (new or kept) of one trade; the rest of the set is left as it is.
@@ -2252,15 +2451,16 @@ export const plan = internalQuery({
 });
 
 export const openBatch = internalMutation({
-  args: { weekOf: v.string(), startedBy: v.optional(v.id("users")), trade: v.optional(v.string()) },
-  handler: async (ctx, { weekOf, startedBy, trade }) =>
-    await ctx.db.insert("adBatches", { trade: tradeOf(trade).slug, weekOf, status: "drafting", startedBy, createdAt: nowIso() }),
+  args: { weekOf: v.string(), startedBy: v.optional(v.id("users")), trade: v.optional(v.string()), requestId: v.optional(v.id("adRequests")) },
+  handler: async (ctx, { weekOf, startedBy, trade, requestId }) =>
+    await ctx.db.insert("adBatches", { trade: tradeOf(trade).slug, weekOf, status: "drafting", startedBy, createdAt: nowIso(), ...(requestId ? { requestId } : {}) }),
 });
 
 export const noteSkipped = internalMutation({
   args: { batchId: v.id("adBatches"), skipped: v.array(v.string()) },
   handler: async (ctx, { batchId, skipped }) => {
-    if (skipped.length) await ctx.db.patch(batchId, { skipped: skipped.map((s) => s.slice(0, 400)) });
+    // Always written, even empty: it also says the writing is over (a request's page moves on to the voice).
+    await ctx.db.patch(batchId, { skipped: skipped.map((s) => s.slice(0, 400)) });
   },
 });
 
@@ -2913,14 +3113,19 @@ export const weeklyRun = internalAction({
     trade: v.optional(v.string()),
     // For the ideas named in only: draw them as a checklist, or as a quick offer, whatever their family.
     style: v.optional(v.union(v.literal("explainer"), v.literal("quick"))),
+    // A "make an ad for…" request (makeFor): the batch is its, the town it named is the one spoken to, and the
+    // quick offer is made too, though the ideas are named.
+    requestId: v.optional(v.id("adRequests")),
+    town: v.optional(v.string()),
+    quickToo: v.optional(v.boolean()),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     const trade = tradeOf(slug);
-    const batchId = await ctx.runMutation(internal.ads.openBatch, { weekOf: weekOf(new Date()), startedBy, trade: trade.slug });
+    const batchId = await ctx.runMutation(internal.ads.openBatch, { weekOf: weekOf(new Date()), startedBy, trade: trade.slug, requestId });
     const skipped: string[] = [];
-    const town = cfg.researchMarkets[0] ?? "your town";
+    const town = askedTown ?? cfg.researchMarkets[0] ?? "your town";
     try {
       const checks: Array<{ label: string; ok: boolean; hard: boolean; detail: string }> = await ctx.runQuery(internal.ads.readinessState, {});
       const blocked = checks.find((c) => c.hard && !c.ok);
@@ -2940,7 +3145,8 @@ export const weeklyRun = internalAction({
       const lesson = firsts.findIndex((h: { family: Family }) => styleFor(h.family) === "explainer");
       if (lesson > 1) firsts.splice(1, 0, ...firsts.splice(lesson, 1));
       const hooks = only ? ranked : [...firsts, ...seconds];
-      if (liveCount >= cfg.liveTarget)
+      // A request only adds ads to look at; the cap on live ads is for the weekly run.
+      if (!requestId && liveCount >= cfg.liveTarget)
         throw new Error(`${liveCount} ads are live and the target is ${cfg.liveTarget}. Retire one under Live, or raise the target in Settings.`);
       if (hooks.length === 0) throw new Error("No active hooks. Add or switch on hooks in Ops → Ads → Hooks.");
       // An ad is drawn from photos Claude can look at.
@@ -2968,7 +3174,7 @@ export const weeklyRun = internalAction({
           ),
           offered,
           "ad",
-          (p) => motionPlanProblems(p, offered, quick ? { town: cfg.researchMarkets[0] ?? "" } : undefined, quick ? undefined : scriptLength(hook.basedOn)),
+          (p) => motionPlanProblems(p, offered, quick ? { town: askedTown ?? cfg.researchMarkets[0] ?? "" } : undefined, quick ? undefined : scriptLength(hook.basedOn)),
         );
         const { script, design } = composeMotion(
           plan,
@@ -3024,7 +3230,7 @@ export const weeklyRun = internalAction({
         }
       }
       // Each week also asks people who have seen us before: a quick offer on one job from the week's story.
-      if (!only && storyHook && cfg.quickOffer) {
+      if (storyHook && (quickToo || (!only && cfg.quickOffer))) {
         // The same job as the story is welcome here: the offer is for people who have seen it.
         const offered = pickOfferPhotos(pickAssets(photos, storyHook.scope, new Set<string>(), REEL_CANDIDATES, []).assets);
         if (offered.length) {

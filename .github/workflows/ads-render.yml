@@ -5,13 +5,21 @@ name: Draw the ads
 # back to the deployment named by the CONVEX_DEPLOY_KEY secret.
 #
 # Started by the app when it holds a token for it (ADS_RENDER_TOKEN on the
-# deployment), or by hand from the Actions tab. A push that changes the
+# deployment), by hand from the Actions tab, or every few minutes by the timer
+# in ads-render-timer.yml (on the default branch, where GitHub keeps timers).
+# A timed run asks the backend first and stops at once when nothing waits, so
+# an ad asked for with "make an ad for…" is drawn without anyone starting it. A push that changes the
 # renderer draws one made-up ad instead and keeps the file with the run, to
 # show the renderer still works; it leaves the waiting ads alone. (That push
 # run is also what makes the workflow startable from this branch.)
 
 on:
   workflow_dispatch:
+    inputs:
+      timed:
+        description: Started by the timer; stop at once if nothing waits
+        type: boolean
+        default: false
   push:
     branches: [fieldquote-convex]
     paths:
@@ -33,7 +41,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Check deploy key
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'push'
         env:
           RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: |
@@ -57,14 +65,26 @@ jobs:
             ads-video/package-lock.json
 
       - name: Install the app (for the calls to the backend)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'push'
         run: npm ci --no-audit --no-fund
 
+      # A timed run stops here when nothing waits to be drawn, before the renderer and its browser are fetched.
+      - name: Anything waiting?
+        id: waiting
+        if: github.event_name == 'workflow_dispatch' && inputs.timed
+        working-directory: apps/web
+        run: |
+          n=$(npx convex run ads:waitingCount '{}' | tr -dc '0-9')
+          echo "Waiting to be drawn: ${n:-0}"
+          echo "n=${n:-0}" >> "$GITHUB_OUTPUT"
+
       - name: Install the renderer
+        if: github.event_name == 'push' || !inputs.timed || steps.waiting.outputs.n != '0'
         working-directory: ads-video
         run: npm ci --no-audit --no-fund
 
       - name: What the renderer's browser needs
+        if: github.event_name == 'push' || !inputs.timed || steps.waiting.outputs.n != '0'
         # The runner already carries most of these for its own Chrome; a name that isn't there is passed over.
         run: |
           sudo apt-get update -qq || true
@@ -73,21 +93,22 @@ jobs:
           done
 
       - name: Get the renderer's browser
+        if: github.event_name == 'push' || !inputs.timed || steps.waiting.outputs.n != '0'
         working-directory: ads-video
         run: npx remotion browser ensure
 
       - name: Draw what's waiting
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && (!inputs.timed || steps.waiting.outputs.n != '0')
         working-directory: ads-video
         run: node scripts/render-queue.mjs
 
       - name: Draw the made-up ad
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name == 'push'
         working-directory: ads-video
         run: node scripts/render-queue.mjs --fixture fixtures/check.json --out out/check
 
       - name: Keep the made-up ad with the run
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: check-ad
