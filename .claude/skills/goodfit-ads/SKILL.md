@@ -123,10 +123,28 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 - Env on the deployment: `BUNNY_STUDIO_TOKEN` (or `BUNNY_STUDIO_EMAIL` + `BUNNY_STUDIO_PASSWORD`).
   `BUNNY_STUDIO_TEST=1` orders test projects that aren't recorded or billed. Bunny Studio has to enable API
   access on the account first. `ELEVENLABS_API_KEY` is still needed for the timing.
-- **On camera:** no creator marketplace takes orders by API. Each ad card has "Copy on-camera brief": the lines
-  and how to film them on a green screen, to send to a creator by hand. Drawing a creator in front of the
-  photos isn't built yet. An actor on camera must speak as the company's spokesperson, never as a customer or
-  as the person who did the work.
+- **Webhook:** Bunny Studio can call `POST <site>/bunny-studio/notify` (http.ts), so a read is taken in at once
+  (`voiceActors:checkProject`) instead of on the half-hourly check, which stays as the safety net. Bunny Studio
+  sets it up on their side and signs its calls with HTTP basic auth. Give them the URL plus the user and password
+  set as `BUNNY_STUDIO_WEBHOOK_USER` and `BUNNY_STUDIO_WEBHOOK_PASSWORD` on the deployment. With either unset,
+  every call is refused.
+
+## An on-camera creator
+
+- No creator marketplace takes orders by API. Each ad card has "Copy on-camera brief": the lines and how to film
+  them on a green screen, to send to a creator by hand.
+- The take comes back by hand too: "Add on-camera take" on the ad card (`onCamera:addTake`). It goes on both sizes
+  of the idea, and the ad waits as "Timing the take". The take is timed and checked against the script like a
+  voice actor's read (under 80% of the words fails the ad, with the reason). Then it becomes the voice: its own
+  sound is the ad's audio.
+- The renderer stands the creator low on the right in front of the photos (`ads-video/src/parts/Presenter.tsx`).
+  Each frame is keyed in the page (`keyGreen`): any pixel the green dominates goes see-through and green spill
+  is pulled back. No key colour has to be picked, but green clothes vanish too: the brief says so. The end card
+  covers the creator at the ask.
+- An ad already in Meta can't take one: reject it, make it again, and add the take to the new one.
+- A creator on camera must speak as the company's spokesperson, never as a customer or as the person who did
+  the work. Real people only: never an AI presenter.
+- **The on-camera look is new: show the owner a sample with a real take before any of these ads go live.**
 
 ## Running things from a cloud session
 

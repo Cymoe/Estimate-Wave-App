@@ -231,3 +231,28 @@ export function creatorBrief(opts: { brand: string; headline: string; lines: str
     "Send back: one video file per line (or one file with all the lines in order), unedited, with the sound.",
   ].join("\n");
 }
+
+/**
+ * Bunny Studio's notifications that can change what an order is waiting for: a read is in (or was redone), or the
+ * order was called off. The rest (invitations, assignment) are left to the half-hourly check.
+ */
+export const WEBHOOK_EVENTS = ["deliverable_ready", "deliverable_approved", "revision_created", "deliverable_rejected", "project_canceled", "project_completed"];
+
+/**
+ * Whether a webhook call carries the user and password Bunny Studio was given (HTTP basic auth, the only way it
+ * signs its calls). Both must be set on the deployment, so an unset pair never lets anyone in.
+ */
+export function webhookAuthOk(header: string | null, user: string | undefined, password: string | undefined): boolean {
+  if (!user || !password || !header?.startsWith("Basic ")) return false;
+  let given: string;
+  try {
+    given = atob(header.slice(6).trim());
+  } catch {
+    return false;
+  }
+  const want = `${user}:${password}`;
+  // Same time whatever the mismatch, so the password can't be guessed a letter at a time.
+  let diff = given.length ^ want.length;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ given.charCodeAt(i % Math.max(1, given.length));
+  return diff === 0;
+}

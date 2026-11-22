@@ -93,6 +93,8 @@ export interface AdCreative {
   error?: string;
   /** The voice actor's order at Bunny Studio, when a real person reads this one. */
   actor?: { orderedAt: string; price?: number; test?: boolean };
+  /** An on-camera creator's take, when one was added: it is the voice, and they stand in front of the photos. */
+  presenter?: { addedAt: string };
   script: { voice: string; onScreen: string[]; headline: string; primaryText: string };
   hook: { id: string; family: string; familyLabel: string; scope: string; textEn: string; basedOn?: BasedOn } | null;
   /** How it moves ("Light-up", "Before / after", "Counter"); none on ads from before. */
@@ -704,12 +706,14 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
         <span
           className={`${chip} ${c.status === 'live' ? 'text-emerald-300 border-emerald-900' : c.status === 'failed' ? 'text-red-300 border-red-900' : ''}`}
         >
-          {STATUS_LABELS[c.status]}
+          {c.status === 'recording' && c.presenter ? 'Timing the take' : STATUS_LABELS[c.status]}
         </span>
+        {c.presenter && <span className={chip}>On camera</span>}
       </p>
       <p className="text-sm text-white">{c.script.headline}</p>
       <p className="text-xs text-gray-400">{c.script.primaryText}</p>
-      {c.actor && (
+      {c.presenter && <p className="text-xs text-gray-400">Creator's take added {ago(c.presenter.addedAt)}</p>}
+      {c.actor && !c.presenter && (
         <p className="text-xs text-gray-400">
           {c.status === 'recording' ? 'Voice actor ordered' : 'Read by a voice actor'} {ago(c.actor.orderedAt)}
           {c.actor.price !== undefined ? ` · $${c.actor.price.toFixed(2)}` : ''}
@@ -735,7 +739,7 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
       </div>
     )}
     <div className="flex flex-wrap gap-2 p-3 pt-0">
-      {c.status === 'recording' && (
+      {c.status === 'recording' && !c.presenter && (
         <button type="button" className={secondary} onClick={() => act(() => adsAPI.checkActors(), 'Checking Bunny Studio for the read.')}>
           Check now
         </button>
@@ -752,6 +756,26 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
       >
         Copy on-camera brief
       </button>
+      {takeable(c) && (
+        <label className={`${secondary} cursor-pointer`}>
+          {c.presenter ? 'Replace on-camera take' : 'Add on-camera take'}
+          <input
+            type="file"
+            accept="video/*"
+            className="sr-only"
+            aria-label={`On-camera take for ${c.name}`}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              void act(async () => {
+                const storageId = await putFile(file, file.type || 'video/mp4');
+                await adsAPI.addTake(c.id, storageId, file.name);
+              }, 'Take added. It is checked against the script, then drawn with the creator in front of the photos.');
+            }}
+          />
+        </label>
+      )}
     </div>
   </li>
 );
@@ -873,6 +897,10 @@ async function makeStill(file: File): Promise<{ still?: Blob; durationSec?: numb
     URL.revokeObjectURL(src);
   }
 }
+
+/** Whether a creator's take can still be added: a video ad not yet in Meta and not being drawn right now. */
+const takeable = (c: AdCreative) =>
+  c.kind !== 'image' && !c.meta?.adId && !['rendering', 'live', 'retired', 'rejected'].includes(c.status);
 
 async function putFile(body: Blob, type: string): Promise<string> {
   const url = await adsAPI.uploadUrl();

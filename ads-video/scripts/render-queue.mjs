@@ -186,6 +186,13 @@ async function localProps(job, serveDir, base) {
     await writeFile(voice, await bytesOf(job.props.audio, base));
     audio = `${folder}/${path.basename(await evenVoice(voice))}`;
   }
+  // An on-camera creator's take is fetched whole; the page keys out its green as it draws each frame.
+  let presenter = job.props.presenter;
+  if (presenter?.src) {
+    const take = path.join(serveDir, "public", folder, "take.mp4");
+    await writeFile(take, await bytesOf(presenter.src, base));
+    presenter = { src: `${folder}/take.mp4` };
+  }
   // Music is fetched like a photo; the effects are files the renderer carries, so they stay as they are.
   let sound = job.props.sound;
   if (sound?.music) {
@@ -194,7 +201,7 @@ async function localProps(job, serveDir, base) {
     const even = await evenMusic(music, sound.musicFrom);
     sound = { ...sound, music: `${folder}/${path.basename(even.file)}`, musicFrom: even.from };
   }
-  return { props: { ...job.props, photos, lines, ...(spare.length ? { spare } : {}), audio, ...(sound ? { sound } : {}) }, dir };
+  return { props: { ...job.props, photos, lines, ...(spare.length ? { spare } : {}), audio, ...(sound ? { sound } : {}), ...(presenter ? { presenter } : {}) }, dir };
 }
 
 async function draw(job, serveUrl, base) {

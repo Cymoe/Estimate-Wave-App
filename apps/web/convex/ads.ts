@@ -1849,6 +1849,8 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
     meta: c.meta,
     // The voice actor's order, while it is out and after.
     actor: c.actor ? { orderedAt: c.actor.orderedAt, price: c.actor.price, test: c.actor.test } : undefined,
+    // An on-camera creator's take, when one was added.
+    presenter: c.presenter ? { addedAt: c.presenter.addedAt } : undefined,
     week: c.week,
     baselineCtr: c.baselineCtr,
     fatigued: c.week ? isFatigued({ frequency: c.week.frequency, ctr: c.week.ctr, baselineCtr: c.baselineCtr ?? null }) : false,
@@ -2707,6 +2709,7 @@ export const renderInputOf = internalQuery({
         audioSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
         brand,
         music,
+        presenterUrl: c.presenter ? ((await ctx.storage.getUrl(c.presenter.storageId)) ?? undefined) : undefined,
       }),
     };
   },
@@ -2758,6 +2761,7 @@ export const claimRenders = internalMutation({
           audioSec: c.audioDurationSec ?? Math.max(8, c.script.voice.split(/\s+/).length / 2.6),
           brand,
           music,
+          presenterUrl: c.presenter ? ((await ctx.storage.getUrl(c.presenter.storageId)) ?? undefined) : undefined,
         });
         let props: ReturnType<typeof renderProps> | NonNullable<ReturnType<typeof stillProps>> = reel;
         if (c.kind === "image") {

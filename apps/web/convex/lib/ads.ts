@@ -1065,7 +1065,13 @@ export function stillPairOf(
   return a < 0 ? null : { before: b, after: a };
 }
 
-export function renderProps(input: {
+export function renderProps(input: Parameters<typeof drawnFrom>[0]) {
+  const props = drawnFrom(input);
+  // An on-camera creator's take: stood in front of the photos, its own sound the voice (audioUrl is the same file).
+  return input.presenterUrl ? { ...props, presenter: { src: input.presenterUrl } } : props;
+}
+
+function drawnFrom(input: {
   ratio: "9x16" | "4x5";
   design: Design;
   script: Script;
@@ -1076,6 +1082,8 @@ export function renderProps(input: {
   brand: Brand;
   /** The music a reel plays under the voice, and where its beats fall; none plays without one. */
   music?: { url: string; from?: number; beats?: number[] };
+  /** An on-camera creator's take, keyed and stood in front of the photos. */
+  presenterUrl?: string;
 }) {
   const { design, script } = input;
   const shots = script.shots ?? [];

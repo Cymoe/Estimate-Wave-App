@@ -2669,6 +2669,9 @@ export default defineSchema({
         checkedAt: v.optional(v.string()),
       }),
     ),
+    // An on-camera creator's take (onCamera.ts): a video of them saying the lines in front of a green screen. Its
+    // sound is the ad's voice, and the renderer keys out the green and stands them in front of the photos.
+    presenter: v.optional(v.object({ storageId: v.id("_storage"), addedAt: v.string() })),
     createdAt: v.string(),
     activatedAt: v.optional(v.string()),
     retiredAt: v.optional(v.string()),

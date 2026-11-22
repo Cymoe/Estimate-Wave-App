@@ -112,7 +112,8 @@ export const outstanding = internalQuery({
       .take(200);
     const byProject = new Map<string, Order>();
     for (const c of waiting) {
-      if (!c.actor) continue;
+      // An ad waiting on a creator's take being timed (onCamera.ts) isn't waiting on Bunny Studio.
+      if (!c.actor || c.presenter) continue;
       const group = byProject.get(c.actor.projectId) ?? { projectId: c.actor.projectId, ids: [], heldBack: c.actor.heldBack ?? [] };
       group.ids.push(c._id);
       byProject.set(c.actor.projectId, group);
@@ -160,7 +161,7 @@ export const noteUsed = internalMutation({
 });
 
 /** When each word of a read was said, from ElevenLabs' speech-to-text. */
-async function heardWords(audio: Blob): Promise<HeardWord[]> {
+export async function heardWords(audio: Blob): Promise<HeardWord[]> {
   if (!process.env.ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY isn't set, so the read can't be timed");
   const form = new FormData();
   form.set("model_id", "scribe_v2");
@@ -233,6 +234,19 @@ export const checkOrders = internalAction({
     const token = await bunnyToken();
     for (const group of groups) await takeIn(ctx, token, group);
     return groups.length;
+  },
+});
+
+/** One project, as soon as Bunny Studio says something happened to it (the webhook in http.ts). */
+export const checkProject = internalAction({
+  args: { projectId: v.string() },
+  handler: async (ctx, { projectId }): Promise<boolean> => {
+    const groups: Order[] = await ctx.runQuery(internal.voiceActors.outstanding, {});
+    const group = groups.find((g) => g.projectId === projectId);
+    // Not one of ours, or already taken in.
+    if (!group) return false;
+    await takeIn(ctx, await bunnyToken(), group);
+    return true;
   },
 });
 

@@ -47,6 +47,7 @@ const savePlaybook = jest.fn(async () => undefined);
 const rewritePlaybook = jest.fn(async () => undefined);
 const checkActors = jest.fn(async () => undefined);
 const creatorBrief = jest.fn(async (..._args: unknown[]) => 'GoodFit Pros: on-camera read');
+const addTake = jest.fn(async (..._args: unknown[]) => 2);
 
 jest.mock('../../../lib/api', () => ({
   adsAPI: {
@@ -73,6 +74,7 @@ jest.mock('../../../lib/api', () => ({
     rewritePlaybook: (...args: unknown[]) => rewritePlaybook(...args),
     checkActors: () => checkActors(),
     creatorBrief: (...args: unknown[]) => creatorBrief(...args),
+    addTake: (...args: unknown[]) => addTake(...args),
   },
 }));
 jest.mock('../../../lib/live', () => ({
@@ -934,5 +936,58 @@ describe('Ops → Ads', () => {
     await flush();
     expect(creatorBrief).toHaveBeenCalledWith('c1');
     expect(writeText).toHaveBeenCalledWith('GoodFit Pros: on-camera read');
+  });
+
+  it("an on-camera take: uploaded and put on the ad; an ad timing its take says so; none can be added once it's in Meta", async () => {
+    batches = [
+      {
+        id: 'b1',
+        weekOf: '2026-11-23',
+        status: 'drafting',
+        createdAt: new Date().toISOString(),
+        creatives: [creative({ id: 'c1', status: 'voiced', videoUrl: undefined, meta: undefined })],
+      },
+    ];
+    const posted: Array<{ url: string; type: string | null }> = [];
+    const realFetch = global.fetch;
+    global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      posted.push({ url: String(url), type: new Headers(init?.headers).get('Content-Type') });
+      return { ok: true, status: 200, json: async () => ({ storageId: 'st1' }) } as Response;
+    }) as unknown as typeof fetch;
+    try {
+      await render();
+      const input = document.body.querySelector('input[aria-label="On-camera take for WL_abc123_916_20261102"]') as HTMLInputElement;
+      expect(input.closest('label')!.textContent).toContain('Add on-camera take');
+      const file = new File(['take'], 'IMG_0412.MOV', { type: 'video/quicktime' });
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+      await flush();
+      expect(posted).toEqual([{ url: 'https://upload.example/u1', type: 'video/quicktime' }]);
+      expect(addTake).toHaveBeenCalledWith('c1', 'st1', 'IMG_0412.MOV');
+    } finally {
+      global.fetch = realFetch;
+    }
+
+    document.body.innerHTML = '';
+    batches = [
+      {
+        id: 'b1',
+        weekOf: '2026-11-23',
+        status: 'drafting',
+        createdAt: new Date().toISOString(),
+        creatives: [
+          creative({ id: 'c1', status: 'recording', videoUrl: undefined, meta: undefined, presenter: { addedAt: new Date().toISOString() } }),
+          creative({ id: 'c2', ratio: '4x5', status: 'paused' }),
+        ],
+      },
+    ];
+    await render();
+    const [timing, inMeta] = Array.from(document.body.querySelectorAll('[data-testid="creative"]'));
+    expect(timing.textContent).toContain('Timing the take');
+    expect(timing.textContent).toContain('On camera');
+    expect(timing.textContent).not.toContain('With the voice actor');
+    expect(timing.textContent).not.toContain('Check now');
+    expect(timing.textContent).toContain('Replace on-camera take');
+    expect(inMeta.textContent).not.toContain('on-camera take');
   });
 });

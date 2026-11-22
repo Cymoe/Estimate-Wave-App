@@ -8,6 +8,7 @@ import { addOAuthRoutes } from "./lib/oauthRoutes";
 import { addMcpRoutes } from "./lib/mcpServer";
 import { addRecruitingRoutes } from "./recruiting/routes";
 import { addEmailRoutes } from "./lib/emailRoutes";
+import { WEBHOOK_EVENTS, webhookAuthOk } from "./lib/voiceActors";
 
 const http = httpRouter();
 
@@ -63,6 +64,32 @@ http.route({
       summary: result.summary,
     });
     return json({ id: result.id, duplicate: result.duplicate, repeat: result.repeat }, result.repeat ? 200 : 201);
+  }),
+});
+
+/**
+ * Bunny Studio's webhook (voiceActors.ts): it calls here when something happens to an order, so a voice actor's
+ * read is taken in at once instead of at the next half-hourly check. Bunny Studio signs its calls with HTTP basic
+ * auth, the user and password it was given: BUNNY_STUDIO_WEBHOOK_USER and BUNNY_STUDIO_WEBHOOK_PASSWORD on the
+ * deployment. It answers 200 once it has read the call, so Bunny Studio stops retrying; the work runs after.
+ */
+http.route({
+  path: "/bunny-studio/notify",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!webhookAuthOk(request.headers.get("authorization"), process.env.BUNNY_STUDIO_WEBHOOK_USER, process.env.BUNNY_STUDIO_WEBHOOK_PASSWORD))
+      return json({ error: "Wrong user or password" }, 401);
+    let body: { projectId?: unknown; status?: unknown } | null = null;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "Send JSON" }, 400);
+    }
+    const projectId = typeof body?.projectId === "string" ? body.projectId : "";
+    const status = typeof body?.status === "string" ? body.status : "";
+    if (!projectId) return json({ error: "No projectId" }, 400);
+    if (WEBHOOK_EVENTS.includes(status)) await ctx.scheduler.runAfter(0, internal.voiceActors.checkProject, { projectId });
+    return json({ ok: true });
   }),
 });
 

@@ -4,6 +4,7 @@ import { BrandChip, ProgressBar } from "./parts/Chrome";
 import { Captions } from "./parts/Captions";
 import { EndCard } from "./parts/EndCard";
 import { Headline } from "./parts/Headline";
+import { Presenter } from "./parts/Presenter";
 import { Canvas } from "./formats/Canvas";
 import { Chat } from "./formats/Chat";
 import { Collage } from "./formats/Collage";
@@ -84,6 +85,7 @@ export const Ad: React.FC<AdProps> = (props) => {
       ) : style.kind === "stockMix" || reel ? null : (
         <LightUp {...props} runs={runs} />
       )}
+      {props.presenter ? <Presenter src={props.presenter.src} ratio={props.ratio} /> : null}
       {style.kind === "chat" ? null : <BrandChip brand={props.brand} ratio={props.ratio} />}
       <EndCard brand={props.brand} ratio={props.ratio} from={closeAt} punch={props.punch} />
       {(wordsOnly && !explainer) || (style.kind === "explainer" && style.look === "kinetic") ? null : <Captions lines={props.lines} ratio={props.ratio} accent={props.brand.accentColor} phrases={reel || explainer} />}

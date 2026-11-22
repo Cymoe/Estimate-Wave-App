@@ -134,6 +134,11 @@ export type AdProps = {
    * fade; no flashes. `false` draws the old cut-and-zoom reel, for comparison only.
    */
   steady?: boolean;
+  /**
+   * An on-camera creator's take, filmed in front of a green screen: keyed and stood in front of the photos
+   * (parts/Presenter.tsx). Its sound is the voice, so `audio` is the same file.
+   */
+  presenter?: { src: string };
 };
 
 export const FPS = 30;

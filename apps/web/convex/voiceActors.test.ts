@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { shotTimings, wordTimings } from "./lib/ads";
-import { ACTOR_DIRECTION, READ_MATCH_MIN, actorProjectBody, alignmentFromWords, creatorBrief, mp3Of, readyRead } from "./lib/voiceActors";
+import { ACTOR_DIRECTION, READ_MATCH_MIN, actorProjectBody, alignmentFromWords, creatorBrief, mp3Of, readyRead, webhookAuthOk } from "./lib/voiceActors";
+import { isVideo } from "./onCamera";
 import { setup, signUp } from "./test.setup";
 
 afterEach(() => {
@@ -117,7 +118,7 @@ async function writtenAd(t: T, userId: Id<"users">) {
     };
     const ids: Id<"adCreatives">[] = [];
     for (const ratio of ["9x16", "4x5"] as const)
-      ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, name: `WL_abcdef_${ratio === "9x16" ? "916" : "45"}_20261123`, script, assetIds: [assetId], status: "draft", createdAt: now }));
+      ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, name: `WL_abcdef_${ratio === "9x16" ? "916" : "45"}_20261123`, script, design: { style: "reel", title: "Doors off" }, assetIds: [assetId], status: "draft", createdAt: now }));
     return { ids, batchId };
   });
 }
@@ -314,5 +315,132 @@ describe("a real voice actor reads the ad", () => {
     const brief = await owner.as.query(api.voiceActors.creatorBrief, { id: ad.ids[0] });
     expect(brief).toContain("1. We took every door off.");
     await expect(t.query(api.voiceActors.creatorBrief, { id: ad.ids[0] })).rejects.toThrow();
+  });
+});
+
+describe("Bunny Studio's webhook", () => {
+  const basic = (user: string, pass: string) => `Basic ${btoa(`${user}:${pass}`)}`;
+
+  test("only the user and password it was given get in, and an unset pair lets no one in", () => {
+    expect(webhookAuthOk(basic("bunny", "s3cret"), "bunny", "s3cret")).toBe(true);
+    expect(webhookAuthOk(basic("bunny", "s3cre"), "bunny", "s3cret")).toBe(false);
+    expect(webhookAuthOk(basic("bunny", "s3cretX"), "bunny", "s3cret")).toBe(false);
+    expect(webhookAuthOk(basic("", ""), undefined, undefined)).toBe(false);
+    expect(webhookAuthOk(null, "bunny", "s3cret")).toBe(false);
+    expect(webhookAuthOk("Basic %%%", "bunny", "s3cret")).toBe(false);
+    expect(webhookAuthOk("Bearer x", "bunny", "s3cret")).toBe(false);
+  });
+
+  test("a read that is ready is taken in at once; a wrong password is refused; other news is left to the half-hourly check", async () => {
+    vi.useFakeTimers();
+    const { t, ad, run, rows } = await actorSetup({ BUNNY_STUDIO_TOKEN: "bunny-token", BUNNY_STUDIO_WEBHOOK_USER: "bunny", BUNNY_STUDIO_WEBHOOK_PASSWORD: "s3cret" });
+    const calls: Call[] = [];
+    stubServices(calls, { reads: () => [{ id: "d1", serviceSubCategory: "voice_over", status: "reviewable", urls: { mp3: "https://files.bunny.example/part1.mp3" } }] });
+    await run(() => t.action(internal.ads.voice, { ids: ad.ids }));
+    const notify = (body: unknown, auth = basic("bunny", "s3cret")) =>
+      t.fetch("/bunny-studio/notify", { method: "POST", headers: { authorization: auth, "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    expect((await notify({ projectId: "proj-1", status: "deliverable_ready" }, basic("bunny", "nope"))).status).toBe(401);
+    expect((await notify({ status: "deliverable_ready" })).status).toBe(400);
+    // Assigned to an actor: nothing to take in yet, so nothing is asked of Bunny Studio.
+    const before = calls.length;
+    expect((await notify({ projectId: "proj-1", status: "project_assigned" })).status).toBe(200);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(calls.length).toBe(before);
+    expect((await rows())[0]!.status).toBe("recording");
+
+    const res = await notify({ projectId: "proj-1", mainService: "voice_over", deliverableId: "d1", status: "deliverable_ready", urls: { part001: "https://files.bunny.example/part1.mp3" } });
+    expect(res.status).toBe(200);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect((await rows()).map((c) => c!.status)).toEqual(["voiced", "voiced"]);
+    // Someone else's project is answered and ignored.
+    expect((await notify({ projectId: "not-ours", status: "deliverable_ready" })).status).toBe(200);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+});
+
+describe("an on-camera creator's take", () => {
+  /** A take of the lines on file, in storage. */
+  const upload = (t: T, body = "take") => t.run((ctx) => ctx.storage.store(new Blob([body], { type: "video/mp4" })));
+
+  async function cameraSetup() {
+    const s = await actorSetup({});
+    // The ElevenLabs voice reads the ads; the take replaces it on this one.
+    await s.owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", voiceSource: "elevenlabs", weeklyEnabled: false, hooksPerWeek: 1, liveTarget: 6 });
+    return s;
+  }
+
+  test("added to one size, it goes on both; the take is timed, becomes the voice, and the renderer is given it to key", async () => {
+    vi.useFakeTimers();
+    const { t, owner, ad, run, rows } = await cameraSetup();
+    const calls: Call[] = [];
+    stubServices(calls);
+    const storageId = await upload(t);
+    expect(await run(() => owner.as.mutation(api.onCamera.addTake, { id: ad.ids[1], storageId, fileName: "take.mp4" }))).toBe(2);
+    const [a, b] = await rows();
+    expect([a!.status, b!.status]).toEqual(["voiced", "voiced"]);
+    expect(a!.presenter!.storageId).toBe(storageId);
+    // Its sound is the voice: the same file.
+    expect(a!.audioStorageId).toBe(storageId);
+    expect(b!.audioStorageId).toBe(storageId);
+    expect(a!.audioDurationSec).toBe(7.4);
+    // Speech-to-text was sent the take itself, not a link.
+    const heard = calls.filter((c) => c.url.includes("speech-to-text"));
+    expect(heard).toHaveLength(1);
+    // The renderer is handed the take with the rest.
+    const jobs = await t.mutation(internal.ads.claimRenders, {});
+    const job = jobs.find((j: { id: string }) => j.id === ad.ids[0])!;
+    const url = await t.run((ctx) => ctx.storage.getUrl(storageId));
+    expect((job.props as { presenter?: { src: string } }).presenter).toEqual({ src: url });
+    expect((job.props as { audio: string }).audio).toBe(url);
+    // And the card says so.
+    const batch = (await owner.as.query(api.ads.batches, {}))[0];
+    expect(batch.creatives.every((c: { presenter?: unknown }) => c.presenter)).toBe(true);
+  });
+
+  test("a take that doesn't follow the script fails the ad with the reason; a new take replaces it and the old file goes", async () => {
+    vi.useFakeTimers();
+    const { t, owner, ad, run, rows } = await cameraSetup();
+    let good = false;
+    stubServices([], { heard: () => (good ? heardAll() : heardAll(["Hey", "check", "out", "my", "channel"])) });
+    const first = await upload(t, "take one");
+    await run(() => owner.as.mutation(api.onCamera.addTake, { id: ad.ids[0], storageId: first, fileName: "IMG_0412.MOV" }));
+    let [a] = await rows();
+    expect(a!.status).toBe("failed");
+    expect(a!.error).toMatch(/The take doesn't follow the script \(\d+ of 15 words heard\)\. Ask the creator for another take/);
+
+    good = true;
+    const second = await upload(t, "take two");
+    await run(() => owner.as.mutation(api.onCamera.addTake, { id: ad.ids[0], storageId: second, fileName: "take2.mp4" }));
+    [a] = await rows();
+    expect(a!.status).toBe("voiced");
+    expect(a!.error).toBeUndefined();
+    expect(a!.presenter!.storageId).toBe(second);
+    expect(await t.run((ctx) => ctx.storage.getUrl(first))).toBeNull();
+  });
+
+  test("a take is told by its type, or its name without one; not a video, not staff, or already in Meta: refused", async () => {
+    expect(isVideo("video/quicktime")).toBe(true);
+    expect(isVideo(undefined, "IMG_0412.MOV")).toBe(true);
+    expect(isVideo("image/jpeg", "take.mp4")).toBe(false);
+    expect(isVideo(undefined, "kitchen.jpg")).toBe(false);
+    const { t, owner, ad } = await cameraSetup();
+    const photo = await upload(t);
+    await expect(owner.as.mutation(api.onCamera.addTake, { id: ad.ids[0], storageId: photo, fileName: "kitchen.jpg" })).rejects.toThrow("A take is a video file");
+    const take = await upload(t);
+    await expect(t.mutation(api.onCamera.addTake, { id: ad.ids[0], storageId: take, fileName: "take.mp4" })).rejects.toThrow();
+    await t.run((ctx) => ctx.db.patch(ad.ids[1], { status: "paused", meta: { adId: "ad1" } }));
+    await expect(owner.as.mutation(api.onCamera.addTake, { id: ad.ids[0], storageId: take, fileName: "take.mp4" })).rejects.toThrow("already in Meta");
+    expect((await t.run((ctx) => ctx.db.get(ad.ids[0])))!.presenter).toBeUndefined();
+  });
+
+  test("an ad waiting on its take isn't mistaken for a voice actor order", async () => {
+    const { t, ad } = await cameraSetup();
+    await t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob(["take"], { type: "video/mp4" }));
+      for (const id of ad.ids)
+        await ctx.db.patch(id, { status: "recording", presenter: { storageId, addedAt: new Date().toISOString() }, actor: { projectId: "old", orderedAt: new Date().toISOString() } });
+    });
+    expect(await t.query(internal.voiceActors.outstanding, {})).toEqual([]);
   });
 });
