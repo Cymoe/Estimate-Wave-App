@@ -1,29 +1,79 @@
-name: Draw waiting ads (timer)
+name: Draw waiting ads (watcher)
 
-# GitHub only keeps timers on the default branch, and the ad maker lives on
-# fieldquote-convex. Every few minutes this starts the ad renderer there
-# (ads-render.yml with timed: true), which asks the backend first and stops at
-# once when no ad is waiting. An ad asked for with "make an ad for…" is drawn
-# without anyone starting the renderer by hand.
+# The ad maker lives on fieldquote-convex; its renderer (ads-render.yml) only
+# starts when something starts it. This watcher asks the backend once a minute
+# whether any ad waits to be drawn and, when one does and no drawing is under
+# way, starts the renderer. An ad asked for with "make an ad for…" is drawn
+# within a minute or two of its voice, with nobody starting anything.
+#
+# A run watches for a little under six hours (GitHub's limit for a job) and
+# then starts the next one, so the watch never stops. The timer below is only a
+# backstop that restarts it if a hand-off is ever missed; GitHub runs timers
+# late, and only from the default branch, which is why this file is on main.
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '17 */3 * * *'
   workflow_dispatch:
 
 permissions:
   actions: write
+  contents: read
 
+# One watcher at a time; the next waits for this one to finish.
 concurrency:
-  group: ads-render-timer
-  cancel-in-progress: true
+  group: ads-render-watch
+  cancel-in-progress: false
 
 jobs:
-  start:
+  watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 355
     steps:
-      - name: Start the renderer
+      - name: Check deploy key
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          # Accept a key pasted with its "|" URL-encoded as %7C.
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          [ -n "$key" ] || { echo "::error::Add a CONVEX_DEPLOY_KEY repository secret."; exit 1; }
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          echo "CONVEX_DEPLOY_KEY=$key" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: fieldquote-convex
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install the app (for the calls to the backend)
+        run: npm ci --no-audit --no-fund
+
+      - name: Watch for ads waiting to be drawn
+        working-directory: apps/web
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run ads-render.yml --repo "${{ github.repository }}" --ref fieldquote-convex -f timed=true
+        run: |
+          end=$(( $(date +%s) + 340 * 60 ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            n=$(npx convex run ads:waitingCount '{}' 2>/dev/null | tr -dc '0-9')
+            if [ "${n:-0}" != "0" ]; then
+              busy=$(gh run list --repo "${{ github.repository }}" --workflow ads-render.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length')
+              if [ "${busy:-0}" = "0" ]; then
+                echo "$(date -u +%H:%M) ${n} waiting: starting the renderer"
+                gh workflow run ads-render.yml --repo "${{ github.repository }}" --ref fieldquote-convex -f timed=true || true
+              fi
+            fi
+            sleep 60
+          done
+
+      - name: Hand over to the next watcher
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ads-render-timer.yml --repo "${{ github.repository }}" --ref main
