@@ -152,7 +152,10 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   Library (`footage:make`) starts its own batch. Clips over 90 seconds are refused: trim them first.
 - ElevenLabs hears the clip, and what is said becomes the captions (`lib/footage.ts` `linesFromHeard`).
   Claude writes the title, headline and primary text from what is heard and seen, following the trade's best
-  competitor ad (`pickExamples`, like `makeFromPhoto`). The text goes through the same banned claims
+  competitor ad that is itself work on camera (`pickFootageSwipe`, `isWorkFootage`: swipes tagged "process", or
+  described as a process or spraying video), else the best of any kind. Spray Tex's plain process videos (guys
+  spraying, no talking) have run well over a year: people watch work being done.
+- A clip nobody talks in plays the active music track under the job site's own sound, fuller than under a voice. The text goes through the same banned claims
   (`forbiddenIn`), with one retry. No competitor ad on file means no ad.
 - It is stored as design style `"footage"` (card label "Job site video"), two sizes, status voiced. The clip
   itself is the audio. Its hook is inactive, so the weekly run never drafts it on its own.

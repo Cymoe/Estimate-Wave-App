@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { designLabel, forbiddenIn } from "./lib/ads";
-import { FOOTAGE_MARK, footageProblems, footagePrompt, linesFromHeard, primaryMaxFor } from "./lib/footage";
+import { FOOTAGE_MARK, footageProblems, footagePrompt, isWorkFootage, linesFromHeard, pickFootageSwipe, primaryMaxFor } from "./lib/footage";
 import { setup, signUp } from "./test.setup";
 
 afterEach(() => {
@@ -231,5 +231,53 @@ describe("a clip's still, made after its upload", () => {
     await expect(t.mutation(api.ads.setPoster, { id: assetId, posterStorageId: jpg })).rejects.toThrow();
     await t.run((ctx) => ctx.db.patch(assetId, { kind: "photo" }));
     await expect(owner.as.mutation(api.ads.setPoster, { id: assetId, posterStorageId: jpg })).rejects.toThrow("Only a clip takes a still");
+  });
+});
+
+describe("job site videos follow ads that are work on camera", () => {
+  test("Spray Tex's process videos count as work footage; graphics, carousels and owner selfies don't", async () => {
+    const { SWIPE_SEEDS } = await import("./catalog/swipes");
+    const sprayTex = SWIPE_SEEDS.filter((x) => x.company === "Spray Tex Painting");
+    expect(sprayTex.length).toBeGreaterThanOrEqual(2);
+    expect(sprayTex.every((x) => isWorkFootage(x))).toBe(true);
+    expect(isWorkFootage({ creative: "Owner selfie video poster" })).toBe(false);
+    expect(isWorkFootage({ creative: "Branded service collage, crew and review logos" })).toBe(false);
+    expect(isWorkFootage({ creative: "Painter working high on exterior siding" })).toBe(true);
+    // Once tagged, the tag decides.
+    expect(isWorkFootage({ footage: ["process", "finished"], creative: "Owner selfie" })).toBe(true);
+    expect(isWorkFootage({ footage: ["owner_to_camera"], creative: "Door-painting process video poster" })).toBe(false);
+  });
+
+  test("the best work-footage ad is chosen over a better-ranked ad of another kind; with none, the best of any", () => {
+    const now = new Date().toISOString();
+    const base = { hook: "x", offer: "Free estimate", importedAt: now, scope: "cabinets" };
+    const starred = { ...base, company: "Selfie Co", creative: "Owner selfie video poster", starred: true, quality: 60 };
+    const spraying = { ...base, company: "Spray Tex Painting", creative: "Door-painting process video poster", starred: false, quality: 30 };
+    expect(pickFootageSwipe([starred, spraying], "cabinets")!.company).toBe("Spray Tex Painting");
+    expect(pickFootageSwipe([starred], "cabinets")!.company).toBe("Selfie Co");
+    expect(pickFootageSwipe([], "cabinets")).toBeUndefined();
+  });
+
+  test("made from a clip: built on the work-footage ad; a clip nobody talks in plays the music under it", async () => {
+    vi.useFakeTimers();
+    const { t, owner, assetId } = await ready();
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      // A starred, higher-quality ad that is someone talking to camera: not what a job site video follows.
+      await ctx.db.insert("adSwipes", {
+        company: "Selfie Co", paintingType: "Cabinets", scope: "cabinets", hook: "Owner story", offer: "Free estimate",
+        creative: "Owner selfie video poster", area: "", cta: "Get quote", adaptation: "", starred: true, quality: 60, source: "test", importedAt: now,
+      });
+      await ctx.db.patch((await ctx.db.query("adSwipes").collect()).find((x) => x.company === "Rodgers Painting")!._id, { starred: false, creative: "Door-painting process video poster" });
+      const storageId = await ctx.storage.store(new Blob(["mp3"], { type: "audio/mpeg" }));
+      await ctx.db.insert("adMusic", { name: "Track", storageId, from: 4, active: true, createdAt: now });
+    });
+    stub([], { silent: true });
+    const made = await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
+    expect(made.builtOn).toBe("Rodgers Painting");
+    const props = (await t.mutation(internal.ads.claimRenders, {}))[0].props as Record<string, any>;
+    expect(props.lines).toEqual([]);
+    expect(props.sound).toMatchObject({ musicFrom: 4 });
+    expect(props.sound.music).toMatch(/^https?:/);
   });
 });
