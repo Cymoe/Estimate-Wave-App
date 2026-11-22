@@ -3210,7 +3210,9 @@ export const weeklyRun = internalAction({
           if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why });
           continue;
         }
-        const picked = pickAssets(photos, hook.scope, used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
+        // A request's versions are the same offer told different ways, so each may use the best photos for it; a
+        // week's ads each keep to photos the others haven't used.
+        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
         // An ad made for one job's photo shows that job only: the photo, and its pair if it has one. Other jobs' work would pass for this one.
         const lead = hook.photoId ? photos.find((a: { _id: string }) => a._id === hook.photoId) : undefined;
         if (lead) {

@@ -108,7 +108,9 @@ export function requestPageHtml(token: string): string {
   function groups(ads) {
     var by = {};
     ads.forEach(function (a) {
-      var key = a.name.replace(/_(916|45)(_|$).*/, "");
+      // One card per ad: only the size (and a still's tag) is dropped, so a quick offer on the story's idea, named
+      // with a "_2", keeps its own card.
+      var key = a.name.replace(/_(916|45)(?=_|$)/, "").replace(/_still$/, "");
       (by[key] = by[key] || []).push(a);
     });
     return Object.keys(by).map(function (k) { return { key: k, ads: by[k] }; })
@@ -185,7 +187,10 @@ export function requestPageHtml(token: string): string {
     else status.appendChild(steps(view.stage));
     var cards = document.getElementById("cards");
     groups(view.ads).forEach(function (g) { cards.appendChild(card(g)); });
-    document.getElementById("foot").hidden = view.ads.length === 0;
+    var foot = document.getElementById("foot");
+    foot.hidden = view.ads.length === 0;
+    var missed = view.stage === "ready" ? view.skipped.length : 0;
+    foot.textContent = (missed ? missed + (missed === 1 ? " version" : " versions") + " couldn't be made from the photos on file. " : "") + "Nothing runs until you approve it in Ops \u2192 Ads.";
   }
   function load() {
     fetch(TOKEN + ".json", { cache: "no-store" })
