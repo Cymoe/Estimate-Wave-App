@@ -210,3 +210,26 @@ describe("a job site video", () => {
     await expect(none.owner.as.mutation(api.footage.make, { assetId: none.assetId as Id<"adAssets"> })).rejects.toThrow("No painting competitor ad on file");
   });
 });
+
+describe("a clip's still, made after its upload", () => {
+  test("a clip with no still gets one, its length, and Claude's look; only staff, only a clip", async () => {
+    vi.useFakeTimers();
+    const { t, owner, assetId } = await ready();
+    await t.run((ctx) => ctx.db.patch(assetId, { posterStorageId: undefined, durationSec: undefined, description: undefined }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ content: [{ type: "text", text: '{"description":"A crew member sprays a door.","tags":["cabinets","process"]}' }] }))),
+    );
+    const jpg = await t.run((ctx) => ctx.storage.store(new Blob(["jpg"], { type: "image/jpeg" })));
+    await run(t, () => owner.as.mutation(api.ads.setPoster, { id: assetId, posterStorageId: jpg, durationSec: 12.34 }));
+    const a = await t.run((ctx) => ctx.db.get(assetId));
+    expect(a).toMatchObject({ posterStorageId: jpg, durationSec: 12.3, description: "A crew member sprays a door." });
+    // The library shows it from the still now.
+    const listed = (await owner.as.query(api.ads.listAssets, {})).find((x: { id: string }) => x.id === assetId)!;
+    expect(listed.posterUrl).toBeTruthy();
+
+    await expect(t.mutation(api.ads.setPoster, { id: assetId, posterStorageId: jpg })).rejects.toThrow();
+    await t.run((ctx) => ctx.db.patch(assetId, { kind: "photo" }));
+    await expect(owner.as.mutation(api.ads.setPoster, { id: assetId, posterStorageId: jpg })).rejects.toThrow("Only a clip takes a still");
+  });
+});

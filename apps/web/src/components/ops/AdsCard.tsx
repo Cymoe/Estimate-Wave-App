@@ -935,7 +935,7 @@ const Live: React.FC<{ act: Act }> = ({ act }) => {
 const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(file.name);
 
 /** Waits for a media element event, or gives up after a few seconds. */
-const once = (el: HTMLElement, event: string, ms = 8000) =>
+const once = (el: HTMLElement, event: string, ms: number = 8000) =>
   new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), ms);
     el.addEventListener(event, () => (clearTimeout(timer), resolve()), { once: true });
@@ -952,36 +952,66 @@ async function makeStill(file: File): Promise<{ still?: Blob; durationSec?: numb
   if (typeof createImageBitmap !== 'function') return {};
   const src = URL.createObjectURL(file);
   try {
-    let source: CanvasImageSource;
-    let width: number;
-    let height: number;
-    let durationSec: number | undefined;
-    if (isVideo(file)) {
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'auto';
-      video.src = src;
-      await once(video, 'loadeddata');
-      durationSec = Number.isFinite(video.duration) ? Math.round(video.duration * 10) / 10 : undefined;
-      video.currentTime = Math.min(1, (video.duration || 2) / 2);
-      await once(video, 'seeked');
-      [source, width, height] = [video, video.videoWidth, video.videoHeight];
-    } else {
-      const bitmap = await createImageBitmap(file);
-      [source, width, height] = [bitmap, bitmap.width, bitmap.height];
-    }
-    const scale = Math.min(1, 1600 / Math.max(width, height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(width * scale);
-    canvas.height = Math.round(height * scale);
-    canvas.getContext('2d')?.drawImage(source, 0, 0, canvas.width, canvas.height);
-    const still = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-    return { still: still ?? undefined, durationSec };
+    if (isVideo(file)) return await stillOfClip(src);
+    const bitmap = await createImageBitmap(file);
+    return { still: (await toJpeg(bitmap, bitmap.width, bitmap.height)) ?? undefined };
   } catch {
     return {};
   } finally {
     URL.revokeObjectURL(src);
+  }
+}
+
+/** A frame drawn to a JPEG, no wider or taller than 1600 pixels. */
+async function toJpeg(source: CanvasImageSource, width: number, height: number): Promise<Blob | null> {
+  if (!width || !height) return null;
+  const scale = Math.min(1, 1600 / Math.max(width, height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
+  canvas.getContext('2d')?.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+}
+
+/**
+ * A still from a clip, and its length. iPhones and iPads hand over a frame only from a video that is set to play
+ * inline, has been told to load, and has actually decoded one; a hidden video never playing gives a black frame
+ * or none. So: load, wait for its size, seek a moment in, and if no frame came, play it silently for an instant.
+ * A clip from the library (`remote`) is read across origins, so the canvas may use it.
+ */
+async function stillOfClip(src: string, remote = false): Promise<{ still?: Blob; durationSec?: number }> {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('muted', '');
+  video.preload = 'auto';
+  if (remote) video.crossOrigin = 'anonymous';
+  // On the page but out of sight: some browsers decode nothing for a video that isn't.
+  Object.assign(video.style, { position: 'fixed', left: '-10000px', top: '0', width: '2px', height: '2px', opacity: '0' });
+  document.body.appendChild(video);
+  try {
+    video.src = src;
+    video.load();
+    await once(video, 'loadedmetadata', 15000);
+    const durationSec = Number.isFinite(video.duration) ? Math.round(video.duration * 10) / 10 : undefined;
+    video.currentTime = Math.min(1, (video.duration || 2) / 2);
+    try {
+      await once(video, 'seeked', 8000);
+    } catch {
+      // No seek without a decoded frame on some phones: play an instant to get one.
+    }
+    if (video.readyState < 2) {
+      await video.play().catch(() => undefined);
+      await once(video, 'timeupdate', 8000).catch(() => undefined);
+      video.pause();
+    }
+    const still = await toJpeg(video, video.videoWidth, video.videoHeight);
+    return { still: still ?? undefined, durationSec };
+  } finally {
+    video.removeAttribute('src');
+    video.load();
+    video.remove();
   }
 }
 
@@ -1098,7 +1128,8 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
         <img src={a.posterUrl} alt={a.fileName} className="w-full aspect-square object-cover" />
       ) : a.kind === 'video' ? (
         a.url ? (
-          <video src={a.url} muted preload="metadata" className="w-full aspect-square object-cover bg-black" />
+          // "#t=0.1" asks the browser to show a frame; iPhones and iPads show black without it.
+          <video src={`${a.url}#t=0.1`} muted playsInline preload="metadata" className="w-full aspect-square object-cover bg-black" />
         ) : (
           <div className="w-full aspect-square bg-black" />
         )
@@ -1168,6 +1199,21 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
+        {a.kind === 'video' && !a.posterUrl && a.url && (
+          <button
+            type="button"
+            className={`${secondary} text-xs py-1 w-full`}
+            onClick={() =>
+              act(async () => {
+                const { still, durationSec } = await stillOfClip(a.url!, true);
+                if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
+                await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
+              }, 'Still made. Claude is looking at the clip and will suggest its tags.')
+            }
+          >
+            Make its still
+          </button>
+        )}
         {a.kind === 'video' && (
           <button
             type="button"

@@ -265,6 +265,29 @@ export const assetForDescribe = internalQuery({
   },
 });
 
+/**
+ * A clip's still, made after the upload: for a clip whose still couldn't be made then (an iPhone or iPad that
+ * wouldn't hand over a frame). With the still, Claude looks at the clip and suggests its tags, as at upload.
+ */
+export const setPoster = mutation({
+  args: { id: v.id("adAssets"), posterStorageId: v.id("_storage"), durationSec: v.optional(v.number()) },
+  handler: async (ctx, { id, posterStorageId, durationSec }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That clip isn't in the library");
+    if (a.kind !== "video") fail("INVALID", "Only a clip takes a still");
+    const poster = await ctx.db.system.get(posterStorageId);
+    if (poster === null || (poster.contentType !== undefined && !poster.contentType.startsWith("image/")) || poster.size > MAX_POSTER)
+      fail("INVALID", "The still didn't upload right");
+    if (a.posterStorageId && a.posterStorageId !== posterStorageId) await ctx.storage.delete(a.posterStorageId);
+    await ctx.db.patch(id, {
+      posterStorageId,
+      ...(durationSec && durationSec > 0 && !a.durationSec ? { durationSec: Math.round(durationSec * 10) / 10 } : {}),
+    });
+    if (process.env.ANTHROPIC_API_KEY) await ctx.scheduler.runAfter(0, internal.ads.describeAsset, { id });
+  },
+});
+
 export const saveDescription = internalMutation({
   args: { id: v.id("adAssets"), description: v.string(), suggestedTags: v.array(v.string()) },
   handler: async (ctx, { id, description, suggestedTags }) => {

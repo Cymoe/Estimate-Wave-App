@@ -1085,6 +1085,8 @@ export const adsAPI = {
   }) => run('mutation', api.ads.addAsset, defined(args)),
   tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
   removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
+  /** A clip's still, made after its upload, so it shows in the library and Claude can describe it. */
+  setPoster: (id: string, posterStorageId: string, durationSec?: number) => run('mutation', api.ads.setPoster, defined({ id, posterStorageId, durationSec })),
   saveHook: (args: { id?: string; family: string; scope: string; trade: string; textEn: string; active: boolean }) =>
     run('mutation', api.ads.saveHook, defined(args)),
   removeHook: (id: string) => run('mutation', api.ads.removeHook, { id }),
