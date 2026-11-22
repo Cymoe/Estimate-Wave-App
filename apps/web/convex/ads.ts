@@ -2579,6 +2579,8 @@ export const addCreatives = internalMutation({
     const assetIds = [...new Set([...(script.shots ?? []).map((s) => s.assetId), ...(design.frames ?? []).flatMap((f) => f.more ?? []), ...(design.spare ?? [])])];
     const now = new Date();
     const ids: Id<"adCreatives">[] = [];
+    // The 4:5 video's name, which its still takes: a second ad on the same idea (a quick offer, "…_2") keeps its own.
+    let fourFive = creativeName(hookId, "4x5", now);
     for (const ratio of ["9x16", "4x5"] as const) {
       let name = creativeName(hookId, ratio, now);
       for (
@@ -2590,6 +2592,7 @@ export const addCreatives = internalMutation({
         n++
       )
         name = `${creativeName(hookId, ratio, now)}_${n}`;
+      if (ratio === "4x5") fourFive = name;
       ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, name, script, design, assetIds, status: "draft", createdAt: nowIso() }));
     }
     // A still of the same ad when it shows a before and its after from one job: it shares the words and needs no voice of its own.
@@ -2606,7 +2609,7 @@ export const addCreatives = internalMutation({
             hookId,
             ratio: "4x5",
             kind: "image",
-            name: `${creativeName(hookId, "4x5", now)}_still`,
+            name: `${fourFive}_still`,
             script,
             design,
             assetIds,

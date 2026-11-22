@@ -2055,6 +2055,18 @@ describe("the weekly run", () => {
       expect((await t.fetch("/ads/<script>", { method: "GET" })).status).toBe(404);
     });
 
+    test("with stills on, the quick offer's still is named after its own video, so no two ads share a name", async () => {
+      const { t, owner, calls, settle } = await ready();
+      stubServices(calls, { style: "reel", request: { trade: "painting", scope: "cabinets", town: "Odessa", idea: "Paint the cabinets" } });
+      await t.mutation(internal.ads.setStills, { on: true });
+      await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "cabinets in Odessa" }));
+      const names = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).map((c) => c.name));
+      expect(new Set(names).size).toBe(names.length);
+      const stills = names.filter((n) => n.endsWith("_still"));
+      expect(stills.length).toBeGreaterThan(0);
+      expect(stills.every((n) => names.includes(n.replace(/_still$/, "")))).toBe(true);
+    });
+
     test("the page shows nothing for a wrong or short key, and only staff can ask from the app", async () => {
       const { t, owner, calls, settle } = await ready();
       stubServices(calls);
