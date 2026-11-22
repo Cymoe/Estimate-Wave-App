@@ -835,18 +835,21 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
           Check now
         </button>
       )}
-      <button
-        type="button"
-        className={secondary}
-        onClick={() =>
-          act(async () => {
-            const brief = await adsAPI.creatorBrief(c.id);
-            await navigator.clipboard.writeText(brief);
-          }, 'On-camera brief copied. Paste it to the creator.')
-        }
-      >
-        Copy on-camera brief
-      </button>
+      {/* A job site video is already the crew's own footage: no creator brief for it. */}
+      {c.style?.id !== 'footage' && (
+        <button
+          type="button"
+          className={secondary}
+          onClick={() =>
+            act(async () => {
+              const brief = await adsAPI.creatorBrief(c.id);
+              await navigator.clipboard.writeText(brief);
+            }, 'On-camera brief copied. Paste it to the creator.')
+          }
+        >
+          Copy on-camera brief
+        </button>
+      )}
       {takeable(c) && (
         <label className={`${secondary} cursor-pointer`}>
           {c.presenter ? 'Replace on-camera take' : 'Add on-camera take'}

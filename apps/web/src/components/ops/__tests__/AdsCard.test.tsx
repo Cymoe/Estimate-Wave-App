@@ -1016,6 +1016,14 @@ describe('Ops → Ads', () => {
     expect(timing.textContent).not.toContain('Check now');
     expect(timing.textContent).toContain('Replace on-camera take');
     expect(inMeta.textContent).not.toContain('on-camera take');
+
+    // A job site video is the crew's own footage: no brief to send a creator, and no take to add.
+    document.body.innerHTML = '';
+    batches = [{ id: 'b2', weekOf: '2026-11-23', status: 'ready', createdAt: new Date().toISOString(), creatives: [creative({ id: 'f1', status: 'rendered', style: { id: 'footage', label: 'Job site video' } })] }];
+    await render();
+    const site = document.body.querySelector('[data-testid="creative"]')!;
+    expect(site.textContent).not.toContain('Copy on-camera brief');
+    expect(site.textContent).not.toContain('on-camera take');
   });
 
   it('a job site video: a clip in the Library is made into an ad as it was shot; a photo has no such button', async () => {
