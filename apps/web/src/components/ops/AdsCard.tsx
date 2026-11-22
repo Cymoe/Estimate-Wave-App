@@ -14,6 +14,7 @@ import {
   useAdsSwipes,
 } from '../../lib/live';
 import { AD_TRADES, DEFAULT_TRADE, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
+import { ACTOR_VOICES, ACTOR_VOICE_LABELS } from '../../../convex/lib/voiceActors';
 import { money } from '../market/wallet';
 import { ErrorLine, Field, ago, describeError, input, primary, secondary, tap } from './ui';
 
@@ -88,8 +89,10 @@ export interface AdCreative {
   /** The shot list: which file is on screen, the line spoken over it, its on-screen words, and when the line runs. */
   shots?: Array<{ fileName: string; voice: string; onScreen: string; start?: number; end?: number }>;
   ratio: '9x16' | '4x5';
-  status: 'draft' | 'voiced' | 'rendering' | 'rendered' | 'paused' | 'live' | 'retired' | 'rejected' | 'failed';
+  status: 'draft' | 'recording' | 'voiced' | 'rendering' | 'rendered' | 'paused' | 'live' | 'retired' | 'rejected' | 'failed';
   error?: string;
+  /** The voice actor's order at Bunny Studio, when a real person reads this one. */
+  actor?: { orderedAt: string; price?: number; test?: boolean };
   script: { voice: string; onScreen: string[]; headline: string; primaryText: string };
   hook: { id: string; family: string; familyLabel: string; scope: string; textEn: string; basedOn?: BasedOn } | null;
   /** How it moves ("Light-up", "Before / after", "Counter"); none on ads from before. */
@@ -180,7 +183,7 @@ export interface AdHook {
 export interface AdSettings {
   brand: string;
   /** Which services are set up; renderer is whether the app can start the drawing of videos itself. */
-  keys: { anthropic: boolean; elevenlabs: boolean; renderer: boolean; meta: boolean; apify: boolean };
+  keys: { anthropic: boolean; elevenlabs: boolean; renderer: boolean; meta: boolean; apify: boolean; bunny: boolean };
   adAccountId?: string;
   pageId?: string;
   leadFormId?: string;
@@ -188,6 +191,11 @@ export interface AdSettings {
   primaryColor: string;
   accentColor: string;
   voiceId?: string;
+  /** Who reads the ads: the ElevenLabs voice, or a real voice actor from Bunny Studio. */
+  voiceSource: 'elevenlabs' | 'actor';
+  actorVoice: string;
+  actorLanguage: string;
+  actorNotes?: string;
   weeklyEnabled: boolean;
   hooksPerWeek: number;
   liveTarget: number;
@@ -225,6 +233,7 @@ export interface ResearchRun {
 
 const STATUS_LABELS: Record<AdCreative['status'], string> = {
   draft: 'Writing',
+  recording: 'With the voice actor',
   voiced: 'Waiting to render',
   rendering: 'Rendering',
   rendered: 'Rendered',
@@ -700,6 +709,13 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
       </p>
       <p className="text-sm text-white">{c.script.headline}</p>
       <p className="text-xs text-gray-400">{c.script.primaryText}</p>
+      {c.actor && (
+        <p className="text-xs text-gray-400">
+          {c.status === 'recording' ? 'Voice actor ordered' : 'Read by a voice actor'} {ago(c.actor.orderedAt)}
+          {c.actor.price !== undefined ? ` · $${c.actor.price.toFixed(2)}` : ''}
+          {c.actor.test ? ' · test order' : ''}
+        </p>
+      )}
       {c.error && <p className="text-xs text-red-300">{c.error}</p>}
       <p className="text-[10px] text-gray-600 break-all">{c.name}</p>
     </div>
@@ -718,6 +734,25 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
         </button>
       </div>
     )}
+    <div className="flex flex-wrap gap-2 p-3 pt-0">
+      {c.status === 'recording' && (
+        <button type="button" className={secondary} onClick={() => act(() => adsAPI.checkActors(), 'Checking Bunny Studio for the read.')}>
+          Check now
+        </button>
+      )}
+      <button
+        type="button"
+        className={secondary}
+        onClick={() =>
+          act(async () => {
+            const brief = await adsAPI.creatorBrief(c.id);
+            await navigator.clipboard.writeText(brief);
+          }, 'On-camera brief copied. Paste it to the creator.')
+        }
+      >
+        Copy on-camera brief
+      </button>
+    </div>
   </li>
 );
 
@@ -1627,6 +1662,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {key(form.keys.renderer, 'ADS_RENDER_TOKEN')}
         {key(form.keys.meta, 'META_ACCESS_TOKEN')}
         {key(form.keys.apify, 'APIFY_TOKEN')}
+        {form.voiceSource === 'actor' && key(form.keys.bunny, 'BUNNY_STUDIO_TOKEN')}
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
         {text('adAccountId', 'Ad account id', 'Digits only; the act_ prefix is dropped')}
@@ -1676,6 +1712,57 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
           ? 'The app starts the drawing itself once a batch is voiced.'
           : 'Until ADS_RENDER_TOKEN is set, a batch shows Waiting to render until the drawing is started by hand.'}
       </p>
+      <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-3">
+        <legend className="text-sm text-gray-300 px-1">Voice</legend>
+        <Field label="Who reads the ads">
+          <select
+            value={form.voiceSource}
+            onChange={(e) => setForm({ ...form, voiceSource: e.target.value as AdSettings['voiceSource'] })}
+            className={input}
+            disabled={!owner}
+            aria-label="Who reads the ads"
+          >
+            <option value="elevenlabs">The ElevenLabs voice (ready in a minute)</option>
+            <option value="actor">A real voice actor from Bunny Studio (back in about a day)</option>
+          </select>
+        </Field>
+        {form.voiceSource === 'actor' && (
+          <>
+            <p className="text-xs text-gray-500">
+              Once an ad is written, its lines go to Bunny Studio and a voice actor records them. The app checks every half hour. When the read is
+              in, the ad is timed to it and drawn as usual. A read that skips or changes the words is held back, and you ask for a redo in Bunny
+              Studio. Each read is paid for at Bunny Studio.
+            </p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="Who reads">
+                <select
+                  value={form.actorVoice}
+                  onChange={(e) => setForm({ ...form, actorVoice: e.target.value })}
+                  className={input}
+                  disabled={!owner}
+                  aria-label="Who reads"
+                >
+                  {ACTOR_VOICES.map((v) => (
+                    <option key={v} value={v}>
+                      {ACTOR_VOICE_LABELS[v]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {text('actorLanguage', 'Language and accent', "Bunny Studio's code, e.g. eng-us")}
+            </div>
+            <Field label="Notes for the voice actor" hint="How it should sound, e.g. West Texas, easygoing">
+              <input
+                value={form.actorNotes ?? ''}
+                onChange={(e) => setForm({ ...form, actorNotes: e.target.value })}
+                className={input}
+                disabled={!owner}
+                aria-label="Notes for the voice actor"
+              />
+            </Field>
+          </>
+        )}
+      </fieldset>
       <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-3">
         <legend className="text-sm text-gray-300 px-1">Niche research</legend>
         <p className="text-xs text-gray-500">

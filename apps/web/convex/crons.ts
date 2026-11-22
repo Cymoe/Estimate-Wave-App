@@ -81,6 +81,8 @@ crons.weekly("draft the week's ads", { dayOfWeek: "monday", hourUTC: 12, minuteU
 crons.daily("pull ad insights", { hourUTC: 9, minuteUTC: 35 }, internal.ads.pullInsights, {});
 // The 1st of the month: search the painting niche in Meta's Ad Library (only when the switch in Ops → Ads → Settings is on).
 crons.monthly("niche research", { day: 1, hourUTC: 10, minuteUTC: 0 }, internal.ads.researchRun, {});
+// Ads read by a real voice actor (voiceActors.ts): every half hour, take in the reads Bunny Studio has sent back.
+crons.interval("take in voice actor reads", { minutes: 30 }, internal.voiceActors.checkOrders, {});
 
 // The office line (agent.ts): each company's morning brief at its time, and asks nobody answered expire.
 crons.interval("office line briefs", { minutes: 15 }, internal.agent.morningBriefs, {});

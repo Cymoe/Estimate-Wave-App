@@ -109,6 +109,25 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   HyperFrames (HeyGen, Apache-2.0) is the free alternative, and the fastest-growing Claude video tool.
 - **Never change the look of live ads without showing the owner a sample first and getting a yes.**
 
+## A real voice actor (Bunny Studio)
+
+- Ops → Ads → Settings → Voice picks who reads: the ElevenLabs voice (default) or a real voice actor from
+  Bunny Studio. With a voice actor, the voice step (`ads.ts` `voice`) hands the lines to `voiceActors.ts`
+  `order` instead of ElevenLabs. The ad waits as **recording** ("With the voice actor").
+- `voiceActors:checkOrders` runs every 30 minutes, and on "Check now". When the read is back it is downloaded,
+  ElevenLabs speech-to-text times each word, and `lib/voiceActors.ts` `alignmentFromWords` turns that into the
+  same character timing ElevenLabs' voice gives. The ad is then timed and drawn exactly as before
+  (`lib/adVoice.ts` `useRead`), and the read is approved at Bunny Studio.
+- A read with under 80% of the script's words is held back, with the reason on the card. The owner asks for a
+  revision in Bunny Studio, and the redo is taken when it comes.
+- Env on the deployment: `BUNNY_STUDIO_TOKEN` (or `BUNNY_STUDIO_EMAIL` + `BUNNY_STUDIO_PASSWORD`).
+  `BUNNY_STUDIO_TEST=1` orders test projects that aren't recorded or billed. Bunny Studio has to enable API
+  access on the account first. `ELEVENLABS_API_KEY` is still needed for the timing.
+- **On camera:** no creator marketplace takes orders by API. Each ad card has "Copy on-camera brief": the lines
+  and how to film them on a green screen, to send to a creator by hand. Drawing a creator in front of the
+  photos isn't built yet. An actor on camera must speak as the company's spokesperson, never as a customer or
+  as the person who did the work.
+
 ## Running things from a cloud session
 
 - Local `npx convex run` doesn't work here. To run a function on the live deployment, dispatch the

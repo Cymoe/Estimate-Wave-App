@@ -45,6 +45,8 @@ const starSwipe = jest.fn(async () => undefined);
 const researchNow = jest.fn(async (..._args: unknown[]) => undefined);
 const savePlaybook = jest.fn(async () => undefined);
 const rewritePlaybook = jest.fn(async () => undefined);
+const checkActors = jest.fn(async () => undefined);
+const creatorBrief = jest.fn(async (..._args: unknown[]) => 'GoodFit Pros: on-camera read');
 
 jest.mock('../../../lib/api', () => ({
   adsAPI: {
@@ -69,6 +71,8 @@ jest.mock('../../../lib/api', () => ({
     researchNow: (...args: unknown[]) => researchNow(...args),
     savePlaybook: (...args: unknown[]) => savePlaybook(...args),
     rewritePlaybook: (...args: unknown[]) => rewritePlaybook(...args),
+    checkActors: () => checkActors(),
+    creatorBrief: (...args: unknown[]) => creatorBrief(...args),
   },
 }));
 jest.mock('../../../lib/live', () => ({
@@ -143,9 +147,12 @@ beforeEach(() => {
   swipes = [];
   settings = {
     brand: 'Permian Home Quotes',
-    keys: { anthropic: true, elevenlabs: true, renderer: false, meta: false, apify: false },
+    keys: { anthropic: true, elevenlabs: true, renderer: false, meta: false, apify: false, bunny: false },
     primaryColor: '#336699',
     accentColor: '#8fb6e0',
+    voiceSource: 'elevenlabs',
+    actorVoice: 'middleAgeMale',
+    actorLanguage: 'eng-us',
     weeklyEnabled: false,
     hooksPerWeek: 2,
     liveTarget: 6,
@@ -878,5 +885,54 @@ describe('Ops → Ads', () => {
     await tab('Settings');
     expect(byText('Save settings')).toBeUndefined();
     expect((document.body.querySelector('input[aria-label="Page id"]') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('a voice actor: Settings switches who reads and how; an ad waiting on the read says so, checks now, and copies the on-camera brief', async () => {
+    await render();
+    await tab('Settings');
+    // The ElevenLabs voice by default: no voice actor fields, no Bunny Studio key asked for.
+    expect(document.body.querySelector('select[aria-label="Who reads"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('BUNNY_STUDIO_TOKEN');
+    const source = document.body.querySelector('select[aria-label="Who reads the ads"]') as HTMLSelectElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(source, 'actor');
+      source.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(document.body.textContent).toContain('BUNNY_STUDIO_TOKEN: missing');
+    expect(document.body.textContent).toContain('A read that skips or changes the words is held back');
+    await act(async () => type(document.body.querySelector('input[aria-label="Notes for the voice actor"]') as HTMLInputElement, 'West Texas, easygoing'));
+    await act(async () =>
+      document.body.querySelector('form[aria-label="Ad settings"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    await flush();
+    expect(saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ voiceSource: 'actor', actorVoice: 'middleAgeMale', actorLanguage: 'eng-us', actorNotes: 'West Texas, easygoing' }),
+    );
+
+    document.body.innerHTML = '';
+    batches = [
+      {
+        id: 'b1',
+        weekOf: '2026-11-23',
+        status: 'drafting',
+        createdAt: new Date().toISOString(),
+        creatives: [creative({ status: 'recording', videoUrl: undefined, meta: undefined, actor: { orderedAt: new Date().toISOString(), price: 31 } })],
+      },
+    ];
+    const writeText = jest.fn(async () => undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    await render();
+    const card = document.body.querySelector('[data-testid="creative"]')!;
+    expect(card.textContent).toContain('With the voice actor');
+    expect(card.textContent).toContain('Voice actor ordered');
+    expect(card.textContent).toContain('$31.00');
+    expect(byText('Approve')).toBeUndefined();
+    await act(async () => byText('Check now')!.click());
+    await flush();
+    expect(checkActors).toHaveBeenCalled();
+    await act(async () => byText('Copy on-camera brief')!.click());
+    await flush();
+    expect(creatorBrief).toHaveBeenCalledWith('c1');
+    expect(writeText).toHaveBeenCalledWith('GoodFit Pros: on-camera read');
   });
 });

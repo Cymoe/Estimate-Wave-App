@@ -1105,6 +1105,10 @@ export const adsAPI = {
   activate: (id: string) => run('mutation', api.ads.activate, { id }),
   retire: (id: string) => run('mutation', api.ads.retire, { id }),
   reject: (id: string) => run('mutation', api.ads.reject, { id }),
+  /** Asks Bunny Studio now for the voice actor reads still out, instead of waiting for the half-hourly check. */
+  checkActors: () => run('mutation', api.voiceActors.checkNow, {}),
+  /** What to send an on-camera creator for one ad: its lines and how to film them. */
+  creatorBrief: (id: string): Promise<string> => run('query', api.voiceActors.creatorBrief, { id }),
 };
 
 /** Lead alerts: what was sent to whom when a lead was awarded (staff). */

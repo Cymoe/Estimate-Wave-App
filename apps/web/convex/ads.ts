@@ -78,6 +78,8 @@ import { consumerBrand } from "./lib/support";
 import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
 import { siteUrl } from "./delivery";
 import { tellStaff } from "./notify";
+import { DEFAULT_ACTOR_LANGUAGE, DEFAULT_ACTOR_VOICE } from "./lib/voiceActors";
+import { linesOf, useRead } from "./lib/adVoice";
 
 // Ads on autopilot. Every Monday (or on "Draft now") a batch is drafted.
 // For each hook: candidate photos are picked from the library by tag; Claude
@@ -102,6 +104,9 @@ import { tellStaff } from "./notify";
 //                         (APIFY_ACTOR overrides which one)
 //   CONSUMER_BRAND        the name homeowners see (lib/support.ts)
 //   FAL_KEY               optional: photos brought to life as short clips (the motion test)
+//   BUNNY_STUDIO_TOKEN    optional: a real voice actor reads the ads instead (voiceActors.ts), when Settings says so;
+//                         or BUNNY_STUDIO_EMAIL and BUNNY_STUDIO_PASSWORD to sign in for one.
+//                         BUNNY_STUDIO_TEST=1 orders test projects, which aren't recorded or billed.
 
 const MAX_PHOTO = 15 * 1024 * 1024;
 const MAX_POSTER = 5 * 1024 * 1024;
@@ -118,6 +123,8 @@ const keys = () => ({
   renderer: Boolean(process.env.ADS_RENDER_TOKEN),
   meta: Boolean(process.env.META_ACCESS_TOKEN),
   apify: Boolean(process.env.APIFY_TOKEN),
+  // A real voice actor through Bunny Studio (voiceActors.ts).
+  bunny: Boolean(process.env.BUNNY_STUDIO_TOKEN || (process.env.BUNNY_STUDIO_EMAIL && process.env.BUNNY_STUDIO_PASSWORD)),
 });
 
 const DEFAULTS = { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 6 };
@@ -142,6 +149,14 @@ function daysSince(startedAt: string | undefined, now = new Date()): number | un
   const d = new Date(startedAt);
   return Number.isNaN(d.getTime()) ? undefined : Math.max(0, Math.floor((now.getTime() - d.getTime()) / 86_400_000));
 }
+
+/** Who reads the ads, and for a voice actor, how. */
+const actorSettings = (row: Doc<"adSettings"> | null) => ({
+  voiceSource: row?.voiceSource ?? ("elevenlabs" as const),
+  actorVoice: row?.actorVoice ?? DEFAULT_ACTOR_VOICE,
+  actorLanguage: row?.actorLanguage ?? DEFAULT_ACTOR_LANGUAGE,
+  actorNotes: row?.actorNotes,
+});
 
 async function settingsRow(ctx: QueryCtx | MutationCtx): Promise<Doc<"adSettings"> | null> {
   return (await ctx.db.query("adSettings").take(1))[0] ?? null;
@@ -1344,6 +1359,7 @@ export const settings = query({
       primaryColor: row?.primaryColor ?? "#336699",
       accentColor: row?.accentColor ?? "#8fb6e0",
       voiceId: row?.voiceId,
+      ...actorSettings(row),
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
@@ -1362,6 +1378,10 @@ export const saveSettings = mutation({
     primaryColor: v.optional(v.string()),
     accentColor: v.optional(v.string()),
     voiceId: v.optional(v.string()),
+    voiceSource: v.optional(v.union(v.literal("elevenlabs"), v.literal("actor"))),
+    actorVoice: v.optional(v.string()),
+    actorLanguage: v.optional(v.string()),
+    actorNotes: v.optional(v.string()),
     weeklyEnabled: v.boolean(),
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
@@ -1384,6 +1404,7 @@ export const saveSettings = mutation({
       researchKeywords: words(args.researchKeywords),
       researchMarkets: words(args.researchMarkets),
       researchMinDays: args.researchMinDays === undefined ? undefined : Math.min(365, Math.max(30, Math.round(args.researchMinDays))),
+      actorNotes: args.actorNotes?.trim().slice(0, 500) || undefined,
       updatedAt: nowIso(),
     } as Omit<Doc<"adSettings">, "_id" | "_creationTime">;
     const row = await settingsRow(ctx);
@@ -1826,6 +1847,8 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
     videoUrl: c.videoStorageId ? ((await ctx.storage.getUrl(c.videoStorageId)) ?? undefined) : undefined,
     imageUrl: c.imageStorageId ? ((await ctx.storage.getUrl(c.imageStorageId)) ?? undefined) : undefined,
     meta: c.meta,
+    // The voice actor's order, while it is out and after.
+    actor: c.actor ? { orderedAt: c.actor.orderedAt, price: c.actor.price, test: c.actor.test } : undefined,
     week: c.week,
     baselineCtr: c.baselineCtr,
     fatigued: c.week ? isFatigued({ frequency: c.week.frequency, ctr: c.week.ctr, baselineCtr: c.baselineCtr ?? null }) : false,
@@ -1936,9 +1959,12 @@ async function readinessChecks(ctx: QueryCtx) {
   ).length;
   const playbooks = (await ctx.db.query("adPlaybooks").take(20)).length;
   const meta = Boolean(k.meta && row?.adAccountId && row?.pageId && row?.adsetId);
+  // A voice actor's read is still timed by ElevenLabs (speech-to-text), so its key is needed either way.
+  const actor = row?.voiceSource === "actor";
   const missingKeys = [
     k.anthropic ? "" : "ANTHROPIC_API_KEY",
     k.elevenlabs ? "" : "ELEVENLABS_API_KEY",
+    actor && !k.bunny ? "BUNNY_STUDIO_TOKEN" : "",
   ].filter(Boolean);
   return [
     {
@@ -1947,7 +1973,11 @@ async function readinessChecks(ctx: QueryCtx) {
       ok: missingKeys.length === 0,
       hard: true,
       tab: "settings",
-      detail: missingKeys.length ? `Set ${missingKeys.join(", ")} on the deployment` : "Claude and ElevenLabs are set",
+      detail: missingKeys.length
+        ? `Set ${missingKeys.join(", ")} on the deployment`
+        : actor
+          ? "Claude, ElevenLabs and Bunny Studio are set: a voice actor reads each ad"
+          : "Claude and ElevenLabs are set",
     },
     {
       key: "library",
@@ -2153,6 +2183,7 @@ export const config = internalQuery({
       leadFormId: row?.leadFormId,
       adsetId: row?.adsetId,
       voiceId: row?.voiceId,
+      ...actorSettings(row),
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       quickOffer: row?.quickOffer ?? true,
@@ -2407,6 +2438,7 @@ export const patchCreative = internalMutation({
     status: v.optional(
       v.union(
         v.literal("draft"),
+        v.literal("recording"),
         v.literal("voiced"),
         v.literal("rendering"),
         v.literal("rendered"),
@@ -2431,6 +2463,17 @@ export const patchCreative = internalMutation({
         creativeId: v.optional(v.string()),
         adId: v.optional(v.string()),
         adsetId: v.optional(v.string()),
+      }),
+    ),
+    actor: v.optional(
+      v.object({
+        projectId: v.string(),
+        orderedAt: v.string(),
+        price: v.optional(v.number()),
+        test: v.optional(v.boolean()),
+        deliverableId: v.optional(v.string()),
+        heldBack: v.optional(v.array(v.string())),
+        checkedAt: v.optional(v.string()),
       }),
     ),
   },
@@ -2852,18 +2895,6 @@ export const finishIfDone = internalMutation({
   },
 });
 
-/** The script as the validator takes it (only the stored fields). */
-const stripSystem = (s: Script) =>
-  ({
-    voice: s.voice,
-    onScreen: s.onScreen,
-    headline: s.headline,
-    primaryText: s.primaryText,
-    ...(s.shots
-      ? { shots: s.shots.map((x) => ({ assetId: x.assetId, voice: x.voice, onScreen: x.onScreen, start: x.start, end: x.end, ...(x.words ? { words: x.words } : {}) })) }
-      : {}),
-  }) as never;
-
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 500);
 
 async function readJson(res: Response, what: string): Promise<any> {
@@ -3182,11 +3213,15 @@ export const voice = internalAction({
     const first: CreativeInput | null = await ctx.runQuery(internal.ads.creativeInput, { id: ids[0] });
     if (!first) return;
     const cfg = await ctx.runQuery(internal.ads.config, {});
+    // A real person reads it instead: the order goes out now and the read comes back later (voiceActors.ts).
+    if (cfg.voiceSource === "actor") {
+      await ctx.scheduler.runAfter(0, internal.voiceActors.order, { ids });
+      return;
+    }
     try {
       const voiceId = cfg.voiceId;
       if (!voiceId) throw new Error("No ElevenLabs voice chosen in Ops → Ads → Settings");
-      const shots = first.script.shots ?? [];
-      const lines = shots.length ? shots.map((s) => s.voice) : [first.script.voice];
+      const lines = linesOf(first);
       // The text read is the lines joined by single spaces, which is what shotTimings counts characters against.
       // The newer model reads with more life; if it won't give word timings, the older one does.
       const say = (model: string) =>
@@ -3201,23 +3236,7 @@ export const voice = internalAction({
       if (!body?.audio_base64) throw new Error("ElevenLabs sent no audio");
       const bytes = Uint8Array.from(atob(body.audio_base64), (ch) => ch.charCodeAt(0));
       const audioStorageId = await ctx.storage.store(new Blob([bytes], { type: "audio/mpeg" }));
-      const estimate = Math.max(8, lines.join(" ").split(/\s+/).length / 2.6);
-      const timed = shotTimings(lines, (body.alignment ?? null) as Alignment | null, estimate);
-      // When each word is said, so the captions can follow the voice; without it the renderer estimates from the line.
-      const words = wordTimings(lines, (body.alignment ?? null) as Alignment | null);
-      const script = shots.length
-        ? { ...first.script, shots: shots.map((s, i) => ({ ...s, ...timed.shots[i], ...(words ? { words: words[i] } : {}) })) }
-        : first.script;
-      // Voiced is the end of what happens here: the ads now wait for the renderer.
-      for (const id of ids)
-        await ctx.runMutation(internal.ads.patchCreative, {
-          id,
-          status: "voiced",
-          audioStorageId,
-          audioDurationSec: timed.durationSec,
-          script: stripSystem(script),
-        });
-      await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
+      await useRead(ctx, ids, first, audioStorageId, (body.alignment ?? null) as Alignment | null);
     } catch (e) {
       for (const id of ids) await ctx.runMutation(internal.ads.patchCreative, { id, status: "failed", error: errText(e) });
       await ctx.runMutation(internal.ads.finishIfDone, { batchId: first.batchId });

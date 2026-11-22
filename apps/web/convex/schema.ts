@@ -2643,6 +2643,8 @@ export default defineSchema({
     renderStartedAt: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
+      // With a human voice actor (voiceActors.ts): ordered, waiting for the read to come back.
+      v.literal("recording"),
       v.literal("voiced"),
       v.literal("rendering"),
       v.literal("rendered"),
@@ -2654,6 +2656,19 @@ export default defineSchema({
     ),
     error: v.optional(v.string()),
     meta: v.optional(v.object({ videoId: v.optional(v.string()), imageHash: v.optional(v.string()), creativeId: v.optional(v.string()), adId: v.optional(v.string()), adsetId: v.optional(v.string()) })),
+    // The voice actor's order at Bunny Studio, shared by the ad's sizes: its project, what it cost, and the reads
+    // held back because they didn't follow the script (a redo comes as a new deliverable).
+    actor: v.optional(
+      v.object({
+        projectId: v.string(),
+        orderedAt: v.string(),
+        price: v.optional(v.number()),
+        test: v.optional(v.boolean()),
+        deliverableId: v.optional(v.string()),
+        heldBack: v.optional(v.array(v.string())),
+        checkedAt: v.optional(v.string()),
+      }),
+    ),
     createdAt: v.string(),
     activatedAt: v.optional(v.string()),
     retiredAt: v.optional(v.string()),
@@ -2778,6 +2793,12 @@ export default defineSchema({
     primaryColor: v.optional(v.string()),
     accentColor: v.optional(v.string()),
     voiceId: v.optional(v.string()),
+    // Who reads the ads: the ElevenLabs voice above (the default), or a real voice actor ordered from Bunny Studio.
+    voiceSource: v.optional(v.union(v.literal("elevenlabs"), v.literal("actor"))),
+    // For a voice actor: who reads (Bunny Studio's genderAndAge), the language, and notes on how to read.
+    actorVoice: v.optional(v.string()),
+    actorLanguage: v.optional(v.string()),
+    actorNotes: v.optional(v.string()),
     weeklyEnabled: v.boolean(),
     // Niche research: Ad Library keywords, the owner's markets, the longevity bar, the monthly switch.
     researchKeywords: v.optional(v.array(v.string())),
