@@ -2646,6 +2646,8 @@ export default defineSchema({
         look: v.optional(v.union(v.literal("collage"), v.literal("markup"), v.literal("versus"))),
         // Drawn with Tesseract instead of Remotion (ads-video/scripts/tesseract.mjs): job site videos, side by side.
         engine: v.optional(v.literal("tesseract")),
+        // A job site video whose own sound is a song or radio: played silent, with our music instead.
+        muteClip: v.optional(v.boolean()),
         // A quick offer: about 9 seconds, one job, a local hook, then the free quote.
         quick: v.optional(v.boolean()),
         // How the first reel stored where to look, by photo. No longer written or read.

@@ -89,8 +89,9 @@ export const addFootage = internalMutation({
     copy: v.object({ title: v.string(), headline: v.string(), primaryText: v.string() }),
     lines: v.array(v.object({ voice: v.string(), start: v.number(), end: v.number(), words: v.array(v.object({ text: v.string(), start: v.number(), end: v.number() })) })),
     durationSec: v.number(),
+    muteClip: v.optional(v.boolean()),
   },
-  handler: async (ctx, { batchId, hookId, assetId, copy, lines, durationSec }) => {
+  handler: async (ctx, { batchId, hookId, assetId, copy, lines, durationSec, muteClip }) => {
     const asset = await ctx.db.get(assetId);
     if (!asset) throw new Error("The video left the library");
     const script = {
@@ -117,7 +118,7 @@ export const addFootage = internalMutation({
           ratio,
           name,
           script,
-          design: { style: "footage", title: copy.title, ...(engine ? { engine } : {}) },
+          design: { style: "footage", title: copy.title, ...(engine ? { engine } : {}), ...(muteClip ? { muteClip: true } : {}) },
           assetIds: [assetId],
           // The clip's own sound is the voice.
           audioStorageId: asset.storageId,
@@ -157,11 +158,14 @@ export const write = internalAction({
         const reply = await callClaude({ model: AD_MODEL, max_tokens: 2000, messages: [{ role: "user", content: ask }] });
         const text = reply.content.map((b) => (typeof b.text === "string" ? b.text : "")).join("");
         const plan = parseJson<FootageCopy>(text);
-        problems = footageProblems(plan, input.swipe);
-        if (problems.length === 0) copy = { title: plan!.title.trim(), headline: plan!.headline.trim(), primaryText: plan!.primaryText.trim() };
+        problems = footageProblems(plan);
+        if (problems.length === 0) copy = { title: plan!.title.trim(), headline: plan!.headline.trim(), primaryText: plan!.primaryText.trim(), speech: plan!.speech };
       }
       if (!copy) throw new Error(`The words for the video still broke the rules: ${problems.join("; ")}`);
-      await ctx.runMutation(internal.footage.addFootage, { batchId, hookId, assetId, copy, lines, durationSec });
+      // Only the crew's own words become captions. A song playing in the clip gives no captions, and its sound is
+      // replaced with our music (a copyrighted song gets an ad muted or blocked).
+      const { speech, ...words } = copy;
+      await ctx.runMutation(internal.footage.addFootage, { batchId, hookId, assetId, copy: words, lines: speech === "crew" ? lines : [], durationSec, muteClip: speech === "song" });
       await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
     } catch (e) {
       await ctx.runMutation(internal.ads.failBatch, { batchId, error: `The job site ad couldn't be made: ${errText(e)}` });

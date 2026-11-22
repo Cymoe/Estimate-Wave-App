@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { designLabel, forbiddenIn } from "./lib/ads";
-import { FOOTAGE_MARK, footageProblems, footagePrompt, isWorkFootage, linesFromHeard, pickFootageSwipe, primaryMaxFor } from "./lib/footage";
+import { FOOTAGE_MARK, footageProblems, footagePrompt, FOOTAGE_PRIMARY_MAX, isWorkFootage, linesFromHeard, pickFootageSwipe } from "./lib/footage";
 import { setup, signUp } from "./test.setup";
 
 afterEach(() => {
@@ -47,20 +47,25 @@ describe("the pure parts", () => {
     expect(prompt).toContain("Rodgers Painting");
     expect(prompt).toContain("160 days");
     expect(prompt).toContain(SWIPE.adCopy);
+    expect(prompt).toContain("but not their length");
+    expect(prompt).toContain('Lyrics of a song or a radio');
     expect(prompt).toContain("never as a homeowner or customer");
     expect(footagePrompt({ brand: "B", trade: "Painting", town: "", heard: "", swipe: { ...SWIPE, adCopy: undefined } })).toContain("(nothing: it is the work and the job site's sound)");
   });
 
   test("the words are checked: lengths, and the same banned claims as every ad", () => {
-    const good = { title: "Doors off, sprayed", headline: "Cabinets sprayed smooth", primaryText: "We take every door to the shop. Free quote." };
-    expect(footageProblems(good, SWIPE)).toEqual([]);
-    expect(footageProblems(null, SWIPE)).toEqual(["the reply wasn't JSON"]);
-    expect(footageProblems({ ...good, title: "x".repeat(31) }, SWIPE)).toEqual(["title over 30 characters"]);
-    expect(footageProblems({ ...good, primaryText: "Only $999, guaranteed." }, SWIPE)).toEqual(["mentions a price or discount", "mentions a warranty or guarantee"]);
-    expect(footageProblems({ ...good, headline: "" }, SWIPE)).toEqual(["no headline"]);
-    // A long competitor copy lets ours run long too.
-    expect(primaryMaxFor({ ...SWIPE, adCopy: "x".repeat(400) })).toBe(1500);
-    expect(primaryMaxFor(SWIPE)).toBe(125);
+    const good = { speech: "crew" as const, title: "Doors off, sprayed", headline: "Cabinets sprayed smooth", primaryText: "We take every door to the shop. Free quote." };
+    expect(footageProblems(good)).toEqual([]);
+    expect(footageProblems(null)).toEqual(["the reply wasn't JSON"]);
+    expect(footageProblems({ ...good, title: "x".repeat(31) })).toEqual(["title over 30 characters"]);
+    expect(footageProblems({ ...good, primaryText: "Only $999, guaranteed." })).toEqual(["mentions a price or discount", "mentions a warranty or guarantee"]);
+    expect(footageProblems({ ...good, headline: "" })).toEqual(["no headline"]);
+    // Short, whatever the competitor's length: one or two plain sentences, no emoji or check-mark lists.
+    expect(FOOTAGE_PRIMARY_MAX).toBe(150);
+    expect(footageProblems({ ...good, primaryText: "x".repeat(151) })).toEqual(["primary text over 150 characters"]);
+    expect(footageProblems({ ...good, primaryText: "Midland homeowners! 🏠 ✅ Floors covered. Free quote." })).toEqual(["emoji or check marks in the text"]);
+    // What was heard has to be named: the crew, a song, or nothing.
+    expect(footageProblems({ ...good, speech: undefined })).toEqual(['no "speech" (crew, song or none)']);
     expect(forbiddenIn("Top-rated painters")).toEqual(["mentions a claim about how the pros are checked (vetted, screened, top-rated)"]);
     expect(designLabel({ style: "footage" })).toBe("Job site video");
   });
@@ -111,7 +116,7 @@ async function ready(opts: { swipe?: boolean; durationSec?: number } = {}) {
 }
 
 /** ElevenLabs hears the crew; Claude writes the words, badly first when asked to. */
-function stub(calls: Call[], opts: { badFirst?: boolean; alwaysBad?: boolean; silent?: boolean } = {}) {
+function stub(calls: Call[], opts: { badFirst?: boolean; alwaysBad?: boolean; silent?: boolean; song?: boolean } = {}) {
   let asked = 0;
   vi.stubGlobal(
     "fetch",
@@ -124,8 +129,8 @@ function stub(calls: Call[], opts: { badFirst?: boolean; alwaysBad?: boolean; si
         asked++;
         const bad = opts.alwaysBad || (opts.badFirst && asked === 1);
         const copy = bad
-          ? { title: "Doors sprayed", headline: "Only $99 a door", primaryText: "Guaranteed finish." }
-          : { title: "Doors off, sprayed", headline: "Cabinets sprayed smooth", primaryText: "We take every door to the shop and spray it. Free quote." };
+          ? { speech: "crew", title: "Doors sprayed", headline: "Only $99 a door", primaryText: "Guaranteed finish." }
+          : { speech: opts.song ? "song" : opts.silent ? "none" : "crew", title: "Doors off, sprayed", headline: "Cabinets sprayed smooth", primaryText: "We take every door to the shop and spray it. Free quote." };
         return new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(copy) }], stop_reason: "end_turn" }));
       }
       if (url.includes("api.github.com")) return new Response(null, { status: 204 });
@@ -300,6 +305,25 @@ describe("job site videos follow ads that are work on camera", () => {
     const props = (await t.mutation(internal.ads.claimRenders, {}))[0].props as Record<string, any>;
     expect(props.lines).toEqual([]);
     expect(props.sound).toMatchObject({ musicFrom: 4 });
+    expect(props.sound.music).toMatch(/^https?:/);
+  });
+
+  test("a song playing in the clip: no captions of its lyrics, and the clip plays silent under our music", async () => {
+    vi.useFakeTimers();
+    const { t, owner, assetId } = await ready();
+    await t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob(["mp3"], { type: "audio/mpeg" }));
+      await ctx.db.insert("adMusic", { name: "Track", storageId, active: true, createdAt: new Date().toISOString() });
+    });
+    // What speech-to-text heard was a song's lyrics; Claude names it a song.
+    stub([], { song: true });
+    await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
+    const rows = await t.run((ctx) => ctx.db.query("adCreatives").collect());
+    expect(rows.every((c) => c.design?.muteClip === true && (c.script.shots ?? []).length === 0)).toBe(true);
+    const props = (await t.mutation(internal.ads.claimRenders, {}))[0].props as Record<string, any>;
+    expect(props.audio).toBe("");
+    expect(props.lines).toEqual([]);
+    expect(props.footage.src).toMatch(/^https?:/);
     expect(props.sound.music).toMatch(/^https?:/);
   });
 });

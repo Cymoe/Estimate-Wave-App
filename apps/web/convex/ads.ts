@@ -2573,6 +2573,7 @@ const adDesign = v.object({
   tag: v.optional(v.string()),
   look: v.optional(adLook),
   engine: v.optional(v.literal("tesseract")),
+  muteClip: v.optional(v.boolean()),
   quick: v.optional(v.boolean()),
 });
 

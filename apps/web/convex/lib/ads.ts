@@ -583,6 +583,8 @@ export interface Design {
   look?: AdLook;
   /** Drawn with Tesseract instead of Remotion: a job site video's side-by-side copy. */
   engine?: "tesseract";
+  /** A job site video whose own sound is a song or radio: played silent, with our music instead. */
+  muteClip?: boolean;
   /** A quick offer: a reel of about 9 seconds, one job, a local hook, then the free quote. */
   quick?: boolean;
 }
@@ -1105,7 +1107,8 @@ function drawnFrom(input: {
       brand: input.brand,
       headline: design.title,
       lines: (script.shots ?? []).map((x) => ({ voice: x.voice, start: x.start ?? 0, end: x.end ?? 0, ...(x.words ? { words: x.words } : {}) })),
-      audio: input.audioUrl,
+      // The clip's own sound is the voice, unless it is a song: then the clip plays silent under our music.
+      audio: design.muteClip ? "" : input.audioUrl,
       audioSec: input.audioSec,
       photos: [] as Array<{ src: string }>,
       footage: { src: input.audioUrl },

@@ -151,7 +151,8 @@ export function tesseractActions(props, { clipMs, musicMs }) {
     // Dark over it, as the Remotion version's brightness(0.45): the clip is what the eye goes to.
     { type: "animatorAddRectLayer", compositionId: "main", layerId: 6, name: "Shade", insertIndex: 0, transform: transform(0, 0), rect: { size: [width, height], fillColor: colorOf(INK, 0.6), position: [0, 0] }, projectActiveRange: { start: 0, end: playable } },
     // The clip itself, whole, with its own sound.
-    clip(3, "Clip", "contain", 1),
+    // Silent when the clip's sound is a song (props.audio is empty then): our music plays instead.
+    clip(3, "Clip", "contain", props.audio ? 1 : 0),
     // The brand, small at the top, while the clip plays.
     textLayer(4, "Brand", props.brand.name, { top: zone.chip - 24, height: 56, size: 30, start: 0, end: endMs, stroke: true, width: 600, frameWidth: width }),
     // No title over a job site video: the owner wants the work on screen and nothing written across the top.

@@ -800,7 +800,9 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
         {c.presenter && <span className={chip}>On camera</span>}
       </p>
       <p className="text-sm text-white">{c.script.headline}</p>
-      <p className="text-xs text-gray-400">{c.script.primaryText}</p>
+      <p className="text-xs text-gray-400 line-clamp-3" title={c.script.primaryText}>
+        {c.script.primaryText}
+      </p>
       {c.presenter && <p className="text-xs text-gray-400">Creator's take added {ago(c.presenter.addedAt)}</p>}
       {c.actor && !c.presenter && (
         <p className="text-xs text-gray-400">

@@ -188,9 +188,12 @@ async function localProps(job, serveDir, base) {
     const clip = path.join(serveDir, "public", folder, "clip.mp4");
     await writeFile(clip, await bytesOf(footage.src, base));
     footage = { src: `${folder}/clip.mp4` };
-    // A clip with no sound at all plays silent rather than failing the ad.
-    const voice = await evenVoice(clip.replace(/\.mp4$/, ".mp3"), clip);
-    audio = voice.endsWith(".mp4") ? "" : `${folder}/${path.basename(voice)}`;
+    // A clip whose sound is a song plays silent under our music (no audio); one with no sound at all plays silent
+    // rather than failing the ad.
+    if (job.props.audio) {
+      const voice = await evenVoice(clip.replace(/\.mp4$/, ".mp3"), clip);
+      audio = voice.endsWith(".mp4") ? "" : `${folder}/${path.basename(voice)}`;
+    }
   } else if (job.props.audio) {
     const voice = path.join(serveDir, "public", folder, "voice.mp3");
     await writeFile(voice, await bytesOf(job.props.audio, base));

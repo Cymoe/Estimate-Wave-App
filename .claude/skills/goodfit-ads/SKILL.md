@@ -162,6 +162,13 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 - The renderer (`ads-video/src/parts/Footage.tsx`) shows the clip whole over a soft, dark copy of itself, muted
   (its sound is the levelled voice track). **No title or text across the top** (the owner said job site videos need
   none, Nov 2026): only the small brand tag, captions of what is said, and the end card after the clip ends. A clip with no sound plays silent.
+- **Short text** (the owner found competitor-length text ridiculous, Nov 2026): the text above a job site video
+  is at most 150 characters, one or two plain sentences ending on the free quote, with no emoji or check-mark lists
+  (`FOOTAGE_PRIMARY_MAX`). It follows the competitor ad's angle and opening, not its length.
+- **Songs in the clip:** Claude names what speech-to-text heard as `crew`, `song` or `none`. Only `crew` words
+  become captions. With `song` (lyrics of a radio or song in the background, e.g. "Wicked Game"), there are no
+  captions and the clip plays silent under our music (`design.muteClip`): a copyrighted song gets an ad muted or
+  blocked.
 - Real footage only, as with photos: never AI-made or AI-moved. Captions come from what is heard, so check a
   name or a word that could be misheard before approving.
 
