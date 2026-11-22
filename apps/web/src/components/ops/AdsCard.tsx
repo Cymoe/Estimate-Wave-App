@@ -12,6 +12,7 @@ import {
   useAdsResearchRuns,
   useAdsSettings,
   useAdsSwipes,
+  useAdRequests,
 } from '../../lib/live';
 import { AD_TRADES, DEFAULT_TRADE, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
 import { ACTOR_VOICES, ACTOR_VOICE_LABELS } from '../../../convex/lib/voiceActors';
@@ -249,6 +250,91 @@ const STATUS_LABELS: Record<AdCreative['status'], string> = {
 const chip = 'inline-block text-[10px] uppercase tracking-wide text-gray-400 border border-[#333] rounded px-1';
 const pct = (n: number) => `${n.toFixed(2)}%`;
 
+type AdRequestRow = { ask: string; createdAt: string; stage: string; link: string };
+const STAGE_LABELS: Record<string, string> = {
+  reading: 'Reading',
+  writing: 'Writing',
+  voicing: 'Recording the voice',
+  drawing: 'Drawing',
+  ready: 'Ready',
+  failed: "Couldn't be made",
+};
+
+/**
+ * "Make an ad for…": one line ("cabinet painting in Odessa") becomes a story, a lesson and a quick offer, each in
+ * both sizes, on the competitor ads that fit it. The private link shows them being made, with no login, so it can
+ * be opened on a phone or sent on.
+ */
+const MakeAnAd: React.FC = () => {
+  const [ask, setAsk] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const recent = useAdRequests<AdRequestRow[]>();
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ask.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await adsAPI.makeFor(ask);
+      setAsk('');
+    } catch (err) {
+      setError(describeError(err, "That didn't go through"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const copy = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(link);
+    } catch {
+      setCopied(null);
+    }
+  };
+  return (
+    <section className="border border-[#2A2A2A] rounded p-3 space-y-2" aria-label="Make an ad for">
+      <form onSubmit={submit} className="flex flex-wrap gap-2">
+        <label htmlFor="make-an-ad" className="sr-only">
+          Make an ad for
+        </label>
+        <input
+          id="make-an-ad"
+          value={ask}
+          onChange={(e) => setAsk(e.target.value)}
+          placeholder="Make an ad for… cabinet painting in Odessa"
+          className={`${input} flex-1 min-w-[200px]`}
+          maxLength={300}
+        />
+        <button type="submit" className={primary} disabled={busy || !ask.trim()}>
+          {busy ? 'Starting…' : 'Make it'}
+        </button>
+      </form>
+      <p className="text-xs text-gray-500">A story, a checklist and a quick offer, in both sizes. Each gets a private link to watch it being made, no login needed.</p>
+      <ErrorLine error={error} onDismiss={() => setError(null)} />
+      {recent && recent.length > 0 && (
+        <ul className="space-y-1 text-sm">
+          {recent.map((r) => (
+            <li key={r.link} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-gray-200">"{r.ask}"</span>
+              <span className={`text-xs ${r.stage === 'ready' ? 'text-emerald-300' : r.stage === 'failed' ? 'text-amber-300' : 'text-gray-400'}`}>
+                {STAGE_LABELS[r.stage] ?? r.stage} · {ago(r.createdAt)}
+              </span>
+              <a href={r.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-sky-300 underline">
+                Open <ExternalLink className="w-3 h-3" aria-hidden="true" />
+              </a>
+              <button type="button" onClick={() => copy(r.link)} className="text-xs text-gray-400 underline">
+                {copied === r.link ? 'Copied' : 'Copy link'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+};
+
 export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const [section, setSection] = useState<Section>('week');
   const [trade, setTrade] = useState<string>(rememberedTrade);
@@ -316,6 +402,7 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
           ))}
         </div>
       )}
+      <MakeAnAd />
       <div role="tablist" aria-label="Ads" className="flex gap-1 flex-wrap">
         {SECTIONS.map(([value, label]) => (
           <button

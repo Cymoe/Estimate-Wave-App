@@ -45,6 +45,10 @@ import {
   angleOf,
   designLabel,
   pickOfferPhotos,
+  readRequestReply,
+  pickRequestSwipes,
+  requestStage,
+  requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
 import { SWIPE_SEEDS } from "./catalog/swipes";
@@ -212,14 +216,14 @@ function toLength<P extends { lines: Array<Record<string, unknown>> }>(plan: P, 
 }
 
 /** A quick offer as the writer would answer: a local hook, the one thing done, the ask, on one job's photos. */
-function quickPlanFor(photoCount: number) {
+function quickPlanFor(photoCount: number, town = "Midland") {
   const after = Math.min(2, photoCount);
   return {
     fits: true,
     style: "reel",
     title: "Cabinets, finished",
     lines: [
-      { photo: 1, voice: "Midland homeowners, look at this.", x: 50, y: 50, ...(photoCount > 1 ? { before: true } : {}) },
+      { photo: 1, voice: `${town} homeowners, look at this.`, x: 50, y: 50, ...(photoCount > 1 ? { before: true } : {}) },
       { photo: after, voice: "Every door came off and every frame was masked.", label: "Doors off, frames masked", x: 40, y: 50 },
       { photo: after, voice: "Get a free quote from GoodFit Pros.", label: "One free quote" },
     ],
@@ -227,6 +231,54 @@ function quickPlanFor(photoCount: number) {
     primaryText: GOOD.primaryText,
   };
 }
+
+describe("make an ad for…, the pure parts", () => {
+  const trades = Object.values(AD_TRADES);
+  test("the line is read into a trade we do, one of its kinds of job (or none), a town and the idea", () => {
+    expect(requestPrompt("cabinets in Odessa", "GoodFit Pros", ["Midland", "Odessa"], trades)).toContain("serving Midland, Odessa, Texas");
+    expect(readRequestReply('Sure: {"trade":"painting","scope":"cabinets","town":" Odessa ","idea":"Paint the cabinets, keep the kitchen"}', trades)).toEqual({
+      trade: "painting",
+      scope: "cabinets",
+      town: "Odessa",
+      idea: "Paint the cabinets, keep the kitchen",
+    });
+    // A kind of job from another trade is no kind of job here.
+    expect(readRequestReply('{"trade":"painting","scope":"patio","town":null,"idea":"Painting"}', trades)).toEqual({ trade: "painting", scope: "general", idea: "Painting" });
+    expect(readRequestReply('{"trade":null}', trades)).toBeNull();
+    expect(readRequestReply('{"trade":"roofing","idea":"Roofs"}', trades)).toBeNull();
+    expect(readRequestReply('{"trade":"painting","idea":""}', trades)).toBeNull();
+  });
+
+  const swipe = (company: string, more: Record<string, unknown> = {}) => ({ company, importedAt: "2026-11-01", starred: false, quality: 30, ...more });
+  const script = "We take every door off and spray it in our shop so the finish comes out smooth and even.";
+  test("the story is built on the best ad with a script for that kind of job, the lesson on another, a teaching one first", () => {
+    const picked = pickRequestSwipes(
+      [
+        swipe("Thin Ads", { scope: "cabinets", adCopy: "Call now" }),
+        swipe("Rodgers", { scope: "cabinets", transcript: script }),
+        swipe("Teacher", { scope: "cabinets", transcript: script, family: "education" }),
+        swipe("Outside", { scope: "exterior", transcript: script }),
+      ],
+      "cabinets",
+    );
+    expect([picked.story?.company, picked.lesson?.company]).toEqual(["Rodgers", "Teacher"]);
+    // With one ad on file there is no lesson; with none, nothing.
+    expect(pickRequestSwipes([swipe("Rodgers", { scope: "cabinets", transcript: script })], "cabinets").lesson).toBeUndefined();
+    expect(pickRequestSwipes([swipe("Outside", { scope: "exterior", transcript: script })], "cabinets").story).toBeUndefined();
+  });
+
+  test("the page's stage follows the request, its batch and its ads", () => {
+    const made = { status: "made" as const };
+    expect(requestStage({ status: "reading" }, null, [])).toBe("reading");
+    expect(requestStage(made, null, [])).toBe("writing");
+    expect(requestStage(made, { status: "drafting" }, [{ status: "draft" }])).toBe("writing");
+    expect(requestStage(made, { status: "drafting", skipped: [] }, [{ status: "draft" }, { status: "voiced" }])).toBe("voicing");
+    expect(requestStage(made, { status: "drafting", skipped: [] }, [{ status: "rendering" }, { status: "rendered" }])).toBe("drawing");
+    expect(requestStage(made, { status: "ready", skipped: [] }, [{ status: "rendered" }, { status: "failed" }])).toBe("ready");
+    expect(requestStage(made, { status: "failed" }, [])).toBe("failed");
+    expect(requestStage({ status: "failed" }, null, [])).toBe("failed");
+  });
+});
 
 describe("a quick offer", () => {
   const pair = [{ tags: ["cabinets", "before"], pairKey: "k1" }, { tags: ["cabinets", "after"], pairKey: "k1" }];
@@ -1236,6 +1288,8 @@ type StubOpts = {
   github?: number;
   /** Claude chooses this style instead of the light-up. */
   style?: "beforeAfter" | "reel";
+  /** How Claude reads a "make an ad for…" line. */
+  request?: unknown;
 };
 
 /** Claude's read of a competitor ad, from what the prompt names. */
@@ -1392,7 +1446,8 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         const retry = content.some((c) => c.text?.startsWith("Your last answer had these problems"));
         const offered = content.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length;
         let reply: unknown;
-        if (prompt.includes(IDEA_MARK)) reply = { ideas: ideasOf(prompt) };
+        if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
+        else if (prompt.includes(IDEA_MARK)) reply = { ideas: ideasOf(prompt) };
         else if (prompt.includes(PICK_MARK)) reply = { picks: picksFor(prompt) };
         else if (prompt.includes(TASTE_MARK)) reply = { note: TASTE_NOTE };
         else if (prompt.includes(TAG_MARK)) reply = tagReplyFor(prompt);
@@ -1407,7 +1462,7 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
             ),
           );
         else if (opts.scriptsFail) reply = motionPlanFor(offered, { primaryText: "Only $999 this week" });
-        else if (prompt.includes("This one is a quick offer")) reply = quickPlanFor(offered);
+        else if (prompt.includes("This one is a quick offer")) reply = quickPlanFor(offered, prompt.match(/"([A-Z][\w .]*?) homeowners, look at this\."/)?.[1]);
         else if (opts.badFirst && !retry) reply = motionPlanFor(offered, { lines: [] });
         else if (opts.style === "beforeAfter") reply = motionPlanFor(offered, { style: "beforeAfter", revealOn: "finish" });
         else if (opts.style === "reel") {
@@ -1938,6 +1993,78 @@ describe("the weekly run", () => {
     expect(ask.some((c) => c.text === "Photo 2:")).toBe(false);
     expect(ask[0].text).toContain("Build this ad around a competitor's ad that has been running for 160 days.");
     expect((await latest()).creatives.length).toBeGreaterThan(0);
+  });
+
+  describe("make an ad for…", () => {
+    const tokenOf = (link: string) => link.split("/ads/")[1];
+
+    test("one line becomes a story, a lesson and a quick offer for the town it names, each on its own competitor ad; the private page follows them to the files", async () => {
+      const { t, owner, calls, settle, draw } = await ready({ token: true });
+      stubServices(calls);
+      const { link } = await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "  painting   in Odessa " }));
+      expect(link).toMatch(/\/ads\/[A-Za-z0-9_-]{30,}$/);
+      // Claude read the line, with the trades and their kinds of job to choose from.
+      const read = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content[0].text as string)[0];
+      expect(read).toContain('"painting in Odessa"');
+      expect(read).toContain("- painting (Painting): interior (Interior), exterior (Exterior), cabinets (Cabinets)");
+      expect(read).toContain("outdoor-construction (Hardscaping)");
+
+      let view = (await t.query(api.ads.requestView, { token: tokenOf(link) }))!;
+      expect(view).toMatchObject({ ask: "painting in Odessa", idea: "We paint homes inside and out", town: "Odessa", trade: "Painting", stage: "drawing" });
+      // Three versions of the same offer, in both sizes, waiting to be drawn: the story and the lesson each built on a
+      // different competitor ad, the quick offer on the story's. (The stand-in writer draws the lesson as a light-up.)
+      expect(view.ads.map((a) => `${a.angle === "Quick offer" ? "Quick offer" : a.builtOn!.company} ${a.ratio}`).sort()).toEqual(
+        ["Quick offer 4x5", "Quick offer 9x16", "Rodgers Painting 4x5", "Rodgers Painting 9x16", "Squeegee Squad 4x5", "Squeegee Squad 9x16"],
+      );
+      expect(view.ads.every((a) => a.status === "voiced" && a.file === null)).toBe(true);
+      const story = view.ads.find((a) => a.builtOn?.company === "Rodgers Painting" && a.angle !== "Quick offer")!;
+      expect(story.builtOn).toMatchObject({ company: "Rodgers Painting", daysRunning: 160 });
+      expect(view.ads.find((a) => a.angle === "Quick offer")!.builtOn!.company).toBe("Rodgers Painting");
+      // The lesson is asked for as a checklist.
+      const lessonAsk = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).find((x) => x.includes("On screen: a short checklist"))!;
+      expect(lessonAsk).toContain("Concept family: Cost education");
+      // The quick offer speaks to the town the line named, not the first one in Settings.
+      const asks = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content[0].text as string);
+      expect(asks.find((a) => a.includes("This one is a quick offer"))).toContain('"Odessa homeowners, look at this."');
+      // The ideas are off, so the weekly run never makes them again; the batch is the request's.
+      const hooks = await t.run(async (ctx) => (await ctx.db.query("adHooks").collect()).filter((h) => h.textEn === "We paint homes inside and out"));
+      expect(hooks.map((h) => [h.family, h.active])).toEqual([["before_after", false], ["education", false]]);
+      expect(await t.query(internal.ads.waitingCount, {})).toBe(6);
+
+      await draw();
+      view = (await t.query(api.ads.requestView, { token: tokenOf(link) }))!;
+      expect(view.stage).toBe("ready");
+      expect(view.ads.every((a) => typeof a.file === "string")).toBe(true);
+      expect(story.lines.length).toBeGreaterThan(0);
+      expect(await t.query(internal.ads.waitingCount, {})).toBe(0);
+      // Ops → Ads lists it with its link.
+      expect((await owner.as.query(api.ads.recentRequests, {}))[0]).toMatchObject({ ask: "painting in Odessa", stage: "ready", link });
+    });
+
+    test("the page shows nothing for a wrong or short key, and only staff can ask from the app", async () => {
+      const { t, owner, calls, settle } = await ready();
+      stubServices(calls);
+      const { link } = await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "cabinet painting" }));
+      expect(await t.query(api.ads.requestView, { token: "x".repeat(32) })).toBeNull();
+      expect(await t.query(api.ads.requestView, { token: tokenOf(link).slice(0, 10) })).toBeNull();
+      await expect(t.mutation(api.ads.makeFor, { ask: "cabinet painting" })).rejects.toThrow();
+      await expect(owner.as.mutation(api.ads.makeFor, { ask: " a " })).rejects.toThrow("Say what the ad is for");
+    });
+
+    test("from Claude, a line that names no trade we do stops with a plain reason, and one with no competitor ads says so", async () => {
+      const { t, calls, settle } = await ready();
+      stubServices(calls, { request: { trade: null } });
+      const { link } = await settle(() => t.mutation(internal.ads.makeForInternal, { ask: "roof repair" }));
+      expect(await t.query(api.ads.requestView, { token: tokenOf(link) })).toMatchObject({ stage: "failed", error: expect.stringContaining("Couldn't tell which kind of job") });
+
+      stubServices(calls, { request: { trade: "bathroom-remodeling", scope: "walk-in-shower", town: null, idea: "Walk-in showers" } });
+      const second = await settle(() => t.mutation(internal.ads.makeForInternal, { ask: "walk-in showers" }));
+      expect(await t.query(api.ads.requestView, { token: tokenOf(second.link) })).toMatchObject({
+        stage: "failed",
+        trade: "Bathrooms",
+        error: "No bathrooms competitor ads on file to build it on yet.",
+      });
+    });
   });
 
   test("a checklist ad can be copied in the collage look: same words and voice, its own name, waiting to be drawn; others can't", async () => {

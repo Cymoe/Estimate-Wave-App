@@ -1102,6 +1102,8 @@ export const adsAPI = {
   ideasNow: (trade?: string) => run('mutation', api.ads.ideasNow, defined({ trade })),
   decideIdea: (id: string, status: 'kept' | 'killed' | 'new') => run('mutation', api.ads.decideIdea, { id, status }),
   makeKept: (trade?: string): Promise<number> => run('mutation', api.ads.makeKept, defined({ trade })),
+  /** "Make an ad for cabinet painting in Odessa": starts it and returns the private link that shows it being made. */
+  makeFor: (ask: string): Promise<{ link: string }> => run('mutation', api.ads.makeFor, { ask }),
   activate: (id: string) => run('mutation', api.ads.activate, { id }),
   retire: (id: string) => run('mutation', api.ads.retire, { id }),
   reject: (id: string) => run('mutation', api.ads.reject, { id }),

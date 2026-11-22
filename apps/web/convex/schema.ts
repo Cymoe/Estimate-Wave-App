@@ -2583,7 +2583,30 @@ export default defineSchema({
     skipped: v.optional(v.array(v.string())),
     startedBy: v.optional(v.id("users")),
     createdAt: v.string(),
-  }).index("by_week", ["weekOf"]),
+    // On a batch made for one "make an ad for…" request (ads.makeFor): that request.
+    requestId: v.optional(v.id("adRequests")),
+  })
+    .index("by_week", ["weekOf"])
+    .index("by_request", ["requestId"]),
+
+  // "Make an ad for cabinet painting in Odessa": one line from the owner (Ops → Ads, or Claude), read into a trade,
+  // a kind of job and a town, made as a few versions of the same offer, and watched at /ads/<token> with no login.
+  adRequests: defineTable({
+    ask: v.string(),
+    // The long random key in the private link.
+    token: v.string(),
+    // What the line was read as (ads.readRequest); absent until then.
+    trade: v.optional(v.string()),
+    scope: v.optional(v.string()),
+    town: v.optional(v.string()),
+    idea: v.optional(v.string()),
+    hookIds: v.optional(v.array(v.id("adHooks"))),
+    // Reading, then made (its batch says the rest), or failed with why.
+    status: v.union(v.literal("reading"), v.literal("made"), v.literal("failed")),
+    error: v.optional(v.string()),
+    startedBy: v.optional(v.id("users")),
+    createdAt: v.string(),
+  }).index("by_token", ["token"]),
 
   adCreatives: defineTable({
     batchId: v.id("adBatches"),

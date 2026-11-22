@@ -11,6 +11,7 @@ import { EditEstimatePage } from './pages/EditEstimatePage';
 import { ShareableEstimate } from './components/estimates/ShareableEstimate';
 import { SignoffPage } from './pages/SignoffPage';
 import { PortalPage } from './pages/PortalPage';
+import { AdRequestPage } from './pages/AdRequestPage';
 import { ReferralPage } from './pages/ReferralPage';
 import { PurchaseOrderPage } from './pages/PurchaseOrderPage';
 import { EstimateContractView } from './components/contracts/EstimateContractView';
@@ -440,6 +441,8 @@ function AppRoutes() {
       <Route path="/share/signoff/:token" element={<SignoffPage />} />
       {/* The client portal: everything for a client's jobs, from one private link - no auth required */}
       <Route path="/portal/:token" element={<PortalPage />} />
+      {/* A "make an ad for…" request, watched as it is made, from its private link - no auth required */}
+      <Route path="/ads/:token" element={<AdRequestPage />} />
       <Route path="/r/:code" element={<ReferralPage />} />
       <Route path="/po/:token" element={<PurchaseOrderPage />} />
       {/* Public page a company pays through to load its lead balance - no auth required */}

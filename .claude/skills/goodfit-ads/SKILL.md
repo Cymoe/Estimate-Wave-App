@@ -169,10 +169,41 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   Run one at a time, and wait for a push's own deploy to finish first.
 - To read a function's result, list the run's jobs, get the job's log URL, download it, and pull out the JSON it
   printed. The log only exists once the job has finished.
-- **Drawing never starts on its own.** After an ad is voiced, dispatch `ads-render.yml` by hand.
+- **Drawing starts on a timer.** `ads-render-timer.yml` lives on the default branch (`main`), because GitHub only
+  keeps timers there. Every 5 minutes it starts `ads-render.yml` on `fieldquote-convex` with `timed: true`. A timed
+  run asks `ads:waitingCount` first and stops at once when nothing waits. GitHub runs timers late, so allow about
+  10 minutes. To draw at once, dispatch `ads-render.yml` by hand (no inputs).
 - `ads:lastBatch` shows the newest batch: each ad's lines, file links and the competitor ad it was built on.
+  `ads:lastBatch {names:[…]}` shows the named ads from any batch, to check a redraw.
 - `ads:makeFromPhoto {assetId, line, opening?, scope?}` makes an ad for one job's photo.
 - `ads:voiceSamples {text, voiceIds, lines}` returns a timed read, for drawing a local sample of a new kind of ad.
+
+## "Make an ad for X"
+
+When the owner says "spin up a FB ad for …" (in chat, or in the box at the top of Ops → Ads), one line becomes three
+versions of the same offer, each in both sizes:
+- a story;
+- a lesson (checklist);
+- a quick offer on the story's job.
+
+How it works:
+- `ads:makeFor {ask}` (the Ops box) or `ads:makeForInternal {ask}` (from a cloud session, through
+  `convex-deploy.yml`) saves an `adRequests` row and returns `{link}`. That is the private page `/ads/<token>`: no
+  login, and it updates itself as each step finishes.
+- `ads:readRequest` asks Claude for the trade, the kind of job (`trade.scopes`, else general), the town, and a
+  one-line idea. Then `startRequestAds` builds two hooks (off, so Monday never repeats them):
+  - the story on the best competitor ad with a script for that kind of job;
+  - the lesson on a different one, a teaching ad first (`pickRequestSwipes`).
+- It then runs `weeklyRun {only, requestId, town, quickToo}`. The quick offer speaks to the town the line named.
+  A request skips the live-ads cap.
+- `requestView {token}` is the page's data. The stage (`requestStage`) is worked out from the request, its batch and
+  its ads: reading, writing, voicing, drawing, ready or failed.
+
+From a cloud session:
+1. Dispatch `ads:makeForInternal {"ask":"…"}`.
+2. Read the link from the log and send it to the owner straight away.
+3. When the page says Ready, check every frame and the loudness as below.
+4. If something is wrong, tell the owner, and fix the cause.
 
 ## Before the owner sees any ad
 

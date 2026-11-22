@@ -94,6 +94,10 @@ export const useAdsSwipes = <T>(trade?: string, on = true) => useLive<T>(q('ads:
 export const useAdsPlaybooks = <T>(on = true) => useLive<T>(q('ads:listPlaybooks'), on ? {} : 'skip');
 export const useAdsReadiness = <T>(on = true) => useLive<T>(q('ads:readiness'), on ? {} : 'skip');
 export const useAdsResearchRuns = <T>(on = true) => useLive<T>(q('ads:listResearchRuns'), on ? {} : 'skip');
+/** One "make an ad for…" request, by the key in its private link: no login. */
+export const useAdRequest = <T>(token: string) => useLive<T>(q('ads:requestView'), token ? { token } : 'skip');
+/** The latest "make an ad for…" requests, for Ops → Ads. */
+export const useAdRequests = <T>(on = true) => useLive<T>(q('ads:recentRequests'), on ? {} : 'skip');
 /** The intake queue for one filter. */
 export const useIntakeQueue = <T>(status: 'open' | 'closed' | 'confirmed') => useLive<T>(q('intake:queue'), { status });
 /** The last 50 hits on the intake webhook: accepted, repeat or rejected, and why. */

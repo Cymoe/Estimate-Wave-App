@@ -1909,3 +1909,81 @@ export function tastePrompt(kept: string[], killed: string[], previous?: string)
     'At most 90 words, plain sentences. Say what they go for and what they turn down, from what is common to each pile. Do not guess beyond the evidence; with little to go on, say little. Return only JSON: {"note":"..."}',
   ].join("\n");
 }
+
+// ── "Make an ad for…" ────────────────────────────────────────────────────────
+
+/** What one "make an ad for…" line was read as. */
+export interface RequestRead {
+  trade: string;
+  /** A kind of job of that trade (AdTrade.scopes), or ANY_SCOPE when the line names none. */
+  scope: string;
+  /** The town the line names, if any. */
+  town?: string;
+  /** What the ad is about, in one plain sentence. */
+  idea: string;
+}
+
+/** The question that turns the owner's one line ("cabinet painting in Odessa") into a trade, a kind of job and a town. */
+export function requestPrompt(ask: string, brand: string, markets: string[], trades: AdTrade[]): string {
+  return [
+    `${brand} is a home-improvement company${markets.length ? ` serving ${markets.join(", ")}, Texas` : ""}. Its owner typed this request for a Facebook ad:`,
+    "",
+    `"${ask.replace(/\s+/g, " ").trim()}"`,
+    "",
+    "Which trade is it, and which kind of job? The trades and their kinds of job:",
+    ...trades.map((t) => `- ${t.slug} (${t.label}): ${t.scopes.map((s) => `${s} (${t.scopeLabels[s] ?? s})`).join(", ")}`),
+    "",
+    'Answer with JSON only: {"trade": the trade\'s slug, or null if it is none of these, "scope": the kind of job, or null if the line names none, "town": the town it names, or null, "idea": one plain sentence saying what the ad offers, as the owner would say it, with no prices, discounts or promises}.',
+  ].join("\n");
+}
+
+/** The reply to requestPrompt, checked against the trades on offer; null when it names none of them. */
+export function readRequestReply(reply: string, trades: AdTrade[]): RequestRead | null {
+  const out = parseJson<{ trade?: unknown; scope?: unknown; town?: unknown; idea?: unknown }>(reply);
+  const trade = trades.find((t) => t.slug === out?.trade);
+  if (!out || !trade) return null;
+  const scope = typeof out.scope === "string" && trade.scopes.includes(out.scope) ? out.scope : ANY_SCOPE;
+  const town = typeof out.town === "string" && out.town.trim() ? out.town.trim().slice(0, 60) : undefined;
+  const idea = typeof out.idea === "string" && out.idea.trim() ? out.idea.trim().slice(0, 220) : undefined;
+  return idea ? { trade: trade.slug, scope, ...(town ? { town } : {}), idea } : null;
+}
+
+/**
+ * The competitor ads a request is built on: one for the story and another for the lesson, each with a real script
+ * when there is one, from the same kind of job first. The lesson prefers an ad Claude read as teaching
+ * (family "education"); either may be missing when too few are on file.
+ */
+export function pickRequestSwipes<S extends Scored & { scope?: string; transcript?: string; adCopy?: string; family?: string; company: string; importedAt: string }>(
+  swipes: S[],
+  scope: string,
+): { story?: S; lesson?: S } {
+  const ranked = pickExamples(swipes, scope, swipes.length).filter((x) => !x.scope || x.scope === scope || scope === ANY_SCOPE);
+  // Ads with a script to follow first, so ours can be written at their full length; then the rest, by angle only.
+  const scripted = ranked.filter((x) => scriptLength(x) !== undefined);
+  const pool = [...scripted, ...ranked.filter((x) => !scripted.includes(x))];
+  const story = pool.find((x) => x.family !== "education") ?? pool[0];
+  const rest = pool.filter((x) => x !== story);
+  const lesson = rest.find((x) => x.family === "education") ?? rest.find((x) => x.company !== story?.company) ?? rest[0];
+  return { story, lesson };
+}
+
+/** Where a "make an ad for…" request stands, for its page. */
+export type RequestStage = "reading" | "writing" | "voicing" | "drawing" | "ready" | "failed";
+export const REQUEST_STAGES: RequestStage[] = ["reading", "writing", "voicing", "drawing", "ready"];
+
+/**
+ * The stage from the request, its batch and its ads: still being read; written while the batch has no word of
+ * what it passed over yet; then voiced, drawn, and ready once every ad has a file or has stopped.
+ */
+export function requestStage(
+  request: { status: "reading" | "made" | "failed" },
+  batch: { status: string; skipped?: string[] } | null,
+  ads: Array<{ status: string }>,
+): RequestStage {
+  if (request.status === "failed" || batch?.status === "failed") return "failed";
+  if (request.status === "reading") return "reading";
+  if (!batch || batch.skipped === undefined) return "writing";
+  if (ads.some((c) => c.status === "draft")) return "voicing";
+  if (ads.some((c) => c.status === "voiced" || c.status === "rendering")) return "drawing";
+  return ads.length ? "ready" : "writing";
+}
