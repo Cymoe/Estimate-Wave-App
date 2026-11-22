@@ -172,10 +172,12 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   Run one at a time, and wait for a push's own deploy to finish first.
 - To read a function's result, list the run's jobs, get the job's log URL, download it, and pull out the JSON it
   printed. The log only exists once the job has finished.
-- **Drawing starts on a timer.** `ads-render-timer.yml` lives on the default branch (`main`), because GitHub only
-  keeps timers there. Every 5 minutes it starts `ads-render.yml` on `fieldquote-convex` with `timed: true`. A timed
-  run asks `ads:waitingCount` first and stops at once when nothing waits. GitHub runs timers late, so allow about
-  10 minutes. To draw at once, dispatch `ads-render.yml` by hand (no inputs).
+- **Drawing starts on its own.** `ads-render-timer.yml` on the default branch (`main`) is a watcher. Every minute it
+  asks `ads:waitingCount`; when an ad waits and no drawing is under way, it starts `ads-render.yml` on
+  `fieldquote-convex` with `timed: true`. Each run watches for almost six hours, then starts the next. A timer every
+  three hours restarts it if a hand-off is missed. (GitHub never ran a plain five-minute timer here, so don't go back
+  to one.) To draw at once, dispatch `ads-render.yml` by hand (no inputs). If the watcher has stopped, dispatch
+  `ads-render-timer.yml` on `main`.
 - `ads:lastBatch` shows the newest batch: each ad's lines, file links and the competitor ad it was built on.
   `ads:lastBatch {names:[…]}` shows the named ads from any batch, to check a redraw.
 - `ads:makeFromPhoto {assetId, line, opening?, scope?}` makes an ad for one job's photo.
