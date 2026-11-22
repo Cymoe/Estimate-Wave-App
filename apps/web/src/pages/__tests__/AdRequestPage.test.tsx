@@ -26,7 +26,7 @@ const view = (over: Partial<RequestView> = {}): RequestView => ({
   ads: [
     ad({}),
     ad({ name: 'WL_abc123_45_20261122', ratio: '4x5' }),
-    ad({ name: 'WL_qqq111_916_20261122', angle: 'Quick offer', status: 'rendered', file: 'https://cdn.example/q.mp4', builtOn: { company: 'Rodgers Painting' } }),
+    ad({ name: 'WL_abc123_916_20261122_2', angle: 'Quick offer', status: 'rendered', file: 'https://cdn.example/q.mp4', builtOn: { company: 'Rodgers Painting' } }),
     ad({ name: 'WL_lll222_916_20261122', angle: 'Lesson', builtOn: { company: 'Squeegee Squad', daysRunning: 90 } }),
   ],
   ...over,
@@ -57,8 +57,21 @@ describe('a "make an ad for…" page', () => {
     expect(page.textContent).toContain('Nothing runs until you approve it in Ops → Ads.');
   });
 
+  it('a quick offer on the story\'s idea keeps its own card, a still joins its ad, and a version not made is counted', async () => {
+    const base = view();
+    const page = await render({
+      ...base,
+      stage: 'ready',
+      skipped: ['"Paint them": Claude passed: one photo'],
+      ads: [...base.ads, ad({ name: 'WL_abc123_45_20261122_still', image: true, ratio: '4x5', file: 'https://cdn.example/s.jpg' })],
+    });
+    expect(Array.from(page.querySelectorAll('article h2')).map((h) => h.textContent)).toEqual(['Story', 'Lesson', 'Quick offer']);
+    expect(page.querySelectorAll('article')[0].querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/s.jpg');
+    expect(page.textContent).toContain("1 version couldn't be made from the photos on file.");
+  });
+
   it('says plainly when it could not be made', async () => {
-    const page = await render(view({ stage: 'failed', error: 'No bathrooms competitor ads on file to build it on yet.', ads: [] }));
+    const page = await render(view({ stage: 'failed', skipped: [], error: 'No bathrooms competitor ads on file to build it on yet.', ads: [] }));
     expect(page.querySelector('[role="alert"]')!.textContent).toBe("This one couldn't be made. No bathrooms competitor ads on file to build it on yet.");
     expect(page.querySelector('ol[aria-label="Progress"]')).toBeNull();
   });

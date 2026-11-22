@@ -9,6 +9,7 @@ import { addMcpRoutes } from "./lib/mcpServer";
 import { addRecruitingRoutes } from "./recruiting/routes";
 import { addEmailRoutes } from "./lib/emailRoutes";
 import { WEBHOOK_EVENTS, webhookAuthOk } from "./lib/voiceActors";
+import { addAdRoutes } from "./lib/adRoutes";
 
 const http = httpRouter();
 
@@ -187,6 +188,9 @@ http.route({
 
 // Email outreach: Gmail's connect callback, replies, and unsubscribe (lib/emailRoutes.ts).
 addEmailRoutes(http);
+
+// "Make an ad for…": each request's private page, with no login (lib/adRoutes.ts).
+addAdRoutes(http);
 
 // National Sales Registry's recruiting (recruiting/routes.ts): its own number's webhook, applications, Cal.com, ad spend.
 addRecruitingRoutes(http);

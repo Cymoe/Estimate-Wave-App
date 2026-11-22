@@ -48,7 +48,8 @@ const ANGLE_ORDER = ['Story', 'Lesson', 'Quick offer'];
 function byAd(ads: Ad[]) {
   const groups = new Map<string, Ad[]>();
   for (const ad of ads) {
-    const key = ad.name.replace(/_(916|45)(_|$).*/, '');
+    // Only the size (and a still's tag) is dropped, so a quick offer on the story's idea ("…_2") keeps its own card.
+    const key = ad.name.replace(/_(916|45)(?=_|$)/, '').replace(/_still$/, '');
     groups.set(key, [...(groups.get(key) ?? []), ad]);
   }
   return [...groups.values()].sort((a, b) => ANGLE_ORDER.indexOf(a[0].angle) - ANGLE_ORDER.indexOf(b[0].angle));
@@ -160,7 +161,12 @@ export function AdRequestView({ view }: { view: RequestView }) {
         ))}
       </div>
       {view.ads.length > 0 && (
-        <p className="mt-6 text-center text-xs text-gray-500">Nothing runs until you approve it in Ops → Ads.</p>
+        <p className="mt-6 text-center text-xs text-gray-500">
+          {view.stage === 'ready' && view.skipped.length > 0
+            ? `${view.skipped.length} ${view.skipped.length === 1 ? 'version' : 'versions'} couldn't be made from the photos on file. `
+            : ''}
+          Nothing runs until you approve it in Ops → Ads.
+        </p>
       )}
     </>
   );

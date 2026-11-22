@@ -2039,6 +2039,20 @@ describe("the weekly run", () => {
       expect(await t.query(internal.ads.waitingCount, {})).toBe(0);
       // Ops → Ads lists it with its link.
       expect((await owner.as.query(api.ads.recentRequests, {}))[0]).toMatchObject({ ask: "painting in Odessa", stage: "ready", link });
+      // The link is on the backend's own address, which needs no sign-in, and serves the page and its data itself.
+      const path = new URL(link).pathname;
+      const page = await t.fetch(path, { method: "GET" });
+      expect(page.status).toBe(200);
+      expect(page.headers.get("content-type")).toContain("text/html");
+      const html = await page.text();
+      expect(html).toContain(JSON.stringify(tokenOf(link)));
+      expect(html).toContain("Recording the voice");
+      expect(html).not.toContain("<script src");
+      const data = await t.fetch(`${path}.json`, { method: "GET" });
+      expect(await data.json()).toEqual(JSON.parse(JSON.stringify(await t.query(api.ads.requestView, { token: tokenOf(link) }))));
+      expect((await t.fetch(`/ads/${"x".repeat(32)}`, { method: "GET" })).status).toBe(404);
+      expect((await t.fetch(`/ads/${"x".repeat(32)}.json`, { method: "GET" })).status).toBe(404);
+      expect((await t.fetch("/ads/<script>", { method: "GET" })).status).toBe(404);
     });
 
     test("the page shows nothing for a wrong or short key, and only staff can ask from the app", async () => {
