@@ -2474,11 +2474,27 @@ export default defineSchema({
         approvedAt: v.optional(v.string()),
       }),
     ),
+    // The job it was shot on, so a story can show that one job from start to finish.
+    jobId: v.optional(v.id("adJobs")),
+    // The project photo it was copied from (a project's "Use these photos for ads"), so it isn't copied twice.
+    jobPhotoId: v.optional(v.id("jobPhotos")),
     uploadedBy: v.id("users"),
     createdAt: v.string(),
   })
     .index("by_kind", ["kind"])
-    .index("by_pair", ["pairKey"]),
+    .index("by_pair", ["pairKey"])
+    .index("by_job", ["jobId"]),
+
+  // One job's photos in the ad library: the problem, the work and the finish of one real job. The name is the
+  // owner's own, to find it by ("Smith kitchen cabinets"); it can say where the job was, so it never goes in an ad.
+  adJobs: defineTable({
+    trade: v.optional(v.string()),
+    name: v.string(),
+    // The project it came from, when its photos were sent from there.
+    projectId: v.optional(v.id("projects")),
+    createdBy: v.optional(v.id("users")),
+    createdAt: v.string(),
+  }).index("by_project", ["projectId"]),
 
   adHooks: defineTable({
     family: v.union(
@@ -2601,6 +2617,8 @@ export default defineSchema({
     town: v.optional(v.string()),
     idea: v.optional(v.string()),
     hookIds: v.optional(v.array(v.id("adHooks"))),
+    // The job the line asked for by name: every version is made from its photos only.
+    jobId: v.optional(v.id("adJobs")),
     // Reading, then made (its batch says the rest), or failed with why.
     status: v.union(v.literal("reading"), v.literal("made"), v.literal("failed")),
     error: v.optional(v.string()),

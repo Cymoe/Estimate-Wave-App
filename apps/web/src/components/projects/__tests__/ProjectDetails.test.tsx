@@ -88,6 +88,8 @@ const noOrders = { orders: [] as unknown[], committed: 0, received: 0 };
 let ordersInfo: { orders: unknown[]; committed: number; received: number } = noOrders;
 // Whose portal the project's is (null: no client yet).
 let portalInfo: { clientId: string; name: string; language: 'en' | 'es'; token: string | null; queued: number } | null = null;
+// A company member, not staff: no "Use these photos for ads".
+jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { role: 'user' } }) }));
 jest.mock('../../layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
   return { OrganizationContext: createContext({ selectedOrg: { id: 'org1' } }) };

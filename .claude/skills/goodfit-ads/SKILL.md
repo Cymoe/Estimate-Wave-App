@@ -208,6 +208,27 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 - `ads:makeFromPhoto {assetId, line, opening?, scope?}` makes an ad for one job's photo.
 - `ads:voiceSamples {text, voiceIds, lines}` returns a timed read, for drawing a local sample of a new kind of ad.
 
+## Jobs: one job's photos together
+
+A story shows one real job, before to finish, so no other job's work passes for it. The library groups photos
+into jobs (`adJobs`; `adAssets.jobId`):
+- **Filing photos under a job:**
+  - Make a job in Ops → Ads → Library and upload into it, or move a photo into a job with its card's Job menu.
+  - From a project, staff press "Use these photos for ads" on its Photos tab (`PhotosForAds`). The browser copies
+    each project photo through the normal upload, so it gets its JPEG still and Claude's tags.
+  - `jobForProject` returns the job and the project photos already copied (`adAssets.jobPhotoId`), so sending again
+    adds only new photos.
+- **The job's name is private.** It is the owner's own and can say where the job was. It goes to the request reader
+  only, never to the writer, an ad or the private page.
+- **A story or quick offer** is told from one job when one fits: 3 or more photos (`JOB_MIN`), one of them of the
+  idea's kind, and none used this week. `pickJob` prefers a job with a before and an after, then the least used.
+  `jobInOrder` offers the job's photos as befores, then work, then finishes. With no job that fits, photos are picked
+  across the library as before.
+  - The quick offer uses the story's job.
+  - A checklist may still mix jobs.
+- **A job named in the line** ("an ad from the Smith kitchen"): the reader is shown the jobs by name and answers with
+  a number. `adRequests.jobId` is set and every version, the checklist too, uses only that job's photos.
+
 ## "Make an ad for X"
 
 When the owner says "spin up a FB ad for …" (in chat, or in the box at the top of Ops → Ads), one line becomes three

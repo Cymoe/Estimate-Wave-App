@@ -88,6 +88,7 @@ export const useAdsBatches = <T>(trade?: string, on = true) => useLive<T>(q('ads
 export const useAdsIdeas = <T>(trade?: string, on = true) => useLive<T>(q('ads:listIdeas'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsLive = <T>(on = true) => useLive<T>(q('ads:live'), on ? {} : 'skip');
 export const useAdsLibrary = <T>(trade?: string, on = true) => useLive<T>(q('ads:listAssets'), on ? (trade ? { trade } : {}) : 'skip');
+export const useAdJobs = <T>(trade?: string, on = true) => useLive<T>(q('ads:listJobs'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsHooks = <T>(trade?: string, on = true) => useLive<T>(q('ads:listHooks'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsSettings = <T>(on = true) => useLive<T>(q('ads:settings'), on ? {} : 'skip');
 export const useAdsSwipes = <T>(trade?: string, on = true) => useLive<T>(q('ads:listSwipes'), on ? (trade ? { trade } : {}) : 'skip');

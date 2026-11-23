@@ -3,6 +3,7 @@ import { act } from 'react';
 import {
   AdsCard,
   type AdAsset,
+  type AdJob,
   type AdIdeas,
   type AdBatch,
   type AdHook,
@@ -20,6 +21,7 @@ let ideas: AdIdeas | undefined = { round: null, ideas: [] };
 const asked: string[] = [];
 let live: LiveAd[] = [];
 let assets: AdAsset[] = [];
+let jobs: AdJob[] = [];
 let hooks: AdHook[] = [];
 let swipes: Swipe[] = [];
 let playbooks: Playbook[] = [];
@@ -49,6 +51,9 @@ const checkActors = jest.fn(async () => undefined);
 const creatorBrief = jest.fn(async (..._args: unknown[]) => 'GoodFit Pros: on-camera read');
 const addTake = jest.fn(async (..._args: unknown[]) => 2);
 const makeFootage = jest.fn(async (..._args: unknown[]) => ({ batchId: 'b9', builtOn: 'Rodgers Painting' }));
+const addJob = jest.fn(async (..._args: unknown[]) => 'j2');
+const setAssetJob = jest.fn(async (..._args: unknown[]) => undefined);
+const removeJob = jest.fn(async (..._args: unknown[]) => undefined);
 const makeFor = jest.fn(async (..._args: unknown[]) => ({ link: 'https://app.example/ads/tok' }));
 let requests: Array<{ ask: string; createdAt: string; stage: string; link: string }> = [];
 
@@ -80,6 +85,10 @@ jest.mock('../../../lib/api', () => ({
     addTake: (...args: unknown[]) => addTake(...args),
     makeFootage: (...args: unknown[]) => makeFootage(...args),
     makeFor: (...args: unknown[]) => makeFor(...args),
+    addJob: (...args: unknown[]) => addJob(...args),
+    setAssetJob: (...args: unknown[]) => setAssetJob(...args),
+    removeJob: (...args: unknown[]) => removeJob(...args),
+    renameJob: async () => undefined,
   },
 }));
 jest.mock('../../../lib/live', () => ({
@@ -94,6 +103,7 @@ jest.mock('../../../lib/live', () => ({
   useAdsResearchRuns: () => runs,
   useAdsReadiness: () => readiness,
   useAdRequests: () => requests,
+  useAdJobs: (trade?: string) => (asked.push(`jobs:${trade}`), jobs),
 }));
 
 const flush = () =>
@@ -151,6 +161,7 @@ beforeEach(() => {
   batches = [];
   live = [];
   assets = [];
+  jobs = [];
   hooks = [];
   swipes = [];
   settings = {
@@ -435,6 +446,52 @@ describe('Ops → Ads', () => {
     );
     expect(retire).toHaveBeenCalledWith('c1');
     expect(rows[1].querySelector('button')).toBeNull();
+  });
+
+  it('Library keeps one job\'s photos together: a new job takes the next upload, a photo moves between jobs, a job is taken away', async () => {
+    const photo = (id: string, fileName: string, tags: string[], jobId?: string) => ({ id, kind: 'photo' as const, fileName, tags, jobId, createdAt: new Date().toISOString() });
+    // The job about to be added is already listed, as it is once the add comes back.
+    jobs = [
+      { id: 'j1', name: 'Smith kitchen', photos: 2, createdAt: new Date().toISOString() },
+      { id: 'j2', name: 'Jones exterior', photos: 0, createdAt: new Date().toISOString() },
+    ];
+    assets = [photo('a1', 'before.jpg', ['cabinets', 'before'], 'j1'), photo('a2', 'after.jpg', ['cabinets', 'after'], 'j1'), photo('a3', 'loose.jpg', [])];
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
+    await render();
+    await tab('Library');
+    const group = document.body.querySelector('[data-testid="job"]')!;
+    expect(group.textContent).toContain('Smith kitchen');
+    expect(group.textContent).toContain('2 photos · before and after');
+    expect(group.textContent).toContain('once it has 3 photos or more');
+    expect(Array.from(group.querySelectorAll('[data-testid="asset"]')).map((c) => c.textContent?.includes('before.jpg') || c.textContent?.includes('after.jpg'))).toEqual([true, true]);
+    expect(document.body.querySelector('[aria-label="Not in a job"]')!.textContent).toContain('loose.jpg');
+    // A new job, and the next upload goes in it.
+    const name = document.body.querySelector('form[aria-label="New job"] input') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Jones exterior');
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => (document.body.querySelector('form[aria-label="New job"]') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(addJob).toHaveBeenCalledWith('Jones exterior', 'painting');
+    expect((document.body.querySelector('select[aria-label="Job for the next upload"]') as HTMLSelectElement).value).toBe('j2');
+    const fileInput = document.body.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'house.jpg', { type: 'image/jpeg' })] });
+    await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+    expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'house.jpg', jobId: 'j2', trade: 'painting' }));
+    // A loose photo moves into a job.
+    const move = document.body.querySelector('select[aria-label="Job for loose.jpg"]') as HTMLSelectElement;
+    await act(async () => {
+      move.value = 'j1';
+      move.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(setAssetJob).toHaveBeenCalledWith('a3', 'j1');
+    await act(async () => byText('Take away job')!.click());
+    await flush();
+    expect(removeJob).toHaveBeenCalledWith('j1');
+    expect(asked).toContain('jobs:painting');
   });
 
   it('Library uploads a file with the chosen tags and retags one already there', async () => {

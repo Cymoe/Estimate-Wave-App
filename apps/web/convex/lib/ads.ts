@@ -220,6 +220,8 @@ export interface AssetRow {
   pairKey?: string;
   createdAt: string;
   uses?: number;
+  /** The job it was shot on (adJobs), when it was filed under one. */
+  jobId?: string;
 }
 
 export const MAX_CANDIDATES = 6;
@@ -274,6 +276,52 @@ export function pickAssets<A extends AssetRow>(
   for (const a of pool) if (!out.includes(a) && !joined.includes(a) && out.length < max) out.push(a);
   for (const a of joined) if (!out.includes(a) && out.length < max) out.push(a);
   return { assets: out, inScope };
+}
+
+/** The fewest photos a job needs for a story to be told from it alone; a job with fewer leaves the photos picked as before. */
+export const JOB_MIN = 3;
+
+/**
+ * One job's photos for a story: the problem, the work, the finish, all from the same job, so no other job's work
+ * passes for this one. A job is a candidate when it has enough photos, one of them is of the idea's kind (any kind
+ * for a general idea), and none was used by another ad this week. One with a before and an after goes first, then
+ * the least used, then the newest. Null when no job fits: the photos are then picked across the library.
+ */
+export function pickJob<A extends AssetRow>(assets: A[], scope: string, used: Set<string>, max = REEL_CANDIDATES): { jobId: string; assets: A[] } | null {
+  const jobs = new Map<string, A[]>();
+  for (const a of assets) if (a.jobId) jobs.set(a.jobId, [...(jobs.get(a.jobId) ?? []), a]);
+  const hasBoth = (ps: A[]) => ps.some((p) => p.tags.includes("before")) && ps.some((p) => p.tags.includes("after"));
+  const uses = (ps: A[]) => ps.reduce((n, p) => n + (p.uses ?? 0), 0) / ps.length;
+  const newest = (ps: A[]) => ps.reduce((d, p) => (p.createdAt > d ? p.createdAt : d), "");
+  const fits = [...jobs]
+    .filter(([, ps]) => ps.length >= JOB_MIN && !ps.some((p) => used.has(p._id)) && (scope === ANY_SCOPE || ps.some((p) => p.tags.includes(scope))))
+    .sort(([, x], [, y]) => Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
+  if (fits.length === 0) return null;
+  const [jobId, photos] = fits[0];
+  return { jobId, assets: jobInOrder(photos, max) };
+}
+
+/**
+ * A job's photos in the order its story is told: the befores, then the work, then the finished photos, each
+ * oldest first. With more than a reel can be offered, two befores and three finished photos are kept and the
+ * work fills the rest, so the story still starts on the problem and ends on the finish.
+ */
+export function jobInOrder<A extends AssetRow>(photos: A[], max = REEL_CANDIDATES): A[] {
+  const byAge = [...photos].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  // An image holding a before and its after is a finish: it ends on the after.
+  const befores = byAge.filter((p) => p.tags.includes("before") && !p.tags.includes("after"));
+  const afters = byAge.filter((p) => p.tags.includes("after"));
+  const work = byAge.filter((p) => !befores.includes(p) && !afters.includes(p));
+  if (photos.length <= max) return [...befores, ...work, ...afters];
+  const b = befores.slice(0, 2);
+  const f = afters.slice(0, 3);
+  const room = Math.max(0, max - b.length - f.length);
+  // Short of work photos, more befores and finishes fill the room.
+  const fill = [...work, ...afters.slice(3), ...befores.slice(2)].slice(0, room);
+  const mid = fill.filter((p) => work.includes(p));
+  const moreAfter = fill.filter((p) => afters.includes(p));
+  const moreBefore = fill.filter((p) => befores.includes(p));
+  return [...b, ...moreBefore, ...mid, ...f, ...moreAfter];
 }
 
 /** "WL_k57abc_916_20261103": the ad's name in Meta and the creative's name here, so a lead's adName joins back. */
@@ -1932,10 +1980,12 @@ export interface RequestRead {
   town?: string;
   /** What the ad is about, in one plain sentence. */
   idea: string;
+  /** The job the line asks the ad to be made from: its place in the list of jobs the reader was shown. */
+  job?: number;
 }
 
 /** The question that turns the owner's one line ("cabinet painting in Odessa") into a trade, a kind of job and a town. */
-export function requestPrompt(ask: string, brand: string, markets: string[], trades: AdTrade[]): string {
+export function requestPrompt(ask: string, brand: string, markets: string[], trades: AdTrade[], jobs: string[] = []): string {
   return [
     `${brand} is a home-improvement company${markets.length ? ` serving ${markets.join(", ")}, Texas` : ""}. Its owner typed this request for a Facebook ad:`,
     "",
@@ -1943,20 +1993,26 @@ export function requestPrompt(ask: string, brand: string, markets: string[], tra
     "",
     "Which trade is it, and which kind of job? The trades and their kinds of job:",
     ...trades.map((t) => `- ${t.slug} (${t.label}): ${t.scopes.map((s) => `${s} (${t.scopeLabels[s] ?? s})`).join(", ")}`),
+    ...(jobs.length
+      ? ["", "The jobs whose photos are on file, by the owner's own names for them:", ...jobs.map((j, i) => `${i + 1}. ${j.replace(/\s+/g, " ").slice(0, 80)}`)]
+      : []),
     "",
-    'Answer with JSON only: {"trade": the trade\'s slug, or null if it is none of these, "scope": the kind of job, or null if the line names none, "town": the town it names, or null, "idea": one plain sentence saying what the ad offers, as the owner would say it, with no prices, discounts or promises}.',
+    'Answer with JSON only: {"trade": the trade\'s slug, or null if it is none of these, "scope": the kind of job, or null if the line names none, "town": the town it names, or null, "idea": one plain sentence saying what the ad offers, as the owner would say it, with no prices, discounts or promises' +
+      (jobs.length ? ', "job": the number of the job the request asks the ad to be made from, or null if it names none of them}.' : "}."),
   ].join("\n");
 }
 
 /** The reply to requestPrompt, checked against the trades on offer; null when it names none of them. */
-export function readRequestReply(reply: string, trades: AdTrade[]): RequestRead | null {
-  const out = parseJson<{ trade?: unknown; scope?: unknown; town?: unknown; idea?: unknown }>(reply);
+export function readRequestReply(reply: string, trades: AdTrade[], jobCount = 0): RequestRead | null {
+  const out = parseJson<{ trade?: unknown; scope?: unknown; town?: unknown; idea?: unknown; job?: unknown }>(reply);
   const trade = trades.find((t) => t.slug === out?.trade);
   if (!out || !trade) return null;
   const scope = typeof out.scope === "string" && trade.scopes.includes(out.scope) ? out.scope : ANY_SCOPE;
   const town = typeof out.town === "string" && out.town.trim() ? out.town.trim().slice(0, 60) : undefined;
   const idea = typeof out.idea === "string" && out.idea.trim() ? out.idea.trim().slice(0, 220) : undefined;
-  return idea ? { trade: trade.slug, scope, ...(town ? { town } : {}), idea } : null;
+  // The job named, as its place in the list the reader was given (from 0).
+  const job = typeof out.job === "number" && Number.isInteger(out.job) && out.job >= 1 && out.job <= jobCount ? out.job - 1 : undefined;
+  return idea ? { trade: trade.slug, scope, ...(town ? { town } : {}), idea, ...(job !== undefined ? { job } : {}) } : null;
 }
 
 /**

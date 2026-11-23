@@ -1082,7 +1082,17 @@ export const adsAPI = {
     durationSec?: number;
     posterStorageId?: string;
     trade?: string;
+    jobId?: string;
+    jobPhotoId?: string;
   }) => run('mutation', api.ads.addAsset, defined(args)),
+  /** One job's photos, kept together so a story shows that job only. */
+  addJob: (name: string, trade?: string): Promise<string> => run('mutation', api.ads.addJob, defined({ name, trade })),
+  renameJob: (id: string, name: string) => run('mutation', api.ads.renameJob, { id, name }),
+  removeJob: (id: string) => run('mutation', api.ads.removeJob, { id }),
+  setAssetJob: (id: string, jobId?: string) => run('mutation', api.ads.setAssetJob, defined({ id, jobId })),
+  /** The job a project's photos go to, and the project photos already in it. */
+  jobForProject: (projectId: string, trade?: string): Promise<{ jobId: string; copied: string[] }> =>
+    run('mutation', api.ads.jobForProject, defined({ projectId, trade })),
   tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
   removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
   /** A clip's still, made after its upload, so it shows in the library and Claude can describe it. */

@@ -30,6 +30,9 @@ import { portalAPI, purchaseOrdersAPI, tasksAPI, templatesAPI, type ProjectTask 
 import { PortalPreviewSheet } from './PortalPreviewSheet';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
+import { PhotosForAds } from './PhotosForAds';
+import { useAuth } from '../../contexts/AuthContext';
+import { isStaff } from '../../lib/roles';
 import { ProjectTasks } from './ProjectTasks';
 import { ProjectSelections } from './ProjectSelections';
 import { ProjectPurchaseOrders, type OrdersSummary } from './ProjectPurchaseOrders';
@@ -364,6 +367,8 @@ export const ProjectPanel: React.FC<{
   const [searchParams] = useSearchParams();
   const { selectedOrg } = useContext(OrganizationContext);
   const orgId: string | undefined = selectedOrg?.id;
+  // Staff can send a project's photos to the ad library (Ops → Ads).
+  const staff = isStaff(useAuth().user);
   // ?tab=money (a refresh, a link) starts on that tab, as does opening straight onto one of the
   // project's estimates; after that the tab is just state here. ?tab=estimates, orders and
   // expenses (the tabs Money replaced) open Money on that section.
@@ -1022,6 +1027,7 @@ export const ProjectPanel: React.FC<{
         {activeTab === 'photos' && (
           <div className="p-4">
             <JobPhotos organizationId={orgId} projectId={project.id!} title="Job photos" />
+            {staff && <PhotosForAds projectId={project.id!} />}
           </div>
         )}
       </div>

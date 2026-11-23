@@ -26,6 +26,8 @@ import {
   motionPrompt,
   parseJson,
   pickAssets,
+  pickJob,
+  jobInOrder,
   REEL_CANDIDATES,
   pickExamples,
   ANY_SCOPE,
@@ -213,9 +215,13 @@ export const addAsset = mutation({
     durationSec: v.optional(v.number()),
     posterStorageId: v.optional(v.id("_storage")),
     trade: v.optional(v.string()),
+    jobId: v.optional(v.id("adJobs")),
+    jobPhotoId: v.optional(v.id("jobPhotos")),
   },
-  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, trade }) => {
+  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, trade, jobId, jobPhotoId }) => {
     const user = await requireStaff(ctx);
+    const job = jobId ? await ctx.db.get(jobId) : null;
+    if (jobId && job === null) fail("NOT_FOUND", "That job isn't in the library");
     const file = await ctx.db.system.get(storageId);
     if (file === null) fail("NOT_FOUND", "The uploaded file wasn't found");
     const found = assetKind(file.contentType, fileName);
@@ -229,7 +235,8 @@ export const addAsset = mutation({
         fail("INVALID", "The still for this file didn't upload right");
     }
     const id = await ctx.db.insert("adAssets", {
-      trade: tradeOf(trade).slug,
+      // A photo filed under a job is of the job's trade.
+      trade: tradeOf(job?.trade ?? trade).slug,
       storageId,
       kind: found.kind,
       fileName: fileName.slice(0, 200),
@@ -240,6 +247,8 @@ export const addAsset = mutation({
       pairKey: pairKey?.trim() || undefined,
       note: note?.trim().slice(0, 300) || undefined,
       posterStorageId,
+      ...(jobId ? { jobId } : {}),
+      ...(jobPhotoId ? { jobPhotoId } : {}),
       uses: 0,
       uploadedBy: user._id,
       createdAt: nowIso(),
@@ -347,9 +356,143 @@ export const listAssets = query({
         description: a.description,
         suggestedTags: a.suggestedTags,
         uses: a.uses ?? 0,
+        jobId: a.jobId,
         createdAt: a.createdAt,
       })),
     );
+  },
+});
+
+// ------------------------------------------------------------------ Jobs
+//
+// One job's photos kept together in the library, so a story can show the problem, the work and the finish of that
+// one job and never pass another job's work off as its own. A job's name is the owner's, to find it by; it can say
+// where the job was, so it stays in Ops and never goes to the writer or into an ad.
+
+const jobName = (name: string) => {
+  const clean = name.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!clean) fail("INVALID", "Give the job a name, like \"Smith kitchen cabinets\"");
+  return clean;
+};
+
+/** The library's jobs for a trade, newest first, each with how many photos it has. */
+export const listJobs = query({
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
+    await requireStaff(ctx);
+    const jobs = (await ctx.db.query("adJobs").order("desc").take(200)).filter((j) => inTrade(j, trade));
+    return await Promise.all(
+      jobs.map(async (j) => ({
+        id: j._id,
+        name: j.name,
+        projectId: j.projectId,
+        photos: (await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", j._id)).take(200)).length,
+        createdAt: j.createdAt,
+      })),
+    );
+  },
+});
+
+export const addJob = mutation({
+  args: { name: v.string(), trade: v.optional(v.string()) },
+  handler: async (ctx, { name, trade }) => {
+    const user = await requireStaff(ctx);
+    return await ctx.db.insert("adJobs", { trade: tradeOf(trade).slug, name: jobName(name), createdBy: user._id, createdAt: nowIso() });
+  },
+});
+
+export const renameJob = mutation({
+  args: { id: v.id("adJobs"), name: v.string() },
+  handler: async (ctx, { id, name }) => {
+    await requireStaff(ctx);
+    if ((await ctx.db.get(id)) === null) fail("NOT_FOUND", "That job isn't in the library");
+    await ctx.db.patch(id, { name: jobName(name) });
+  },
+});
+
+/** Takes a job away; its photos stay in the library, under no job. */
+export const removeJob = mutation({
+  args: { id: v.id("adJobs") },
+  handler: async (ctx, { id }) => {
+    await requireStaff(ctx);
+    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", id)).take(500)) await ctx.db.patch(a._id, { jobId: undefined });
+    await ctx.db.delete(id);
+  },
+});
+
+/** Files a library photo under a job, or under none. */
+export const setAssetJob = mutation({
+  args: { id: v.id("adAssets"), jobId: v.optional(v.id("adJobs")) },
+  handler: async (ctx, { id, jobId }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That file isn't in the library");
+    if (jobId) {
+      const job = await ctx.db.get(jobId);
+      if (job === null) fail("NOT_FOUND", "That job isn't in the library");
+      if (tradeOf(job.trade).slug !== tradeOf(a.trade).slug) fail("INVALID", "That job is of another trade");
+    }
+    await ctx.db.patch(id, { jobId });
+  },
+});
+
+/**
+ * The job a project's photos go to in the ad library ("Use these photos for ads" on a project), made the first
+ * time, under the project's name. With it, the project photos already copied, so sending again only adds new ones.
+ */
+export const jobForProject = mutation({
+  args: { projectId: v.id("projects"), trade: v.optional(v.string()) },
+  handler: async (ctx, { projectId, trade }) => {
+    const user = await requireStaff(ctx);
+    const project = await ctx.db.get(projectId);
+    if (project === null) fail("NOT_FOUND", "Project not found");
+    const found = (await ctx.db.query("adJobs").withIndex("by_project", (q) => q.eq("projectId", projectId)).take(20)).find(
+      (j) => tradeOf(j.trade).slug === tradeOf(trade).slug,
+    );
+    const jobId =
+      found?._id ??
+      (await ctx.db.insert("adJobs", { trade: tradeOf(trade).slug, name: jobName(project.name), projectId, createdBy: user._id, createdAt: nowIso() }));
+    const copied = (await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", jobId)).take(500)).flatMap((a) => (a.jobPhotoId ? [a.jobPhotoId] : []));
+    return { jobId, copied };
+  },
+});
+
+/** The library as text, from the deployment: to see which photos are of the same job before filing them under one. */
+export const libraryForJobs = internalQuery({
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) =>
+    (await ctx.db.query("adAssets").take(500))
+      .filter((a) => inTrade(a, trade) && a.kind === "photo")
+      .map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, pairKey: a.pairKey, note: a.note, description: a.description, jobId: a.jobId, uses: a.uses ?? 0, createdAt: a.createdAt })),
+});
+
+/** Files library photos under one job, made under this name when there is none by it yet, from the deployment. */
+export const fileIntoJob = internalMutation({
+  args: { name: v.string(), trade: v.optional(v.string()), ids: v.array(v.id("adAssets")) },
+  handler: async (ctx, { name, trade, ids }) => {
+    const slug = tradeOf(trade).slug;
+    const clean = jobName(name);
+    const found = (await ctx.db.query("adJobs").take(200)).find((j) => j.name === clean && tradeOf(j.trade).slug === slug);
+    const jobId = found?._id ?? (await ctx.db.insert("adJobs", { trade: slug, name: clean, createdAt: nowIso() }));
+    const filed: string[] = [];
+    for (const id of ids) {
+      const a = await ctx.db.get(id);
+      if (a === null || tradeOf(a.trade).slug !== slug) continue;
+      await ctx.db.patch(id, { jobId });
+      filed.push(a.fileName);
+    }
+    return { jobId, filed };
+  },
+});
+
+/** The jobs with photos, for the request reader to match a job named in the owner's line. */
+export const jobNames = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const out: Array<{ id: Id<"adJobs">; name: string; trade: string }> = [];
+    for (const j of await ctx.db.query("adJobs").order("desc").take(60))
+      if (await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", j._id)).first()) out.push({ id: j._id, name: j.name, trade: tradeOf(j.trade).slug });
+    return out;
   },
 });
 
@@ -1804,10 +1947,18 @@ export const readRequest = internalAction({
     try {
       const cfg = await ctx.runQuery(internal.ads.config, {});
       const trades = Object.values(AD_TRADES);
-      const reply = await claude([{ type: "text", text: requestPrompt(request.ask, cfg.brand.name, cfg.researchMarkets, trades) }], 500);
-      const read = readRequestReply(reply, trades);
+      // The jobs on file, by the owner's names, so "from the Smith kitchen" finds its photos.
+      const jobs: Array<{ id: Id<"adJobs">; name: string; trade: string }> = await ctx.runQuery(internal.ads.jobNames, {});
+      const reply = await claude(
+        [{ type: "text", text: requestPrompt(request.ask, cfg.brand.name, cfg.researchMarkets, trades, jobs.map((j) => j.name)) }],
+        500,
+      );
+      const read = readRequestReply(reply, trades, jobs.length);
       if (!read) throw new Error(`Couldn't tell which kind of job that is. Name it, like "cabinet painting in Odessa" or "paver patio in Midland".`);
-      await ctx.runMutation(internal.ads.startRequestAds, { requestId, ...read });
+      const { job, ...rest } = read;
+      const named = job !== undefined ? jobs[job] : undefined;
+      // A job named is made in its own trade, whatever trade the line sounded like.
+      await ctx.runMutation(internal.ads.startRequestAds, { requestId, ...rest, ...(named ? { trade: named.trade, jobId: named.id } : {}) });
     } catch (e) {
       await ctx.runMutation(internal.ads.failRequest, { requestId, error: errText(e) });
     }
@@ -1816,8 +1967,8 @@ export const readRequest = internalAction({
 
 /** Builds the request's ideas on the competitor ads that fit it best and sends them to be written. */
 export const startRequestAds = internalMutation({
-  args: { requestId: v.id("adRequests"), trade: v.string(), scope: v.string(), town: v.optional(v.string()), idea: v.string() },
-  handler: async (ctx, { requestId, trade: slug, scope, town, idea }) => {
+  args: { requestId: v.id("adRequests"), trade: v.string(), scope: v.string(), town: v.optional(v.string()), idea: v.string(), jobId: v.optional(v.id("adJobs")) },
+  handler: async (ctx, { requestId, trade: slug, scope, town, idea, jobId }) => {
     const trade = tradeOf(slug);
     const onFile = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade.slug) && x.hook.trim());
     const { story, lesson } = pickRequestSwipes(onFile, scope);
@@ -1840,8 +1991,8 @@ export const startRequestAds = internalMutation({
         swipeId: swipe._id,
       });
     const hookIds = [await hook("before_after", story), ...(lesson ? [await hook("education", lesson)] : [])];
-    await ctx.db.patch(requestId, { status: "made", trade: trade.slug, scope, idea, hookIds, ...(town ? { town } : {}) });
-    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: hookIds, trade: trade.slug, requestId, town, quickToo: true });
+    await ctx.db.patch(requestId, { status: "made", trade: trade.slug, scope, idea, hookIds, ...(town ? { town } : {}), ...(jobId ? { jobId } : {}) });
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: hookIds, trade: trade.slug, requestId, town, quickToo: true, ...(jobId ? { jobId } : {}) });
   },
 });
 
@@ -2517,6 +2668,7 @@ export const plan = internalQuery({
           uses: a.uses ?? 0,
           description: a.description,
           durationSec: a.durationSec,
+          jobId: a.jobId,
           imageUrl: await lookUrl(ctx, a),
         })),
       ),
@@ -3207,8 +3359,10 @@ export const weeklyRun = internalAction({
     requestId: v.optional(v.id("adRequests")),
     town: v.optional(v.string()),
     quickToo: v.optional(v.boolean()),
+    // The job a request named: every version shows that job's photos only.
+    jobId: v.optional(v.id("adJobs")),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo, jobId }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     const trade = tradeOf(slug);
@@ -3245,6 +3399,8 @@ export const weeklyRun = internalAction({
       let made = 0;
       let delay = 0;
       let storyHook: (typeof hooks)[number] | undefined;
+      // The photos of the job the story was told from, for the quick offer on it.
+      let storyJob: typeof photos | undefined;
       // Writes, checks and saves one ad, then sends it to be voiced.
       const makeAd = async (hook: (typeof hooks)[number], shape: AdStyle, quick: boolean, offered: typeof photos, inScope: boolean) => {
         const playbook = playbooks[hook.scope] ?? playbooks.general;
@@ -3300,21 +3456,37 @@ export const weeklyRun = internalAction({
           picked.assets.splice(0, picked.assets.length, lead, ...pair);
           picked.inScope = true;
         }
+        // How it is drawn: as asked for the ideas named, else by the idea's family.
+        const shape = only && asked === "explainer" ? "explainer" : styleFor(hook.family);
+        const quick = Boolean(only && asked === "quick");
+        // A story is told from one job, start to finish, where one fits; a job the request named carries every
+        // version. A lesson may still take photos from several jobs: it isn't one job's story.
+        const job = lead
+          ? null
+          : jobId
+            ? { jobId: String(jobId), assets: jobInOrder(photos.filter((a: { jobId?: string }) => a.jobId === jobId)) }
+            : shape !== "explainer"
+              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used)
+              : null;
+        if (job) {
+          picked.assets.splice(0, picked.assets.length, ...job.assets);
+          picked.inScope = true;
+        }
         if (picked.assets.length === 0) {
-          const why = `no photo tagged ${hook.scope}, and no process or crew photo left`;
+          const why = jobId ? "the job asked for has no photos to show yet" : `no photo tagged ${hook.scope}, and no process or crew photo left`;
           skipped.push(`${label}: ${why}`);
           if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why });
           continue;
         }
-        // How it is drawn: as asked for the ideas named, else by the idea's family.
-        const shape = only && asked === "explainer" ? "explainer" : styleFor(hook.family);
-        const quick = Boolean(only && asked === "quick");
         // A quick offer shows one job: a before and its after, or one finished photo.
         const offered = quick ? pickOfferPhotos(picked.assets) : picked.assets;
         try {
           await makeAd(hook, quick ? NEW_AD_STYLE : shape, quick, offered, picked.inScope);
           made += 1;
-          if (!quick && shape !== "explainer" && !storyHook) storyHook = hook;
+          if (!quick && shape !== "explainer" && !storyHook) {
+            storyHook = hook;
+            if (job) storyJob = job.assets;
+          }
         } catch (e) {
           skipped.push(`${label}: ${errText(e)}`);
           if (only) await ctx.runMutation(internal.ads.ideaNotMade, { hookId: hook._id, why: errText(e) });
@@ -3323,7 +3495,9 @@ export const weeklyRun = internalAction({
       // Each week also asks people who have seen us before: a quick offer on one job from the week's story.
       if (storyHook && (quickToo || (!only && cfg.quickOffer))) {
         // The same job as the story is welcome here: the offer is for people who have seen it.
-        const offered = pickOfferPhotos(pickAssets(photos, storyHook.scope, new Set<string>(), REEL_CANDIDATES, []).assets);
+        // From the story's own job when it had one.
+        const fromJob = storyJob ? pickOfferPhotos(storyJob) : [];
+        const offered = fromJob.length ? fromJob : pickOfferPhotos(pickAssets(photos, storyHook.scope, new Set<string>(), REEL_CANDIDATES, []).assets);
         if (offered.length) {
           try {
             await makeAd(storyHook, NEW_AD_STYLE, true, offered, true);

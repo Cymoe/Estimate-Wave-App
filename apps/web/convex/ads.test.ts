@@ -29,6 +29,8 @@ import {
   parseCsv,
   parseJson,
   pickAssets,
+  pickJob,
+  jobInOrder,
   pickExamples,
   pickHooks,
   qualifies,
@@ -231,6 +233,36 @@ function quickPlanFor(photoCount: number, town = "Midland") {
     primaryText: GOOD.primaryText,
   };
 }
+
+describe("one job's photos", () => {
+  const p = (id: string, tags: string[], jobId?: string, day = 1, uses = 0) => ({ _id: id, kind: "photo" as const, tags, jobId, uses, createdAt: `2026-11-${String(day).padStart(2, "0")}` });
+  test("a story picks a job with enough photos of its kind, one with a before and an after first, then the least used; never one used this week", () => {
+    const lib = [
+      p("a1", ["cabinets", "after"], "A", 1), p("a2", ["cabinets"], "A", 2), p("a3", ["cabinets"], "A", 3),
+      p("b1", ["cabinets", "before"], "B", 4, 3), p("b2", ["process"], "B", 5, 3), p("b3", ["cabinets", "after"], "B", 6, 3),
+      p("c1", ["cabinets", "before"], "C", 7), p("c2", ["cabinets", "after"], "C", 8),
+      p("x", ["cabinets", "before"]),
+    ];
+    expect(pickJob(lib, "cabinets", new Set())).toEqual({ jobId: "B", assets: [lib[3], lib[4], lib[5]] });
+    expect(pickJob(lib, "cabinets", new Set(["b2"]))!.jobId).toBe("A");
+    expect(pickJob(lib, "exterior", new Set())).toBeNull();
+    expect(pickJob(lib, "general", new Set(["b2", "a1"]))).toBeNull();
+  });
+  test("its photos go before, work, finish; with too many, two befores and three finishes stay and the work fills the rest", () => {
+    const job = [p("f1", ["after"], "J", 9), p("w1", [], "J", 2), p("b1", ["before"], "J", 3), p("both", ["before", "after"], "J", 1), p("b0", ["before"], "J", 1)];
+    expect(jobInOrder(job).map((x) => x._id)).toEqual(["b0", "b1", "w1", "both", "f1"]);
+    const big = [
+      ...[1, 2, 3].map((d) => p(`b${d}`, ["before"], "J", d)),
+      ...[4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((d) => p(`w${d}`, [], "J", d)),
+      ...[14, 15, 16, 17].map((d) => p(`f${d}`, ["after"], "J", d)),
+    ];
+    const out = jobInOrder(big, 12).map((x) => x._id);
+    expect(out).toHaveLength(12);
+    expect(out.slice(0, 2)).toEqual(["b1", "b2"]);
+    expect(out.slice(-3)).toEqual(["f14", "f15", "f16"]);
+    expect(out.slice(2, -3).every((id) => id.startsWith("w"))).toBe(true);
+  });
+});
 
 describe("make an ad for…, the pure parts", () => {
   const trades = Object.values(AD_TRADES);
@@ -1028,6 +1060,41 @@ describe("niche research's pure parts", () => {
 });
 
 describe("the library, hooks and settings", () => {
+  test("photos of one job are kept together: a job is named, renamed and taken away without losing its photos; a project's photos go to one job, once each", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    const member = await signUp(t, "owner@peak.example");
+    await expect(member.as.mutation(api.ads.addJob, { name: "Theirs" })).rejects.toThrow("Only Webb Leads staff");
+    await expect(staff.as.mutation(api.ads.addJob, { name: "   " })).rejects.toThrow("Give the job a name");
+    const jobId = await staff.as.mutation(api.ads.addJob, { name: "Smith kitchen" });
+    const photo = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "a.jpg", tags: ["cabinets"], jobId });
+    const loose = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "b.jpg", tags: [] });
+    await staff.as.mutation(api.ads.setAssetJob, { id: loose, jobId });
+    expect(await staff.as.query(api.ads.listJobs, {})).toMatchObject([{ id: jobId, name: "Smith kitchen", photos: 2 }]);
+    expect((await staff.as.query(api.ads.listAssets, {})).map((a) => a.jobId)).toEqual([jobId, jobId]);
+    // A job holds one trade's photos.
+    const patio = await staff.as.mutation(api.ads.addJob, { name: "Patio", trade: "outdoor-construction" });
+    await expect(staff.as.mutation(api.ads.setAssetJob, { id: photo, jobId: patio })).rejects.toThrow("another trade");
+    expect(await staff.as.query(api.ads.listJobs, { trade: "outdoor-construction" })).toMatchObject([{ name: "Patio", photos: 0 }]);
+    await staff.as.mutation(api.ads.renameJob, { id: jobId, name: "Smith cabinets" });
+    await staff.as.mutation(api.ads.removeJob, { id: jobId });
+    expect(await staff.as.query(api.ads.listJobs, {})).toEqual([]);
+    expect((await staff.as.query(api.ads.listAssets, {})).map((a) => [a.fileName, a.jobId])).toEqual([["b.jpg", undefined], ["a.jpg", undefined]]);
+
+    // From a project: one job under the project's name, and the photos already copied, so a second send adds only new ones.
+    const projectId = (await staff.as.mutation(api.projects.create, { organizationId: staff.organizationId, data: { name: "Jones exterior" } }))!._id;
+    const first = await staff.as.mutation(api.ads.jobForProject, { projectId });
+    expect(first.copied).toEqual([]);
+    const jobPhotoId = await t.run(async (ctx) =>
+      ctx.db.insert("jobPhotos", { organizationId: staff.organizationId, projectId, storageId: await ctx.storage.store(new Blob(["x"])), fileName: "p.jpg", contentType: "image/jpeg", size: 1, uploadedBy: staff.userId, createdAt: new Date().toISOString() }),
+    );
+    await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "p.jpg", tags: [], jobId: first.jobId, jobPhotoId });
+    const again = await staff.as.mutation(api.ads.jobForProject, { projectId });
+    expect(again).toEqual({ jobId: first.jobId, copied: [jobPhotoId] });
+    expect((await staff.as.query(api.ads.listJobs, {})).find((j) => j.id === first.jobId)).toMatchObject({ name: "Jones exterior", projectId, photos: 1 });
+    await expect(member.as.mutation(api.ads.jobForProject, { projectId })).rejects.toThrow("Only Webb Leads staff");
+  });
+
   test("staff file photos and clips with tags; tags are cleaned; removing deletes the file; members can't", async () => {
     const t = setup();
     const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
@@ -2065,6 +2132,72 @@ describe("the weekly run", () => {
       const stills = names.filter((n) => n.endsWith("_still"));
       expect(stills.length).toBeGreaterThan(0);
       expect(stills.every((n) => names.includes(n.replace(/_still$/, "")))).toBe(true);
+    });
+
+    /** A job of three cabinet photos, filed together: a before, the work, the finish. */
+    const cabinetJob = async (t: T, owner: Awaited<ReturnType<typeof signUp>>) => {
+      const jobId = await owner.as.mutation(api.ads.addJob, { name: "  Smith   kitchen on Elm " });
+      const ids: string[] = [];
+      for (const [name, tags] of [["job-before.jpg", ["cabinets", "before"]], ["job-work.jpg", ["cabinets", "process"]], ["job-after.jpg", ["cabinets", "after"]]] as const)
+        ids.push(await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", name), fileName: name, tags: [...tags], jobId }));
+      return { jobId, ids };
+    };
+    /** Which library photos each kind of ad shows. */
+    const shownBy = async (t: T) =>
+      await t.run(async (ctx) => {
+        const out: Record<string, string[]> = {};
+        for (const c of await ctx.db.query("adCreatives").collect()) {
+          // The stand-in writer draws every ad as a light-up, so the kind is read from the idea's family.
+          const kind = c.design?.quick ? "quick" : (await ctx.db.get(c.hookId))?.family === "education" ? "lesson" : "story";
+          const ids = [...(c.script.shots ?? []).map((x) => x.assetId), ...(c.design?.frames ?? []).flatMap((f) => f.more ?? [])];
+          out[kind] = [...new Set([...(out[kind] ?? []), ...ids.map(String)])];
+        }
+        return out;
+      });
+
+    test("a story is told from one job's photos when a job fits, before to finish; the quick offer is on the same job", async () => {
+      const { t, owner, calls, settle } = await ready();
+      stubServices(calls, { request: { trade: "painting", scope: "cabinets", town: "Odessa", idea: "Paint the cabinets" } });
+      const { ids } = await cabinetJob(t, owner);
+      await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "cabinets in Odessa" }));
+      const shown = await shownBy(t);
+      expect(shown.story.length).toBeGreaterThan(0);
+      expect([...shown.story].every((id) => ids.includes(id))).toBe(true);
+      expect([...shown.quick].every((id) => ids.includes(id))).toBe(true);
+      // The writer was offered the job's photos in the story's order: the before first, the finish last.
+      const storyAsk = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string; source?: { url: string } }>)
+        .find((x) => x[0].text?.includes("Concept family") && !x[0].text.includes("On screen: a short checklist") && !x[0].text.includes("This one is a quick offer"))!;
+      expect(storyAsk.filter((c) => c.type === "image").length).toBe(3);
+      // The job's name says where it was: it never reaches the writer.
+      expect(JSON.stringify(to(calls, "anthropic").map((c) => c.body).filter((b) => !b!.includes("typed this request")))).not.toContain("Smith");
+    });
+
+    test("with no job of three photos, a story is picked across the library as before", async () => {
+      const { t, owner, calls, settle } = await ready();
+      stubServices(calls, { request: { trade: "painting", scope: "cabinets", town: "Odessa", idea: "Paint the cabinets" } });
+      const jobId = await owner.as.mutation(api.ads.addJob, { name: "Two photos only" });
+      const lone = await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "lone"), fileName: "lone.jpg", tags: ["cabinets", "after"], jobId });
+      await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "cabinets in Odessa" }));
+      const shown = await shownBy(t);
+      expect([...shown.story].some((id) => id !== lone)).toBe(true);
+    });
+
+    test("a job named in the line carries every version, the checklist too, and the request remembers it", async () => {
+      const { t, owner, calls, settle } = await ready();
+      const { jobId, ids } = await cabinetJob(t, owner);
+      // No kind of job named, so a lesson is built on a second competitor ad too.
+      stubServices(calls, { request: { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out", job: 1 } });
+      const { link } = await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "an ad from the Smith kitchen" }));
+      // The reader was shown the jobs on file by name, to match the one the line names.
+      const read = to(calls, "anthropic").map((c) => JSON.stringify(JSON.parse(c.body!).messages[0].content)).find((x) => x.includes("typed this request"))!;
+      expect(read).toContain("1. Smith kitchen on Elm");
+      const shown = await shownBy(t);
+      for (const kind of ["story", "lesson", "quick"]) expect([...(shown[kind] ?? [])].every((id) => ids.includes(id))).toBe(true);
+      expect(shown.lesson?.length).toBeGreaterThan(0);
+      const request = await t.run(async (ctx) => (await ctx.db.query("adRequests").collect()).find((r) => link.endsWith(r.token))!);
+      expect(request.jobId).toBe(jobId);
+      // The writer never saw the job's name.
+      expect(JSON.stringify(to(calls, "anthropic").map((c) => c.body).filter((b) => !b!.includes("typed this request")))).not.toContain("Smith");
     });
 
     test("a request the network drops on the way to Claude is sent once more; a writer that never answers is said plainly", async () => {

@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Film, Image as ImageIcon, Play, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
+import { useAdJobs } from '../../lib/live';
+import { putFile, stillOfClip, uploadAsset } from '../../lib/adUpload';
 import {
   useAdsBatches,
   useAdsHooks,
@@ -152,6 +154,16 @@ export interface AdAsset {
   description?: string;
   suggestedTags?: string[];
   uses?: number;
+  /** The job it was shot on, when it is filed under one. */
+  jobId?: string;
+  createdAt: string;
+}
+/** One job's photos in the library: a story is told from one job, start to finish. */
+export interface AdJob {
+  id: string;
+  name: string;
+  projectId?: string;
+  photos: number;
   createdAt: string;
 }
 /** The competitor ad an idea is built around: who ran it, for how many days, and what it offered. */
@@ -938,112 +950,18 @@ const Live: React.FC<{ act: Act }> = ({ act }) => {
   );
 };
 
-/** Uploads a file to Convex storage and files it in the library with its tags. */
-const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(file.name);
-
-/** Waits for a media element event, or gives up after a few seconds. */
-const once = (el: HTMLElement, event: string, ms: number = 8000) =>
-  new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timeout')), ms);
-    el.addEventListener(event, () => (clearTimeout(timer), resolve()), { once: true });
-    el.addEventListener('error', () => (clearTimeout(timer), reject(new Error('unreadable'))), { once: true });
-  });
-
-/**
- * A JPEG still of a photo or clip, made here in the browser: what Claude
- * looks at, what an iPhone HEIC photo renders from, and a video ad's poster.
- * Videos also give their length. Nothing comes back where the browser
- * can't draw it; the file still uploads.
- */
-async function makeStill(file: File): Promise<{ still?: Blob; durationSec?: number }> {
-  if (typeof createImageBitmap !== 'function') return {};
-  const src = URL.createObjectURL(file);
-  try {
-    if (isVideo(file)) return await stillOfClip(src);
-    const bitmap = await createImageBitmap(file);
-    return { still: (await toJpeg(bitmap, bitmap.width, bitmap.height)) ?? undefined };
-  } catch {
-    return {};
-  } finally {
-    URL.revokeObjectURL(src);
-  }
-}
-
-/** A frame drawn to a JPEG, no wider or taller than 1600 pixels. */
-async function toJpeg(source: CanvasImageSource, width: number, height: number): Promise<Blob | null> {
-  if (!width || !height) return null;
-  const scale = Math.min(1, 1600 / Math.max(width, height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
-  canvas.getContext('2d')?.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-}
-
-/**
- * A still from a clip, and its length. iPhones and iPads hand over a frame only from a video that is set to play
- * inline, has been told to load, and has actually decoded one; a hidden video never playing gives a black frame
- * or none. So: load, wait for its size, seek a moment in, and if no frame came, play it silently for an instant.
- * A clip from the library (`remote`) is read across origins, so the canvas may use it.
- */
-async function stillOfClip(src: string, remote = false): Promise<{ still?: Blob; durationSec?: number }> {
-  const video = document.createElement('video');
-  video.muted = true;
-  video.playsInline = true;
-  video.setAttribute('playsinline', '');
-  video.setAttribute('muted', '');
-  video.preload = 'auto';
-  if (remote) video.crossOrigin = 'anonymous';
-  // On the page but out of sight: some browsers decode nothing for a video that isn't.
-  Object.assign(video.style, { position: 'fixed', left: '-10000px', top: '0', width: '2px', height: '2px', opacity: '0' });
-  document.body.appendChild(video);
-  try {
-    video.src = src;
-    video.load();
-    await once(video, 'loadedmetadata', 15000);
-    const durationSec = Number.isFinite(video.duration) ? Math.round(video.duration * 10) / 10 : undefined;
-    video.currentTime = Math.min(1, (video.duration || 2) / 2);
-    try {
-      await once(video, 'seeked', 8000);
-    } catch {
-      // No seek without a decoded frame on some phones: play an instant to get one.
-    }
-    if (video.readyState < 2) {
-      await video.play().catch(() => undefined);
-      await once(video, 'timeupdate', 8000).catch(() => undefined);
-      video.pause();
-    }
-    const still = await toJpeg(video, video.videoWidth, video.videoHeight);
-    return { still: still ?? undefined, durationSec };
-  } finally {
-    video.removeAttribute('src');
-    video.load();
-    video.remove();
-  }
-}
-
 /** Whether a creator's take can still be added: a video ad not yet in Meta and not being drawn right now. */
 const takeable = (c: AdCreative) =>
   c.kind !== 'image' && c.style?.id !== 'footage' && !c.meta?.adId && !['rendering', 'live', 'retired', 'rejected'].includes(c.status);
 
-async function putFile(body: Blob, type: string): Promise<string> {
-  const url = await adsAPI.uploadUrl();
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': type || 'application/octet-stream' }, body });
-  if (!res.ok) throw new Error(`The upload failed (${res.status})`);
-  return ((await res.json()) as { storageId: string }).storageId;
-}
-
-/** Uploads a file and its still to Convex storage and files it in the library with its tags. */
-async function uploadAsset(file: File, tags: string[], trade: string, pairKey?: string, note?: string) {
-  const { still, durationSec } = await makeStill(file);
-  const storageId = await putFile(file, file.type);
-  const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
-  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, trade });
-}
 
 const Library: React.FC<{ act: Act }> = ({ act }) => {
   const trade = useTrade();
   const assets = useAdsLibrary<AdAsset[]>(trade);
+  const jobs = useAdJobs<AdJob[]>(trade);
+  // The job the next upload goes in; none by default.
+  const [jobId, setJobId] = useState('');
+  const [newJob, setNewJob] = useState('');
   // Nothing lit up by default: an upload with no tags takes the tags Claude suggests.
   const [tags, setTags] = useState<string[]>([]);
   const [pairKey, setPairKey] = useState('');
@@ -1056,7 +974,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
     setBusy(true);
     await act(
       async () => {
-        for (const f of Array.from(files)) await uploadAsset(f, tags, trade, pairKey || undefined, note || undefined);
+        for (const f of Array.from(files)) await uploadAsset(f, tags, trade, pairKey || undefined, note || undefined, jobId ? { jobId } : undefined);
       },
       `${files.length} file${files.length === 1 ? '' : 's'} in the library.`,
     );
@@ -1070,6 +988,42 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           Your photos and clips. Claude looks at each one and suggests tags; an upload with no tags takes them. Tag it yourself to override. A before
           and after with the same pair key become a wipe.
         </p>
+        <p className="text-sm text-gray-400">
+          Put one job's photos in a job: a story ad is then told from that one job, before to finish. A project's photos can be sent here from
+          the project's Photos tab.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Job for the next upload">
+            <select value={jobId} onChange={(e) => setJobId(e.target.value)} className={input} aria-label="Job for the next upload">
+              <option value="">No job</option>
+              {(jobs ?? []).map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <form
+            className="flex items-end gap-2"
+            aria-label="New job"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = newJob.trim();
+              if (!name) return;
+              void act(async () => {
+                setJobId(await adsAPI.addJob(name, trade));
+                setNewJob('');
+              }, `Job "${name}" added. The next upload goes in it.`);
+            }}
+          >
+            <Field label="New job" hint="Your own name for it; it never shows in an ad">
+              <input value={newJob} onChange={(e) => setNewJob(e.target.value)} placeholder="Smith kitchen cabinets" className={input} />
+            </Field>
+            <button type="submit" className={secondary} disabled={!newJob.trim()}>
+              Add job
+            </button>
+          </form>
+        </div>
         <div className="flex flex-wrap gap-2" aria-label="Tags for the next upload">
           {[...scopesFor(trade), 'before', 'after'].map((t) => (
             <button
@@ -1110,17 +1064,86 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
       ) : assets.length === 0 ? (
         <p className="text-sm text-gray-400">Nothing in the library yet.</p>
       ) : (
-        <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" aria-label="Library">
-          {assets.map((a) => (
-            <AssetCard key={a.id} a={a} act={act} />
+        <div className="space-y-5" aria-label="Library">
+          {(jobs ?? []).map((j) => (
+            <JobGroup key={j.id} job={j} assets={assets.filter((a) => a.jobId === j.id)} jobs={jobs ?? []} act={act} />
           ))}
-        </ul>
+          {assets.some((a) => !a.jobId || !(jobs ?? []).some((j) => j.id === a.jobId)) && (
+            <section className="space-y-2" aria-label="Not in a job">
+              {(jobs ?? []).length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
+              <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+                {assets
+                  .filter((a) => !a.jobId || !(jobs ?? []).some((j) => j.id === a.jobId))
+                  .map((a) => (
+                    <AssetCard key={a.id} a={a} jobs={jobs ?? []} act={act} />
+                  ))}
+              </ul>
+            </section>
+          )}
+        </div>
       )}
     </div>
   );
 };
 
-const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
+/** One job's photos together, with its name to change and a way to take the job away (its photos stay). */
+const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; jobs: AdJob[]; act: Act }> = ({ job, assets, jobs, act }) => {
+  const [name, setName] = useState<string | null>(null);
+  const hasBefore = assets.some((a) => a.tags.includes('before'));
+  const hasAfter = assets.some((a) => a.tags.includes('after'));
+  return (
+    <section className="space-y-2 border border-[#2A2A2A] rounded p-3" aria-label={`Job ${job.name}`} data-testid="job">
+      <div className="flex flex-wrap items-center gap-2">
+        {name === null ? (
+          <h3 className="text-sm font-semibold text-white">{job.name}</h3>
+        ) : (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void act(() => adsAPI.renameJob(job.id, name), 'Job renamed.').then(() => setName(null));
+            }}
+          >
+            <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Job name" className={`${input} text-sm py-1`} />
+            <button type="submit" className={`${primary} text-xs py-1`}>
+              Save
+            </button>
+          </form>
+        )}
+        <span className="text-xs text-gray-500">
+          {assets.length} photo{assets.length === 1 ? '' : 's'}
+          {assets.length > 0 && (hasBefore && hasAfter ? ' · before and after' : hasAfter ? ' · no before yet' : hasBefore ? ' · no finish yet' : ' · tag a before and an after')}
+        </span>
+        <span className="ml-auto flex gap-2 text-xs">
+          {name === null && (
+            <button type="button" className="text-gray-400 underline" onClick={() => setName(job.name)}>
+              Rename
+            </button>
+          )}
+          <button
+            type="button"
+            className="text-gray-400 hover:text-red-300 underline"
+            onClick={() => act(() => adsAPI.removeJob(job.id), 'Job taken away. Its photos stay in the library.')}
+          >
+            Take away job
+          </button>
+        </span>
+      </div>
+      {assets.length < 3 && (
+        <p className="text-xs text-gray-500">A story is told from one job once it has 3 photos or more.</p>
+      )}
+      {assets.length > 0 && (
+        <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          {assets.map((a) => (
+            <AssetCard key={a.id} a={a} jobs={jobs} act={act} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+};
+
+const AssetCard: React.FC<{ a: AdAsset; jobs?: AdJob[]; act: Act }> = ({ a, jobs = [], act }) => {
   const trade = useTrade();
   const [tags, setTags] = useState(a.tags);
   const [pairKey, setPairKey] = useState(a.pairKey ?? '');
@@ -1187,6 +1210,21 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
           aria-label={`Pair key for ${a.fileName}`}
           className={`${input} text-xs py-1`}
         />
+        {jobs.length > 0 && (
+          <select
+            value={a.jobId ?? ''}
+            onChange={(e) => act(() => adsAPI.setAssetJob(a.id, e.target.value || undefined), e.target.value ? 'Moved to the job.' : 'Taken out of the job.')}
+            aria-label={`Job for ${a.fileName}`}
+            className={`${input} text-xs py-1`}
+          >
+            <option value="">No job</option>
+            {jobs.map((j) => (
+              <option key={j.id} value={j.id}>
+                {j.name}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="flex gap-1">
           {changed && (
             <button
