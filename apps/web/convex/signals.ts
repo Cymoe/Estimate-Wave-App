@@ -427,6 +427,28 @@ export const recount = internalAction({
   handler: async (ctx) => await refreshCounts(ctx),
 });
 
+/**
+ * A county's list counts and its top-scored homes, for checking a rescore from the command line
+ * (`npx convex run signals:peek '{"county":"Ector"}'`). Reads only.
+ */
+export const peek = internalQuery({
+  args: { county: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { county, limit }) => {
+    const summary = await ctx.db.query("sellerCounts").withIndex("by_county", (q) => q.eq("county", county)).first();
+    const top = await ctx.db
+      .query("distress")
+      .withIndex("by_county_and_score", (q) => q.eq("county", county))
+      .order("desc")
+      .take(Math.min(limit ?? 15, 50));
+    const homes = [];
+    for (const d of top) {
+      const p = await ctx.db.get(d.parcelId);
+      if (p) homes.push({ address: p.siteAddress, owner: p.owner, score: d.score, lists: d.lists, homestead: p.homestead, over65: p.over65, deedDate: p.deedDate });
+    }
+    return { counts: summary?.counts ?? {}, stacked: summary?.stacked, total: summary?.total, homes };
+  },
+});
+
 // ---- For Ops ----
 
 const MAX_ROWS = 500;
