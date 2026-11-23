@@ -213,7 +213,9 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 A story shows one real job, before to finish, so no other job's work passes for it. The library groups photos
 into jobs (`adJobs`; `adAssets.jobId`):
 - **Filing photos under a job:**
-  - Make a job in Ops → Ads → Library and upload into it, or move a photo into a job with its card's Job menu.
+  - In Ops → Ads → Library, "Group photos into a job" (top of the tab): tap the photos that go together, name the
+    job (or pick one already there), "Put in job" (`groupIntoJob`). A photo's card also has a Job menu, and the
+    next upload can go straight into a job.
   - From a project, staff press "Use these photos for ads" on its Photos tab (`PhotosForAds`). The browser copies
     each project photo through the normal upload, so it gets its JPEG still and Claude's tags.
   - `jobForProject` returns the job and the project photos already copied (`adAssets.jobPhotoId`), so sending again

@@ -437,6 +437,30 @@ export const setAssetJob = mutation({
 });
 
 /**
+ * Puts the photos picked in the library into one job ("Group photos into a job"): an existing job, or a new one
+ * under the name given. Photos of another trade than the job's are left where they are.
+ */
+export const groupIntoJob = mutation({
+  args: { ids: v.array(v.id("adAssets")), jobId: v.optional(v.id("adJobs")), name: v.optional(v.string()), trade: v.optional(v.string()) },
+  handler: async (ctx, { ids, jobId, name, trade }) => {
+    const user = await requireStaff(ctx);
+    if (ids.length === 0) fail("INVALID", "Pick the photos that go together first");
+    const job = jobId ? await ctx.db.get(jobId) : null;
+    if (jobId && job === null) fail("NOT_FOUND", "That job isn't in the library");
+    const slug = tradeOf(job?.trade ?? trade).slug;
+    const id = job?._id ?? (await ctx.db.insert("adJobs", { trade: slug, name: jobName(name ?? ""), createdBy: user._id, createdAt: nowIso() }));
+    let moved = 0;
+    for (const assetId of ids) {
+      const a = await ctx.db.get(assetId);
+      if (a === null || tradeOf(a.trade).slug !== slug) continue;
+      await ctx.db.patch(assetId, { jobId: id });
+      moved += 1;
+    }
+    return { jobId: id, moved };
+  },
+});
+
+/**
  * The job a project's photos go to in the ad library ("Use these photos for ads" on a project), made the first
  * time, under the project's name. With it, the project photos already copied, so sending again only adds new ones.
  */

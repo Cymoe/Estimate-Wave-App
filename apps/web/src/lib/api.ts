@@ -1089,6 +1089,9 @@ export const adsAPI = {
   addJob: (name: string, trade?: string): Promise<string> => run('mutation', api.ads.addJob, defined({ name, trade })),
   renameJob: (id: string, name: string) => run('mutation', api.ads.renameJob, { id, name }),
   removeJob: (id: string) => run('mutation', api.ads.removeJob, { id }),
+  /** The photos picked, into an existing job or a new one by name. */
+  groupIntoJob: (ids: string[], job: { jobId?: string; name?: string }, trade?: string): Promise<{ jobId: string; moved: number }> =>
+    run('mutation', api.ads.groupIntoJob, defined({ ids, ...job, trade })),
   setAssetJob: (id: string, jobId?: string) => run('mutation', api.ads.setAssetJob, defined({ id, jobId })),
   /** The job a project's photos go to, and the project photos already in it. */
   jobForProject: (projectId: string, trade?: string): Promise<{ jobId: string; copied: string[] }> =>
