@@ -63,6 +63,8 @@ describe("Odessa's and Lubbock's rolls, read", () => {
         deedDate: "2019-08-16",
         ownerOccupied: true,
         companyOwned: false,
+        // The roll says no homestead (the mailing address being the house is what says they live there).
+        homestead: false,
       },
       expect.objectContaining({ cadId: "Ector:2", useCode: "F1", companyOwned: true, ownerOccupied: false, deedDate: undefined, mailing: { address: "80 SUGAR CREEK CENTER BLVD", city: "SUGAR LAND", state: "TX", zip: "77478" } }),
     ]);

@@ -467,6 +467,7 @@ export const outreachWho = v.union(
   v.literal("commercial_seller"),
   v.literal("multifamily_seller"),
   v.literal("home_seller"),
+  v.literal("likely_seller"),
   v.literal("custom"),
 );
 
@@ -1021,6 +1022,11 @@ export default defineSchema({
     buildings: v.optional(v.array(v.string())),
     returnedMail: v.optional(v.boolean()),
     accounts: v.optional(v.array(v.string())),
+    // The owner's homestead exemption here, as the roll last said (absent where the source doesn't tell), over-65
+    // where it is one (Midland), and when the same owner's homestead went away: they moved out (signals.ts).
+    homestead: v.optional(v.boolean()),
+    over65: v.optional(v.boolean()),
+    homesteadDroppedAt: v.optional(v.string()),
     // The roll no longer has this account as a property to keep (retired, merged into another account, or land now):
     // left out of the owners' build and every list. Kept, since contacts point at parcels.
     retiredAt: v.optional(v.string()),
@@ -1279,6 +1285,27 @@ export default defineSchema({
     .index("by_parcel", ["parcelId"])
     .index("by_list_and_score", ["county", "list", "score"]),
 
+  // Court and tax records staff upload from records requests (signals.ts addRecords): tax-delinquent, probate, lis
+  // pendens, divorce, eviction. Kept apart from the city's records (signals), which Outreach shows contractors: these
+  // only ever count toward a home's seller score. parcelId is the home it was matched to, by address or by owner name.
+  sellerRecords: defineTable({
+    county: v.string(),
+    kind: v.union(v.literal("tax_delinquent"), v.literal("probate"), v.literal("lis_pendens"), v.literal("divorce"), v.literal("eviction")),
+    parcelId: v.optional(v.id("parcels")),
+    address: v.optional(v.string()),
+    owner: v.optional(v.string()),
+    detail: v.optional(v.string()),
+    caseNumber: v.optional(v.string()),
+    // The record's own date (filed, recorded), or the upload's when the list gave none.
+    date: v.string(),
+    // Unique per record, so an upload sent twice adds nothing.
+    sourceId: v.string(),
+    importedAt: v.string(),
+  })
+    .index("by_source_id", ["sourceId"])
+    .index("by_parcel", ["parcelId"])
+    .index("by_county_and_kind", ["county", "kind"]),
+
   // How many homes are on each list, refreshed after each sync.
   sellerCounts: defineTable({
     county: v.string(),
@@ -1355,6 +1382,8 @@ export default defineSchema({
     owners: v.optional(v.number()),
     // The newest public records on their properties (lib/signals.ts), the trades those call for, and when the newest was.
     signals: v.optional(v.array(ownerSignal)),
+    // Their highest-scoring home's seller score and the lists behind it (signals.ts): the likely-to-sell list.
+    seller: v.optional(v.object({ score: v.number(), lists: v.array(v.string()) })),
     trades: v.optional(v.array(v.string())),
     latestAt: v.optional(v.string()),
     // A contractor or occupant: the people its permits name.

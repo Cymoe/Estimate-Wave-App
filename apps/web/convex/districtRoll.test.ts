@@ -95,7 +95,7 @@ describe("the appraisal district's certified roll and web file", () => {
     const now = Date.parse("2026-11-16");
     expect(rollAccount(ACCOUNTS[0], columns, now)).toEqual({
       cadId: "R000004331", ownerId: "GMNI2023", owner: "KOSF II MIDLAND LLC", mailing: { address: "10301 WAYZATA BLVD", city: "MINNETONKA", state: "MN", zip: "55305" },
-      site: "200 S NORMAN", numbered: true, stateCode: "F1", marketCents: 13_749_000, buildingCents: 12_572_000, deedDate: "2023-06-01", interest: 0.5, returnedMail: false, homestead: false,
+      site: "200 S NORMAN", numbered: true, stateCode: "F1", marketCents: 13_749_000, buildingCents: 12_572_000, deedDate: "2023-06-01", interest: 0.5, returnedMail: false, homestead: false, over65: false,
     });
     // A care-of line isn't a second owner; a farm road's number loses its padding.
     expect(rollAccount(ACCOUNTS[2], columns, now)).toMatchObject({ owner: "KOSF II-MIDLAND LLC", site: "8910 FM RD 307", marketCents: 220_655_000 });
