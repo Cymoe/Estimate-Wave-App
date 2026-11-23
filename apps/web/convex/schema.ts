@@ -1284,6 +1284,27 @@ export default defineSchema({
     .index("by_parcel", ["parcelId"])
     .index("by_list_and_score", ["county", "list", "score"]),
 
+  // Court and tax records staff upload from records requests (signals.ts addRecords): tax-delinquent, probate, lis
+  // pendens, divorce, eviction. Kept apart from the city's records (signals), which Outreach shows contractors: these
+  // only ever count toward a home's seller score. parcelId is the home it was matched to, by address or by owner name.
+  sellerRecords: defineTable({
+    county: v.string(),
+    kind: v.union(v.literal("tax_delinquent"), v.literal("probate"), v.literal("lis_pendens"), v.literal("divorce"), v.literal("eviction")),
+    parcelId: v.optional(v.id("parcels")),
+    address: v.optional(v.string()),
+    owner: v.optional(v.string()),
+    detail: v.optional(v.string()),
+    caseNumber: v.optional(v.string()),
+    // The record's own date (filed, recorded), or the upload's when the list gave none.
+    date: v.string(),
+    // Unique per record, so an upload sent twice adds nothing.
+    sourceId: v.string(),
+    importedAt: v.string(),
+  })
+    .index("by_source_id", ["sourceId"])
+    .index("by_parcel", ["parcelId"])
+    .index("by_county_and_kind", ["county", "kind"]),
+
   // How many homes are on each list, refreshed after each sync.
   sellerCounts: defineTable({
     county: v.string(),

@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { internal } from "./_generated/api";
-import { isEstateOwner } from "./lib/parcels";
+import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { addressKey, isEstateOwner, looseKey } from "./lib/parcels";
+import { ownerKey } from "./lib/outreach";
+import { nameOrders, parseRecords, recordDate, stackFor } from "./lib/signals";
 import { rollAccount, rollColumns } from "./lib/districtRoll";
 import { homesteadChange } from "./parcels";
-import { setup } from "./test.setup";
+import { setup, signUp } from "./test.setup";
 
 describe("what the rolls say about an owner likely to sell", () => {
   test("an estate or heirs on the roll; a real estate business or a name with EST in it isn't one", () => {
@@ -70,3 +73,128 @@ describe("what the rolls say about an owner likely to sell", () => {
     expect((await get()).homesteadDroppedAt).toBeUndefined();
   });
 });
+
+const NOW = Date.parse("2026-11-23T12:00:00.000Z");
+const home = { ownerOccupied: true, mailing: { state: "TX" }, deedDate: "2018-04-02", owner: "JONES MARY" };
+
+describe("the new lists a home can be on", () => {
+  test("the roll's word: inherited, mail returned, moved out, over 65 and owned 15+ years", () => {
+    const lists = (p: Record<string, unknown>, signals: Array<Record<string, string>> = []) => stackFor({ ...home, ...p }, signals as never, { preForeclosure: false, landlord: false }, NOW).lists;
+    expect(lists({})).toEqual([]);
+    expect(lists({ owner: "JONES MARY EST" })).toEqual(["inherited"]);
+    expect(lists({ owner2: "HEIRS OF JONES" })).toEqual(["inherited"]);
+    expect(lists({ returnedMail: true })).toEqual(["mail_returned"]);
+    expect(lists({ homestead: false, homesteadDroppedAt: "2026-06-01T00:00:00.000Z" })).toEqual(["homestead_dropped"]);
+    // Dropped long ago, or back on: not now.
+    expect(lists({ homestead: false, homesteadDroppedAt: "2023-01-01T00:00:00.000Z" })).toEqual([]);
+    expect(lists({ homestead: true, homesteadDroppedAt: "2026-06-01T00:00:00.000Z" })).toEqual([]);
+    expect(lists({ over65: true, deedDate: "2009-01-01" })).toEqual(["senior_long_owned"]);
+    expect(lists({ over65: true, deedDate: "2015-01-01" })).toEqual([]);
+    // An over-65 owner of 25 years is on both.
+    expect(lists({ over65: true, deedDate: "2000-01-01" })).toEqual(["senior_long_owned", "long_owned"]);
+  });
+
+  test("uploaded records count within two years; the score adds the weights", () => {
+    const stack = stackFor(
+      { ...home, owner: "JONES MARY EST" },
+      [
+        { kind: "tax_delinquent", detail: "", date: "2026-05-01", sourceId: "a" },
+        { kind: "probate", detail: "", date: "2026-02-01", sourceId: "b" },
+        { kind: "divorce", detail: "", date: "2022-01-01", sourceId: "c" },
+      ] as never,
+      { preForeclosure: false, landlord: false },
+      NOW,
+    );
+    expect(stack.lists).toEqual(["tax_delinquent", "probate", "inherited"]);
+    expect(stack.score).toBe(9);
+  });
+
+  test("a pasted list: columns by their names, dates read, a header-less list is addresses", () => {
+    const rows = parseRecords(
+      'Cause Number,Decedent,Date Filed,Property Address,Court\n2026-123,"Smith, John A",5/8/2026,1209 W Ohio Ave,County Court\n2026-124,Mary Jones,2026-06-01,,County Court',
+    );
+    expect(rows).toEqual([
+      { line: 2, caseNumber: "2026-123", owner: "Smith, John A", date: "2026-05-08", address: "1209 W Ohio Ave", detail: "County Court" },
+      { line: 3, caseNumber: "2026-124", owner: "Mary Jones", date: "2026-06-01", address: undefined, detail: "County Court" },
+    ]);
+    expect(parseRecords("1209 W Ohio Ave\n\n4407 Erie Dr")).toEqual([
+      { line: 1, address: "1209 W Ohio Ave" },
+      { line: 2, address: "4407 Erie Dr" },
+    ]);
+    expect(recordDate("May 8, 2026")).toBe("2026-05-08");
+    expect(recordDate("5/8/26")).toBe("2026-05-08");
+    expect(recordDate("soon")).toBeUndefined();
+    expect(nameOrders("John A. Smith")).toEqual(["JOHN A SMITH", "SMITH JOHN A"]);
+  });
+});
+
+async function addHome(t: ReturnType<typeof setup>, county: string, site: string, owner: string, over: Record<string, unknown> = {}) {
+  const mailing = { address: site, city: county === "Ector" ? "ODESSA" : "MIDLAND", state: "TX", zip: "79761" };
+  return (await t.run(async (ctx) =>
+    ctx.db.insert("parcels", {
+      county,
+      cadId: `${county}:${site}`,
+      useCode: "A1",
+      siteAddress: site,
+      addressKey: addressKey(site),
+      looseKey: looseKey(site),
+      owner,
+      ownerKey: `${ownerKey(owner)}|${addressKey(site)}`,
+      mailing,
+      ownerOccupied: true,
+      companyOwned: false,
+      deedDate: "2018-04-02",
+      importedAt: "2026-11-01T00:00:00.000Z",
+      ...over,
+    }),
+  )) as Id<"parcels">;
+}
+
+describe("scoring Midland and Odessa, and uploading records", () => {
+  test("Odessa homes are scored on their own counts; a landlord is counted on the roll; other counties aren't scored", async () => {
+    const t = setup();
+    // An Odessa owner with five homes, living elsewhere; one an estate's.
+    for (let i = 1; i <= 5; i++) await addHome(t, "Ector", `${100 + i} ELM ST`, "LANDLORD LARRY", { ownerOccupied: false, ownerKey: "LANDLORD LARRY|PO BOX 1", mailing: { address: "PO BOX 1", city: "ODESSA", state: "TX" } });
+    const estate = await addHome(t, "Ector", "77 OAK ST", "JONES MARY EST");
+    await addHome(t, "Lubbock", "9 PINE ST", "SMITH BOB EST");
+    await t.mutation(internal.signals.recomputePage, {});
+    await t.finishAllScheduledFunctions(() => {});
+    const rows = await t.run((ctx) => ctx.db.query("distress").collect());
+    expect(rows.every((r) => r.county === "Ector")).toBe(true);
+    expect(rows.find((r) => r.parcelId === estate)!.lists).toEqual(["inherited"]);
+    expect(rows.filter((r) => r.lists.includes("landlord") && r.lists.includes("absentee"))).toHaveLength(5);
+    const counts = await t.run((ctx) => ctx.db.query("sellerCounts").collect());
+    expect(counts.find((c) => c.county === "Ector")!.counts).toMatchObject({ inherited: 1, landlord: 5, absentee: 5 });
+    expect(counts.find((c) => c.county === "Midland")!.total).toBe(0);
+    // The Ops page reads Odessa when asked.
+    const staff = await signUp(t, "ops@goodfit.example", { role: "staff" });
+    const odessa = await staff.as.query(api.signals.sellers, { county: "Ector" });
+    expect(odessa.county).toBe("Ector");
+    // Highest score first: the estate's home (3) above the landlord's (absentee 1 + landlord 1).
+    expect(odessa.homes[0].lists).toEqual(["inherited"]);
+    expect(odessa.homes.filter((h) => h.lists.includes("landlord"))).toHaveLength(5);
+  });
+
+  test("an uploaded list: matched by address or by name, restacked at once, the rest sent back; twice adds nothing", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@goodfit.example", { role: "staff" });
+    const byAddress = await addHome(t, "Midland", "1209 W OHIO AV", "GARCIA ANA");
+    const byName = await addHome(t, "Midland", "4407 ERIE DR", "SMITH JOHN A");
+    const text = "Account,Owner,Property Address,Filed\nT-1,Garcia Ana,1209 W Ohio Ave,6/1/2026\nT-2,John A Smith,,6/2/2026\nT-3,Nobody Here,1 NOWHERE LN,6/3/2026";
+    const first = await staff.as.mutation(api.signals.addRecords, { county: "Midland", kind: "tax_delinquent", text });
+    expect(first).toMatchObject({ read: 3, added: 2, already: 0, unmatchedCount: 1 });
+    expect(first.unmatched[0]).toEqual({ line: 4, text: "1 NOWHERE LN · Nobody Here · T-3" });
+    const d = await t.run((ctx) => ctx.db.query("distress").collect());
+    expect(d.find((r) => r.parcelId === byAddress)!.lists).toContain("tax_delinquent");
+    expect(d.find((r) => r.parcelId === byName)!.lists).toContain("tax_delinquent");
+    const again = await staff.as.mutation(api.signals.addRecords, { county: "Midland", kind: "tax_delinquent", text });
+    expect(again).toMatchObject({ added: 0, already: 2 });
+    // The home's detail shows the record.
+    const detail = await staff.as.query(api.signals.home, { parcelId: byAddress });
+    expect(detail!.signals[0]).toMatchObject({ kind: "tax_delinquent", caseNumber: "T-1", date: "2026-06-01" });
+    // Only staff, and only the scored counties.
+    await expect(t.mutation(api.signals.addRecords, { county: "Midland", kind: "probate", text })).rejects.toThrow();
+    await expect(staff.as.mutation(api.signals.addRecords, { county: "Lubbock", kind: "probate", text })).rejects.toThrow("Midland and Ector");
+  });
+});
+

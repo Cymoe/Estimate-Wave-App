@@ -10,6 +10,7 @@ import { action, internalAction, internalMutation, internalQuery, type ActionCtx
 import { nowIso } from "./lib/access";
 import { COUNTY_ROLLS, MIDLAND_DEEDS, SELF_STORAGE_NAICS, isCompanyOwner, ownerOccupied, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, addressKey, countyParcels, deedHistory, districtProperty, codeFromBuildings, isCommercialUse, isResidentialUse, isStorageOutlet, ownerOf, parcelKind, parcelWhere, rowsToParcels, type CountyRoll, type DeedRow, type ParcelKind } from "./lib/parcels";
 import { districtGet, hasDistrictPage, sameOwnerName } from "./lib/district";
+import { isSellerCounty } from "./lib/signals";
 import { LANDLORD_HOMES } from "./lib/signals";
 import { COUNTY_PLACES, OwnerGrouper, mailKey } from "./lib/outreach";
 
@@ -622,6 +623,8 @@ export const syncCounty = internalAction({
       return { next: offset, ...sum, error };
     }
     if (!error) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county: roll.county });
+    // Odessa's homes are scored as sellers too (signals.ts): restacked once its roll is in.
+    if (!error && isSellerCounty(roll.county)) await ctx.scheduler.runAfter(0, internal.signals.recomputePage, { county: roll.county });
     await ctx.runMutation(internal.permits.recordSync, {
       source: roll.source,
       fetched: sum.fetched,
