@@ -143,7 +143,12 @@ async function run(ctx: ActionCtx, again: boolean): Promise<Result> {
     error = e instanceof Error ? e.message : String(e);
   }
   await ctx.runMutation(internal.permits.recordSync, { source: DISTRICT_ROLL.source, fetched: out.accounts ?? 0, added: out.added ?? 0, updated: out.updated ?? 0, lastAppliedAt: error ? undefined : files, error });
-  if ((out.added ?? 0) + (out.updated ?? 0) > 0) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+  if ((out.added ?? 0) + (out.updated ?? 0) > 0) {
+    // The roll's homestead, over-65 and owner name feed the seller lists: restack Midland's homes (signals.ts),
+    // which rebuilds its Outreach owners once done.
+    await ctx.scheduler.runAfter(0, internal.signals.recomputePage, { county: "Midland" });
+    await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+  }
   return { ...out, ...(files ? { files } : {}), ...(error ? { error } : {}) };
 }
 
