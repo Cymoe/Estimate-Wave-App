@@ -37,11 +37,33 @@ export const parcelRow = v.object({
   marketValueCents: v.optional(v.number()),
   buildingValueCents: v.optional(v.number()),
   deedDate: v.optional(v.string()),
+  homestead: v.optional(v.boolean()),
+  over65: v.optional(v.boolean()),
 });
+
+/**
+ * What a roll read does to a parcel's homestead: what it says now, kept as it was when the read doesn't say, and when
+ * the same owner's homestead went away (they moved out: rented it, left it empty or are selling). A new owner, or the
+ * first read that tells, is no drop. A homestead back again clears it.
+ */
+export function homesteadChange(
+  existing: { homestead?: boolean; over65?: boolean; homesteadDroppedAt?: string; owner: string } | null | undefined,
+  read: { homestead?: boolean; over65?: boolean; owner: string },
+  sameOwner: boolean,
+  now: string,
+): { homestead?: boolean; over65?: boolean; homesteadDroppedAt?: string } {
+  if (read.homestead === undefined) return { homestead: existing?.homestead, over65: existing?.over65, homesteadDroppedAt: existing?.homesteadDroppedAt };
+  const dropped = existing?.homestead === true && read.homestead === false && sameOwner;
+  return {
+    homestead: read.homestead,
+    over65: read.over65 || undefined,
+    homesteadDroppedAt: read.homestead ? undefined : dropped ? now : sameOwner ? existing?.homesteadDroppedAt : undefined,
+  };
+}
 
 const KEYS = [
   "pin", "useCode", "landUse", "siteAddress", "addressKey", "looseKey", "street", "owner", "owner2", "ownerOccupied",
-  "companyOwned", "marketValueCents", "buildingValueCents", "deedDate",
+  "companyOwned", "marketValueCents", "buildingValueCents", "deedDate", "homestead", "over65",
 ] as const;
 /** Whose a parcel is, as Outreach groups the roll, and where its bill goes: what lists an owner's properties ("" for none). */
 export const filing = (p: { owner: string; mailing: Doc<"parcels">["mailing"] }) => ({ ownerKey: OwnerGrouper.keyFor(p) ?? "", mailKey: mailKey(p.mailing) ?? "" });
@@ -102,13 +124,15 @@ export const upsert = internalMutation({
           ? { ...read, owner: existing.owner, owner2: existing.owner2, mailing: existing.mailing, deedDate: existing.deedDate, ownerOccupied: existing.ownerOccupied, companyOwned: existing.companyOwned }
           : read;
       const kind = await kindOf(ctx, at, { ...row, vendorUse: existing?.vendorUse });
+      const home = homesteadChange(existing, row, Boolean(existing && sameOwnerName(row, existing.owner)), now);
+      Object.assign(row, { homestead: home.homestead, over65: home.over65 });
       if (!existing) {
         await ctx.db.insert("parcels", { county: at, ...row, ...filing(row), ...(kind ? { kind } : {}), importedAt: now });
         added++;
       } else if (!sameParcel(existing, row) || existing.kind !== kind || existing.source || existing.ownerKey !== filing(row).ownerKey) {
         // The city's own row from here on, if the district had filled it while the city's was blank. And filed under
         // its owner as the owner's key is written today (a hyphen in a name is read as a space now).
-        await ctx.db.patch(existing._id, { ...row, ...filing(row), kind, source: undefined, importedAt: now });
+        await ctx.db.patch(existing._id, { ...row, ...filing(row), kind, source: undefined, homesteadDroppedAt: home.homesteadDroppedAt, importedAt: now });
         updated++;
       }
     }
@@ -937,8 +961,15 @@ export const upsertRoll = internalMutation({
       const row = live && existing ? { ...read, owner: existing.owner, owner2: existing.owner2, mailing: existing.mailing, deedDate: existing.deedDate, ownerOccupied: existing.ownerOccupied, companyOwned: existing.companyOwned } : read;
       const soldSince = live && existing && !sameOwnerName(read, existing.owner);
       const deeds = soldSince ? (existing.deeds?.length ? existing.deeds : [{ seller: read.owner, ...(existing.deedDate ? { date: existing.deedDate } : {}) }, ...fileDeeds]) : fileDeeds;
+      // Whether the owner still lives in it: the roll's word, except for one who bought since (it was the seller's).
+      const home = soldSince
+        ? { homestead: undefined, over65: undefined, homesteadDroppedAt: undefined }
+        : homesteadChange(existing, read, Boolean(existing && sameOwnerName(read, existing.owner)), now);
       const fields = {
         ...row,
+        homestead: home.homestead,
+        over65: home.over65,
+        homesteadDroppedAt: home.homesteadDroppedAt,
         ...filing(row),
         // The city's layer is where the land code and the PIN come from: the roll has neither.
         landUse: existing?.landUse,

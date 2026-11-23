@@ -135,7 +135,25 @@ export type ParcelRow = {
   marketValueCents?: number;
   buildingValueCents?: number;
   deedDate?: string;
+  /**
+   * The owner has a homestead exemption on it (they live in it), where the source says either way. Absent from a
+   * source that doesn't tell (the city's copy of Midland's roll): a row without it never changes what's known.
+   */
+  homestead?: boolean;
+  /** The homestead is an over-65 one (Midland's roll, homestead code "S"). Owners' dates of birth are never read. */
+  over65?: boolean;
 };
+
+/**
+ * The owner on the roll is an estate or heirs: someone has died and the home is passing on, which often ends in a
+ * sale. "ESTATE OF MARY JONES", "JONES MARY EST", "HEIRS OF", "JONES MARY DECD", "LIFE ESTATE".
+ */
+export function isEstateOwner(owner: string | undefined): boolean {
+  if (!owner) return false;
+  // "ABC REAL ESTATE" is a business, not an estate.
+  const name = owner.toUpperCase().replace(/[.,]/g, " ").replace(/\bREAL\s+ESTATE\b/g, " ");
+  return /\b(ESTATE|EST|HEIRS?|DECEASED|DEC'?D|DECD)\b/.test(name);
+}
 
 // One spelling for each street word, so "4729 COUNTRY CLUB Drive" on a
 // permit and "4729 COUNTRY CLUB DR" on the roll are the same house.
@@ -523,6 +541,7 @@ const parcelOf = (
 ): ParcelRow => {
   const { homestead, ...rest } = fields;
   return {
+    ...(homestead !== undefined ? { homestead } : {}),
     cadId: `${county}:${id}`,
     siteAddress: site,
     addressKey: addressKey(site),

@@ -1021,6 +1021,11 @@ export default defineSchema({
     buildings: v.optional(v.array(v.string())),
     returnedMail: v.optional(v.boolean()),
     accounts: v.optional(v.array(v.string())),
+    // The owner's homestead exemption here, as the roll last said (absent where the source doesn't tell), over-65
+    // where it is one (Midland), and when the same owner's homestead went away: they moved out (signals.ts).
+    homestead: v.optional(v.boolean()),
+    over65: v.optional(v.boolean()),
+    homesteadDroppedAt: v.optional(v.string()),
     // The roll no longer has this account as a property to keep (retired, merged into another account, or land now):
     // left out of the owners' build and every list. Kept, since contacts point at parcels.
     retiredAt: v.optional(v.string()),

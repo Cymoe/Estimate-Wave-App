@@ -80,6 +80,8 @@ export type RollAccount = {
   returnedMail: boolean;
   /** The owner has a homestead exemption here: they live in it. */
   homestead: boolean;
+  /** The homestead is an over-65 one: homestead code "S" (H is a plain homestead, D disabled, DV a disabled veteran). */
+  over65: boolean;
 };
 
 /** The roll's columns by name, from its first line ("collector_id|collector_yr|…"). */
@@ -134,6 +136,7 @@ export function rollAccount(line: string, columns: Record<string, number>, now =
     interest: Number(get("interest")) > 0 ? Number(get("interest")) : 1,
     returnedMail: Boolean(get("undelcd")),
     homestead: Boolean(get("hscode")),
+    over65: get("hscode").toUpperCase() === "S",
   };
 }
 
@@ -233,6 +236,8 @@ export function rollParcels(accounts: RollAccount[], buildingsOf: (cadId: string
         ...(a.marketCents ? { marketValueCents: a.marketCents } : {}),
         ...(a.buildingCents ? { buildingValueCents: a.buildingCents } : {}),
         ...(a.deedDate ? { deedDate: a.deedDate } : {}),
+        homestead: a.homestead,
+        ...(a.over65 ? { over65: true } : {}),
       },
       deeds: deedsFor(a.cadId),
       ...(a.ownerId ? { ownerId: a.ownerId } : {}),
