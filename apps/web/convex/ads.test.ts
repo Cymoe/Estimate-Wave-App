@@ -1081,6 +1081,16 @@ describe("the library, hooks and settings", () => {
     expect(await staff.as.query(api.ads.listJobs, {})).toEqual([]);
     expect((await staff.as.query(api.ads.listAssets, {})).map((a) => [a.fileName, a.jobId])).toEqual([["b.jpg", undefined], ["a.jpg", undefined]]);
 
+    // Photos picked in the library go into a new job by name, or one already there; another trade's stay out.
+    const grouped = await staff.as.mutation(api.ads.groupIntoJob, { ids: [photo, loose], name: " Elm kitchen " });
+    expect(grouped.moved).toBe(2);
+    expect((await staff.as.query(api.ads.listJobs, {})).find((j) => j.id === grouped.jobId)).toMatchObject({ name: "Elm kitchen", photos: 2 });
+    expect((await staff.as.mutation(api.ads.groupIntoJob, { ids: [photo], jobId: patio })).moved).toBe(0);
+    await expect(staff.as.mutation(api.ads.groupIntoJob, { ids: [], name: "Empty" })).rejects.toThrow("Pick the photos");
+    await expect(staff.as.mutation(api.ads.groupIntoJob, { ids: [photo], name: " " })).rejects.toThrow("Give the job a name");
+    await expect(member.as.mutation(api.ads.groupIntoJob, { ids: [photo], name: "Theirs" })).rejects.toThrow("Only Webb Leads staff");
+    await staff.as.mutation(api.ads.removeJob, { id: grouped.jobId });
+
     // From a project: one job under the project's name, and the photos already copied, so a second send adds only new ones.
     const projectId = (await staff.as.mutation(api.projects.create, { organizationId: staff.organizationId, data: { name: "Jones exterior" } }))!._id;
     const first = await staff.as.mutation(api.ads.jobForProject, { projectId });

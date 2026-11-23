@@ -52,6 +52,7 @@ const creatorBrief = jest.fn(async (..._args: unknown[]) => 'GoodFit Pros: on-ca
 const addTake = jest.fn(async (..._args: unknown[]) => 2);
 const makeFootage = jest.fn(async (..._args: unknown[]) => ({ batchId: 'b9', builtOn: 'Rodgers Painting' }));
 const addJob = jest.fn(async (..._args: unknown[]) => 'j2');
+const groupIntoJob = jest.fn(async (..._args: unknown[]) => ({ jobId: 'j3', moved: 2 }));
 const setAssetJob = jest.fn(async (..._args: unknown[]) => undefined);
 const removeJob = jest.fn(async (..._args: unknown[]) => undefined);
 const makeFor = jest.fn(async (..._args: unknown[]) => ({ link: 'https://app.example/ads/tok' }));
@@ -87,6 +88,7 @@ jest.mock('../../../lib/api', () => ({
     makeFor: (...args: unknown[]) => makeFor(...args),
     addJob: (...args: unknown[]) => addJob(...args),
     setAssetJob: (...args: unknown[]) => setAssetJob(...args),
+    groupIntoJob: (...args: unknown[]) => groupIntoJob(...args),
     removeJob: (...args: unknown[]) => removeJob(...args),
     renameJob: async () => undefined,
   },
@@ -465,16 +467,41 @@ describe('Ops → Ads', () => {
     expect(group.textContent).toContain('once it has 3 photos or more');
     expect(Array.from(group.querySelectorAll('[data-testid="asset"]')).map((c) => c.textContent?.includes('before.jpg') || c.textContent?.includes('after.jpg'))).toEqual([true, true]);
     expect(document.body.querySelector('[aria-label="Not in a job"]')!.textContent).toContain('loose.jpg');
-    // A new job, and the next upload goes in it.
-    const name = document.body.querySelector('form[aria-label="New job"] input') as HTMLInputElement;
+    // Group photos into a job: tap the ones that go together, name the job, put them in.
+    expect(document.body.querySelector('[aria-label="Pick loose.jpg"]')).toBeNull();
+    await act(async () => byText('Group photos into a job')!.click());
+    await act(async () => (document.body.querySelector('[aria-label="Pick loose.jpg"]') as HTMLButtonElement).click());
+    await act(async () => (document.body.querySelector('[aria-label="Pick before.jpg"]') as HTMLButtonElement).click());
+    await act(async () => (document.body.querySelector('[aria-label="Pick before.jpg"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[aria-label="Group photos"]')!.textContent).toContain('1 picked');
+    expect(byText('Put in job')!.disabled).toBe(true);
+    const name = document.body.querySelector('input[aria-label="Name of the new job"]') as HTMLInputElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Jones exterior');
       name.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await act(async () => (document.body.querySelector('form[aria-label="New job"]') as HTMLFormElement).requestSubmit());
+    await act(async () => byText('Put in job')!.click());
     await flush();
-    expect(addJob).toHaveBeenCalledWith('Jones exterior', 'painting');
-    expect((document.body.querySelector('select[aria-label="Job for the next upload"]') as HTMLSelectElement).value).toBe('j2');
+    expect(groupIntoJob).toHaveBeenCalledWith(['a3'], { name: 'Jones exterior' }, 'painting');
+    expect(document.body.querySelector('[aria-label="Group photos"]')).toBeNull();
+    // Into a job already there.
+    await act(async () => byText('Group photos into a job')!.click());
+    await act(async () => (document.body.querySelector('[aria-label="Pick loose.jpg"]') as HTMLButtonElement).click());
+    const which = document.body.querySelector('select[aria-label="Which job"]') as HTMLSelectElement;
+    await act(async () => {
+      which.value = 'j1';
+      which.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(document.body.querySelector('input[aria-label="Name of the new job"]')).toBeNull();
+    await act(async () => byText('Put in job')!.click());
+    await flush();
+    expect(groupIntoJob).toHaveBeenLastCalledWith(['a3'], { jobId: 'j1' }, 'painting');
+    // The next upload can go straight into a job.
+    const pick = document.body.querySelector('select[aria-label="Job for the next upload"]') as HTMLSelectElement;
+    await act(async () => {
+      pick.value = 'j2';
+      pick.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     const fileInput = document.body.querySelector('input[type="file"]') as HTMLInputElement;
     Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'house.jpg', { type: 'image/jpeg' })] });
     await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
