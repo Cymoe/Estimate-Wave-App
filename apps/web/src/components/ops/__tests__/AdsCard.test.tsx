@@ -450,7 +450,7 @@ describe('Ops → Ads', () => {
     expect(rows[1].querySelector('button')).toBeNull();
   });
 
-  it('Library keeps one job\'s photos together: a new job takes the next upload, a photo moves between jobs, a job is taken away', async () => {
+  it('Library: a job is a tag; tapping it tags a photo or takes it off, + job names one, an upload can carry one, and a job is taken away', async () => {
     const photo = (id: string, fileName: string, tags: string[], jobId?: string) => ({ id, kind: 'photo' as const, fileName, tags, jobId, createdAt: new Date().toISOString() });
     // The job about to be added is already listed, as it is once the add comes back.
     jobs = [
@@ -467,54 +467,37 @@ describe('Ops → Ads', () => {
     expect(group.textContent).toContain('once it has 3 photos or more');
     expect(Array.from(group.querySelectorAll('[data-testid="asset"]')).map((c) => c.textContent?.includes('before.jpg') || c.textContent?.includes('after.jpg'))).toEqual([true, true]);
     expect(document.body.querySelector('[aria-label="Not in a job"]')!.textContent).toContain('loose.jpg');
-    // Group photos into a job: tap the ones that go together, name the job, put them in.
-    expect(document.body.querySelector('[aria-label="Pick loose.jpg"]')).toBeNull();
-    await act(async () => byText('Group photos into a job')!.click());
-    await act(async () => (document.body.querySelector('[aria-label="Pick loose.jpg"]') as HTMLButtonElement).click());
-    await act(async () => (document.body.querySelector('[aria-label="Pick before.jpg"]') as HTMLButtonElement).click());
-    await act(async () => (document.body.querySelector('[aria-label="Pick before.jpg"]') as HTMLButtonElement).click());
-    expect(document.body.querySelector('[aria-label="Group photos"]')!.textContent).toContain('1 picked');
-    expect(byText('Put in job')!.disabled).toBe(true);
-    const name = document.body.querySelector('input[aria-label="Name of the new job"]') as HTMLInputElement;
+    // A job is a tag: tap a job's tag on a photo to tag it, tap again to take it off.
+    const jobTag = (job: string, where: string) => document.body.querySelector(`[aria-label="Job ${job} for ${where}"]`) as HTMLButtonElement;
+    expect(jobTag('Smith kitchen', 'before.jpg').getAttribute('aria-pressed')).toBe('true');
+    expect(jobTag('Smith kitchen', 'loose.jpg').getAttribute('aria-pressed')).toBe('false');
+    await act(async () => jobTag('Smith kitchen', 'loose.jpg').click());
+    await flush();
+    expect(setAssetJob).toHaveBeenLastCalledWith('a3', 'j1');
+    await act(async () => jobTag('Smith kitchen', 'before.jpg').click());
+    await flush();
+    expect(setAssetJob).toHaveBeenLastCalledWith('a1', undefined);
+    // "+ job" names a new job and tags the photo with it.
+    await act(async () => (document.body.querySelector('[aria-label="New job for loose.jpg"]') as HTMLButtonElement).click());
+    const name = document.body.querySelector('input[aria-label="New job for loose.jpg"]') as HTMLInputElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Jones exterior');
       name.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await act(async () => byText('Put in job')!.click());
+    await act(async () => (name.form as HTMLFormElement).requestSubmit());
     await flush();
-    expect(groupIntoJob).toHaveBeenCalledWith(['a3'], { name: 'Jones exterior' }, 'painting');
-    expect(document.body.querySelector('[aria-label="Group photos"]')).toBeNull();
-    // Into a job already there.
-    await act(async () => byText('Group photos into a job')!.click());
-    await act(async () => (document.body.querySelector('[aria-label="Pick loose.jpg"]') as HTMLButtonElement).click());
-    const which = document.body.querySelector('select[aria-label="Which job"]') as HTMLSelectElement;
-    await act(async () => {
-      which.value = 'j1';
-      which.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(document.body.querySelector('input[aria-label="Name of the new job"]')).toBeNull();
-    await act(async () => byText('Put in job')!.click());
-    await flush();
-    expect(groupIntoJob).toHaveBeenLastCalledWith(['a3'], { jobId: 'j1' }, 'painting');
-    // The next upload can go straight into a job.
-    const pick = document.body.querySelector('select[aria-label="Job for the next upload"]') as HTMLSelectElement;
-    await act(async () => {
-      pick.value = 'j2';
-      pick.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    expect(addJob).toHaveBeenCalledWith('Jones exterior', 'painting');
+    expect(setAssetJob).toHaveBeenLastCalledWith('a3', 'j2');
+    // The old ways are gone: no grouping mode, no job menus.
+    expect(byText('Group photos into a job')).toBeUndefined();
+    expect(document.body.querySelector('select[aria-label^="Job"]')).toBeNull();
+    // The next upload is tagged with a job the same way.
+    await act(async () => jobTag('Jones exterior', 'the next upload').click());
     const fileInput = document.body.querySelector('input[type="file"]') as HTMLInputElement;
     Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'house.jpg', { type: 'image/jpeg' })] });
     await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
     await flush();
     expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'house.jpg', jobId: 'j2', trade: 'painting' }));
-    // A loose photo moves into a job.
-    const move = document.body.querySelector('select[aria-label="Job for loose.jpg"]') as HTMLSelectElement;
-    await act(async () => {
-      move.value = 'j1';
-      move.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await flush();
-    expect(setAssetJob).toHaveBeenCalledWith('a3', 'j1');
     await act(async () => byText('Take away job')!.click());
     await flush();
     expect(removeJob).toHaveBeenCalledWith('j1');
