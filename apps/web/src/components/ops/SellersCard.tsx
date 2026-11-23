@@ -26,7 +26,12 @@ interface Sellers {
   stacked: number;
   total: number;
   lists: Array<{ key: ListKey; label: string; weight: number }>;
+  county?: string;
+  counties?: string[];
 }
+
+/** The counties whose homes are scored, as the switch names them. */
+export const SELLER_COUNTY_LABELS: Record<string, string> = { Midland: 'Midland', Ector: 'Odessa (Ector)' };
 
 interface Status {
   source: { syncedAt: string; fetched: number; added: number; updated: number; error?: string } | null;
@@ -41,6 +46,7 @@ interface HomeDetail {
   score: number;
   signals: Array<{ kind: string; detail: string; status?: string; caseNumber?: string; date: string }>;
   foreclosures: Array<{ saleDate: string; status: string; kind: string }>;
+  roll?: { homestead?: boolean; over65?: boolean; homesteadDroppedAt?: string; returnedMail?: boolean; deedDate?: string };
 }
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'server error');
@@ -105,13 +111,25 @@ function HomeDialog({ parcelId, onClose }: { parcelId: string; onClose: () => vo
               </span>
             ))}
           </p>
+          {home.roll && (
+            <p className="text-xs text-gray-400" data-testid="seller-roll">
+              {[
+                home.roll.homestead === true ? (home.roll.over65 ? 'Over-65 homestead' : 'Homestead: the owner lives here') : home.roll.homestead === false ? 'No homestead' : '',
+                home.roll.homesteadDroppedAt ? `homestead dropped ${day(home.roll.homesteadDroppedAt)}` : '',
+                home.roll.returnedMail ? "the district's mail came back" : '',
+                home.roll.deedDate ? `owned since ${year(home.roll.deedDate)}` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
           {home.foreclosures.length > 0 && (
             <p className="text-sm text-amber-200/90">
               {home.foreclosures.map((f) => `Courthouse auction ${f.saleDate}: ${f.status.replace(/_/g, ' ')}`).join(' · ')}
             </p>
           )}
           {home.signals.length === 0 ? (
-            <p className="text-sm text-gray-500">No city records: it's on the lists for what the appraisal roll says about the owner.</p>
+            <p className="text-sm text-gray-500">No records: it's on the lists for what the appraisal roll says about the owner.</p>
           ) : (
             <ul className="divide-y divide-[#2A2A2A]">
               {home.signals.map((s, i) => (
@@ -139,6 +157,7 @@ function HomeDialog({ parcelId, onClose }: { parcelId: string; onClose: () => vo
  * open a home for its records, export the result for direct mail.
  */
 export function SellersCard() {
+  const [county, setCounty] = useState('Midland');
   const [picked, setPicked] = useState<ListKey[]>([]);
   const [minLists, setMinLists] = useState(1);
   const [data, setData] = useState<Sellers | null>(null);
@@ -150,13 +169,13 @@ export function SellersCard() {
 
   const load = useCallback(async () => {
     try {
-      const [d, s] = await Promise.all([sellersAPI.sellers({ lists: picked, minLists, limit: 200 }), sellersAPI.status()]);
+      const [d, s] = await Promise.all([sellersAPI.sellers({ lists: picked, minLists, limit: 200, county }), sellersAPI.status()]);
       setData(d);
       setStatus(s);
     } catch (err) {
       setNote(`The lists couldn't be loaded: ${errorText(err)}`);
     }
-  }, [picked, minLists]);
+  }, [picked, minLists, county]);
   useEffect(() => {
     load();
   }, [load]);
@@ -185,13 +204,13 @@ export function SellersCard() {
       const homes: SellerHome[] = [];
       let cursor: string | null = null;
       for (;;) {
-        const page: { page: SellerHome[]; isDone: boolean; continueCursor: string } = await sellersAPI.exportPage({ lists: picked, minLists, cursor });
+        const page: { page: SellerHome[]; isDone: boolean; continueCursor: string } = await sellersAPI.exportPage({ lists: picked, minLists, cursor, county });
         homes.push(...page.page);
         setExported(homes.length);
         if (page.isDone) break;
         cursor = page.continueCursor;
       }
-      download(`midland-sellers-${new Date().toISOString().slice(0, 10)}.csv`, sellersCsv(homes));
+      download(`${county.toLowerCase()}-sellers-${new Date().toISOString().slice(0, 10)}.csv`, sellersCsv(homes));
       setNote(`Exported ${homes.length.toLocaleString()} home${homes.length === 1 ? '' : 's'}.`);
     } catch (err) {
       setNote(`The export stopped: ${errorText(err)}`);
@@ -230,6 +249,23 @@ export function SellersCard() {
           {note}
         </p>
       )}
+
+      <div className="flex flex-wrap gap-2" role="group" aria-label="County">
+        {(data?.counties ?? Object.keys(SELLER_COUNTY_LABELS)).map((c) => (
+          <button
+            key={c}
+            type="button"
+            aria-pressed={county === c}
+            onClick={() => {
+              setCounty(c);
+              setData(null);
+            }}
+            className={`text-sm px-3 py-1.5 rounded border min-h-[36px] ${county === c ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-300'}`}
+          >
+            {SELLER_COUNTY_LABELS[c] ?? c}
+          </button>
+        ))}
+      </div>
 
       <div className="flex flex-wrap gap-2" role="group" aria-label="Lists">
         {(data?.lists ?? []).map((l) => (

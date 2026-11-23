@@ -1199,14 +1199,18 @@ export const foreclosuresAPI = {
 
 /** Motivated-seller lists: Midland homes stacked by public-record signals (staff). */
 export const sellersAPI = {
-  sellers: (args: { lists?: string[]; minLists?: number; limit?: number }) => run('query', api.signals.sellers, defined(args)),
+  sellers: (args: { lists?: string[]; minLists?: number; limit?: number; county?: string }) => run('query', api.signals.sellers, defined(args)),
   /** One page of every home matching the filters, for the CSV; read until isDone. */
-  exportPage: (args: { lists?: string[]; minLists?: number; cursor: string | null }) =>
+  exportPage: (args: { lists?: string[]; minLists?: number; cursor: string | null; county?: string }) =>
     run(
       'query',
       api.signals.sellersExport,
-      defined({ lists: args.lists, minLists: args.minLists, paginationOpts: { numItems: 400, cursor: args.cursor } }),
+      defined({ lists: args.lists, minLists: args.minLists, county: args.county, paginationOpts: { numItems: 400, cursor: args.cursor } }),
     ),
+  /** A court or tax list from a records request: matched to homes, the rest sent back. */
+  addRecords: (args: { county: string; kind: 'tax_delinquent' | 'probate' | 'lis_pendens' | 'divorce' | 'eviction'; text: string }) =>
+    run('mutation', api.signals.addRecords, args),
+  recordCounts: () => run('query', api.signals.recordCounts, {}),
   home: (parcelId: string) => run('query', api.signals.home, { parcelId }),
   status: () => run('query', api.signals.status, {}),
   syncNow: () => run('action', api.signals.syncNow, {}),

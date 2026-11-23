@@ -48,6 +48,15 @@ const auctionAdd = jest.fn<Promise<{ added: number; skipped: number; unmatched: 
 });
 const auctionUpdate = jest.fn<Promise<null>, [Record<string, unknown>]>(async () => null);
 
+const addRecords = jest.fn(async (_a: { county: string; kind: string; text: string }) => ({
+  read: 3,
+  added: 2,
+  already: 0,
+  unmatched: [{ line: 4, text: '9 Nowhere Ln' }],
+  unmatchedCount: 1,
+}));
+let recordCounts: unknown[] = [];
+
 const ownersStatus: unknown = { syncedAt: '2026-10-25T07:20:00.000Z', fetched: 53024, lastAppliedAt: '2025-12-04' };
 const syncOwners = jest.fn(async () => ({ fetched: 52220, added: 0, updated: 3 }));
 
@@ -65,6 +74,8 @@ jest.mock('../../lib/api', () => ({
     }),
     status: async () => ({ source: { syncedAt: '2026-10-26T06:40:00.000Z', fetched: 47868, added: 0, updated: 12 }, stacked: 1234, total: 25000 }),
     syncNow: async () => ({ started: true, full: false }),
+    addRecords: (a: { county: string; kind: string; text: string }) => addRecords(a),
+    recordCounts: async () => recordCounts,
   },
   foreclosuresAPI: {
     sale: async (saleDate?: string) => ({ saleDate: saleDate ?? '2026-11-03', saleDates: ['2026-11-03', '2026-10-06'], homes: auctionHomes }),
@@ -174,12 +185,12 @@ describe('Ops, the Real estate side', () => {
   it("the Sellers tab: lists with counts, filtering, a home's records, and the CSV export", async () => {
     await render('/ops/real-estate');
     expect(document.body.querySelector('[data-testid="sellers-status"]')!.textContent).toBe('City records read Oct 26, 2026 · 47,868 records · 25,000 homes on a list, 1,234 on 2 or more');
-    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: [], minLists: 1, limit: 200 });
+    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: [], minLists: 1, limit: 200, county: 'Midland' });
     const chip = (name: string) => Array.from(document.body.querySelectorAll('[aria-label="Lists"] button')).find((b) => b.textContent?.startsWith(name)) as HTMLButtonElement;
     expect(chip('Out-of-state owner').textContent).toBe('Out-of-state owner (801)');
     await act(async () => chip('Out-of-state owner').click());
     await flush();
-    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: ['out_of_state'], minLists: 1, limit: 200 });
+    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: ['out_of_state'], minLists: 1, limit: 200, county: 'Midland' });
     expect(chip('Out-of-state owner').getAttribute('aria-pressed')).toBe('true');
     const min = document.body.querySelector('select[aria-label="Minimum lists"]') as HTMLSelectElement;
     await act(async () => {
@@ -187,7 +198,7 @@ describe('Ops, the Real estate side', () => {
       min.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await flush();
-    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: ['out_of_state'], minLists: 2, limit: 200 });
+    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: ['out_of_state'], minLists: 2, limit: 200, county: 'Midland' });
 
     const row = document.body.querySelector('[data-testid="sellers"] button')!;
     expect(row.textContent).toContain('Away Owner · mail to 1 Ocean Way, Malibu CA · out of state');
@@ -220,8 +231,8 @@ describe('Ops, the Real estate side', () => {
     await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Export CSV')!.click());
     await flush();
     expect(exportPage.mock.calls.map(([a]) => a)).toEqual([
-      { lists: ['absentee'], minLists: 1, cursor: null },
-      { lists: ['absentee'], minLists: 1, cursor: 'c1' },
+      { lists: ['absentee'], minLists: 1, cursor: null, county: 'Midland' },
+      { lists: ['absentee'], minLists: 1, cursor: 'c1', county: 'Midland' },
     ]);
     expect(click).toHaveBeenCalledTimes(1);
     expect(blobs).toHaveLength(1);
@@ -229,4 +240,37 @@ describe('Ops, the Real estate side', () => {
     click.mockRestore();
   });
 
+  it('Sources: a probate list is matched to homes, and the misses come back', async () => {
+    recordCounts = [];
+    await render('/ops/real-estate?tab=sources');
+    const box = document.body.querySelector('section[aria-label="Upload records"]')!;
+    const pick = (label: string, value: string) => {
+      const el = box.querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement;
+      el.value = value;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    await act(async () => {
+      pick('County', 'Ector');
+      pick('Kind of record', 'probate');
+      const t = box.querySelector('textarea[aria-label="Records"]') as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Decedent,Address\nJohn Smith,1 Main St');
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    recordCounts = [{ county: 'Ector', kind: 'probate', count: 2 }];
+    await act(async () => Array.from(box.querySelectorAll('button')).find((b) => b.textContent === 'Add to the lists')!.click());
+    await flush();
+    expect(addRecords).toHaveBeenCalledWith({ county: 'Ector', kind: 'probate', text: 'Decedent,Address\nJohn Smith,1 Main St' });
+    expect(box.querySelector('[data-testid="records-result"]')!.textContent).toContain('Read 3 rows: 2 added, 1 not matched to a home.');
+    expect(box.textContent).toContain('Line 4: 9 Nowhere Ln');
+    expect(box.querySelector('[data-testid="records-counts"]')!.textContent).toBe('On file: Odessa (Ector) Probate 2');
+  });
+
+  it('the Sellers tab switches to Odessa', async () => {
+    await render('/ops/real-estate');
+    const odessa = Array.from(document.body.querySelectorAll('[aria-label="County"] button')).find((b) => b.textContent === 'Odessa (Ector)') as HTMLButtonElement;
+    await act(async () => odessa.click());
+    await flush();
+    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: [], minLists: 1, limit: 200, county: 'Ector' });
+    expect(odessa.getAttribute('aria-pressed')).toBe('true');
+  });
 });

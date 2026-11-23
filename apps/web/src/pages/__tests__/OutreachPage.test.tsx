@@ -559,10 +559,10 @@ describe('the Outreach page', () => {
     await render();
     const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
     const cards = Array.from(empty.querySelectorAll('[data-testid="starter-list"]'));
-    expect(cards).toHaveLength(26);
-    expect(cards[1].textContent).toBe('Shopping center ownersOwners of commercial buildings, biggest holdings first');
+    expect(cards).toHaveLength(29);
+    expect(cards[3].textContent).toBe('Shopping center ownersOwners of commercial buildings, biggest holdings first');
     // A card opens the sheet straight to that list's count and first look.
-    await act(async () => (cards[1] as HTMLButtonElement).click());
+    await act(async () => (cards[3] as HTMLButtonElement).click());
     await flush();
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'commercial' });
     expect(document.body.querySelector('[data-testid="built"]')!.textContent).toContain('Pick a different list');
@@ -608,7 +608,7 @@ describe('the Outreach page', () => {
       ['Taylor County, TX (Abilene)Coming soon', 'true'],
     ]);
     await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
-    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(26);
+    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(29);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     clearPage();
@@ -809,21 +809,21 @@ describe('the Outreach page', () => {
     // Closed rows, not one pile of chips; a row opens to its lists, one row at a time.
     const headings = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button[aria-expanded]')).map((b) => [b.textContent, b.getAttribute('aria-expanded')]);
     expect(headings()).toEqual([
-      ['Commercial and investors6 lists', 'false'],
+      ['Commercial and investors8 lists', 'false'],
       ['Storage and industrial6 lists', 'false'],
       ['Recent sellers3 lists', 'false'],
-      ['Homeowners7 lists', 'false'],
+      ['Homeowners8 lists', 'false'],
       ['People who bring work4 lists', 'false'],
     ]);
     const chips = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] [role="group"]')).map((g) => [g.getAttribute('aria-label'), ...Array.from(g.querySelectorAll('button')).map((b) => b.textContent)]);
     expect(chips()).toEqual([]);
     await click('Commercial and investors');
-    expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'New businesses moving in', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
+    expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Large property owners', 'Big portfolios (5+ buildings)', 'Shopping center owners', 'New businesses moving in', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
     // Storage and industrial, each with its owners, who has been buying, and who sold.
     await click('Storage and industrial');
     expect(chips()).toEqual([['Storage and industrial', 'Storage facility owners', 'Storage buyers, last 5 years', 'Industrial building owners', 'Industrial buyers, last 5 years', 'Past storage owners', 'Past industrial owners']]);
     await click('Homeowners');
-    expect(chips()).toEqual([['Homeowners', 'Code violations', 'Stalled permits', 'Landlords with 3+ rental homes', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
+    expect(chips()).toEqual([['Homeowners', 'Likely to sell', 'Code violations', 'Stalled permits', 'Landlords with 3+ rental homes', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
     await click('People who bring work');
     expect(chips()).toEqual([['People who bring work', 'Contractors pulling permits', 'Architects & engineers', 'Realtors', 'Homebuilders']]);
     await click('People who bring work');
@@ -981,7 +981,7 @@ describe('the Outreach page', () => {
     // Back to the choices as they first were: every row closed, not the one the last list came from.
     expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-expanded="true"]')).toBeNull();
     await click('Commercial and investors');
-    expect(button('Commercial and investors').textContent).toBe('Commercial and investors6 lists');
+    expect(button('Commercial and investors').textContent).toBe('Commercial and investors8 lists');
     await click('People who bring work');
     await click('Contractors pulling permits');
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'contractor' });
