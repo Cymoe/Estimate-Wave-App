@@ -123,6 +123,25 @@ export const parcelPage = internalQuery({
  * each with the parcel it's on: what the violation and stalled lists are
  * built from. Records not matched to a parcel are skipped.
  */
+/** One page of the county's scored homes (signals.ts distress), each with its home: what the likely-to-sell list is built from. */
+export const sellerPage = internalQuery({
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("distress")
+      .withIndex("by_county_and_score", (q) => q.eq("county", county))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: Array<{ parcelId: Id<"parcels">; score: number; lists: string[]; property: { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number } }> = [];
+    const parcels = await Promise.all(page.page.map((d) => ctx.db.get(d.parcelId)));
+    page.page.forEach((d, i) => {
+      const p = parcels[i];
+      if (!p || p.retiredAt) return;
+      rows.push({ parcelId: p._id, score: d.score, lists: d.lists, property: { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents } });
+    });
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
 export const signalPage = internalQuery({
   args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
   handler: async (ctx, { cursor, county = COUNTY }) => {
@@ -358,6 +377,7 @@ const ownerRow = v.object({
   taxpayer: v.optional(v.string()),
   license: v.optional(realtorLicense),
   brokerage: v.optional(v.string()),
+  seller: v.optional(v.object({ score: v.number(), lists: v.array(v.string()) })),
 });
 const facetRow = v.object({ facet: v.string(), sort: v.number() });
 

@@ -114,7 +114,14 @@ export type OwnerRow = {
   /** Realtor: the license, and the brokerage they hang it with. */
   license?: RealtorLicense;
   brokerage?: string;
+  /** The seller lists their highest-scoring home is on (signals.ts, lib/signals.ts LISTS) and its score: how likely they are to sell. */
+  seller?: SellerHint;
 };
+
+/** A home's motivated-seller score and the lists behind it, as signals.ts stacks them. */
+export type SellerHint = { score: number; lists: string[] };
+/** The least score that puts a homeowner on the likely-to-sell list: two signs at the least, or one strong one. */
+export const LIKELY_SELLER_MIN = 2;
 
 /** An earlier owner someone bought from, and the deed's date. */
 export type BoughtFrom = { name: string; date?: string };
@@ -154,10 +161,10 @@ export type RealtorLicense = {
   supervisor: boolean;
 };
 
-export const FACETS = ["investor", "builder", "office", "commercial", "portfolio", "multifamily", "storage", "industrial", "homeowner", "absentee", "out_of_state", "buyer", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller", "commercial_seller", "multifamily_seller", "home_seller"] as const;
+export const FACETS = ["investor", "builder", "office", "commercial", "portfolio", "multifamily", "storage", "industrial", "homeowner", "absentee", "out_of_state", "buyer", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller", "commercial_seller", "multifamily_seller", "home_seller", "likely_seller"] as const;
 export type Facet = (typeof FACETS)[number];
 
-export const WHO = ["investor", "builder", "manager", "commercial", "portfolio", "multifamily", "storage", "industrial", "wealthy", "recent_buyer", "absentee", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller", "commercial_seller", "multifamily_seller", "home_seller", "custom"] as const;
+export const WHO = ["investor", "builder", "manager", "commercial", "portfolio", "multifamily", "storage", "industrial", "wealthy", "recent_buyer", "absentee", "long_owned", "violation", "stalled", "contractor", "designer", "occupant", "realtor", "storage_seller", "industrial_seller", "commercial_seller", "multifamily_seller", "home_seller", "likely_seller", "custom"] as const;
 export type Who = (typeof WHO)[number];
 
 export type Definition = {
@@ -335,7 +342,7 @@ export const ownersSource = (county: string) => (county === "Midland" ? OWNERS_S
 /** Where the daily records pass (outreachRefresh.ts) records how it went. */
 export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 14;
+export const OWNERS_VERSION = 15;
 /** A build id for the owners table: the instant it started, then a few random characters, so ids sort by time. */
 export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
@@ -430,6 +437,7 @@ type Acc = {
   names?: Array<[string, number]>;
   extraOwners?: number;
   signals?: OwnerSignal[];
+  seller?: SellerHint;
 };
 
 /**
@@ -539,6 +547,7 @@ function rowFor(acc: Acc, name: string, company: boolean): OwnerRow {
     tops: acc.tops,
     ...(acc.signals?.length ? { signals: acc.signals, trades: tradesForSignals(acc.signals), latestAt: acc.signals[0].date } : {}),
     owners: acc.kind === "office" ? (acc.names?.length ?? 0) + (acc.extraOwners ?? 0) : undefined,
+    ...(acc.seller ? { seller: acc.seller } : {}),
   };
 }
 
@@ -600,9 +609,16 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
     if (row.latestDeed && now - Date.parse(`${row.latestDeed}T12:00:00Z`) <= BUYER_FACET_DAYS * DAY_MS) {
       out.push({ facet: "buyer", sort: Date.parse(`${row.latestDeed}T12:00:00Z`) });
     }
+    // A person (or an estate) whose home stacks enough seller signs: the highest score first, then the most valuable
+    // home. Never a home posted for the foreclosure auction: its roll owner isn't called (schema.ts foreclosures).
+    if (likelySeller(row)) out.push({ facet: "likely_seller", sort: row.seller!.score * 1e10 + Math.min(row.tops.seller?.valueCents ?? 0, 1e10 - 1) });
   }
   return out;
 }
+
+/** On the likely-to-sell list: a person or an estate, not a company, with a scored home not posted for auction. */
+export const likelySeller = (row: Pick<OwnerRow, "company" | "seller">) =>
+  Boolean(row.seller && !row.company && row.seller.score >= LIKELY_SELLER_MIN && !row.seller.lists.includes("pre_foreclosure"));
 
 export type GroupedRow = { owner: OwnerRow; facets: Array<{ facet: Facet; sort: number }> };
 export type Grouped = { owners: OwnerRow[]; facets: Map<string, Array<{ facet: Facet; sort: number }>> };
@@ -677,6 +693,24 @@ export class OwnerGrouper {
   addSignals(rows: Array<{ parcelId: string; signal: OwnerSignal; property: Property }>) {
     let attached = 0;
     for (const r of rows) if (this.addSignal(r.parcelId, r.signal, r.property)) attached++;
+    return attached;
+  }
+
+  /**
+   * The seller scores of the roll's homes (signals.ts distress), each onto the owner of its home: an owner keeps their
+   * highest-scoring home, whose property becomes the row's "seller" property. A home off the roll is ignored.
+   */
+  addSellers(rows: Array<{ parcelId: string; score: number; lists: string[]; property: Property }>) {
+    let attached = 0;
+    for (const r of rows) {
+      const key = this.parcelOwner.get(r.parcelId);
+      const g = key ? this.byOwner.get(key) : undefined;
+      if (!g) continue;
+      attached++;
+      if (g.seller && g.seller.score >= r.score) continue;
+      g.seller = { score: r.score, lists: r.lists };
+      g.tops.seller = r.property;
+    }
     return attached;
   }
 
@@ -1432,6 +1466,8 @@ export function facetFor(def: Definition): Facet {
     case "multifamily_seller":
     case "home_seller":
       return def.who;
+    case "likely_seller":
+      return "likely_seller";
     case "custom": {
       const codes = def.useCodes ?? [];
       if (codes.some((c) => c.startsWith("F"))) return "commercial";
@@ -1451,6 +1487,8 @@ export function facetValue(row: OwnerRow, facet: Facet): number {
     case "violation":
     case "stalled":
       return row.tops.signal?.valueCents ?? row.maxValueCents;
+    case "likely_seller":
+      return row.tops.seller?.valueCents ?? row.homeValueCents ?? row.maxValueCents;
     case "contractor":
     case "designer":
       return row.totalValueCents;
@@ -1482,7 +1520,7 @@ export function facetValue(row: OwnerRow, facet: Facet): number {
 
 /** The property shown for a row on a list: the one the facet is about. */
 export function propertyFor(row: OwnerRow, facet: Facet): Property | undefined {
-  const pick = { homeowner: "home", long_owned: "home", absentee: "rental", out_of_state: "rental", commercial: "commercial", portfolio: "commercial", multifamily: "multifamily", storage: "storage", industrial: "industrial", storage_seller: "storage", industrial_seller: "industrial", commercial_seller: "commercial", multifamily_seller: "multifamily", home_seller: "home", violation: "signal", stalled: "signal" } as Partial<Record<Facet, string>>;
+  const pick = { homeowner: "home", long_owned: "home", absentee: "rental", out_of_state: "rental", commercial: "commercial", portfolio: "commercial", multifamily: "multifamily", storage: "storage", industrial: "industrial", storage_seller: "storage", industrial_seller: "industrial", commercial_seller: "commercial", multifamily_seller: "multifamily", home_seller: "home", violation: "signal", stalled: "signal", likely_seller: "seller" } as Partial<Record<Facet, string>>;
   return row.tops[pick[facet] ?? "all"] ?? row.tops.all;
 }
 
@@ -1509,7 +1547,8 @@ export function recordDate(row: OwnerRow, facet: Facet): string | undefined {
  */
 export function underFloor(row: OwnerRow, def: Definition, facet: Facet): boolean {
   if (facet === "investor" || facet === "builder" || facet === "office" || facet === "contractor" || facet === "designer" || facet === "portfolio" || facet === "storage" || facet === "industrial") return def.minParcels !== undefined && holdings(row, facet) < def.minParcels;
-  if (facet === "buyer" || facet === "realtor") return false;
+  // Sorted by deed date, licence or seller score, not by value: no floor to stop at.
+  if (facet === "buyer" || facet === "realtor" || facet === "likely_seller") return false;
   // Longest owned first: once a home was bought after the cutoff, every one after it was too.
   if (facet === "long_owned") return def.ownedForDays !== undefined && Boolean(row.homeDeed) && Date.parse(`${row.homeDeed}T12:00:00Z`) > Date.now() - def.ownedForDays * DAY_MS;
   // Newest record first: once one is older than the window, the rest are too.
@@ -1585,6 +1624,7 @@ export function listOrder(def: Definition): { label: string; key: (row: { proper
   if (facet === "occupant") return { label: "newest arrival first", key: () => 0 };
   if (facet === "realtor") return { label: "sponsoring brokers first, then longest licensed", key: () => 0 };
   if (facet === "storage_seller" || facet === "industrial_seller" || isRecentSeller(facet)) return { label: "newest sale first", key: () => 0 };
+  if (facet === "likely_seller") return { label: "most signs of selling first", key: () => 0 };
   return { label: "highest value first", key: (r) => r.property?.valueCents ?? r.totalValueCents };
 }
 
@@ -1692,6 +1732,13 @@ export function why(row: OwnerRow, facet: Facet, county = "Midland"): string {
       const through = l.expires ? `; license through ${monthYear(l.expires)}` : "";
       return `${what}${where}${since}${sponsors}${through}`;
     }
+    case "likely_seller": {
+      // The lists behind the score, strongest first, as plain words: "Inherited · moved out · owned since 1998".
+      const words = (row.seller?.lists ?? []).map((l) => SELLER_WORDS[l] ?? l.replace(/_/g, " "));
+      const since = row.homeDeed && (row.seller?.lists ?? []).some((l) => l === "long_owned" || l === "senior_long_owned") ? `; owned since ${row.homeDeed.slice(0, 4)}` : "";
+      const home = row.tops.seller ? `${ownerName(row.tops.seller.address)}: ` : "";
+      return `${home}${words.join(" · ") || "Signs of selling"}${since}`;
+    }
     case "occupant": {
       const here = row.tops.all;
       const seen = (row.sources ?? []).map((x) => SOURCE_TEXT[x]).join(", ");
@@ -1701,6 +1748,30 @@ export function why(row: OwnerRow, facet: Facet, county = "Midland"): string {
     }
   }
 }
+
+/** The seller lists as a likely-to-sell row says them (lib/signals.ts LISTS). */
+const SELLER_WORDS: Record<string, string> = {
+  pre_foreclosure: "Pre-foreclosure",
+  tax_delinquent: "Tax-delinquent",
+  probate: "In probate",
+  inherited: "Inherited (estate or heirs)",
+  lis_pendens: "Lis pendens",
+  dilapidated: "Listed dilapidated",
+  demolition: "Demolition order",
+  serious_violation: "Serious code violation",
+  divorce: "Divorce filed",
+  homestead_dropped: "Moved out",
+  mail_returned: "Mail returned",
+  repeat_violations: "Repeat code violations",
+  stalled_permit: "Stalled permit",
+  out_of_state: "Owner out of state",
+  code_violation: "Code violation",
+  eviction: "Eviction filed",
+  senior_long_owned: "Over 65",
+  absentee: "Owner lives elsewhere",
+  long_owned: "Owned 20+ years",
+  landlord: "Landlord (5+ homes)",
+};
 
 const SOURCE_TEXT: Record<OccupantSource, string> = { occupancy: "certificate of occupancy", permit: "named on a permit", outlet: "sales-tax permit" };
 
@@ -1722,6 +1793,7 @@ export const WHO_GUIDE = `Pick exactly one who:
 - commercial_seller: NOT today's owners: who sold a commercial building (shops, offices, warehouses) in the last ${SELLER_YEARS} years (Midland only), newest sale first: people with cash from a sale. "Past commercial owners", "who sold a building", "recent commercial sellers".
 - multifamily_seller: the same for apartment buildings and duplexes. "Past apartment owners", "who sold apartments".
 - home_seller: the same for houses. "Recent home sellers", "who sold their house", "people who just sold".
+- likely_seller: NOT people who already sold: homeowners likely to sell soon (Midland and Odessa), scored on public signs: an estate or heirs on the deed, probate, tax-delinquent, divorce or lis pendens filings, moved out (homestead dropped), the district's mail returned, code violations and dilapidated houses, an out-of-state or absentee owner, over 65 and owned for years, a landlord with 5+ homes. Most signs first; homes posted for foreclosure are left out. "Likely to sell", "motivated sellers", "might sell", "thinking of selling", "distressed homes", "inherited homes", "probate", "pre-listing", "tired landlords".
 - industrial: owns an industrial building or warehouse (the state's F2, and the appraisal district's industrial and warehouse land codes), whoever holds the most first; min_parcels is how many. "Industrial buildings", "warehouses", "shops and yards", "industrial parks". For who has been buying them, set deed_within_days.
 - wealthy: owner-occupied homes worth at least min_value (default $1,000,000). "Wealthy", "rich", "luxury", "high-end homes", "homes worth over $X".
 - recent_buyer: deed within deed_within_days (default 90). "Just bought", "new homeowners", "recently moved".
@@ -1899,6 +1971,9 @@ export function guessDefinition(ask: string, county = "Midland"): { definition: 
   // Who sold a building, apartments or a house lately: people with cash from a sale.
   else if (has(/\b(past|previous|former|prior|recent)\b|\bsellers?\b|\bsold\b/) && has(/apartment|multi-?family|duplex|fourplex|complex/)) definition = { county, who: "multifamily_seller" };
   else if (has(/\b(past|previous|former|prior|recent)\b|\bsellers?\b|\bsold\b/) && has(/commercial|retail|office|shopping|strip|building/)) definition = { county, who: "commercial_seller" };
+  // Who may sell soon, before who already sold: "likely to sell", "motivated sellers", "inherited homes".
+  else if (has(/likely to sell|motivated sellers?|might sell|thinking (of|about) selling|ready to sell|could sell|distressed|probate|inherit|pre-?listing|tired landlords?/))
+    definition = { county, who: "likely_seller" };
   else if (has(/\bsellers?\b|\bsold\b|\b(past|previous|former|prior) (home|house)/) && has(/\bhomes?\b|\bhouses?\b|homeowners?/)) definition = { county, who: "home_seller" };
   // Storage comes before the warehouses it would otherwise read as ("mini warehouse" is storage).
   else if (has(/self[- ]?storage|mini[- ]?(storage|warehouse)|storage (unit|facilit|propert|building|owner)|\bstorage\b/)) definition = { county, who: "storage" };
@@ -2003,6 +2078,7 @@ export function defaultTitle(def: Definition): string {
     commercial_seller: "Past commercial owners",
     multifamily_seller: "Past apartment owners",
     home_seller: "Recent home sellers",
+    likely_seller: "Likely to sell",
     wealthy: "Wealthy homeowners",
     recent_buyer: "Recent buyers",
     absentee: "Absentee owners",
@@ -2050,6 +2126,7 @@ export const WHO_LABEL: Record<Who, string> = {
   commercial_seller: "Past commercial owners",
   multifamily_seller: "Past apartment owners",
   home_seller: "Recent home sellers",
+  likely_seller: "Likely to sell",
   wealthy: "Wealthy homeowners",
   recent_buyer: "Recent buyers",
   absentee: "Absentee owners",

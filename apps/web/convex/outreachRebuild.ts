@@ -33,6 +33,7 @@ async function readAll<T>(read: (cursor?: string) => Promise<Page<T>>, into: { a
 const readRoll = (ctx: ActionCtx, county: string, into: { addAll: (rows: Condensed[]) => unknown }) => readAll<Condensed>((cursor) => ctx.runQuery(internal.outreach.parcelPage, { cursor, county }), into);
 
 type SignalRow = { parcelId: string; signal: { kind: "code_violation" | "dilapidated" | "demolition" | "stalled_permit"; detail: string; date: string }; property: Property };
+type SellerRow = { parcelId: string; score: number; lists: string[]; property: Property };
 
 /** The roll's parcel at each address key, for a permit company's property. */
 const parcelsAt = (ctx: ActionCtx, county: string) => (addressKeys: string[]): Promise<Record<string, Property>> => ctx.runQuery(internal.outreach.parcelsAt, { addressKeys, county });
@@ -68,6 +69,8 @@ async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.co
     fetched = await readRoll(ctx, county, grouper);
     // The city's records, onto the owners of the parcels they're about.
     await readAll<SignalRow>((cursor) => ctx.runQuery(internal.outreach.signalPage, { cursor, county }), { addAll: (rows) => grouper.addSignals(rows) });
+    // The homes' seller scores, onto their owners: the likely-to-sell list.
+    await readAll<SellerRow>((cursor) => ctx.runQuery(internal.outreach.sellerPage, { cursor, county }), { addAll: (rows) => grouper.addSellers(rows) });
     // The companies on recent permits, as rows of their own: the builders, and the architects and engineers who applied.
     const permits = new ContractorGrouper();
     const designers = new ContractorGrouper("designer");

@@ -36,6 +36,7 @@ const KIND: Record<OutreachWho, string> = {
   commercial_seller: 'Sold commercial',
   multifamily_seller: 'Sold apartments',
   home_seller: 'Sold a house',
+  likely_seller: 'Likely to sell',
   custom: 'Custom',
 };
 const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };

@@ -467,6 +467,7 @@ export const outreachWho = v.union(
   v.literal("commercial_seller"),
   v.literal("multifamily_seller"),
   v.literal("home_seller"),
+  v.literal("likely_seller"),
   v.literal("custom"),
 );
 
@@ -1381,6 +1382,8 @@ export default defineSchema({
     owners: v.optional(v.number()),
     // The newest public records on their properties (lib/signals.ts), the trades those call for, and when the newest was.
     signals: v.optional(v.array(ownerSignal)),
+    // Their highest-scoring home's seller score and the lists behind it (signals.ts): the likely-to-sell list.
+    seller: v.optional(v.object({ score: v.number(), lists: v.array(v.string()) })),
     trades: v.optional(v.array(v.string())),
     latestAt: v.optional(v.string()),
     // A contractor or occupant: the people its permits name.

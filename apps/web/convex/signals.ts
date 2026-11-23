@@ -365,7 +365,11 @@ export const recomputePage = internalMutation({
     const now = Date.now();
     for (const parcel of page.page) await restack(ctx, parcel, now);
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.signals.recomputePage, { cursor: page.continueCursor, ...(county ? { county } : {}) });
-    else await ctx.scheduler.runAfter(0, internal.signals.recount, {});
+    else {
+      await ctx.scheduler.runAfter(0, internal.signals.recount, {});
+      // Outreach's likely-to-sell list is built from these scores: its owners are regrouped once they're in.
+      for (const c of county ? [county] : SELLER_COUNTIES) if (isSellerCounty(c)) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county: c as "Midland" | "Ector" });
+    }
   },
 });
 
@@ -705,7 +709,11 @@ export const addRecords = mutation({
       const parcel = await ctx.db.get(id);
       if (parcel) await restack(ctx, parcel, at);
     }
-    if (touched.size) await ctx.scheduler.runAfter(0, internal.signals.recount, {});
+    if (touched.size) {
+      await ctx.scheduler.runAfter(0, internal.signals.recount, {});
+      // The likely-to-sell list in Outreach picks the new records up once the county's owners are regrouped.
+      await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county: county as "Midland" | "Ector" });
+    }
     return { read: lines.length, added, already, unmatched: unmatched.slice(0, 200), unmatchedCount: unmatched.length, kinds: [...RECORD_KINDS] };
   },
 });

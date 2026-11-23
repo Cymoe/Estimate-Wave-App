@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { addressKey, isEstateOwner, looseKey } from "./lib/parcels";
-import { ownerKey } from "./lib/outreach";
+import { LIKELY_SELLER_MIN, defaultTitle, facetsOf, guessDefinition, listOrder, ownerKey, propertyFor, underFloor, why, type OwnerRow } from "./lib/outreach";
 import { nameOrders, parseRecords, recordDate, stackFor } from "./lib/signals";
 import { rollAccount, rollColumns } from "./lib/districtRoll";
 import { homesteadChange } from "./parcels";
@@ -195,6 +195,77 @@ describe("scoring Midland and Odessa, and uploading records", () => {
     // Only staff, and only the scored counties.
     await expect(t.mutation(api.signals.addRecords, { county: "Midland", kind: "probate", text })).rejects.toThrow();
     await expect(staff.as.mutation(api.signals.addRecords, { county: "Lubbock", kind: "probate", text })).rejects.toThrow("Midland and Ector");
+  });
+});
+
+describe("the likely-to-sell list in Outreach", () => {
+  const prop = (id: string, address: string, valueCents: number) => ({ parcelId: id, address, useCode: "A1", valueCents });
+  const owner = (over: Partial<OwnerRow> = {}): OwnerRow => ({
+    key: "JONES MARY|100 ELM ST",
+    kind: "owner",
+    name: "Mary Jones",
+    company: false,
+    mailing: { address: "100 ELM ST", city: "MIDLAND", state: "TX", zip: "79701" },
+    parcels: 1,
+    residential: 1,
+    multifamily: 0,
+    commercial: 0,
+    totalValueCents: 25_000_000,
+    maxValueCents: 25_000_000,
+    homeValueCents: 25_000_000,
+    ownerOccupied: true,
+    outOfState: false,
+    homeDeed: "1998-03-02",
+    useCodes: ["A1"],
+    streets: ["ELM ST"],
+    tops: { all: prop("p1", "100 ELM ST", 25_000_000), home: prop("p1", "100 ELM ST", 25_000_000), seller: prop("p1", "100 ELM ST", 25_000_000) },
+    ...over,
+  });
+  const facets = (row: OwnerRow) => facetsOf(row, NOW).filter((f) => f.facet === "likely_seller");
+
+  test("a person or an estate whose home scores enough; never a company, a low score, or a home posted for auction", () => {
+    expect(LIKELY_SELLER_MIN).toBe(2);
+    expect(facets(owner({ seller: { score: 4, lists: ["inherited", "long_owned"] } }))).toHaveLength(1);
+    expect(facets(owner({ seller: { score: 1, lists: ["absentee"] } }))).toHaveLength(0);
+    expect(facets(owner({ company: true, seller: { score: 6, lists: ["tax_delinquent", "dilapidated"] } }))).toHaveLength(0);
+    expect(facets(owner({ seller: { score: 5, lists: ["pre_foreclosure", "absentee", "out_of_state"] } }))).toHaveLength(0);
+    expect(facets(owner())).toHaveLength(0);
+    // Most signs first, then the most valuable home.
+    const [a] = facets(owner({ seller: { score: 5, lists: ["probate", "mail_returned"] } }));
+    const [b] = facets(owner({ seller: { score: 4, lists: ["inherited", "long_owned"] }, tops: { all: prop("p2", "9 OAK", 90_000_000), seller: prop("p2", "9 OAK", 90_000_000) } }));
+    expect(a.sort).toBeGreaterThan(b.sort);
+  });
+
+  test("why they're on it, the home it's about, the order, and no value floor to stop at", () => {
+    const row = owner({ seller: { score: 4, lists: ["inherited", "long_owned"] } });
+    expect(why(row, "likely_seller")).toBe("100 Elm St: Inherited (estate or heirs) · Owned 20+ years; owned since 1998");
+    expect(why(owner({ seller: { score: 4, lists: ["homestead_dropped", "mail_returned"] } }), "likely_seller")).toBe("100 Elm St: Moved out · Mail returned");
+    expect(propertyFor(row, "likely_seller")).toMatchObject({ parcelId: "p1" });
+    expect(listOrder({ county: "Ector", who: "likely_seller" }).label).toBe("most signs of selling first");
+    expect(defaultTitle({ county: "Ector", who: "likely_seller" })).toBe("Likely to sell, Ector");
+    expect(underFloor(owner({ homeValueCents: 1, seller: { score: 9, lists: ["probate"] } }), { county: "Midland", who: "likely_seller", minValueCents: 50_000_000 }, "likely_seller")).toBe(false);
+  });
+
+  test("asked in words", () => {
+    for (const ask of ["homeowners likely to sell", "motivated sellers", "inherited homes in Odessa", "probate leads", "people thinking about selling their house"])
+      expect(guessDefinition(ask)?.definition.who, ask).toBe("likely_seller");
+    // Who already sold is still its own list.
+    expect(guessDefinition("people who sold their house")?.definition.who).toBe("home_seller");
+  });
+
+  test("rebuilt from the roll: Odessa's estate home and its owner are on the list, with the home", async () => {
+    const t = setup();
+    const estate = await addHome(t, "Ector", "77 OAK ST", "JONES MARY EST", { ownerKey: undefined, ownerOccupied: false, mailing: { address: "1 MAIN ST", city: "DALLAS", state: "TX", zip: "75201" } });
+    await addHome(t, "Ector", "78 OAK ST", "SMITH BOB", { ownerKey: undefined });
+    await t.mutation(internal.signals.recomputePage, { county: "Ector" });
+    await t.finishAllScheduledFunctions(() => {});
+    const rows = await t.run(async (ctx) => {
+      const facets = await ctx.db.query("ownerFacets").collect();
+      return Promise.all(facets.filter((f) => f.facet === "likely_seller").map(async (f) => ctx.db.get(f.ownerId)));
+    });
+    expect(rows.map((o) => o!.name)).toEqual(["Jones Mary Est"]);
+    expect(rows[0]!.seller).toEqual({ score: 4, lists: ["inherited", "absentee"] });
+    expect(rows[0]!.tops.seller.parcelId).toBe(estate);
   });
 });
 
