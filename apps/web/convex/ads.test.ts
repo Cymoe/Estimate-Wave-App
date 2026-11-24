@@ -53,7 +53,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, cleanItems, describePrompt, itemsIn, pairingPrompt, readPairing } from "./lib/ads";
+import { AD_TRADES, cleanItems, describePrompt, itemsIn, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -312,6 +312,15 @@ describe("make an ad for…, the pure parts", () => {
     expect(readRequestReply('{"trade":null}', trades)).toBeNull();
     expect(readRequestReply('{"trade":"roofing","idea":"Roofs"}', trades)).toBeNull();
     expect(readRequestReply('{"trade":"painting","idea":""}', trades)).toBeNull();
+  });
+
+  test("the owner's job names never stay in the idea: the phrase is cut, or the idea is dropped when it can't be", () => {
+    const names = ["Green Kitchen", "Smith kitchen on Elm"];
+    expect(requestPrompt("an ad from the Green Kitchen", "GoodFit Pros", [], trades, names)).toContain("never put one in the idea");
+    expect(withoutJobNames("We repaint kitchen cabinets for Midland homeowners, as we did in the Green Kitchen job.", names)).toBe("We repaint kitchen cabinets for Midland homeowners.");
+    expect(withoutJobNames("We repaint cabinets, like our green kitchen job.", names)).toBe("We repaint cabinets.");
+    expect(withoutJobNames("The Smith kitchen on Elm, painted.", names)).toBeNull();
+    expect(withoutJobNames("We paint homes inside and out.", names)).toBe("We paint homes inside and out.");
   });
 
   const swipe = (company: string, more: Record<string, unknown> = {}) => ({ company, importedAt: "2026-11-01", starred: false, quality: 30, ...more });
@@ -2357,7 +2366,8 @@ describe("the weekly run", () => {
     test("a job named in the line carries every version, the checklist too, and the request remembers it", async () => {
       const { t, owner, calls, settle } = await ready();
       // No kind of job named, so a lesson is built on a second competitor ad too.
-      stubServices(calls, { request: { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out", job: 1 } });
+      // The reader slips the job's name into the idea: it is taken out before the writer or the page sees it.
+      stubServices(calls, { request: { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out, like our Smith kitchen on Elm job", job: 1 } });
       const { jobId, ids } = await cabinetJob(t, owner, settle);
       const { link } = await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "an ad from the Smith kitchen" }));
       // The reader was shown the jobs on file by name, to match the one the line names.
@@ -2368,6 +2378,7 @@ describe("the weekly run", () => {
       expect(shown.lesson?.length).toBeGreaterThan(0);
       const request = await t.run(async (ctx) => (await ctx.db.query("adRequests").collect()).find((r) => link.endsWith(r.token))!);
       expect(request.jobId).toBe(jobId);
+      expect(request.idea).toBe("We paint homes inside and out");
       // The writer never saw the job's name.
       expect(JSON.stringify(to(calls, "anthropic").map((c) => c.body).filter((b) => !b!.includes("typed this request")))).not.toContain("Smith");
     });

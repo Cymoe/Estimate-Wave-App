@@ -82,6 +82,7 @@ import {
   scriptLength,
   requestPrompt,
   readRequestReply,
+  withoutJobNames,
   pickRequestSwipes,
   requestStage,
   angleOf,
@@ -2183,6 +2184,9 @@ export const readRequest = internalAction({
       if (!read) throw new Error(`Couldn't tell which kind of job that is. Name it, like "cabinet painting in Odessa" or "paver patio in Midland".`);
       const { job, ...rest } = read;
       const named = job !== undefined ? jobs[job] : undefined;
+      // The owner's job names stay private: never in the idea the writer and the page are given.
+      const trade = tradeOf(named?.trade ?? rest.trade);
+      rest.idea = withoutJobNames(rest.idea, jobs.map((j) => j.name)) || `We do ${trade.label.toLowerCase()} for homeowners, with a free quote.`;
       // A job named is made in its own trade, whatever trade the line sounded like.
       await ctx.runMutation(internal.ads.startRequestAds, { requestId, ...rest, ...(named ? { trade: named.trade, jobId: named.id } : {}) });
     } catch (e) {

@@ -2024,9 +2024,28 @@ export function requestPrompt(ask: string, brand: string, markets: string[], tra
       ? ["", "The jobs whose photos are on file, by the owner's own names for them:", ...jobs.map((j, i) => `${i + 1}. ${j.replace(/\s+/g, " ").slice(0, 80)}`)]
       : []),
     "",
+    ...(jobs.length ? ["", "Those job names are the owner's own and private: never put one in the idea."] : []),
     'Answer with JSON only: {"trade": the trade\'s slug, or null if it is none of these, "scope": the kind of job, or null if the line names none, "town": the town it names, or null, "idea": one plain sentence saying what the ad offers, as the owner would say it, with no prices, discounts or promises' +
       (jobs.length ? ', "job": the number of the job the request asks the ad to be made from, or null if it names none of them}.' : "}."),
   ].join("\n");
+}
+
+/**
+ * The idea with the owner's job names taken out: they are private and can say where a job was, and the idea goes to
+ * the writer and the page. A phrase like ", as we did in the Smith kitchen job" is dropped; null when a name is
+ * still left in it after that, so the caller uses a plain idea instead.
+ */
+export function withoutJobNames(text: string, names: string[]): string | null {
+  const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let out = text;
+  for (const name of names) {
+    const words = name.trim().split(/\s+/).filter(Boolean).map(esc).join("\\s+");
+    if (name.trim().length < 3) continue;
+    const named = `(?:the\\s+|our\\s+)?${words}(?:\\s+(?:job|project))?`;
+    out = out.replace(new RegExp(`,?\\s*(?:just\\s+)?(?:as|like)\\s+(?:we\\s+did\\s+)?(?:(?:in|on|for|at|with)\\s+)?${named}`, "gi"), "");
+    if (new RegExp(`\\b${words}\\b`, "i").test(out)) return null;
+  }
+  return out.replace(/\s+([.,!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
 }
 
 /** The reply to requestPrompt, checked against the trades on offer; null when it names none of them. */
