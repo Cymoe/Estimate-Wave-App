@@ -976,6 +976,15 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
     setSelecting(false);
     setPicked([]);
   };
+  // The dotted tile at the end of a grid: the files picked go straight in, into that job when it is a job's box.
+  // No tags: Claude looks at each one and tags it.
+  const addHere = (files: File[], jobId?: string) =>
+    act(
+      async () => {
+        for (const f of files) await uploadAsset(f, [], trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined);
+      },
+      `${files.length} file${files.length === 1 ? '' : 's'} in the library. Claude is tagging ${files.length === 1 ? 'it' : 'them'}.`,
+    );
   const toJob = (job: { jobId?: string; name?: string }, label: string) =>
     act(async () => {
       await adsAPI.groupIntoJob(picked, job, trade);
@@ -1048,28 +1057,25 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
       {assets === undefined ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : view === 'photos' ? (
-        photos.length === 0 ? (
-          <p className="text-sm text-gray-400">No photos yet.</p>
-        ) : (
-          <div className="space-y-5" aria-label="Library">
-            {jobs.map((j) => (
-              <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act} onAdd={() => setAdding({ jobId: j.id })}>
-                {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
-              </JobGroup>
-            ))}
-            {loose.length > 0 && (
-              <section className="space-y-2" aria-label="Not in a job">
-                {jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
-                <ul className={grid}>{loose.map((a) => tile(a))}</ul>
-              </section>
-            )}
-          </div>
-        )
-      ) : clips.length === 0 ? (
-        <p className="text-sm text-gray-400">No clips yet.</p>
+        <div className="space-y-5" aria-label="Library">
+          {jobs.map((j) => (
+            <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
+              {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
+              {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}
+            </JobGroup>
+          ))}
+          <section className="space-y-2" aria-label="Not in a job">
+            {jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
+            <ul className={grid}>
+              {loose.map((a) => tile(a))}
+              {!selecting && <AddTile label="Add photos" photos onFiles={(files) => addHere(files)} />}
+            </ul>
+          </section>
+        </div>
       ) : (
         <ul className={grid} aria-label="Clips">
           {clips.map((a) => tile(a))}
+          <AddTile label="Add clips" onFiles={(files) => addHere(files)} />
         </ul>
       )}
       {selecting && (
@@ -1096,10 +1102,10 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         <NewJob
           act={act}
           onClose={() => setNaming(false)}
-          onMade={(jobId) => {
+          onMade={() => {
+            // Its box shows at once, with the dotted tile to add its photos.
             setNaming(false);
             setView('photos');
-            setAdding({ jobId });
           }}
         />
       )}
@@ -1108,6 +1114,38 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
 };
 
 const grid = 'grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
+
+/** The last tile of a grid: a dotted box the size of the others. Tapping it picks files that go straight in. */
+const AddTile: React.FC<{ label: string; photos?: boolean; onFiles: (files: File[]) => Promise<unknown> }> = ({ label, photos, onFiles }) => {
+  const [busy, setBusy] = useState(false);
+  return (
+    <li data-testid="add-tile">
+      <label
+        className={`flex flex-col items-center justify-center gap-2 aspect-square w-full rounded border-2 border-dashed border-[#3a3a3a] text-gray-400 cursor-pointer [@media(hover:hover)]:hover:border-[#336699] [@media(hover:hover)]:hover:text-white ${busy ? 'opacity-60' : ''}`}
+      >
+        <Upload className="w-6 h-6" aria-hidden="true" />
+        <span className="text-sm">{busy ? 'Adding…' : photos ? '+ Add photos' : '+ Add clips'}</span>
+        <input
+          type="file"
+          accept={photos ? 'image/*' : 'video/*'}
+          multiple
+          className="sr-only"
+          aria-label={label}
+          disabled={busy}
+          onChange={async (e) => {
+            const input = e.target;
+            const files = Array.from(input.files ?? []);
+            if (files.length === 0) return;
+            setBusy(true);
+            await onFiles(files);
+            setBusy(false);
+            input.value = '';
+          }}
+        />
+      </label>
+    </li>
+  );
+};
 
 /** The picture of a library file: its still, else the photo, else the clip's first frame. */
 const Picture: React.FC<{ a: AdAsset; className: string; play?: boolean }> = ({ a, className, play }) =>
@@ -1350,7 +1388,7 @@ const NewJob: React.FC<{ act: Act; onClose: () => void; onMade: (jobId: string) 
           <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Job name" className={input} autoFocus />
         </Field>
         <button type="submit" className={`${primary} w-full`} disabled={!name.trim()}>
-          Make the job, then add its photos
+          Make the job
         </button>
       </form>
     </Dialog>
@@ -1494,13 +1532,7 @@ const JobTags: React.FC<{
 };
 
 /** One job's photos together, with its name to change and a way to take the job away (its photos stay). */
-const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; onAdd: () => void; children: React.ReactNode }> = ({
-  job,
-  assets,
-  act,
-  onAdd,
-  children,
-}) => {
+const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: React.ReactNode }> = ({ job, assets, act, children }) => {
   const [name, setName] = useState<string | null>(null);
   const hasBefore = assets.some((a) => a.tags.includes('before'));
   const hasAfter = assets.some((a) => a.tags.includes('after'));
@@ -1528,9 +1560,6 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; onAdd: () =>
           {assets.length > 0 && (hasBefore && hasAfter ? ' · before and after' : hasAfter ? ' · no before yet' : hasBefore ? ' · no finish yet' : ' · tag a before and an after')}
         </span>
         <span className="ml-auto flex items-center gap-2 text-xs">
-          <button type="button" className={`${secondary} text-xs py-1`} aria-label={`Add photos to ${job.name}`} onClick={onAdd}>
-            <Upload className="w-3.5 h-3.5" /> Add photos
-          </button>
           {name === null && (
             <button type="button" className="text-gray-400 underline" onClick={() => setName(job.name)}>
               Rename
@@ -1548,9 +1577,7 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; onAdd: () =>
       {assets.length < 3 && (
         <p className="text-xs text-gray-500">A story is told from one job once it has 3 photos or more.</p>
       )}
-      {assets.length > 0 && (
-        <ul className={grid}>{children}</ul>
-      )}
+      <ul className={grid}>{children}</ul>
     </section>
   );
 };

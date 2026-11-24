@@ -476,8 +476,8 @@ describe('Ops → Ads', () => {
     expect(group.querySelectorAll('[data-testid="asset"]')).toHaveLength(2);
     const looseCard = document.body.querySelector('[aria-label="Not in a job"] [data-testid="asset"]')!;
     expect(looseCard.textContent).toContain('No tags yet');
-    // The grid itself has nothing to fill in: no tag buttons, no inputs.
-    expect(document.body.querySelector('[aria-label="Library"] input')).toBeNull();
+    // The cards have nothing to fill in: no tag buttons, no inputs.
+    expect(document.body.querySelector('[aria-label="Library"] [data-testid="asset"] input')).toBeNull();
     expect(document.body.querySelector('[aria-label^="Job Smith kitchen for"]')).toBeNull();
     // In a photo's window, a job is a tag: tap it to tag the photo, tap again to take it off.
     const jobTag = (job: string, where: string) => dialog().querySelector(`[aria-label="Job ${job} for ${where}"]`) as HTMLButtonElement;
@@ -501,8 +501,7 @@ describe('Ops → Ads', () => {
     await flush();
     expect(setAssetJob).toHaveBeenLastCalledWith('a1', undefined);
     await closeDialog();
-    // The upload is in its own window, and can carry a job too.
-    expect(document.body.querySelector('input[type="file"]')).toBeNull();
+    // The upload window can carry a job too.
     await openAdd();
     await act(async () => jobTag('Jones exterior', 'the next upload').click());
     const fileInput = dialog().querySelector('input[type="file"]') as HTMLInputElement;
@@ -538,23 +537,31 @@ describe('Ops → Ads', () => {
     await act(async () => (named.form as HTMLFormElement).requestSubmit());
     await flush();
     expect(groupIntoJob).toHaveBeenLastCalledWith(['a3'], { name: 'Garage door' }, 'painting');
-    // Photos go straight into a job from its box.
+    // Photos go straight into a job from the dotted tile at the end of its box, untagged so Claude tags them.
     addAsset.mockClear();
-    await act(async () => (document.body.querySelector('[aria-label="Add photos to Smith kitchen"]') as HTMLButtonElement).click());
-    expect(dialog().getAttribute('aria-label')).toBe('Add photos to Smith kitchen');
-    const into = dialog().querySelector('input[type="file"]') as HTMLInputElement;
+    const box = document.body.querySelector('[aria-label="Job Smith kitchen"]')!;
+    const cells = Array.from(box.querySelectorAll('li'));
+    expect(cells[cells.length - 1].getAttribute('data-testid')).toBe('add-tile');
+    const into = box.querySelector('input[aria-label="Add photos to Smith kitchen"]') as HTMLInputElement;
     Object.defineProperty(into, 'files', { value: [new File(['x'], 'sink.jpg', { type: 'image/jpeg' })] });
     await act(async () => into.dispatchEvent(new Event('change', { bubbles: true })));
     await flush();
-    expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'sink.jpg', jobId: 'j1' }));
-    // New job: a name, then straight on to its photos.
+    expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'sink.jpg', jobId: 'j1', tags: [] }));
+    expect(document.body.textContent).toContain('1 file in the library. Claude is tagging it.');
+    // Not in a job has its own tile, with no job.
+    const loose = document.body.querySelector('[aria-label="Not in a job"] input[aria-label="Add photos"]') as HTMLInputElement;
+    Object.defineProperty(loose, 'files', { value: [new File(['x'], 'yard.jpg', { type: 'image/jpeg' })] });
+    await act(async () => loose.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+    expect((addAsset.mock.calls.map((c) => c[0]) as Array<{ fileName: string; jobId?: string }>).find((x) => x.fileName === 'yard.jpg')!.jobId).toBeUndefined();
+    // New job: a name, and its box is there with its own tile.
     await act(async () => byText('New job')!.click());
     await act(async () => type(dialog().querySelector('input[aria-label="Job name"]') as HTMLInputElement, 'Jones exterior'));
     await act(async () => (dialog().querySelector('form') as HTMLFormElement).requestSubmit());
     await flush();
     expect(addJob).toHaveBeenLastCalledWith('Jones exterior', 'painting');
-    expect(dialog().getAttribute('aria-label')).toBe('Add photos to Jones exterior');
-    await closeDialog();
+    expect(dialog()).toBeNull();
+    expect(document.body.querySelector('input[aria-label="Add photos to Jones exterior"]')).not.toBeNull();
     await act(async () => byText('Take away job')!.click());
     await flush();
     expect(removeJob).toHaveBeenCalledWith('j1');
@@ -1169,6 +1176,7 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[aria-label="Open kitchen.jpg"]')).toBeNull();
     const clip = document.body.querySelector('[data-testid="asset"]')!;
     expect(clip.textContent).toContain('12s');
+    expect((document.body.querySelector('[aria-label="Clips"] input[aria-label="Add clips"]') as HTMLInputElement).accept).toBe('video/*');
     await act(async () => Array.from(clip.querySelectorAll('button')).find((b) => b.textContent === 'Make a job site ad')!.click());
     await flush();
     expect(makeFootage).toHaveBeenCalledWith('v1');
