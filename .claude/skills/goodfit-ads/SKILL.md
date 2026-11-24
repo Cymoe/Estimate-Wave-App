@@ -220,6 +220,12 @@ into jobs (`adJobs`; `adAssets.jobId`):
     each project photo through the normal upload, so it gets its JPEG still and Claude's tags.
   - `jobForProject` returns the job and the project photos already copied (`adAssets.jobPhotoId`), so sending again
     adds only new photos.
+- **Labels say what a photo shows** (`adAssets.items`, from the trade's `items` list: doors, trim, front door,
+  fence...). Claude picks them in the same look that describes an upload (`describePrompt`, `cleanItems`). A
+  person's fix (`setItems`) sticks. `ads:labelLibrary` labels files that have none.
+  - When an idea names a label (`itemsIn`, e.g. "front door painting"), `pickAssets`/`pickJob` offer those photos
+    first, and the writer sees each photo's labels.
+  - The Library has a filter row by label.
 - **Pairs are automatic.** Nobody types a pair key. Within a job, Claude matches each before with the after of the
   same spot (`pairJob`, `pairingPrompt`/`readPairing`). It runs 20 seconds after the job's photos or their
   before/after tags change, and only the latest ask runs. Moving a photo out of a job drops its pair.

@@ -148,6 +148,8 @@ export interface AdAsset {
   tags: string[];
   pairKey?: string;
   note?: string;
+  /** What it shows in detail, from the trade's list (doors, trim, front door...): Claude's, or as fixed. */
+  items?: string[];
   /** The small copy the grid shows (about 480 pixels), so the page loads fast. */
   thumbUrl?: string;
   /** The JPEG still made at upload. */
@@ -996,6 +998,14 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const clips = (assets ?? []).filter((a) => a.kind === 'video');
   const open = (assets ?? []).find((a) => a.id === openId);
   const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
+  // The filter row: the labels in use on photos, most used first; one picked shows only its photos.
+  const [only, setOnly] = useState<string | null>(null);
+  const inUse = Object.entries(
+    photos.reduce<Record<string, number>>((n, a) => {
+      for (const i of a.items ?? []) n[i] = (n[i] ?? 0) + 1;
+      return n;
+    }, {}),
+  ).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
   // Files uploaded before thumbnails were made get one here, quietly, one at a time; each is tried once a visit.
   const tried = useRef(new Set<string>());
   useEffect(() => {
@@ -1073,8 +1083,35 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           ? 'Tap a photo to tag it, or Select to tag several at once. Give one job’s photos the same purple job tag, and a story ad shows that job, before to finish.'
           : 'Video clips from job sites. Tap one to tag it, or make a job site ad from it.'}
       </p>
+      {view === 'photos' && inUse.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="Show photos of">
+          <button
+            type="button"
+            aria-pressed={only === null}
+            onClick={() => setOnly(null)}
+            className={`flex-none px-4 min-h-[40px] rounded-full text-sm border ${only === null ? 'bg-white text-black border-white' : 'border-[#333] text-gray-300'}`}
+          >
+            All
+          </button>
+          {inUse.map(([item, n]) => (
+            <button
+              key={item}
+              type="button"
+              aria-pressed={only === item}
+              onClick={() => setOnly(only === item ? null : item)}
+              className={`flex-none px-4 min-h-[40px] rounded-full text-sm border capitalize ${only === item ? 'bg-white text-black border-white' : 'border-[#333] text-gray-300'}`}
+            >
+              {item} <span className="text-gray-500">{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {assets === undefined ? (
         <p className="text-sm text-gray-500">Loading…</p>
+      ) : view === 'photos' && only ? (
+        <section className="space-y-2" aria-label={`Photos showing ${only}`}>
+          <ul className={grid}>{photos.filter((a) => (a.items ?? []).includes(only)).map((a) => tile(a))}</ul>
+        </section>
       ) : view === 'photos' ? (
         <div className="space-y-5" aria-label="Library">
           {jobs.map((j) => (
@@ -1273,6 +1310,11 @@ const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: 
               · Claude suggests other tags
             </span>
           )}
+          {(a.items ?? []).length > 0 && (
+            <span className="w-full text-[11px] text-gray-400 truncate capitalize" data-testid="items">
+              {a.items!.join(' · ')}
+            </span>
+          )}
         </div>
       </button>
       {a.kind === 'video' && (
@@ -1313,6 +1355,49 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
 };
 
 /** One file, opened: the big picture, what Claude saw, its tags and job, and the rest tucked under More. */
+/**
+ * What's in it: the labels Claude gave (doors, trim, front door...), shown as they are; "Change" opens the trade's
+ * whole list as big buttons, and each tap saves at once.
+ */
+const ItemsPicker: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
+  const trade = useTrade();
+  const [open, setOpen] = useState(false);
+  const items = a.items ?? [];
+  const chip = (on: boolean) =>
+    `px-3.5 min-h-[40px] text-sm rounded-lg border capitalize ${on ? 'bg-[#2f6f5e] border-[#2f6f5e] text-white' : 'border-[#333] text-gray-300'}`;
+  const toggle = (i: string) =>
+    act(() => adsAPI.setItems(a.id, items.includes(i) ? items.filter((x) => x !== i) : [...items, i]), 'Saved.');
+  return (
+    <div className="space-y-2" aria-label={`What's in ${a.fileName}`}>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-400">What's in it</p>
+        <button type="button" className="text-sm text-[#8fd6c2] min-h-[40px] px-2" onClick={() => setOpen(!open)}>
+          {open ? 'Done' : 'Change'}
+        </button>
+      </div>
+      {open ? (
+        <div className="flex flex-wrap gap-2">
+          {tradeOf(trade).items.map((i) => (
+            <button key={i} type="button" aria-pressed={items.includes(i)} onClick={() => void toggle(i)} className={chip(items.includes(i))}>
+              {i}
+            </button>
+          ))}
+        </div>
+      ) : items.length ? (
+        <div className="flex flex-wrap gap-2">
+          {items.map((i) => (
+            <span key={i} className={chip(true)}>
+              <span className="inline-flex items-center min-h-[40px]">{i}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500">Claude is still looking at it. Or tap Change to pick.</p>
+      )}
+    </div>
+  );
+};
+
 const AssetEditor: React.FC<{
   a: AdAsset;
   jobs: AdJob[];
@@ -1352,6 +1437,7 @@ const AssetEditor: React.FC<{
           <p className="text-xs text-gray-400">What it shows</p>
           <KindTags value={tags} onChange={setTags} photo={photo} label={`Tags for ${a.fileName}`} />
         </div>
+        <ItemsPicker a={a} act={act} />
         {photo && (
           <div className="space-y-2">
             <p className="text-xs text-gray-400">Job</p>

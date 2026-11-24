@@ -52,6 +52,7 @@ const creatorBrief = jest.fn(async (..._args: unknown[]) => 'GoodFit Pros: on-ca
 const addTake = jest.fn(async (..._args: unknown[]) => 2);
 const makeFootage = jest.fn(async (..._args: unknown[]) => ({ batchId: 'b9', builtOn: 'Rodgers Painting' }));
 const addJob = jest.fn(async (..._args: unknown[]) => 'j2');
+const setItems = jest.fn(async (..._args: unknown[]) => undefined);
 const groupIntoJob = jest.fn(async (..._args: unknown[]) => ({ jobId: 'j3', moved: 2 }));
 const setAssetJob = jest.fn(async (..._args: unknown[]) => undefined);
 const removeJob = jest.fn(async (..._args: unknown[]) => undefined);
@@ -89,6 +90,7 @@ jest.mock('../../../lib/api', () => ({
     addJob: (...args: unknown[]) => addJob(...args),
     setAssetJob: (...args: unknown[]) => setAssetJob(...args),
     groupIntoJob: (...args: unknown[]) => groupIntoJob(...args),
+    setItems: (...args: unknown[]) => setItems(...args),
     removeJob: (...args: unknown[]) => removeJob(...args),
     renameJob: async () => undefined,
   },
@@ -587,6 +589,28 @@ describe('Ops → Ads', () => {
     await flush();
     expect(removeJob).toHaveBeenCalledWith('j1');
     expect(asked).toContain('jobs:painting');
+  });
+
+  it('Library labels: each card says what it shows, a filter row shows only those photos, and the window fixes a label', async () => {
+    const photo = (id: string, fileName: string, items: string[]) => ({ id, kind: 'photo' as const, fileName, tags: ['exterior'], items, createdAt: new Date().toISOString() });
+    assets = [photo('d1', 'door.jpg', ['front door', 'brick']), photo('d2', 'door2.jpg', ['front door']), photo('f1', 'fence.jpg', ['fence']), photo('n1', 'new.jpg', [])];
+    await render();
+    await tab('Library');
+    expect(document.body.querySelector('[aria-label="Open door.jpg"] [data-testid="items"]')!.textContent).toBe('front door · brick');
+    // The filter row: labels in use, most used first.
+    const filters = () => Array.from(document.body.querySelectorAll('[aria-label="Show photos of"] button')) as HTMLButtonElement[];
+    expect(filters().map((b) => b.textContent)).toEqual(['All', 'front door 2', 'brick 1', 'fence 1']);
+    await act(async () => filters()[1].click());
+    expect(Array.from(document.body.querySelectorAll('[data-testid="asset"]')).map((c) => c.querySelector('button')!.getAttribute('aria-label'))).toEqual(['Open door.jpg', 'Open door2.jpg']);
+    await act(async () => filters()[0].click());
+    expect(document.body.querySelectorAll('[data-testid="asset"]')).toHaveLength(4);
+    // In the window: the labels as they are; Change opens the list, and a tap saves.
+    await openFile('new.jpg');
+    expect(dialog().textContent).toContain('Claude is still looking at it');
+    await act(async () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'Change')!.click());
+    await act(async () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'garage door')!.click());
+    await flush();
+    expect(setItems).toHaveBeenCalledWith('n1', ['garage door']);
   });
 
   it('Library uploads a file with the chosen tags; a photo opened is retagged and saved, with no pair key to type', async () => {

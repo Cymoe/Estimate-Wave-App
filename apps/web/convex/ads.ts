@@ -20,6 +20,8 @@ import {
   creativeName,
   shortId,
   pairingPrompt,
+  cleanItems,
+  itemsIn,
   readPairing,
   fromApifyItem,
   isFatigued,
@@ -330,10 +332,12 @@ export const setPoster = mutation({
 });
 
 export const saveDescription = internalMutation({
-  args: { id: v.id("adAssets"), description: v.string(), suggestedTags: v.array(v.string()) },
-  handler: async (ctx, { id, description, suggestedTags }) => {
+  args: { id: v.id("adAssets"), description: v.string(), suggestedTags: v.array(v.string()), items: v.optional(v.array(v.string())) },
+  handler: async (ctx, { id, description, suggestedTags, items }) => {
     const a = await ctx.db.get(id);
     if (a === null) return;
+    // Its labels (doors, trim...) are Claude's until a person fixes them; a fixed list stays.
+    if (items && !a.itemsSetByPerson) await ctx.db.patch(id, { items });
     // An upload nobody tagged takes Claude's tags; tags a person chose stay, with the suggestion shown beside them.
     const takes = a.tags.length === 0 && suggestedTags.length > 0;
     await ctx.db.patch(id, {
@@ -360,10 +364,10 @@ export const describeAsset = internalAction({
         ],
         400,
       );
-      const out = parseJson<{ description?: string; tags?: string[] }>(reply);
+      const out = parseJson<{ description?: string; tags?: string[]; items?: unknown }>(reply);
       if (!out?.description) return;
       const suggestedTags = [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(tradeOf(a.trade)).includes(t));
-      await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags });
+      await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags, items: cleanItems(out.items, tradeOf(a.trade)) });
     } catch (e) {
       console.error("describe asset", id, errText(e));
     }
@@ -390,6 +394,7 @@ export const listAssets = query({
         posterUrl: a.posterStorageId ? ((await ctx.storage.getUrl(a.posterStorageId)) ?? undefined) : undefined,
         thumbUrl: a.thumbStorageId ? ((await ctx.storage.getUrl(a.thumbStorageId)) ?? undefined) : undefined,
         description: a.description,
+        items: a.items ?? [],
         suggestedTags: a.suggestedTags,
         uses: a.uses ?? 0,
         jobId: a.jobId,
@@ -643,6 +648,35 @@ export const jobNames = internalQuery({
     for (const j of await ctx.db.query("adJobs").order("desc").take(60))
       if (await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", j._id)).first()) out.push({ id: j._id, name: j.name, trade: tradeOf(j.trade).slug });
     return out;
+  },
+});
+
+/** A person's fix of what a photo shows (its labels): kept to the trade's list, and kept from Claude's next look. */
+export const setItems = mutation({
+  args: { id: v.id("adAssets"), items: v.array(v.string()) },
+  handler: async (ctx, { id, items }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That file isn't in the library");
+    await ctx.db.patch(id, { items: cleanItems(items, tradeOf(a.trade)), itemsSetByPerson: true });
+  },
+});
+
+/**
+ * Has Claude look again at every library file with no labels yet, from the deployment: for files uploaded before
+ * labels were asked for. A second apart, so the looks don't pile up. Tags a person set stay (saveDescription).
+ */
+export const labelLibrary = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    if (!process.env.ANTHROPIC_API_KEY) return { asked: 0 };
+    let asked = 0;
+    for (const a of await ctx.db.query("adAssets").take(500)) {
+      if (a.items !== undefined) continue;
+      await ctx.scheduler.runAfter(asked * 1200, internal.ads.describeAsset, { id: a._id });
+      asked += 1;
+    }
+    return { asked };
   },
 });
 
@@ -2825,6 +2859,7 @@ export const plan = internalQuery({
           createdAt: a.createdAt,
           uses: a.uses ?? 0,
           description: a.description,
+          items: a.items,
           durationSec: a.durationSec,
           jobId: a.jobId,
           imageUrl: await lookUrl(ctx, a),
@@ -3606,7 +3641,9 @@ export const weeklyRun = internalAction({
         }
         // A request's versions are the same offer told different ways, so each may use the best photos for it; a
         // week's ads each keep to photos the others haven't used.
-        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
+        // What the idea names (a front door, a fence) is offered first.
+        const want = itemsIn(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`, trade);
+        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? [], want);
         // An ad made for one job's photo shows that job only: the photo, and its pair if it has one. Other jobs' work would pass for this one.
         const lead = hook.photoId ? photos.find((a: { _id: string }) => a._id === hook.photoId) : undefined;
         if (lead) {
@@ -3624,7 +3661,7 @@ export const weeklyRun = internalAction({
           : jobId
             ? { jobId: String(jobId), assets: jobInOrder(photos.filter((a: { jobId?: string }) => a.jobId === jobId)) }
             : shape !== "explainer"
-              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used)
+              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, want)
               : null;
         if (job) {
           picked.assets.splice(0, picked.assets.length, ...job.assets);

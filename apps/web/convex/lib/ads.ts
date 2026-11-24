@@ -26,6 +26,8 @@ export interface AdTrade {
   scopeLabels: Record<string, string>;
   /** The states a job photo can show, for describing an upload. */
   states: string;
+  /** What a photo can show in detail (the things worked on, and the rooms): Claude labels each upload with them. */
+  items: readonly string[];
   /** Searches that find its competitors' ads. */
   keywords: readonly string[];
 }
@@ -39,6 +41,12 @@ export const AD_TRADES: Record<string, AdTrade> = {
     scopes: ["interior", "exterior", "cabinets"],
     scopeLabels: { interior: "Interior", exterior: "Exterior", cabinets: "Cabinets" },
     states: "unpainted, being prepped, being painted, finished",
+    items: [
+      "walls", "ceiling", "trim", "baseboards", "crown molding", "doors", "cabinets", "kitchen island", "vanity", "built-ins",
+      "shelves", "stairs and railing", "fireplace", "windows",
+      "front door", "garage door", "siding", "brick", "stucco", "fascia and soffit", "shutters", "porch", "deck", "fence", "columns",
+      "kitchen", "bathroom", "bedroom", "living room", "hallway", "entry", "garage",
+    ],
     keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
   },
   "outdoor-construction": {
@@ -49,6 +57,7 @@ export const AD_TRADES: Record<string, AdTrade> = {
     scopes: ["patio", "walkway", "wall", "outdoor-living"],
     scopeLabels: { patio: "Patios", walkway: "Walkways and driveways", wall: "Retaining walls", "outdoor-living": "Outdoor kitchens and fire pits" },
     states: "bare ground, being dug or laid, finished",
+    items: ["pavers", "flagstone", "concrete", "driveway", "walkway", "steps", "retaining wall", "fire pit", "outdoor kitchen", "pergola", "turf", "edging"],
     keywords: ["paver patio", "retaining wall", "hardscaping", "outdoor kitchen", "artificial turf"],
   },
   "bathroom-remodeling": {
@@ -64,6 +73,7 @@ export const AD_TRADES: Record<string, AdTrade> = {
       "full-bath": "Full bathroom remodels",
     },
     states: "old or worn, being torn out or installed, finished",
+    items: ["shower", "tile", "tub", "vanity", "glass door", "fixtures", "niche", "floor", "toilet"],
     keywords: ["walk-in shower", "tub to shower conversion", "bathroom remodel", "shower replacement", "one day bath remodel"],
   },
 };
@@ -222,6 +232,8 @@ export interface AssetRow {
   uses?: number;
   /** The job it was shot on (adJobs), when it was filed under one. */
   jobId?: string;
+  /** What it shows in detail (AdTrade.items). */
+  items?: string[];
 }
 
 export const MAX_CANDIDATES = 6;
@@ -245,9 +257,12 @@ export function pickAssets<A extends AssetRow>(
   used: Set<string>,
   max = MAX_CANDIDATES,
   prefer: string[] = [],
+  want: string[] = [],
 ): { assets: A[]; inScope: boolean } {
-  // The playbook's footage preferences: an asset carrying an earlier preferred tag sorts first, then least used, then newest.
+  // What the idea names (front door, fence...) first; then the playbook's footage preferences: an asset carrying an
+  // earlier preferred tag sorts first, then least used, then newest.
   const preference = (a: A) => {
+    if (want.length && (a.items ?? []).some((i) => want.includes(i))) return -1;
     const ranks = a.tags.map((t) => prefer.indexOf(t)).filter((i) => i >= 0);
     return ranks.length ? Math.min(...ranks) : prefer.length;
   };
@@ -287,15 +302,23 @@ export const JOB_MIN = 3;
  * for a general idea), and none was used by another ad this week. One with a before and an after goes first, then
  * the least used, then the newest. Null when no job fits: the photos are then picked across the library.
  */
-export function pickJob<A extends AssetRow>(assets: A[], scope: string, used: Set<string>, max = REEL_CANDIDATES): { jobId: string; assets: A[] } | null {
+export function pickJob<A extends AssetRow>(
+  assets: A[],
+  scope: string,
+  used: Set<string>,
+  max = REEL_CANDIDATES,
+  want: string[] = [],
+): { jobId: string; assets: A[] } | null {
   const jobs = new Map<string, A[]>();
   for (const a of assets) if (a.jobId) jobs.set(a.jobId, [...(jobs.get(a.jobId) ?? []), a]);
   const hasBoth = (ps: A[]) => ps.some((p) => p.tags.includes("before")) && ps.some((p) => p.tags.includes("after"));
+  // A job showing what the idea names (its front door, its fence) goes first.
+  const shows = (ps: A[]) => want.length > 0 && ps.some((p) => (p.items ?? []).some((i) => want.includes(i)));
   const uses = (ps: A[]) => ps.reduce((n, p) => n + (p.uses ?? 0), 0) / ps.length;
   const newest = (ps: A[]) => ps.reduce((d, p) => (p.createdAt > d ? p.createdAt : d), "");
   const fits = [...jobs]
     .filter(([, ps]) => ps.length >= JOB_MIN && !ps.some((p) => used.has(p._id)) && (scope === ANY_SCOPE || ps.some((p) => p.tags.includes(scope))))
-    .sort(([, x], [, y]) => Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
+    .sort(([, x], [, y]) => Number(shows(y)) - Number(shows(x)) || Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
   if (fits.length === 0) return null;
   const [jobId, photos] = fits[0];
   return { jobId, assets: jobInOrder(photos, max) };
@@ -377,6 +400,8 @@ export interface Candidate {
   tags: string[];
   pairKey?: string;
   description?: string;
+  /** What it shows in detail (AdTrade.items). */
+  items?: string[];
   durationSec?: number;
   /** The still Claude looks at; none for a video or HEIC with no still. */
   imageUrl?: string;
@@ -515,7 +540,8 @@ export const describePrompt = (trade: AdTrade): string =>
     `This is a photo (or a still from a video) a ${trade.contractor} took on a job. It will be used in ads.`,
     `Describe what is visible in one plain sentence: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
     `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
-    'Return only JSON: {"description":"...","tags":["..."]}',
+    `Then list what the photo shows, from this list only, every one that is clearly in it (the things worked on, and the room): ${trade.items.join(", ")}.`,
+    'Return only JSON: {"description":"...","tags":["..."],"items":["..."]}',
   ].join("\n");
 export const DESCRIBE_PROMPT = describePrompt(AD_TRADES.painting);
 
@@ -731,6 +757,7 @@ export function motionPrompt(
       f.tags.length ? `tags: ${f.tags.join(", ")}` : "",
       f.pairKey ? `pair "${f.pairKey}"` : "",
       f.description ? `looks like: ${f.description}` : "",
+      f.items?.length ? `shows: ${f.items.join(", ")}` : "",
       "(attached below)",
     ]
       .filter(Boolean)
@@ -2081,4 +2108,28 @@ export function readPairing(reply: string, befores: number, afters: number): Arr
     pairs.push([b, a]);
   }
   return pairs;
+}
+
+/** Claude's labels for a photo, kept to the trade's list, each once, in the list's order. */
+export function cleanItems(items: unknown, trade: AdTrade): string[] {
+  const asked = new Set((Array.isArray(items) ? items : []).map((i) => String(i).toLowerCase().trim()));
+  return trade.items.filter((i) => asked.has(i));
+}
+
+/**
+ * The labels an idea's words name ("front door painting" names front door, not doors too): the longest first, each
+ * taking its words so a shorter label can't match them again. Plurals match either way.
+ */
+export function itemsIn(text: string, trade: AdTrade): string[] {
+  let words = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+  const found: string[] = [];
+  for (const item of [...trade.items].sort((a, b) => b.length - a.length)) {
+    const parts = item.replace(/[^a-z0-9]+/g, " ").trim().split(" ").map((w) => w.replace(/s$/, ""));
+    const re = new RegExp(` ${parts.join("s? ")}s? `);
+    if (re.test(words)) {
+      found.push(item);
+      words = words.replace(re, " ");
+    }
+  }
+  return found;
 }

@@ -2483,6 +2483,9 @@ export default defineSchema({
     posterStorageId: v.optional(v.id("_storage")),
     // A small JPEG (about 480 pixels) the library grid shows, so the page loads fast; the still is for the big view.
     thumbStorageId: v.optional(v.id("_storage")),
+    // What it shows in detail, from the trade's list (doors, trim, front door...): Claude's, or as a person fixed them.
+    items: v.optional(v.array(v.string())),
+    itemsSetByPerson: v.optional(v.boolean()),
     // What Claude saw in it, and the tags it would give it.
     description: v.optional(v.string()),
     suggestedTags: v.optional(v.array(v.string())),

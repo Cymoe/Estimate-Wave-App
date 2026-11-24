@@ -53,7 +53,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { pairingPrompt, readPairing } from "./lib/ads";
+import { AD_TRADES, cleanItems, describePrompt, itemsIn, pairingPrompt, readPairing } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -234,6 +234,28 @@ function quickPlanFor(photoCount: number, town = "Midland") {
     primaryText: GOOD.primaryText,
   };
 }
+
+describe("what a photo shows (labels)", () => {
+  const painting = AD_TRADES.painting;
+  test("Claude is asked for the trade's labels, and only those are kept, in the list's order", () => {
+    expect(describePrompt(painting)).toContain("front door, garage door");
+    expect(describePrompt(painting)).toContain('"items":["..."]');
+    expect(cleanItems(["Doors", "trim", "unicorn", "doors", 5], painting)).toEqual(["trim", "doors"]);
+    expect(cleanItems(undefined, painting)).toEqual([]);
+  });
+  test("an idea's words name labels: the longest first, plurals either way", () => {
+    expect(itemsIn("Front door painting in Odessa", painting)).toEqual(["front door"]);
+    expect(itemsIn("We paint interior doors and trim", painting)).toEqual(expect.arrayContaining(["doors", "trim"]));
+    expect(itemsIn("Fence staining that lasts", painting)).toEqual(["fence"]);
+    expect(itemsIn("Paint them, don't replace", painting)).toEqual([]);
+  });
+  test("photos showing what the idea names are offered first", () => {
+    const p = (id: string, items: string[]) => ({ _id: id, kind: "photo" as const, tags: ["exterior"], items, createdAt: "2026-11-01" });
+    const lib = [p("wall", ["siding"]), p("door", ["front door"]), p("fence", ["fence"])];
+    expect(pickAssets(lib, "exterior", new Set(), 6, [], ["front door"]).assets[0]._id).toBe("door");
+    expect(pickAssets(lib, "exterior", new Set(), 6, [], []).assets.map((a) => a._id)).toEqual(["wall", "door", "fence"]);
+  });
+});
 
 describe("one job's photos", () => {
   test("Claude's answer on which before and after show the same spot is read safely: each photo once, nothing out of range", () => {
@@ -1094,6 +1116,37 @@ describe("the library, hooks and settings", () => {
     expect(await t.run(async (ctx) => await ctx.db.system.get(next))).toBeNull();
   });
 
+  test("an upload is labelled by Claude with what it shows; a person's fix sticks; the old library is labelled once", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    const member = await signUp(t, "owner@peak.example");
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    const calls: Call[] = [];
+    stubServices(calls, { describe: { description: "A front door painted black.", tags: ["exterior", "after"], items: ["front door", "brick", "spaceship"] } });
+    vi.useFakeTimers();
+    const id = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "door.jpg", tags: [] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    const items = async () => (await staff.as.query(api.ads.listAssets, {})).find((a) => a.id === id)!.items;
+    expect(await items()).toEqual(["front door", "brick"]);
+    await staff.as.mutation(api.ads.setItems, { id, items: ["front door", "shutters", "nonsense"] });
+    expect(await items()).toEqual(["front door", "shutters"]);
+    await expect(member.as.mutation(api.ads.setItems, { id, items: [] })).rejects.toThrow("Only Webb Leads staff");
+    // Files from before labels: each is looked at once more; a person's tags and fixed labels stay.
+    const old = await t.run(async (ctx) =>
+      ctx.db.insert("adAssets", { storageId: await ctx.storage.store(new Blob(["x"], { type: "image/jpeg" })), kind: "photo", fileName: "old.jpg", contentType: "image/jpeg", size: 1, tags: ["interior"], uploadedBy: staff.userId, createdAt: new Date().toISOString() }),
+    );
+    vi.useFakeTimers();
+    expect(await t.mutation(internal.ads.labelLibrary, {})).toEqual({ asked: 1 });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    const after = await t.run(async (ctx) => await ctx.db.get(old));
+    expect(after!.items).toEqual(["front door", "brick"]);
+    expect(after!.tags).toEqual(["interior"]);
+    expect(await items()).toEqual(["front door", "shutters"]);
+    expect(await t.mutation(internal.ads.labelLibrary, {})).toEqual({ asked: 0 });
+  });
+
   test("within a job Claude matches each before with the after of the same spot, by itself, once a run of changes settles", async () => {
     const t = setup();
     const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
@@ -1444,6 +1497,7 @@ type StubOpts = {
   /** How Claude reads a "make an ad for…" line. */
   request?: unknown;
   pairs?: unknown;
+  describe?: unknown;
 };
 
 /** Claude's read of a competitor ad, from what the prompt names. */
@@ -1600,7 +1654,8 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         const retry = content.some((c) => c.text?.startsWith("Your last answer had these problems"));
         const offered = content.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length;
         let reply: unknown;
-        if (prompt.includes("Which before and which after show the same spot")) reply = opts.pairs ?? { pairs: [{ before: 1, after: 2 }] };
+        if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
+        else if (prompt.includes("Which before and which after show the same spot")) reply = opts.pairs ?? { pairs: [{ before: 1, after: 2 }] };
         else if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
         else if (prompt.includes(IDEA_MARK)) reply = { ideas: ideasOf(prompt) };
         else if (prompt.includes(PICK_MARK)) reply = { picks: picksFor(prompt) };
