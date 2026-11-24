@@ -407,6 +407,13 @@ describe("a quick offer", () => {
     expect(motionPlanProblems(echo, pair, { town: "Midland" }, undefined, { noEcho: true }).join()).not.toContain("repeats");
     const kept = { ...echo, lines: echo.lines.map((l, i) => (i === 2 ? { ...l, label: "The hardware upgrade", voice: "Get a free quote from GoodFit Pros." } : l)) };
     expect(withoutEchoes(kept).lines.map((l) => l.label)).toEqual([kept.lines[0].label, undefined, "The hardware upgrade"]);
+    // A step taken off: the ones left are numbered again.
+    const steps = { ...good, lines: [
+      { ...good.lines[0], label: "Step 1: Off to the shop", voice: "First we take your doors and drawers away." },
+      { ...good.lines[1], label: "Step 2: Sprayed in our shop", voice: "We spray them smooth in our shop." },
+      { ...good.lines[2], label: "Step 3: Boxes done in place", voice: "Your cabinet frames get painted at home." },
+    ] };
+    expect(withoutEchoes(steps).lines.map((l) => l.label)).toEqual(["Step 1: Off to the shop", undefined, "Step 2: Boxes done in place"]);
     const echoTitle = { ...good, title: "Paint every cabinet door", lines: [{ ...good.lines[0], voice: "Midland, we paint every cabinet door." }, ...good.lines.slice(1)] };
     expect(motionPlanProblems(echoTitle, pair, { town: "Midland" }, undefined, { noEcho: true }).join()).toContain("the title repeats the first line's words");
     const ask = motionPrompt({ textEn: "Paint them", family: "before_after", scope: "cabinets", style: "reel", steps: true }, "GoodFit Pros", [], true, [], "Midland");
@@ -2566,7 +2573,9 @@ describe("the weekly run", () => {
     expect(batch.creatives.map((c) => c.error)).toEqual(["Couldn't draw the video: the photo wouldn't load", "Couldn't draw the video: the photo wouldn't load"]);
 
     // After a fix to how ads are drawn, the same ad goes back in the queue: nothing is rewritten or re-read.
-    const asked = { claude: to(calls, "anthropic").length, voice: to(calls, "elevenlabs").length };
+    // The writer's calls only: a look at a photo from elsewhere isn't this ad being written again.
+    const writes = () => to(calls, "anthropic").filter((c) => c.body!.includes("You write one short animated ad")).length;
+    const asked = { claude: writes(), voice: to(calls, "elevenlabs").length };
     const [tall] = batch.creatives;
     expect(await settle(() => t.mutation(internal.ads.rerender, { names: [tall.name, "WL_nobody"] }))).toEqual({ sent: [tall.name] });
     expect(states(await latest())).toEqual(["9x16 voiced", "4x5 failed: Couldn't draw the video: the photo wouldn't load"]);
@@ -2574,7 +2583,7 @@ describe("the weekly run", () => {
     batch = await latest();
     expect(batch.creatives[0]).toMatchObject({ status: "rendered", script: drafted.creatives[0].script });
     expect(batch.creatives[0].videoUrl).toContain("/api/storage/");
-    expect({ claude: to(calls, "anthropic").length, voice: to(calls, "elevenlabs").length }).toEqual(asked);
+    expect({ claude: writes(), voice: to(calls, "elevenlabs").length }).toEqual(asked);
   });
 
   test("an ad taken but never finished is offered again after twenty minutes; a file for an ad rejected meanwhile is thrown away; an ad from before can't be drawn", async () => {

@@ -807,7 +807,7 @@ export function motionPrompt(
         ]
       : [
     hook.steps
-      ? "- Each line after the first has a label: 3 to 7 words across the top while the line is said. The captions already show what is said, so a label never repeats the line's words: it says the line's point in other words. Where the line is a step of how the work is done, the label is the step's number and a short name for that step (\"Step 1: Off to our shop\", \"Step 2: Into the spray booth\", \"Step 3: Boxes done in place\"); a step's name is about the step, never about what is in the photo. Any other line's label names its point (\"Why there's less mess\", \"The hardware upgrade\", \"One easy next step\"). The title doesn't repeat the first line either. Read in order with the title, the labels alone still tell the story with the sound off."
+      ? "- Each line after the first has a label: 3 to 7 words across the top while the line is said. The captions already show what is said, so a label never repeats the line's words: it says the line's point in other words of your own, written for this ad and this job. Where the line is a step of how the work is done, the label is \"Step\" and its number, a colon, and two to four words naming that step (what happens, not what is in the photo). Any other line's label names its point in a few words. The title doesn't repeat the first line either. Read in order with the title, the labels alone still tell the story with the sound off."
       : "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. Read in order with the title, the headlines alone tell the story to someone watching with the sound off (\"Bare dirt, every summer\", \"Base dug and packed\", \"Same yard, finished\").",
     "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
     `- A photo may itself be two pictures in one, such as a before and its after, side by side or one above the other. Then give the line "cut": [from, to], the part of the photo to show, so a line about the before never shows the after. For two side by side it is measured across ([0, 50] is the left picture). For one above the other add "stacked": true and it is measured down ([0, 50] is the top picture). Where a word such as Before or After is printed on the photo by the join, stop the cut short of it. x and y are then within that part. A photo tagged both before and after is one of these, and always needs a cut.`,
@@ -916,7 +916,10 @@ export function echoes(shown: string, said: string): boolean {
 /** A reel's plan with any headline that only repeats its line's words taken off: that moment shows the captions alone. */
 export function withoutEchoes<P extends { style?: string; lines?: Array<{ voice?: string; label?: string }> }>(plan: P): P {
   if (plan.style === "explainer" || !plan.lines) return plan;
-  return { ...plan, lines: plan.lines.map((l) => (l.label && l.voice && echoes(l.label, l.voice) ? { ...l, label: undefined } : l)) };
+  const kept = plan.lines.map((l) => (l.label && l.voice && echoes(l.label, l.voice) ? { ...l, label: undefined } : l));
+  // The steps left are numbered again, so taking one off never leaves a gap (Step 1, Step 3).
+  let step = 0;
+  return { ...plan, lines: kept.map((l) => (l.label && /^\s*step\s+\d+\s*:/i.test(l.label) ? { ...l, label: l.label.replace(/^\s*step\s+\d+\s*:/i, `Step ${++step}:`) } : l)) };
 }
 
 export function motionPlanProblems(
