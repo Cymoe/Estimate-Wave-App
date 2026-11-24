@@ -3,7 +3,7 @@ import { adsAPI } from './api';
 // Putting a photo or clip in the ad library (Ops → Ads): the file, and a JPEG still made here in the browser.
 // Used by the library itself and by a project's "Use these photos for ads".
 
-const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(file.name);
+export const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(file.name);
 
 /** Waits for a media element event, or gives up after a few seconds. */
 const once = (el: HTMLElement, event: string, ms: number = 8000) =>

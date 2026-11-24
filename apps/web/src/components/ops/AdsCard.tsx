@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Film, Image as ImageIcon, Play, Star, Trash2, Upload } from 'lucide-react';
+import { ExternalLink, Film, Play, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdJobs } from '../../lib/live';
-import { putFile, stillOfClip, uploadAsset } from '../../lib/adUpload';
+import { isVideo, putFile, stillOfClip, uploadAsset } from '../../lib/adUpload';
 import {
   useAdsBatches,
   useAdsHooks,
@@ -19,7 +19,7 @@ import {
 import { AD_TRADES, DEFAULT_TRADE, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
 import { ACTOR_VOICES, ACTOR_VOICE_LABELS } from '../../../convex/lib/voiceActors';
 import { money } from '../market/wallet';
-import { ErrorLine, Field, ago, describeError, input, primary, secondary, tap } from './ui';
+import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary, tap } from './ui';
 
 /**
  * Ops → Ads: the week's drafted ads to approve, the live ones with what
@@ -154,6 +154,8 @@ export interface AdAsset {
   description?: string;
   suggestedTags?: string[];
   uses?: number;
+  /** A clip's length. */
+  durationSec?: number;
   /** The job it was shot on, when it is filed under one. */
   jobId?: string;
   createdAt: string;
@@ -958,70 +960,335 @@ const takeable = (c: AdCreative) =>
 const Library: React.FC<{ act: Act }> = ({ act }) => {
   const trade = useTrade();
   const assets = useAdsLibrary<AdAsset[]>(trade);
-  const jobs = useAdJobs<AdJob[]>(trade);
-  // The job the next upload goes in; none by default.
-  const [jobId, setJobId] = useState('');
+  const jobs = useAdJobs<AdJob[]>(trade) ?? [];
+  // Photos and clips are kept apart: clips have no jobs and no before or after.
+  const [view, setView] = useState<'photos' | 'clips'>('photos');
+  // The file open in its window (read fresh from the live list, so a change shows at once), and the upload window.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const photos = (assets ?? []).filter((a) => a.kind === 'photo');
+  const clips = (assets ?? []).filter((a) => a.kind === 'video');
+  const open = (assets ?? []).find((a) => a.id === openId);
+  const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
+  // In a job's box the job is its heading, so the card doesn't repeat it.
+  const tile = (a: AdAsset, inBox = false) => <AssetTile key={a.id} a={a} jobs={inBox ? [] : jobs} onOpen={() => setOpenId(a.id)} act={act} />;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-full bg-[#1A1A1A] border border-[#2A2A2A] p-1" role="group" aria-label="Show">
+          {(
+            [
+              ['photos', `Photos (${photos.length})`],
+              ['clips', `Clips (${clips.length})`],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+              className={`px-4 py-1.5 rounded-full text-sm ${view === v ? 'bg-[#336699] text-white' : 'text-gray-400'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button type="button" className={`${primary} ml-auto`} onClick={() => setAdding(true)}>
+          <Upload className="w-4 h-4" /> Add photos or clips
+        </button>
+      </div>
+      <p className="text-xs text-gray-500">
+        {view === 'photos'
+          ? 'Tap a photo to tag it. Give one job’s photos the same purple job tag, and a story ad shows that job, before to finish.'
+          : 'Video clips from job sites. Tap one to tag it, or make a job site ad from it.'}
+      </p>
+      {assets === undefined ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : view === 'photos' ? (
+        photos.length === 0 ? (
+          <p className="text-sm text-gray-400">No photos yet.</p>
+        ) : (
+          <div className="space-y-5" aria-label="Library">
+            {jobs.map((j) => (
+              <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
+                {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
+              </JobGroup>
+            ))}
+            {loose.length > 0 && (
+              <section className="space-y-2" aria-label="Not in a job">
+                {jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
+                <ul className={grid}>{loose.map((a) => tile(a))}</ul>
+              </section>
+            )}
+          </div>
+        )
+      ) : clips.length === 0 ? (
+        <p className="text-sm text-gray-400">No clips yet.</p>
+      ) : (
+        <ul className={grid} aria-label="Clips">
+          {clips.map((a) => tile(a))}
+        </ul>
+      )}
+      {open && <AssetEditor a={open} jobs={jobs} act={act} onClose={() => setOpenId(null)} />}
+      {adding && <AddFiles jobs={jobs} act={act} onClose={() => setAdding(false)} />}
+    </div>
+  );
+};
+
+const grid = 'grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
+
+/** The picture of a library file: its still, else the photo, else the clip's first frame. */
+const Picture: React.FC<{ a: AdAsset; className: string; play?: boolean }> = ({ a, className, play }) =>
+  a.kind === 'video' && play && a.url ? (
+    <video src={a.url} controls playsInline poster={a.posterUrl} className={`${className} bg-black`} />
+  ) : a.posterUrl ? (
+    <img src={a.posterUrl} alt={a.fileName} className={className} />
+  ) : a.kind === 'video' ? (
+    a.url ? (
+      // "#t=0.1" asks the browser to show a frame; iPhones and iPads show black without it.
+      <video src={`${a.url}#t=0.1`} muted playsInline preload="metadata" className={`${className} bg-black`} />
+    ) : (
+      <div className={`${className} bg-black`} />
+    )
+  ) : a.url ? (
+    <img src={a.url} alt={a.fileName} className={className} />
+  ) : (
+    <div className={`${className} bg-black`} />
+  );
+
+/** Whether Claude suggests other tags than the file has. */
+const suggestsOther = (a: AdAsset) => Boolean(a.suggestedTags?.length) && [...a.suggestedTags!].sort().join(',') !== [...a.tags].sort().join(',');
+
+/** A file in the grid: its picture and what it is tagged, nothing to fill in. Tapping it opens it. */
+const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: Act }> = ({ a, jobs, onOpen, act }) => {
+  const job = jobs.find((j) => j.id === a.jobId);
+  return (
+    <li className="border border-[#2A2A2A] rounded bg-[#121212] overflow-hidden" data-testid="asset">
+      <button type="button" onClick={onOpen} aria-label={`Open ${a.fileName}`} className="block w-full text-left">
+        <div className="relative">
+          <Picture a={a} className="w-full aspect-square object-cover" />
+          {a.kind === 'video' && (
+            <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white inline-flex items-center gap-1">
+              <Film className="w-3 h-3" /> {a.durationSec ? `${Math.round(a.durationSec)}s` : 'clip'}
+            </span>
+          )}
+          {a.uses ? (
+            <span className="absolute top-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-gray-200">
+              in {a.uses} ad{a.uses === 1 ? '' : 's'}
+            </span>
+          ) : null}
+        </div>
+        <div className="p-2 flex flex-wrap gap-1 min-h-[2.25rem]">
+          {job && <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-[#7c5cc4] text-white">{job.name}</span>}
+          {a.tags.map((t) => (
+            <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-[#336699]/30 text-sky-200">
+              {t}
+            </span>
+          ))}
+          {a.tags.length === 0 && <span className="text-[10px] text-amber-300">No tags yet</span>}
+          {a.tags.length > 0 && suggestsOther(a) && (
+            <span className="text-[10px] text-sky-300" data-testid="suggested-mark">
+              · Claude suggests other tags
+            </span>
+          )}
+        </div>
+      </button>
+      {a.kind === 'video' && (
+        <div className="px-2 pb-2">
+          <button
+            type="button"
+            className={`${secondary} text-xs py-1 w-full`}
+            onClick={() =>
+              act(() => adsAPI.makeFootage(a.id), 'Making a job site ad from this clip. It shows under This week once it is written, then drawn.')
+            }
+          >
+            Make a job site ad
+          </button>
+        </div>
+      )}
+    </li>
+  );
+};
+
+/** Tag buttons: the trade's kinds of job, and before and after (photos only). */
+const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; photo: boolean; label: string }> = ({ value, onChange, photo, label }) => {
+  const trade = useTrade();
+  return (
+    <div className="flex flex-wrap gap-2" aria-label={label}>
+      {[...scopesFor(trade), ...(photo ? ['before', 'after'] : [])].map((t) => (
+        <button
+          key={t}
+          type="button"
+          aria-pressed={value.includes(t)}
+          onClick={() => onChange(value.includes(t) ? value.filter((x) => x !== t) : [...value, t])}
+          className={`px-2.5 py-1 text-xs rounded border ${value.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-300'}`}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+/** One file, opened: the big picture, what Claude saw, its tags and job, and the rest tucked under More. */
+const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () => void }> = ({ a, jobs, act, onClose }) => {
+  const trade = useTrade();
+  const photo = a.kind === 'photo';
+  const [tags, setTags] = useState(a.tags);
+  const [pairKey, setPairKey] = useState(a.pairKey ?? '');
+  const [note, setNote] = useState(a.note ?? '');
+  useEffect(() => {
+    setTags(a.tags);
+    setPairKey(a.pairKey ?? '');
+    setNote(a.note ?? '');
+  }, [a.tags, a.pairKey, a.note]);
+  const changed = tags.join(',') !== a.tags.join(',') || pairKey !== (a.pairKey ?? '') || note !== (a.note ?? '');
+  return (
+    <Dialog title={a.fileName} onClose={onClose} wide>
+      <div className="space-y-4">
+        <Picture a={a} play className="w-full max-h-[45dvh] object-contain rounded bg-black" />
+        {a.description && <p className="text-sm text-gray-400">{a.description}</p>}
+        {suggestsOther(a) && (
+          <p className="text-sm text-sky-300" data-testid="suggested-tags">
+            Claude suggests: {a.suggestedTags!.join(', ')} ·{' '}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => act(() => adsAPI.tagAsset(a.id, a.suggestedTags!, a.pairKey, a.note), 'Tags updated.')}
+            >
+              Use these
+            </button>
+          </p>
+        )}
+        <div className="space-y-2">
+          <p className="text-xs text-gray-400">What it shows</p>
+          <KindTags value={tags} onChange={setTags} photo={photo} label={`Tags for ${a.fileName}`} />
+        </div>
+        {photo && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-400">Job (purple)</p>
+            <div className="flex flex-wrap gap-2" aria-label={`Job of ${a.fileName}`}>
+              <JobTags
+                jobs={jobs}
+                value={a.jobId}
+                where={a.fileName}
+                onPick={(jobId) => act(() => adsAPI.setAssetJob(a.id, jobId), jobId ? 'Tagged with the job.' : 'Job tag taken off.')}
+                onNew={(name) =>
+                  act(async () => {
+                    const jobId = await adsAPI.addJob(name, trade);
+                    await adsAPI.setAssetJob(a.id, jobId);
+                  }, `Job "${name}" added and this photo tagged with it.`)
+                }
+              />
+            </div>
+          </div>
+        )}
+        <details className="text-sm">
+          <summary className="cursor-pointer text-gray-400">More</summary>
+          <div className="mt-3">
+            {photo && (
+              <Field label="Pair key" hint="Same word on a before and its after of the same spot, e.g. kitchen-elm">
+                <input value={pairKey} onChange={(e) => setPairKey(e.target.value)} aria-label={`Pair key for ${a.fileName}`} className={input} />
+              </Field>
+            )}
+            <Field label="Note" hint="Where it was shot and whose permission you have. Never shown in an ad.">
+              <input value={note} onChange={(e) => setNote(e.target.value)} aria-label={`Note for ${a.fileName}`} className={input} />
+            </Field>
+            {a.kind === 'video' && !a.posterUrl && a.url && (
+              <button
+                type="button"
+                className={secondary}
+                onClick={() =>
+                  act(async () => {
+                    const { still, durationSec } = await stillOfClip(a.url!, true);
+                    if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
+                    await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
+                  }, 'Still made. Claude is looking at the clip and will suggest its tags.')
+                }
+              >
+                Make its still
+              </button>
+            )}
+          </div>
+        </details>
+        <div className="flex items-center gap-2 pt-2 border-t border-[#2A2A2A]">
+          <button
+            type="button"
+            aria-label={`Remove ${a.fileName}`}
+            className="text-sm text-gray-500 hover:text-red-300 inline-flex items-center gap-1"
+            onClick={() => act(() => adsAPI.removeAsset(a.id)).then(onClose)}
+          >
+            <Trash2 className="w-4 h-4" /> Delete
+          </button>
+          {a.uses ? <span className="text-xs text-gray-500">In {a.uses} ad{a.uses === 1 ? '' : 's'}</span> : null}
+          <button
+            type="button"
+            className={`${primary} ml-auto`}
+            disabled={!changed}
+            onClick={() => act(() => adsAPI.tagAsset(a.id, tags, pairKey || undefined, note || undefined), 'Saved.')}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+};
+
+/** The upload, in its own window: tags and a job for what comes next, the rest under More, then the files. */
+const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void }> = ({ jobs, act, onClose }) => {
+  const trade = useTrade();
   // Nothing lit up by default: an upload with no tags takes the tags Claude suggests.
   const [tags, setTags] = useState<string[]>([]);
+  const [jobId, setJobId] = useState('');
   const [pairKey, setPairKey] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const toggle = (t: string) => setTags((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setBusy(true);
     await act(
       async () => {
-        for (const f of Array.from(files)) await uploadAsset(f, tags, trade, pairKey || undefined, note || undefined, jobId ? { jobId } : undefined);
+        // A job is for photos: a clip goes up without one.
+        for (const f of Array.from(files))
+          await uploadAsset(f, tags, trade, pairKey || undefined, note || undefined, jobId && !isVideo(f) ? { jobId } : undefined);
+        onClose();
       },
       `${files.length} file${files.length === 1 ? '' : 's'} in the library.`,
     );
     setBusy(false);
-    if (fileRef.current) fileRef.current.value = '';
   };
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-gray-200 border border-[#7c5cc4]/50 bg-[#7c5cc4]/10 rounded p-3">
-        Tag photos from the same job with a job tag (purple). A story ad then shows that one job, before to finish, once it has 3 photos or more.
-      </p>
-      <div className="border border-[#2A2A2A] rounded p-4 space-y-3">
-        <p className="text-sm text-gray-400">
-          Your photos and clips. Claude looks at each one and suggests tags; an upload with no tags takes them. Tag it yourself to override. A before
-          and after with the same pair key become a wipe.
-        </p>
-        <div className="flex flex-wrap gap-2" aria-label="Tags for the next upload">
-          {[...scopesFor(trade), 'before', 'after'].map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={tags.includes(t)}
-              onClick={() => toggle(t)}
-              className={`px-2 py-1 text-xs rounded border ${tags.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-300'}`}
-            >
-              {t}
-            </button>
-          ))}
-          <JobTags
-            jobs={jobs ?? []}
-            value={jobId}
-            onPick={(id) => setJobId(id ?? '')}
-            onNew={(name) => act(async () => setJobId(await adsAPI.addJob(name, trade)), `Job "${name}" added. The next upload is tagged with it.`)}
-            where="the next upload"
-          />
+    <Dialog title="Add photos or clips" onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm text-gray-400">Tag them now, or leave it: Claude looks at each one and tags it for you.</p>
+        <KindTags value={tags} onChange={setTags} photo label="Tags for the next upload" />
+        <div className="space-y-2">
+          <p className="text-xs text-gray-400">Job (purple, photos only)</p>
+          <div className="flex flex-wrap gap-2">
+            <JobTags
+              jobs={jobs}
+              value={jobId}
+              where="the next upload"
+              onPick={(id) => setJobId(id ?? '')}
+              onNew={(name) => act(async () => setJobId(await adsAPI.addJob(name, trade)), `Job "${name}" added. The next upload is tagged with it.`)}
+            />
+          </div>
         </div>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Pair key (optional)" hint="Same word on a before and its after, e.g. kitchen-elm">
-            <input value={pairKey} onChange={(e) => setPairKey(e.target.value)} className={input} />
-          </Field>
-          <Field label="Note (optional)" hint="Where it was shot and whose permission you have">
-            <input value={note} onChange={(e) => setNote(e.target.value)} className={input} />
-          </Field>
-        </div>
-        <label className={`${secondary} cursor-pointer inline-flex items-center gap-2`}>
-          <Upload className="w-4 h-4" /> {busy ? 'Uploading…' : 'Upload photos or clips'}
+        <details className="text-sm">
+          <summary className="cursor-pointer text-gray-400">More</summary>
+          <div className="mt-3">
+            <Field label="Pair key" hint="Same word on a before and its after of the same spot, e.g. kitchen-elm">
+              <input value={pairKey} onChange={(e) => setPairKey(e.target.value)} className={input} />
+            </Field>
+            <Field label="Note" hint="Where it was shot and whose permission you have">
+              <input value={note} onChange={(e) => setNote(e.target.value)} className={input} />
+            </Field>
+          </div>
+        </details>
+        <label className={`${primary} w-full cursor-pointer`}>
+          <Upload className="w-4 h-4" /> {busy ? 'Uploading…' : 'Choose files'}
           <input
-            ref={fileRef}
             type="file"
             accept="image/*,video/*"
             multiple
@@ -1032,30 +1299,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           />
         </label>
       </div>
-      {assets === undefined ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : assets.length === 0 ? (
-        <p className="text-sm text-gray-400">Nothing in the library yet.</p>
-      ) : (
-        <div className="space-y-5" aria-label="Library">
-          {(jobs ?? []).map((j) => (
-            <JobGroup key={j.id} job={j} assets={assets.filter((a) => a.jobId === j.id)} jobs={jobs ?? []} act={act} />
-          ))}
-          {assets.some((a) => !a.jobId || !(jobs ?? []).some((j) => j.id === a.jobId)) && (
-            <section className="space-y-2" aria-label="Not in a job">
-              {(jobs ?? []).length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
-              <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-                {assets
-                  .filter((a) => !a.jobId || !(jobs ?? []).some((j) => j.id === a.jobId))
-                  .map((a) => (
-                    <AssetCard key={a.id} a={a} jobs={jobs ?? []} act={act} />
-                  ))}
-              </ul>
-            </section>
-          )}
-        </div>
-      )}
-    </div>
+    </Dialog>
   );
 };
 
@@ -1128,7 +1372,7 @@ const JobTags: React.FC<{
 };
 
 /** One job's photos together, with its name to change and a way to take the job away (its photos stay). */
-const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; jobs: AdJob[]; act: Act }> = ({ job, assets, jobs, act }) => {
+const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: React.ReactNode }> = ({ job, assets, act, children }) => {
   const [name, setName] = useState<string | null>(null);
   const hasBefore = assets.some((a) => a.tags.includes('before'));
   const hasAfter = assets.some((a) => a.tags.includes('after'));
@@ -1174,148 +1418,9 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; jobs: AdJob[]; act: Ac
         <p className="text-xs text-gray-500">A story is told from one job once it has 3 photos or more.</p>
       )}
       {assets.length > 0 && (
-        <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-          {assets.map((a) => (
-            <AssetCard key={a.id} a={a} jobs={jobs} act={act} />
-          ))}
-        </ul>
+        <ul className={grid}>{children}</ul>
       )}
     </section>
-  );
-};
-
-const AssetCard: React.FC<{ a: AdAsset; jobs?: AdJob[]; act: Act }> = ({ a, jobs = [], act }) => {
-  const trade = useTrade();
-  const [tags, setTags] = useState(a.tags);
-  const [pairKey, setPairKey] = useState(a.pairKey ?? '');
-  useEffect(() => {
-    setTags(a.tags);
-    setPairKey(a.pairKey ?? '');
-  }, [a.tags, a.pairKey]);
-  const changed = tags.join(',') !== a.tags.join(',') || pairKey !== (a.pairKey ?? '');
-  return (
-    <li className="border border-[#2A2A2A] rounded bg-[#121212] overflow-hidden" data-testid="asset">
-      {a.posterUrl ? (
-        <img src={a.posterUrl} alt={a.fileName} className="w-full aspect-square object-cover" />
-      ) : a.kind === 'video' ? (
-        a.url ? (
-          // "#t=0.1" asks the browser to show a frame; iPhones and iPads show black without it.
-          <video src={`${a.url}#t=0.1`} muted playsInline preload="metadata" className="w-full aspect-square object-cover bg-black" />
-        ) : (
-          <div className="w-full aspect-square bg-black" />
-        )
-      ) : a.url ? (
-        <img src={a.url} alt={a.fileName} className="w-full aspect-square object-cover" />
-      ) : (
-        <div className="w-full aspect-square bg-black" />
-      )}
-      <div className="p-2 space-y-1">
-        <p className="text-[11px] text-gray-400 truncate flex items-center gap-1">
-          {a.kind === 'video' ? <Film className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />} {a.fileName}
-          {a.uses ? (
-            <span className="ml-auto text-gray-600">
-              in {a.uses} ad{a.uses === 1 ? '' : 's'}
-            </span>
-          ) : null}
-        </p>
-        {a.description && <p className="text-[11px] text-gray-500">{a.description}</p>}
-        {a.suggestedTags && a.suggestedTags.length > 0 && [...a.suggestedTags].sort().join(',') !== [...a.tags].sort().join(',') && (
-          <p className="text-[11px] text-sky-300" data-testid="suggested-tags">
-            Suggested: {a.suggestedTags.join(', ')} ·{' '}
-            <button
-              type="button"
-              className="underline"
-              onClick={() => act(() => adsAPI.tagAsset(a.id, a.suggestedTags!, a.pairKey, a.note), 'Tags updated.')}
-            >
-              Use these
-            </button>
-          </p>
-        )}
-        <div className="flex flex-wrap gap-1">
-          {[...scopesFor(trade), 'before', 'after'].map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={tags.includes(t)}
-              onClick={() => setTags((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]))}
-              className={`px-1.5 py-0.5 text-[10px] rounded border ${tags.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-400'}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-1" aria-label={`Job of ${a.fileName}`}>
-          <JobTags
-            jobs={jobs}
-            value={a.jobId}
-            small
-            where={a.fileName}
-            onPick={(jobId) => act(() => adsAPI.setAssetJob(a.id, jobId), jobId ? 'Tagged with the job.' : 'Job tag taken off.')}
-            onNew={(name) =>
-              act(async () => {
-                const jobId = await adsAPI.addJob(name, trade);
-                await adsAPI.setAssetJob(a.id, jobId);
-              }, `Job "${name}" added and this photo tagged with it.`)
-            }
-          />
-        </div>
-        <input
-          value={pairKey}
-          onChange={(e) => setPairKey(e.target.value)}
-          placeholder="pair key"
-          aria-label={`Pair key for ${a.fileName}`}
-          className={`${input} text-xs py-1`}
-        />
-        <div className="flex gap-1">
-          {changed && (
-            <button
-              type="button"
-              className={`${primary} text-xs py-1 flex-1`}
-              onClick={() => act(() => adsAPI.tagAsset(a.id, tags, pairKey || undefined, a.note), 'Saved.')}
-            >
-              Save
-            </button>
-          )}
-          <button
-            type="button"
-            aria-label={`Remove ${a.fileName}`}
-            className="ml-auto text-gray-500 hover:text-red-300 p-1"
-            onClick={() => act(() => adsAPI.removeAsset(a.id))}
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-        {a.kind === 'video' && !a.posterUrl && a.url && (
-          <button
-            type="button"
-            className={`${secondary} text-xs py-1 w-full`}
-            onClick={() =>
-              act(async () => {
-                const { still, durationSec } = await stillOfClip(a.url!, true);
-                if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
-                await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
-              }, 'Still made. Claude is looking at the clip and will suggest its tags.')
-            }
-          >
-            Make its still
-          </button>
-        )}
-        {a.kind === 'video' && (
-          <button
-            type="button"
-            className={`${secondary} text-xs py-1 w-full`}
-            onClick={() =>
-              act(
-                () => adsAPI.makeFootage(a.id),
-                'Making a job site ad from this clip. It shows under This week once it is written, then drawn.',
-              )
-            }
-          >
-            Make a job site ad
-          </button>
-        )}
-      </div>
-    </li>
   );
 };
 
