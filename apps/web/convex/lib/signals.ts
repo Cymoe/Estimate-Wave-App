@@ -216,8 +216,14 @@ export function toCsv(header: string[], rows: unknown[][]): string {
 export function isEstateName(owner: string | undefined): boolean {
   if (!owner) return false;
   const name = owner.toUpperCase().replace(/[.,]/g, " ").replace(/\bREAL\s+ESTATE\b/g, " ");
+  // "PREMIUM ESTATE PROPERTIES LLC" and "AMERICAN ESTATE & TRUST LC" are businesses named for estates, not one.
+  if (ESTATE_BUSINESS.test(name)) return false;
   return /\b(ESTATE|EST|HEIRS?|DECEASED|DEC'?D|DECD)\b/.test(name);
 }
+
+/** A business word on the roll (lib/parcels.ts isCompanyOwner's, plus LC and PLLC): such a name is never an estate. */
+const ESTATE_BUSINESS =
+  /\b(LLC|L L C|LC|PLLC|INC|LTD|LP|L P|CORP|CORPORATION|CO|COMPANY|HOMES?|BUILDERS?|PROPERTIES|PROPERTY|INVESTMENTS?|HOLDINGS|PARTNERS|PARTNERSHIP|CHURCH|MINISTRIES|BANK|MORTGAGE|AUTHORITY|ASSOCIATION|ASSN|REALTY|DEVELOPMENT|RENTALS?|ESTATES)\b/;
 
 /** One row of an uploaded court or tax list: where, whose, when and which case. */
 export type RecordLine = { line: number; address?: string; owner?: string; date?: string; caseNumber?: string; detail?: string };

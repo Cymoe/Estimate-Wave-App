@@ -3,7 +3,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { addressKey, isEstateOwner, looseKey } from "./lib/parcels";
 import { LIKELY_SELLER_MIN, defaultTitle, facetsOf, guessDefinition, listOrder, ownerKey, propertyFor, underFloor, why, type OwnerRow } from "./lib/outreach";
-import { nameOrders, parseRecords, recordDate, stackFor } from "./lib/signals";
+import { isEstateName, nameOrders, parseRecords, recordDate, stackFor } from "./lib/signals";
 import { rollAccount, rollColumns } from "./lib/districtRoll";
 import { homesteadChange } from "./parcels";
 import { setup, signUp } from "./test.setup";
@@ -14,6 +14,12 @@ describe("what the rolls say about an owner likely to sell", () => {
       expect(isEstateOwner(owner), owner).toBe(true);
     for (const owner of ["WESTERN JOHN", "ESTRADA MARIA", "PERMIAN REAL ESTATE", "JONES MARY", "ESTES ROBERT", undefined])
       expect(isEstateOwner(owner), String(owner)).toBe(false);
+    // Businesses named for an estate, as Odessa's roll has them.
+    for (const owner of ["PREMIUM ESTATE PROPERTIES LLC", "AMERICAN ESTATE & TRUST LC", "WEST TEXAS ESTATES", "LEGACY ESTATE HOLDINGS"]) {
+      expect(isEstateOwner(owner), owner).toBe(false);
+      expect(isEstateName(owner), owner).toBe(false);
+    }
+    expect(isEstateName("LEE R L & DOROTHY ESTATE")).toBe(true);
   });
 
   test("a homestead gone from the same owner is a drop; a new owner, the first read, or a source that doesn't say is not", () => {
