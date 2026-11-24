@@ -1101,17 +1101,16 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         // Held at the bottom of the screen while photos are picked.
         <div className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-3xl rounded-lg border border-[#7c5cc4] bg-[#16121f]/95 p-3 shadow-2xl space-y-2" aria-label="Tag picked photos">
           <p className="text-sm text-white">
-            {picked.length === 0 ? 'Tap photos to pick them.' : `${picked.length} photo${picked.length === 1 ? '' : 's'} picked. Tap a job tag to tag them all:`}
+            {picked.length === 0 ? 'Tap photos to pick them.' : `${picked.length} photo${picked.length === 1 ? '' : 's'} picked. Tap the job they belong to:`}
           </p>
           {picked.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <JobTags
-                jobs={jobs}
-                where="the picked photos"
-                onPick={(jobId) => jobId && toJob({ jobId }, jobs.find((j) => j.id === jobId)?.name ?? 'with the job')}
-                onNew={(name) => toJob({ name }, name)}
-              />
-            </div>
+            <JobPicker
+              jobs={jobs}
+              where="the picked photos"
+              open
+              onPick={(jobId) => jobId && toJob({ jobId }, jobs.find((j) => j.id === jobId)?.name ?? 'with the job')}
+              onNew={(name) => toJob({ name }, name)}
+            />
           )}
         </div>
       )}
@@ -1295,7 +1294,7 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
           type="button"
           aria-pressed={value.includes(t)}
           onClick={() => onChange(value.includes(t) ? value.filter((x) => x !== t) : [...value, t])}
-          className={`px-2.5 py-1 text-xs rounded border ${value.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-300'}`}
+          className={`px-3.5 min-h-[40px] text-sm rounded-lg border ${value.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-300'}`}
         >
           {t}
         </button>
@@ -1340,9 +1339,9 @@ const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () =
         </div>
         {photo && (
           <div className="space-y-2">
-            <p className="text-xs text-gray-400">Job (purple)</p>
-            <div className="flex flex-wrap gap-2" aria-label={`Job of ${a.fileName}`}>
-              <JobTags
+            <p className="text-xs text-gray-400">Job</p>
+            <div aria-label={`Job of ${a.fileName}`}>
+              <JobPicker
                 jobs={jobs}
                 value={a.jobId}
                 where={a.fileName}
@@ -1467,9 +1466,9 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
         <p className="text-sm text-gray-400">Tag them now, or leave it: Claude looks at each one and tags it for you.</p>
         <KindTags value={tags} onChange={setTags} photo label="Tags for the next upload" />
         <div className="space-y-2">
-          <p className="text-xs text-gray-400">Job (purple, photos only)</p>
-          <div className="flex flex-wrap gap-2">
-            <JobTags
+          <p className="text-xs text-gray-400">Job (photos only)</p>
+          <div>
+            <JobPicker
               jobs={jobs}
               value={jobId}
               where="the next upload"
@@ -1507,70 +1506,94 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
 };
 
 /**
- * The job tags: one per job, and "+ job" to name a new one. A photo has one job, so tapping another moves it and
- * tapping the lit one takes it off. Purple, so they don't read as the kind-of-job tags beside them.
+ * Which job a photo is from, made for a finger: the job shown as one wide row; tapping it opens the jobs as a list
+ * of big rows (newest first), with "No job" and a new one by name. Picking one closes the list. Open from the start
+ * where a job is the only thing being asked (the bar for picked photos).
  */
-const JobTags: React.FC<{
+const JobPicker: React.FC<{
   jobs: AdJob[];
   value?: string;
   onPick: (jobId?: string) => void;
   onNew: (name: string) => Promise<unknown>;
   where: string;
-  small?: boolean;
-}> = ({ jobs, value, onPick, onNew, where, small }) => {
-  const [naming, setNaming] = useState(false);
+  open?: boolean;
+}> = ({ jobs, value, onPick, onNew, where, open: startOpen = false }) => {
+  const [open, setOpen] = useState(startOpen);
   const [name, setName] = useState('');
-  const size = small ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs';
+  const current = jobs.find((j) => j.id === value);
+  const row = 'w-full min-h-[48px] px-4 flex items-center gap-3 text-left text-[15px] rounded-lg';
+  const pick = (jobId?: string) => {
+    onPick(jobId);
+    if (!startOpen) setOpen(false);
+  };
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`Change the job for ${where}`}
+        className={`${row} border ${current ? 'border-[#7c5cc4] bg-[#7c5cc4]/15 text-white' : 'border-[#333] text-gray-300'}`}
+      >
+        <span className={`w-3 h-3 rounded-full flex-none ${current ? 'bg-[#7c5cc4]' : 'border border-gray-500'}`} aria-hidden="true" />
+        <span className="flex-1 truncate">{current ? current.name : 'No job'}</span>
+        <span className="text-sm text-[#c9b8f0]">Change</span>
+      </button>
+    );
   return (
-    <>
-      {jobs.map((j) => (
-        <button
-          key={j.id}
-          type="button"
-          aria-pressed={value === j.id}
-          aria-label={`Job ${j.name} for ${where}`}
-          onClick={() => onPick(value === j.id ? undefined : j.id)}
-          className={`${size} rounded-full border ${value === j.id ? 'bg-[#7c5cc4] border-[#7c5cc4] text-white' : 'border-[#7c5cc4]/60 text-[#c9b8f0]'}`}
-        >
-          {j.name}
-        </button>
-      ))}
-      {naming ? (
-        <form
-          className="flex gap-1 w-full"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const clean = name.trim();
-            if (!clean) return;
-            void onNew(clean).then(() => {
-              setNaming(false);
-              setName('');
-            });
-          }}
-        >
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Job name, e.g. Smith kitchen"
-            aria-label={`New job for ${where}`}
-            className={`${input} ${small ? 'text-xs py-1' : 'text-sm py-1'} flex-1 min-w-0`}
-            autoFocus
-          />
-          <button type="submit" className={`${primary} text-xs py-1`} disabled={!name.trim()}>
-            Add
-          </button>
-        </form>
-      ) : (
-        <button
-          type="button"
+    <div className="rounded-lg border border-[#333] bg-[#141414] overflow-hidden" aria-label={`Jobs for ${where}`}>
+      <form
+        className="flex gap-2 p-2 border-b border-[#2A2A2A]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const clean = name.trim();
+          if (!clean) return;
+          void onNew(clean).then(() => {
+            setName('');
+            if (!startOpen) setOpen(false);
+          });
+        }}
+      >
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="New job, e.g. Smith kitchen"
           aria-label={`New job for ${where}`}
-          onClick={() => setNaming(true)}
-          className={`${size} rounded-full border border-dashed border-[#7c5cc4]/60 text-[#c9b8f0]`}
-        >
-          + job
+          className={`${input} min-h-[44px] flex-1 min-w-0`}
+        />
+        <button type="submit" className={`${primary} min-h-[44px]`} disabled={!name.trim()}>
+          Add
         </button>
-      )}
-    </>
+      </form>
+      <ul className="max-h-[40dvh] overflow-y-auto divide-y divide-[#222]">
+        {jobs.map((j) => (
+          <li key={j.id}>
+            <button
+              type="button"
+              aria-pressed={value === j.id}
+              aria-label={`Job ${j.name} for ${where}`}
+              onClick={() => pick(value === j.id && startOpen ? undefined : j.id)}
+              className={`${row} rounded-none ${value === j.id ? 'bg-[#7c5cc4]/20 text-white' : 'text-gray-200 [@media(hover:hover)]:hover:bg-[#1d1d1d]'}`}
+            >
+              <span className={`w-3 h-3 rounded-full flex-none ${value === j.id ? 'bg-[#7c5cc4]' : 'bg-[#7c5cc4]/40'}`} aria-hidden="true" />
+              <span className="flex-1 truncate">{j.name}</span>
+              <span className="text-xs text-gray-500">
+                {j.photos} photo{j.photos === 1 ? '' : 's'}
+              </span>
+              {value === j.id && <span className="text-[#c9b8f0]">✓</span>}
+            </button>
+          </li>
+        ))}
+        {!startOpen && (
+          <li>
+            <button type="button" onClick={() => pick(undefined)} aria-pressed={!value} className={`${row} rounded-none text-gray-400`}>
+              <span className="w-3 h-3 rounded-full flex-none border border-gray-500" aria-hidden="true" />
+              <span className="flex-1">No job</span>
+              {!value && <span>✓</span>}
+            </button>
+          </li>
+        )}
+      </ul>
+    </div>
   );
 };
 
