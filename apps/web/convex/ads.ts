@@ -617,7 +617,7 @@ export const libraryForJobs = internalQuery({
   handler: async (ctx, { trade }) =>
     (await ctx.db.query("adAssets").take(500))
       .filter((a) => inTrade(a, trade) && a.kind === "photo")
-      .map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, pairKey: a.pairKey, note: a.note, description: a.description, items: a.items, jobId: a.jobId, uses: a.uses ?? 0, createdAt: a.createdAt })),
+      .map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, pairKey: a.pairKey, note: a.note, description: a.description, items: a.items, size: a.size, hasThumb: !!a.thumbStorageId, jobId: a.jobId, uses: a.uses ?? 0, createdAt: a.createdAt })),
 });
 
 /** Files library photos under one job, made under this name when there is none by it yet, from the deployment. */
