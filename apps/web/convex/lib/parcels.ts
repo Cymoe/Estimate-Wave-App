@@ -152,6 +152,8 @@ export function isEstateOwner(owner: string | undefined): boolean {
   if (!owner) return false;
   // "ABC REAL ESTATE" is a business, not an estate.
   const name = owner.toUpperCase().replace(/[.,]/g, " ").replace(/\bREAL\s+ESTATE\b/g, " ");
+  // A business named for an estate ("PREMIUM ESTATE PROPERTIES LLC", "AMERICAN ESTATE & TRUST LC") isn't one.
+  if (isCompanyOwner(name) || /\b(LC|PLLC|ESTATES)\b/.test(name)) return false;
   return /\b(ESTATE|EST|HEIRS?|DECEASED|DEC'?D|DECD)\b/.test(name);
 }
 
