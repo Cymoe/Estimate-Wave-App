@@ -207,6 +207,10 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   `ads:lastBatch {names:[…]}` shows the named ads from any batch, to check a redraw.
 - `ads:makeFromPhoto {assetId, line, opening?, scope?}` makes an ad for one job's photo.
 - `ads:voiceSamples {text, voiceIds, lines}` returns a timed read, for drawing a local sample of a new kind of ad.
+- `ads:sampleWithSteps {name, jobId?, checklist?}` makes a story again from the same idea and job: with headlines that may not
+  repeat the voice (`steps`, off by default; echoing ones are dropped and steps renumbered), or drawn as a checklist.
+  A checklist needs photos that show each step: a job of finished photos only is passed over.
+- Research needs `APIFY_TOKEN` on the deployment; without it a run stops at once ("Set APIFY_TOKEN...").
 
 ## Jobs: one job's photos together
 
@@ -259,7 +263,7 @@ How it works:
   for a Vercel sign-in, so links never point there.
 - `ads:readRequest` asks Claude for the trade, the kind of job (`trade.scopes`, else general), the town, and a
   one-line idea. Then `startRequestAds` builds two hooks (off, so Monday never repeats them):
-  - the story on the best competitor ad with a script for that kind of job;
+  - the story on one of the best three competitor ads with a script for that kind of job: they take turns (`adSwipes.lastUsedAt`), so asking again gives a different script;
   - the lesson on a different one, a teaching ad first (`pickRequestSwipes`).
 - It then runs `weeklyRun {only, requestId, town, quickToo}`. The quick offer speaks to the town the line named.
   A request skips the live-ads cap.
