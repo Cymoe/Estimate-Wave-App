@@ -1145,6 +1145,24 @@ describe("the library, hooks and settings", () => {
     expect(after!.tags).toEqual(["interior"]);
     expect(await items()).toEqual(["front door", "shutters"]);
     expect(await t.mutation(internal.ads.labelLibrary, {})).toEqual({ asked: 0 });
+    // Claude turning a look away for coming too fast: asked again a little later, by itself.
+    const busy = { n: 2 };
+    stubServices(calls, { describe: { description: "A fence painted red.", tags: ["exterior"], items: ["fence"] }, busyLooks: busy });
+    vi.useFakeTimers();
+    const fence = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "fence.jpg", tags: [] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(busy.n).toBeLessThan(0);
+    expect((await t.run(async (ctx) => await ctx.db.get(fence)))!.items).toEqual(["fence"]);
+    // A file Claude keeps turning away is let be after three more tries.
+    const stuck = { n: 99 };
+    stubServices(calls, { busyLooks: stuck });
+    vi.useFakeTimers();
+    const lost = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "lost.jpg", tags: [] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(99 - stuck.n).toBe(4);
+    expect((await t.run(async (ctx) => await ctx.db.get(lost)))!.items).toBeUndefined();
   });
 
   test("within a job Claude matches each before with the after of the same spot, by itself, once a run of changes settles", async () => {
@@ -1485,6 +1503,8 @@ describe("the library, hooks and settings", () => {
 });
 
 type StubOpts = {
+  /** Claude turns this many looks at an upload away for coming too fast (429), counting down. */
+  busyLooks?: { n: number };
   /** Claude answers this scope's hook in words, with no plan; "cut off" stops mid-answer instead. */
   notJson?: { scope: string; cutOff?: boolean };
   /** Every ad carries a price. */
@@ -1657,6 +1677,8 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         const retry = content.some((c) => c.text?.startsWith("Your last answer had these problems"));
         const offered = content.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length;
         let reply: unknown;
+        if (opts.busyLooks && prompt.includes("It will be used in ads.") && opts.busyLooks.n-- > 0)
+          return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } }), { status: 429 });
         if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
         else if (prompt.includes("Which before and which after show the same spot")) reply = opts.pairs ?? { pairs: [{ before: 1, after: 2 }] };
         else if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };

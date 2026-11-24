@@ -352,8 +352,9 @@ export const saveDescription = internalMutation({
 
 /** Asks Claude what an uploaded photo or clip shows, and which tags it would give it. */
 export const describeAsset = internalAction({
-  args: { id: v.id("adAssets") },
-  handler: async (ctx, { id }) => {
+  // tries: how many looks at this file Claude has already turned away.
+  args: { id: v.id("adAssets"), tries: v.optional(v.number()) },
+  handler: async (ctx, { id, tries = 0 }) => {
     const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
     if (!a?.imageUrl || !process.env.ANTHROPIC_API_KEY) return;
     try {
@@ -369,10 +370,18 @@ export const describeAsset = internalAction({
       const suggestedTags = [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(tradeOf(a.trade)).includes(t));
       await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags, items: cleanItems(out.items, tradeOf(a.trade)) });
     } catch (e) {
-      console.error("describe asset", id, errText(e));
+      const why = errText(e);
+      console.error("describe asset", id, why);
+      // Claude busy, or asked too fast (many files at once), or the picture didn't reach it: looked at again a
+      // little later, three more times at most.
+      if (tries < 3 && /^Claude: (429|5\d\d)\b|download|fetch failed|timed? ?out/i.test(why))
+        await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1 });
     }
   },
 });
+
+/** How long a look Claude turned away waits before it is asked again, doubled each time. */
+const DESCRIBE_RETRY_MS = 30_000;
 
 export const listAssets = query({
   args: { trade: v.optional(v.string()) },
@@ -673,7 +682,8 @@ export const labelLibrary = internalMutation({
     let asked = 0;
     for (const a of await ctx.db.query("adAssets").take(500)) {
       if (a.items !== undefined) continue;
-      await ctx.scheduler.runAfter(asked * 1200, internal.ads.describeAsset, { id: a._id });
+      // Spaced out, so Claude isn't asked faster than it takes pictures.
+      await ctx.scheduler.runAfter(asked * 3000, internal.ads.describeAsset, { id: a._id });
       asked += 1;
     }
     return { asked };
