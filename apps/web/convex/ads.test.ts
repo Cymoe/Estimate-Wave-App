@@ -24,6 +24,7 @@ import {
   mergeSwipeCsvs,
   PREP_ANGLE,
   motionPlanProblems,
+  echoes,
   motionPrompt,
   scriptLength,
   parseCsv,
@@ -53,6 +54,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
+import { AD_TRADES, cleanItems, describePrompt, itemsIn, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -234,7 +236,39 @@ function quickPlanFor(photoCount: number, town = "Midland") {
   };
 }
 
+describe("what a photo shows (labels)", () => {
+  const painting = AD_TRADES.painting;
+  test("Claude is asked for the trade's labels, and only those are kept, in the list's order", () => {
+    expect(describePrompt(painting)).toContain("front door, garage door");
+    expect(describePrompt(painting)).toContain('"items":["..."]');
+    expect(cleanItems(["Doors", "trim", "unicorn", "doors", 5], painting)).toEqual(["trim", "doors"]);
+    expect(cleanItems(undefined, painting)).toEqual([]);
+  });
+  test("an idea's words name labels: the longest first, plurals either way", () => {
+    expect(itemsIn("Front door painting in Odessa", painting)).toEqual(["front door"]);
+    expect(itemsIn("We paint interior doors and trim", painting)).toEqual(expect.arrayContaining(["doors", "trim"]));
+    expect(itemsIn("Fence staining that lasts", painting)).toEqual(["fence"]);
+    expect(itemsIn("Paint them, don't replace", painting)).toEqual([]);
+  });
+  test("photos showing what the idea names are offered first", () => {
+    const p = (id: string, items: string[]) => ({ _id: id, kind: "photo" as const, tags: ["exterior"], items, createdAt: "2026-11-01" });
+    const lib = [p("wall", ["siding"]), p("door", ["front door"]), p("fence", ["fence"])];
+    expect(pickAssets(lib, "exterior", new Set(), 6, [], ["front door"]).assets[0]._id).toBe("door");
+    expect(pickAssets(lib, "exterior", new Set(), 6, [], []).assets.map((a) => a._id)).toEqual(["wall", "door", "fence"]);
+  });
+});
+
 describe("one job's photos", () => {
+  test("Claude's answer on which before and after show the same spot is read safely: each photo once, nothing out of range", () => {
+    expect(pairingPrompt(2, 3)).toContain("The first 2 are befores, the next 3 are afters");
+    expect(readPairing('{"pairs":[{"before":1,"after":2},{"before":1,"after":3},{"before":2,"after":2},{"before":2,"after":9},{"before":2,"after":1}]}', 2, 3)).toEqual([
+      [0, 1],
+      [1, 0],
+    ]);
+    expect(readPairing('{"pairs":[]}', 1, 1)).toEqual([]);
+    expect(readPairing("no idea", 1, 1)).toBeNull();
+  });
+
   const p = (id: string, tags: string[], jobId?: string, day = 1, uses = 0) => ({ _id: id, kind: "photo" as const, tags, jobId, uses, createdAt: `2026-11-${String(day).padStart(2, "0")}` });
   test("a story picks a job with enough photos of its kind, one with a before and an after first, then the least used; never one used this week", () => {
     const lib = [
@@ -281,6 +315,15 @@ describe("make an ad for…, the pure parts", () => {
     expect(readRequestReply('{"trade":"painting","idea":""}', trades)).toBeNull();
   });
 
+  test("the owner's job names never stay in the idea: the phrase is cut, or the idea is dropped when it can't be", () => {
+    const names = ["Green Kitchen", "Smith kitchen on Elm"];
+    expect(requestPrompt("an ad from the Green Kitchen", "GoodFit Pros", [], trades, names)).toContain("never put one in the idea");
+    expect(withoutJobNames("We repaint kitchen cabinets for Midland homeowners, as we did in the Green Kitchen job.", names)).toBe("We repaint kitchen cabinets for Midland homeowners.");
+    expect(withoutJobNames("We repaint cabinets, like our green kitchen job.", names)).toBe("We repaint cabinets.");
+    expect(withoutJobNames("The Smith kitchen on Elm, painted.", names)).toBeNull();
+    expect(withoutJobNames("We paint homes inside and out.", names)).toBe("We paint homes inside and out.");
+  });
+
   const swipe = (company: string, more: Record<string, unknown> = {}) => ({ company, importedAt: "2026-11-01", starred: false, quality: 30, ...more });
   const script = "We take every door off and spray it in our shop so the finish comes out smooth and even.";
   test("the story is built on the best ad with a script for that kind of job, the lesson on another, a teaching one first", () => {
@@ -297,6 +340,22 @@ describe("make an ad for…, the pure parts", () => {
     // With one ad on file there is no lesson; with none, nothing.
     expect(pickRequestSwipes([swipe("Rodgers", { scope: "cabinets", transcript: script })], "cabinets").lesson).toBeUndefined();
     expect(pickRequestSwipes([swipe("Outside", { scope: "exterior", transcript: script })], "cabinets").story).toBeUndefined();
+  });
+
+  test("the best three ads with a script take turns: each request is built on the one used longest ago", () => {
+    const ads = [
+      swipe("First", { scope: "cabinets", transcript: script, quality: 40 }),
+      swipe("Second", { scope: "cabinets", transcript: script, quality: 35 }),
+      swipe("Third", { scope: "cabinets", transcript: script, quality: 30 }),
+      swipe("Fourth", { scope: "cabinets", transcript: script, quality: 25 }),
+    ] as Array<ReturnType<typeof swipe> & { lastUsedAt?: string }>;
+    const order: string[] = [];
+    for (let day = 1; day <= 5; day++) {
+      const { story } = pickRequestSwipes(ads, "cabinets");
+      order.push(story!.company);
+      story!.lastUsedAt = `2026-11-0${day}`;
+    }
+    expect(order).toEqual(["First", "Second", "Third", "First", "Second"]);
   });
 
   test("the page's stage follows the request, its batch and its ads", () => {
@@ -334,6 +393,18 @@ describe("a quick offer", () => {
     expect(motionPlanProblems(good, twoJobs, { town: "Midland" })).toContain("a quick offer shows one job: one photo, or a before and its after");
     // Its 27 words are too few for a story reel.
     expect(motionPlanProblems(good, pair).join()).toContain("words of voice (write 45 to 55)");
+  });
+  test("with steps on, the title and headlines may not just repeat the words said under them; a checklist's points may", () => {
+    expect(echoes("Doors and drawers go to our shop", "First, we take your doors and drawers back to our shop.")).toBe(true);
+    expect(echoes("A fresh new look for cabinets", "Give your kitchen a fresh new look with cabinet painting.")).toBe(true);
+    expect(echoes("Step 1: Off to our shop", "First, we take your doors and drawers back to our shop.")).toBe(false);
+    expect(echoes("Not sure how it works?", "But you're unsure of the process.")).toBe(false);
+    const good = quickPlanFor(2);
+    const echo = { ...good, lines: good.lines.map((l, i) => (i === 1 ? { ...l, label: "Every cabinet door painted", voice: "We painted every cabinet door in this kitchen." } : l)) };
+    expect(motionPlanProblems(echo, pair, { town: "Midland" }).join()).not.toContain("repeats");
+    expect(motionPlanProblems(echo, pair, { town: "Midland" }, undefined, { noEcho: true }).join()).toContain('headline "Every cabinet door painted" repeats what is said');
+    const ask = motionPrompt({ textEn: "Paint them", family: "before_after", scope: "cabinets", style: "reel", steps: true }, "GoodFit Pros", [], true, [], "Midland");
+    expect(ask).toContain("a label never repeats the line's words");
   });
   test("its photos: a tagged pair first, then one image holding both, else one finished photo; never a lone before or an untagged photo", () => {
     const other = { tags: ["cabinets", "after"] };
@@ -1060,10 +1131,126 @@ describe("niche research's pure parts", () => {
 });
 
 describe("the library, hooks and settings", () => {
+  test("a library file carries a small copy for the grid: given at upload or made later; replaced and removed with it", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    const member = await signUp(t, "owner@peak.example");
+    const thumb = await store(t, "image/jpeg", "small");
+    const a = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "a.jpg", tags: [], thumbStorageId: thumb });
+    const b = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "b.jpg", tags: [] });
+    const list = async () => Object.fromEntries((await staff.as.query(api.ads.listAssets, {})).map((x) => [x.fileName, x.thumbUrl]));
+    expect(await list()).toEqual({ "a.jpg": expect.any(String), "b.jpg": undefined });
+    // One uploaded before thumbnails gets its copy later; a new copy replaces the old file.
+    await staff.as.mutation(api.ads.setThumb, { id: b, thumbStorageId: await store(t, "image/jpeg", "small b") });
+    const next = await store(t, "image/jpeg", "small a2");
+    await staff.as.mutation(api.ads.setThumb, { id: a, thumbStorageId: next });
+    expect(await t.run(async (ctx) => await ctx.db.system.get(thumb))).toBeNull();
+    expect(Object.values(await list()).every((u) => typeof u === "string")).toBe(true);
+    // Nothing big will do.
+    await expect(staff.as.mutation(api.ads.setThumb, { id: b, thumbStorageId: await store(t, "image/jpeg", "x".repeat(600 * 1024)) })).rejects.toThrow("small copy");
+    await expect(member.as.mutation(api.ads.setThumb, { id: b, thumbStorageId: next })).rejects.toThrow("Only Webb Leads staff");
+    // Removing the file removes its small copy too.
+    await staff.as.mutation(api.ads.removeAsset, { id: a });
+    expect(await t.run(async (ctx) => await ctx.db.system.get(next))).toBeNull();
+  });
+
+  test("an upload is labelled by Claude with what it shows; a person's fix sticks; the old library is labelled once", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    const member = await signUp(t, "owner@peak.example");
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    const calls: Call[] = [];
+    stubServices(calls, { describe: { description: "A front door painted black.", tags: ["exterior", "after"], items: ["front door", "brick", "spaceship"] } });
+    vi.useFakeTimers();
+    const id = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "door.jpg", tags: [] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    const items = async () => (await staff.as.query(api.ads.listAssets, {})).find((a) => a.id === id)!.items;
+    expect(await items()).toEqual(["front door", "brick"]);
+    await staff.as.mutation(api.ads.setItems, { id, items: ["front door", "shutters", "nonsense"] });
+    expect(await items()).toEqual(["front door", "shutters"]);
+    await expect(member.as.mutation(api.ads.setItems, { id, items: [] })).rejects.toThrow("Only Webb Leads staff");
+    // Files from before labels: each is looked at once more; a person's tags and fixed labels stay.
+    const old = await t.run(async (ctx) =>
+      ctx.db.insert("adAssets", { storageId: await ctx.storage.store(new Blob(["x"], { type: "image/jpeg" })), kind: "photo", fileName: "old.jpg", contentType: "image/jpeg", size: 1, tags: ["interior"], uploadedBy: staff.userId, createdAt: new Date().toISOString() }),
+    );
+    vi.useFakeTimers();
+    expect(await t.mutation(internal.ads.labelLibrary, {})).toEqual({ asked: 1 });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    const after = await t.run(async (ctx) => await ctx.db.get(old));
+    expect(after!.items).toEqual(["front door", "brick"]);
+    expect(after!.tags).toEqual(["interior"]);
+    expect(await items()).toEqual(["front door", "shutters"]);
+    expect(await t.mutation(internal.ads.labelLibrary, {})).toEqual({ asked: 0 });
+    // Claude turning a look away for coming too fast: asked again a little later, by itself.
+    const busy = { n: 2 };
+    stubServices(calls, { describe: { description: "A fence painted red.", tags: ["exterior"], items: ["fence"] }, busyLooks: busy });
+    vi.useFakeTimers();
+    const fence = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "fence.jpg", tags: [] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(busy.n).toBeLessThan(0);
+    expect((await t.run(async (ctx) => await ctx.db.get(fence)))!.items).toEqual(["fence"]);
+    // A file Claude keeps turning away is let be after three more tries.
+    const stuck = { n: 99 };
+    stubServices(calls, { busyLooks: stuck });
+    vi.useFakeTimers();
+    const lost = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "lost.jpg", tags: [] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(99 - stuck.n).toBe(4);
+    expect((await t.run(async (ctx) => await ctx.db.get(lost)))!.items).toBeUndefined();
+  });
+
+  test("within a job Claude matches each before with the after of the same spot, by itself, once a run of changes settles", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    const calls: Call[] = [];
+    // Before 1 is the same spot as After 2.
+    stubServices(calls, { pairs: { pairs: [{ before: 1, after: 2 }] } });
+    vi.useFakeTimers();
+    const jobId = await staff.as.mutation(api.ads.addJob, { name: "Elm kitchen" });
+    const add = async (fileName: string, tags: string[]) => await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", fileName), fileName, tags, jobId });
+    const b1 = await add("b1.jpg", ["cabinets", "before"]);
+    const a1 = await add("a1.jpg", ["cabinets", "after"]);
+    const a2 = await add("a2.jpg", ["cabinets", "after"]);
+    const work = await add("work.jpg", ["process"]);
+    await oneAtATime(t);
+    vi.useRealTimers();
+    const key = async (id: Id<"adAssets">) => (await t.run(async (ctx) => await ctx.db.get(id)))!.pairKey;
+    expect(await key(b1)).toEqual(expect.any(String));
+    expect(await key(a2)).toBe(await key(b1));
+    expect(await key(a1)).toBeUndefined();
+    expect(await key(work)).toBeUndefined();
+    // Four uploads, one look: only the last ask ran.
+    const looks = calls.filter((c) => c.url.includes("anthropic") && c.body!.includes("Which before and which after show the same spot"));
+    expect(looks).toHaveLength(1);
+    expect(JSON.stringify(JSON.parse(looks[0].body!).messages[0].content.filter((c: { type: string; text?: string }) => c.type === "text").map((c: { text?: string }) => c.text))).toContain("Before 1:");
+    // A photo moved out of the job leaves its pair.
+    vi.useFakeTimers();
+    await staff.as.mutation(api.ads.setAssetJob, { id: a2 });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(await key(a2)).toBeUndefined();
+    // Retagging keeps a pair key nobody typed.
+    stubServices(calls, { pairs: { pairs: [{ before: 1, after: 1 }] } });
+    vi.useFakeTimers();
+    await staff.as.mutation(api.ads.tagAsset, { id: a1, tags: ["cabinets", "after", "interior"] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(await key(a1)).toBe(await key(b1));
+    await staff.as.mutation(api.ads.tagAsset, { id: a1, tags: ["cabinets", "after", "interior"], note: "kept" });
+    expect(await key(a1)).toBe(await key(b1));
+  });
+
   test("photos of one job are kept together: a job is named, renamed and taken away without losing its photos; a project's photos go to one job, once each", async () => {
     const t = setup();
     const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
     const member = await signUp(t, "owner@peak.example");
+    // On the test's clock: the pairing each change asks for is run out below, not left to go off in a later test.
+    vi.useFakeTimers();
     await expect(member.as.mutation(api.ads.addJob, { name: "Theirs" })).rejects.toThrow("Only Webb Leads staff");
     await expect(staff.as.mutation(api.ads.addJob, { name: "   " })).rejects.toThrow("Give the job a name");
     const jobId = await staff.as.mutation(api.ads.addJob, { name: "Smith kitchen" });
@@ -1103,6 +1290,7 @@ describe("the library, hooks and settings", () => {
     expect(again).toEqual({ jobId: first.jobId, copied: [jobPhotoId] });
     expect((await staff.as.query(api.ads.listJobs, {})).find((j) => j.id === first.jobId)).toMatchObject({ name: "Jones exterior", projectId, photos: 1 });
     await expect(member.as.mutation(api.ads.jobForProject, { projectId })).rejects.toThrow("Only Webb Leads staff");
+    await oneAtATime(t);
   });
 
   test("staff file photos and clips with tags; tags are cleaned; removing deletes the file; members can't", async () => {
@@ -1353,6 +1541,8 @@ describe("the library, hooks and settings", () => {
 });
 
 type StubOpts = {
+  /** Claude turns this many looks at an upload away for coming too fast (429), counting down. */
+  busyLooks?: { n: number };
   /** Claude answers this scope's hook in words, with no plan; "cut off" stops mid-answer instead. */
   notJson?: { scope: string; cutOff?: boolean };
   /** Every ad carries a price. */
@@ -1367,6 +1557,8 @@ type StubOpts = {
   style?: "beforeAfter" | "reel";
   /** How Claude reads a "make an ad for…" line. */
   request?: unknown;
+  pairs?: unknown;
+  describe?: unknown;
 };
 
 /** Claude's read of a competitor ad, from what the prompt names. */
@@ -1523,7 +1715,11 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         const retry = content.some((c) => c.text?.startsWith("Your last answer had these problems"));
         const offered = content.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length;
         let reply: unknown;
-        if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
+        if (opts.busyLooks && prompt.includes("It will be used in ads.") && opts.busyLooks.n-- > 0)
+          return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } }), { status: 429 });
+        if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
+        else if (prompt.includes("Which before and which after show the same spot")) reply = opts.pairs ?? { pairs: [{ before: 1, after: 2 }] };
+        else if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
         else if (prompt.includes(IDEA_MARK)) reply = { ideas: ideasOf(prompt) };
         else if (prompt.includes(PICK_MARK)) reply = { picks: picksFor(prompt) };
         else if (prompt.includes(TASTE_MARK)) reply = { note: TASTE_NOTE };
@@ -2145,13 +2341,15 @@ describe("the weekly run", () => {
     });
 
     /** A job of three cabinet photos, filed together: a before, the work, the finish. */
-    const cabinetJob = async (t: T, owner: Awaited<ReturnType<typeof signUp>>) => {
-      const jobId = await owner.as.mutation(api.ads.addJob, { name: "  Smith   kitchen on Elm " });
-      const ids: string[] = [];
-      for (const [name, tags] of [["job-before.jpg", ["cabinets", "before"]], ["job-work.jpg", ["cabinets", "process"]], ["job-after.jpg", ["cabinets", "after"]]] as const)
-        ids.push(await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", name), fileName: name, tags: [...tags], jobId }));
-      return { jobId, ids };
-    };
+    // Filed on the test's clock, so the pairing it asks for runs here and not, 20 seconds on, in a later test.
+    const cabinetJob = async (t: T, owner: Awaited<ReturnType<typeof signUp>>, settle: <R>(step: () => Promise<R>) => Promise<R>) =>
+      await settle(async () => {
+        const jobId = await owner.as.mutation(api.ads.addJob, { name: "  Smith   kitchen on Elm " });
+        const ids: string[] = [];
+        for (const [name, tags] of [["job-before.jpg", ["cabinets", "before"]], ["job-work.jpg", ["cabinets", "process"]], ["job-after.jpg", ["cabinets", "after"]]] as const)
+          ids.push(await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", name), fileName: name, tags: [...tags], jobId }));
+        return { jobId, ids };
+      });
     /** Which library photos each kind of ad shows. */
     const shownBy = async (t: T) =>
       await t.run(async (ctx) => {
@@ -2168,7 +2366,7 @@ describe("the weekly run", () => {
     test("a story is told from one job's photos when a job fits, before to finish; the quick offer is on the same job", async () => {
       const { t, owner, calls, settle } = await ready();
       stubServices(calls, { request: { trade: "painting", scope: "cabinets", town: "Odessa", idea: "Paint the cabinets" } });
-      const { ids } = await cabinetJob(t, owner);
+      const { ids } = await cabinetJob(t, owner, settle);
       await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "cabinets in Odessa" }));
       const shown = await shownBy(t);
       expect(shown.story.length).toBeGreaterThan(0);
@@ -2185,8 +2383,10 @@ describe("the weekly run", () => {
     test("with no job of three photos, a story is picked across the library as before", async () => {
       const { t, owner, calls, settle } = await ready();
       stubServices(calls, { request: { trade: "painting", scope: "cabinets", town: "Odessa", idea: "Paint the cabinets" } });
-      const jobId = await owner.as.mutation(api.ads.addJob, { name: "Two photos only" });
-      const lone = await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "lone"), fileName: "lone.jpg", tags: ["cabinets", "after"], jobId });
+      const lone = await settle(async () => {
+        const jobId = await owner.as.mutation(api.ads.addJob, { name: "Two photos only" });
+        return await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "lone"), fileName: "lone.jpg", tags: ["cabinets", "after"], jobId });
+      });
       await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "cabinets in Odessa" }));
       const shown = await shownBy(t);
       expect([...shown.story].some((id) => id !== lone)).toBe(true);
@@ -2194,9 +2394,10 @@ describe("the weekly run", () => {
 
     test("a job named in the line carries every version, the checklist too, and the request remembers it", async () => {
       const { t, owner, calls, settle } = await ready();
-      const { jobId, ids } = await cabinetJob(t, owner);
       // No kind of job named, so a lesson is built on a second competitor ad too.
-      stubServices(calls, { request: { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out", job: 1 } });
+      // The reader slips the job's name into the idea: it is taken out before the writer or the page sees it.
+      stubServices(calls, { request: { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out, like our Smith kitchen on Elm job", job: 1 } });
+      const { jobId, ids } = await cabinetJob(t, owner, settle);
       const { link } = await settle(() => owner.as.mutation(api.ads.makeFor, { ask: "an ad from the Smith kitchen" }));
       // The reader was shown the jobs on file by name, to match the one the line names.
       const read = to(calls, "anthropic").map((c) => JSON.stringify(JSON.parse(c.body!).messages[0].content)).find((x) => x.includes("typed this request"))!;
@@ -2206,6 +2407,7 @@ describe("the weekly run", () => {
       expect(shown.lesson?.length).toBeGreaterThan(0);
       const request = await t.run(async (ctx) => (await ctx.db.query("adRequests").collect()).find((r) => link.endsWith(r.token))!);
       expect(request.jobId).toBe(jobId);
+      expect(request.idea).toBe("We paint homes inside and out");
       // The writer never saw the job's name.
       expect(JSON.stringify(to(calls, "anthropic").map((c) => c.body).filter((b) => !b!.includes("typed this request")))).not.toContain("Smith");
     });

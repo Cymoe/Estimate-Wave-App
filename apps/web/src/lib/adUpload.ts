@@ -3,7 +3,7 @@ import { adsAPI } from './api';
 // Putting a photo or clip in the ad library (Ops → Ads): the file, and a JPEG still made here in the browser.
 // Used by the library itself and by a project's "Use these photos for ads".
 
-const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(file.name);
+export const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(file.name);
 
 /** Waits for a media element event, or gives up after a few seconds. */
 const once = (el: HTMLElement, event: string, ms: number = 8000) =>
@@ -33,15 +33,46 @@ async function makeStill(file: File): Promise<{ still?: Blob; durationSec?: numb
   }
 }
 
-/** A frame drawn to a JPEG, no wider or taller than 1600 pixels. */
-async function toJpeg(source: CanvasImageSource, width: number, height: number): Promise<Blob | null> {
+/** A frame drawn to a JPEG, no wider or taller than `max` pixels (1600 for a still). */
+async function toJpeg(source: CanvasImageSource, width: number, height: number, max = 1600, quality = 0.85): Promise<Blob | null> {
   if (!width || !height) return null;
-  const scale = Math.min(1, 1600 / Math.max(width, height));
+  const scale = Math.min(1, max / Math.max(width, height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);
   canvas.getContext('2d')?.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+}
+
+/** How big a library thumbnail is: enough for a card on an iPad's sharp screen, a few dozen KB. */
+const THUMB = 480;
+
+/** The small copy of an image (a still, or the photo itself) the library grid shows. Nothing where it can't be drawn. */
+export async function thumbOf(image: Blob): Promise<Blob | undefined> {
+  if (typeof createImageBitmap !== 'function') return undefined;
+  try {
+    const bitmap = await createImageBitmap(image);
+    return (await toJpeg(bitmap, bitmap.width, bitmap.height, THUMB, 0.8)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Makes the small copy for a file already in the library, from its still or the photo: for files uploaded before
+ * thumbnails were made. Quiet: a file it can't read is left as it is.
+ */
+export async function backfillThumb(id: string, imageUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(imageUrl);
+    if (!res.ok) return false;
+    const thumb = await thumbOf(await res.blob());
+    if (!thumb) return false;
+    await adsAPI.setThumb(id, await putFile(thumb, 'image/jpeg'));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -106,7 +137,10 @@ export async function uploadAsset(
   job?: { jobId?: string; jobPhotoId?: string },
 ) {
   const { still, durationSec } = await makeStill(file);
+  // The grid's small copy, from the still (or the photo where no still could be made).
+  const thumb = await thumbOf(still ?? file);
   const storageId = await putFile(file, file.type);
   const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
-  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, trade, ...job });
+  const thumbStorageId = thumb ? await putFile(thumb, 'image/jpeg') : undefined;
+  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, ...job });
 }

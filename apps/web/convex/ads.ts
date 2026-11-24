@@ -18,6 +18,11 @@ import {
   apifyInput,
   composeMotion,
   creativeName,
+  shortId,
+  pairingPrompt,
+  cleanItems,
+  itemsIn,
+  readPairing,
   fromApifyItem,
   isFatigued,
   isLocal,
@@ -77,6 +82,7 @@ import {
   scriptLength,
   requestPrompt,
   readRequestReply,
+  withoutJobNames,
   pickRequestSwipes,
   requestStage,
   angleOf,
@@ -214,11 +220,12 @@ export const addAsset = mutation({
     note: v.optional(v.string()),
     durationSec: v.optional(v.number()),
     posterStorageId: v.optional(v.id("_storage")),
+    thumbStorageId: v.optional(v.id("_storage")),
     trade: v.optional(v.string()),
     jobId: v.optional(v.id("adJobs")),
     jobPhotoId: v.optional(v.id("jobPhotos")),
   },
-  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, trade, jobId, jobPhotoId }) => {
+  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, jobId, jobPhotoId }) => {
     const user = await requireStaff(ctx);
     const job = jobId ? await ctx.db.get(jobId) : null;
     if (jobId && job === null) fail("NOT_FOUND", "That job isn't in the library");
@@ -234,6 +241,7 @@ export const addAsset = mutation({
       if (poster === null || (poster.contentType !== undefined && !poster.contentType.startsWith("image/")) || poster.size > MAX_POSTER)
         fail("INVALID", "The still for this file didn't upload right");
     }
+    if (thumbStorageId) await checkThumb(ctx, thumbStorageId);
     const id = await ctx.db.insert("adAssets", {
       // A photo filed under a job is of the job's trade.
       trade: tradeOf(job?.trade ?? trade).slug,
@@ -247,6 +255,7 @@ export const addAsset = mutation({
       pairKey: pairKey?.trim() || undefined,
       note: note?.trim().slice(0, 300) || undefined,
       posterStorageId,
+      ...(thumbStorageId ? { thumbStorageId } : {}),
       ...(jobId ? { jobId } : {}),
       ...(jobPhotoId ? { jobPhotoId } : {}),
       uses: 0,
@@ -255,7 +264,33 @@ export const addAsset = mutation({
     });
     // Claude looks at it and says what it shows; the card offers its tags.
     if (process.env.ANTHROPIC_API_KEY) await ctx.scheduler.runAfter(0, internal.ads.describeAsset, { id });
+    if (jobId) await askPairing(ctx, jobId);
     return id;
+  },
+});
+
+/** The most a library thumbnail may weigh: a small JPEG is far under it. */
+const MAX_THUMB = 512 * 1024;
+
+async function checkThumb(ctx: MutationCtx, thumbStorageId: Id<"_storage">) {
+  const thumb = await ctx.db.system.get(thumbStorageId);
+  if (thumb === null || (thumb.contentType !== undefined && !thumb.contentType.startsWith("image/")) || thumb.size > MAX_THUMB)
+    fail("INVALID", "The small copy of this photo didn't upload right");
+}
+
+/**
+ * The small copy the library grid shows, for a file uploaded before thumbnails were made (the Library page makes
+ * them quietly, one at a time) or one whose copy is replaced.
+ */
+export const setThumb = mutation({
+  args: { id: v.id("adAssets"), thumbStorageId: v.id("_storage") },
+  handler: async (ctx, { id, thumbStorageId }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That file isn't in the library");
+    await checkThumb(ctx, thumbStorageId);
+    if (a.thumbStorageId && a.thumbStorageId !== thumbStorageId && (await ctx.db.system.get(a.thumbStorageId)) !== null) await ctx.storage.delete(a.thumbStorageId);
+    await ctx.db.patch(id, { thumbStorageId });
   },
 });
 
@@ -270,7 +305,9 @@ export const assetForDescribe = internalQuery({
   args: { id: v.id("adAssets") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
-    return a ? { imageUrl: await lookUrl(ctx, a), kind: a.kind, trade: a.trade } : null;
+    return a
+      ? { imageUrl: await lookUrl(ctx, a), thumbUrl: a.thumbStorageId ? ((await ctx.storage.getUrl(a.thumbStorageId)) ?? undefined) : undefined, kind: a.kind, trade: a.trade }
+      : null;
   },
 });
 
@@ -298,42 +335,78 @@ export const setPoster = mutation({
 });
 
 export const saveDescription = internalMutation({
-  args: { id: v.id("adAssets"), description: v.string(), suggestedTags: v.array(v.string()) },
-  handler: async (ctx, { id, description, suggestedTags }) => {
+  args: { id: v.id("adAssets"), description: v.string(), suggestedTags: v.array(v.string()), items: v.optional(v.array(v.string())) },
+  handler: async (ctx, { id, description, suggestedTags, items }) => {
     const a = await ctx.db.get(id);
     if (a === null) return;
+    // Its labels (doors, trim...) are Claude's until a person fixes them; a fixed list stays.
+    if (items && !a.itemsSetByPerson) await ctx.db.patch(id, { items });
     // An upload nobody tagged takes Claude's tags; tags a person chose stay, with the suggestion shown beside them.
+    const takes = a.tags.length === 0 && suggestedTags.length > 0;
     await ctx.db.patch(id, {
       description: description.slice(0, 300),
       suggestedTags,
-      ...(a.tags.length === 0 && suggestedTags.length > 0 ? { tags: suggestedTags } : {}),
+      ...(takes ? { tags: suggestedTags } : {}),
     });
+    // Its before or after tag may have just arrived: its job's pairs are looked at again.
+    if (takes && a.jobId) await askPairing(ctx, a.jobId);
   },
 });
 
 /** Asks Claude what an uploaded photo or clip shows, and which tags it would give it. */
 export const describeAsset = internalAction({
-  args: { id: v.id("adAssets") },
-  handler: async (ctx, { id }) => {
+  // tries: how many looks at this file Claude has already turned away.
+  args: { id: v.id("adAssets"), tries: v.optional(v.number()) },
+  // What came of it, in a few words: for lookOnce, to see why a file has no labels.
+  handler: async (ctx, { id, tries = 0 }): Promise<string> => {
     const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
-    if (!a?.imageUrl || !process.env.ANTHROPIC_API_KEY) return;
+    if (!a?.imageUrl || !process.env.ANTHROPIC_API_KEY) return "nothing to look at";
     try {
       const reply = await claude(
         [
           { type: "image", source: { type: "url", url: a.imageUrl } },
           { type: "text", text: describePrompt(tradeOf(a.trade)) + (a.kind === "video" ? "\nThis image is a still from a video clip." : "") },
         ],
-        400,
+        // Room for a busy photo's sentence and its labels: a reply cut off part-way can't be read.
+        1000,
       );
-      const out = parseJson<{ description?: string; tags?: string[] }>(reply);
-      if (!out?.description) return;
+      const out = parseJson<{ description?: string; tags?: string[]; items?: unknown }>(reply);
+      if (!out?.description) return `reply not read: ${reply.slice(0, 300)}`;
       const suggestedTags = [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(tradeOf(a.trade)).includes(t));
-      await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags });
+      await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags, items: cleanItems(out.items, tradeOf(a.trade)) });
+      return "saved";
     } catch (e) {
-      console.error("describe asset", id, errText(e));
+      const why = errText(e);
+      console.error("describe asset", id, why);
+      // Claude busy, or asked too fast (many files at once), or the picture didn't reach it: looked at again a
+      // little later, three more times at most.
+      if (tries < 3 && /^Claude: (429|5\d\d)\b|download|fetch failed|timed? ?out/i.test(why))
+        await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1 });
+      return `error: ${why}`;
     }
   },
 });
+
+/** From the deployment: one look at a file, with what Claude answered or the error, to see why a file gets no labels. */
+export const lookOnce = internalAction({
+  args: { id: v.id("adAssets"), small: v.optional(v.boolean()), save: v.optional(v.boolean()) },
+  handler: async (ctx, { id, small, save }): Promise<{ error?: string; reply?: string; outcome?: string }> => {
+    // save: the real look, saved as at upload, and what came of it.
+    if (save) return { outcome: await ctx.runAction(internal.ads.describeAsset, { id, tries: 3 }) };
+    const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
+    const url = small ? a?.thumbUrl : a?.imageUrl;
+    if (!url) return { error: "no picture to look at" };
+    try {
+      const reply = await claude([{ type: "image", source: { type: "url", url } }, { type: "text", text: describePrompt(tradeOf(a!.trade)) }], 400);
+      return { reply: reply.slice(0, 600) };
+    } catch (e) {
+      return { error: errText(e) };
+    }
+  },
+});
+
+/** How long a look Claude turned away waits before it is asked again, doubled each time. */
+const DESCRIBE_RETRY_MS = 30_000;
 
 export const listAssets = query({
   args: { trade: v.optional(v.string()) },
@@ -353,7 +426,9 @@ export const listAssets = query({
         pairKey: a.pairKey,
         note: a.note,
         posterUrl: a.posterStorageId ? ((await ctx.storage.getUrl(a.posterStorageId)) ?? undefined) : undefined,
+        thumbUrl: a.thumbStorageId ? ((await ctx.storage.getUrl(a.thumbStorageId)) ?? undefined) : undefined,
         description: a.description,
+        items: a.items ?? [],
         suggestedTags: a.suggestedTags,
         uses: a.uses ?? 0,
         jobId: a.jobId,
@@ -415,7 +490,9 @@ export const removeJob = mutation({
   args: { id: v.id("adJobs") },
   handler: async (ctx, { id }) => {
     await requireStaff(ctx);
-    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", id)).take(500)) await ctx.db.patch(a._id, { jobId: undefined });
+    // Its photos stay, out of any job; the pairs were the job's, so they go.
+    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", id)).take(500))
+      await ctx.db.patch(a._id, { jobId: undefined, pairKey: undefined });
     await ctx.db.delete(id);
   },
 });
@@ -432,7 +509,10 @@ export const setAssetJob = mutation({
       if (job === null) fail("NOT_FOUND", "That job isn't in the library");
       if (tradeOf(job.trade).slug !== tradeOf(a.trade).slug) fail("INVALID", "That job is of another trade");
     }
-    await ctx.db.patch(id, { jobId });
+    if (a.jobId === jobId) return;
+    // A pair is within one job: a photo that moves leaves its pair, and both jobs are looked at again.
+    await ctx.db.patch(id, { jobId, pairKey: undefined });
+    for (const j of [a.jobId, jobId]) if (j) await askPairing(ctx, j);
   },
 });
 
@@ -453,9 +533,11 @@ export const groupIntoJob = mutation({
     for (const assetId of ids) {
       const a = await ctx.db.get(assetId);
       if (a === null || tradeOf(a.trade).slug !== slug) continue;
-      await ctx.db.patch(assetId, { jobId: id });
+      if (a.jobId && a.jobId !== id) await askPairing(ctx, a.jobId);
+      await ctx.db.patch(assetId, { jobId: id, pairKey: undefined });
       moved += 1;
     }
+    if (moved) await askPairing(ctx, id);
     return { jobId: id, moved };
   },
 });
@@ -481,13 +563,95 @@ export const jobForProject = mutation({
   },
 });
 
+// ------------------------------------------------------------------ Pairs
+//
+// A before and the after of the same spot become a pair (pairKey): a wipe, a still of the two. Nobody types them:
+// within a job, Claude looks at its befores and afters and says which show the same spot. Asked whenever the job's
+// photos or their before/after tags change, a little later, so a run of changes is looked at once.
+
+/** How long after a change the pairs are looked at, so an upload of several photos is one look. */
+const PAIR_DELAY_MS = 20_000;
+
+async function askPairing(ctx: MutationCtx, jobId: Id<"adJobs">) {
+  if (!process.env.ANTHROPIC_API_KEY) return;
+  const job = await ctx.db.get(jobId);
+  if (job === null) return;
+  const at = `${nowIso()}#${Math.random().toString(36).slice(2, 8)}`;
+  await ctx.db.patch(jobId, { pairAskedAt: at });
+  await ctx.scheduler.runAfter(PAIR_DELAY_MS, internal.ads.pairJob, { jobId, at });
+}
+
+export const jobForPairing = internalQuery({
+  args: { jobId: v.id("adJobs") },
+  handler: async (ctx, { jobId }) => {
+    const job = await ctx.db.get(jobId);
+    if (job === null) return null;
+    const photos = (await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", jobId)).take(200)).filter((a) => a.kind === "photo");
+    return {
+      pairAskedAt: job.pairAskedAt,
+      photos: await Promise.all(photos.map(async (a) => ({ id: a._id, tags: a.tags, pairKey: a.pairKey, createdAt: a.createdAt, url: await lookUrl(ctx, a) }))),
+    };
+  },
+});
+
+/** Writes a job's pairs: each pair one key, every other photo of the job none. */
+export const setJobPairs = internalMutation({
+  args: { jobId: v.id("adJobs"), pairs: v.array(v.array(v.id("adAssets"))) },
+  handler: async (ctx, { jobId, pairs }) => {
+    const keyOf = new Map<string, string>();
+    pairs.forEach((p, i) => p.forEach((id) => keyOf.set(id, `${shortId(jobId)}-${i + 1}`)));
+    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", jobId)).take(200)) {
+      const key = keyOf.get(a._id);
+      if (a.pairKey !== key) await ctx.db.patch(a._id, { pairKey: key });
+    }
+    return { pairs: pairs.length };
+  },
+});
+
+/** Asks for every job's pairs to be looked at, from the deployment: for jobs made before pairs were matched. */
+export const pairAllJobs = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const jobs = await ctx.db.query("adJobs").take(200);
+    for (const j of jobs) await askPairing(ctx, j._id);
+    return { jobs: jobs.length };
+  },
+});
+
+/** Claude matches a job's befores with its afters of the same spot. Only the latest ask for the job runs. */
+export const pairJob = internalAction({
+  args: { jobId: v.id("adJobs"), at: v.string() },
+  handler: async (ctx, { jobId, at }) => {
+    const job = await ctx.runQuery(internal.ads.jobForPairing, { jobId });
+    if (!job || job.pairAskedAt !== at) return;
+    // An image already holding a before and its after is its own pair.
+    const byAge = [...job.photos].filter((p) => p.url).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const befores = byAge.filter((p) => p.tags.includes("before") && !p.tags.includes("after")).slice(0, 8);
+    const afters = byAge.filter((p) => p.tags.includes("after") && !p.tags.includes("before")).slice(0, 8);
+    if (befores.length === 0 || afters.length === 0) {
+      await ctx.runMutation(internal.ads.setJobPairs, { jobId, pairs: [] });
+      return;
+    }
+    try {
+      const content: unknown[] = [{ type: "text", text: pairingPrompt(befores.length, afters.length) }];
+      befores.forEach((p, i) => content.push({ type: "text", text: `Before ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
+      afters.forEach((p, i) => content.push({ type: "text", text: `After ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
+      const pairs = readPairing(await claude(content, 400), befores.length, afters.length);
+      if (pairs === null) return;
+      await ctx.runMutation(internal.ads.setJobPairs, { jobId, pairs: pairs.map(([b, a]) => [befores[b].id, afters[a].id]) });
+    } catch (e) {
+      console.error("pair job", jobId, errText(e));
+    }
+  },
+});
+
 /** The library as text, from the deployment: to see which photos are of the same job before filing them under one. */
 export const libraryForJobs = internalQuery({
   args: { trade: v.optional(v.string()) },
   handler: async (ctx, { trade }) =>
     (await ctx.db.query("adAssets").take(500))
       .filter((a) => inTrade(a, trade) && a.kind === "photo")
-      .map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, pairKey: a.pairKey, note: a.note, description: a.description, jobId: a.jobId, uses: a.uses ?? 0, createdAt: a.createdAt })),
+      .map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, pairKey: a.pairKey, note: a.note, description: a.description, items: a.items, size: a.size, hasThumb: !!a.thumbStorageId, jobId: a.jobId, uses: a.uses ?? 0, createdAt: a.createdAt })),
 });
 
 /** Files library photos under one job, made under this name when there is none by it yet, from the deployment. */
@@ -502,9 +666,10 @@ export const fileIntoJob = internalMutation({
     for (const id of ids) {
       const a = await ctx.db.get(id);
       if (a === null || tradeOf(a.trade).slug !== slug) continue;
-      await ctx.db.patch(id, { jobId });
+      await ctx.db.patch(id, { jobId, pairKey: undefined });
       filed.push(a.fileName);
     }
+    await askPairing(ctx, jobId);
     return { jobId, filed };
   },
 });
@@ -520,12 +685,49 @@ export const jobNames = internalQuery({
   },
 });
 
+/** A person's fix of what a photo shows (its labels): kept to the trade's list, and kept from Claude's next look. */
+export const setItems = mutation({
+  args: { id: v.id("adAssets"), items: v.array(v.string()) },
+  handler: async (ctx, { id, items }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That file isn't in the library");
+    await ctx.db.patch(id, { items: cleanItems(items, tradeOf(a.trade)), itemsSetByPerson: true });
+  },
+});
+
+/**
+ * Has Claude look again at every library file with no labels yet, from the deployment: for files uploaded before
+ * labels were asked for. A second apart, so the looks don't pile up. Tags a person set stay (saveDescription).
+ */
+export const labelLibrary = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    if (!process.env.ANTHROPIC_API_KEY) return { asked: 0 };
+    let asked = 0;
+    for (const a of await ctx.db.query("adAssets").take(500)) {
+      if (a.items !== undefined) continue;
+      // Spaced out, so Claude isn't asked faster than it takes pictures.
+      await ctx.scheduler.runAfter(asked * 3000, internal.ads.describeAsset, { id: a._id });
+      asked += 1;
+    }
+    return { asked };
+  },
+});
+
 export const tagAsset = mutation({
   args: { id: v.id("adAssets"), tags: v.array(v.string()), pairKey: v.optional(v.string()), note: v.optional(v.string()) },
   handler: async (ctx, { id, tags, pairKey, note }) => {
     await requireStaff(ctx);
-    if ((await ctx.db.get(id)) === null) fail("NOT_FOUND", "That file isn't in the library");
-    await ctx.db.patch(id, { tags: cleanTags(tags), pairKey: pairKey?.trim() || undefined, note: note?.trim().slice(0, 300) || undefined });
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That file isn't in the library");
+    // Pairs are matched by Claude within a job; a pair key is only changed when one is given.
+    await ctx.db.patch(id, {
+      tags: cleanTags(tags),
+      ...(pairKey !== undefined ? { pairKey: pairKey.trim() || undefined } : {}),
+      note: note?.trim().slice(0, 300) || undefined,
+    });
+    if (a.jobId && cleanTags(tags).join(",") !== a.tags.join(",")) await askPairing(ctx, a.jobId);
   },
 });
 
@@ -560,7 +762,8 @@ export const removeAsset = mutation({
     const a = await ctx.db.get(id);
     if (a === null) return;
     await ctx.db.delete(id);
-    for (const sid of [a.storageId, a.posterStorageId, a.motion?.storageId])
+    if (a.jobId) await askPairing(ctx, a.jobId);
+    for (const sid of [a.storageId, a.posterStorageId, a.thumbStorageId, a.motion?.storageId])
       if (sid && (await ctx.db.system.get(sid)) !== null) await ctx.storage.delete(sid);
   },
 });
@@ -1173,12 +1376,14 @@ export const countJunk = internalMutation({
 /** The monthly search, or the button (force). One Apify call per keyword, each under the actor's five-minute cap. */
 export const researchRun = internalAction({
   // `trade`: search for that trade's ads with its own keywords; painting (and the keywords in Settings) when none is given.
-  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()), trade: v.optional(v.string()) },
-  handler: async (ctx, { startedBy, force, trade: slug }) => {
+  // `also`: more words to search this once, beside the usual ones (from a cloud session: a kind of job with few ads).
+  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()), trade: v.optional(v.string()), also: v.optional(v.array(v.string())) },
+  handler: async (ctx, { startedBy, force, trade: slug, also }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.researchMonthly && !force) return;
     const trade = tradeOf(slug);
-    const keywords = trade.slug === DEFAULT_TRADE ? cfg.researchKeywords : [...trade.keywords];
+    const usual = trade.slug === DEFAULT_TRADE ? cfg.researchKeywords : [...trade.keywords];
+    const keywords = [...new Set([...usual, ...(also ?? []).map((k) => k.trim().slice(0, 60)).filter(Boolean).slice(0, 6)])];
     const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords, startedBy });
     const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0 };
     const source = `research ${nowIso().slice(0, 10)}`;
@@ -1981,6 +2186,9 @@ export const readRequest = internalAction({
       if (!read) throw new Error(`Couldn't tell which kind of job that is. Name it, like "cabinet painting in Odessa" or "paver patio in Midland".`);
       const { job, ...rest } = read;
       const named = job !== undefined ? jobs[job] : undefined;
+      // The owner's job names stay private: never in the idea the writer and the page are given.
+      const trade = tradeOf(named?.trade ?? rest.trade);
+      rest.idea = withoutJobNames(rest.idea, jobs.map((j) => j.name)) || `We do ${trade.label.toLowerCase()} for homeowners, with a free quote.`;
       // A job named is made in its own trade, whatever trade the line sounded like.
       await ctx.runMutation(internal.ads.startRequestAds, { requestId, ...rest, ...(named ? { trade: named.trade, jobId: named.id } : {}) });
     } catch (e) {
@@ -2015,6 +2223,8 @@ export const startRequestAds = internalMutation({
         swipeId: swipe._id,
       });
     const hookIds = [await hook("before_after", story), ...(lesson ? [await hook("education", lesson)] : [])];
+    // Used now: the next request takes the next of the best few.
+    for (const x of [story, lesson]) if (x) await ctx.db.patch(x._id, { lastUsedAt: nowIso() });
     await ctx.db.patch(requestId, { status: "made", trade: trade.slug, scope, idea, hookIds, ...(town ? { town } : {}), ...(jobId ? { jobId } : {}) });
     await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: hookIds, trade: trade.slug, requestId, town, quickToo: true, ...(jobId ? { jobId } : {}) });
   },
@@ -2691,6 +2901,7 @@ export const plan = internalQuery({
           createdAt: a.createdAt,
           uses: a.uses ?? 0,
           description: a.description,
+          items: a.items,
           durationSec: a.durationSec,
           jobId: a.jobId,
           imageUrl: await lookUrl(ctx, a),
@@ -3056,6 +3267,22 @@ export const lastBatch = internalQuery({
 });
 
 /**
+ * From the deployment: a story made again from the same idea and competitor ad, with headlines that add to what is
+ * said instead of repeating it (weeklyRun's `steps`), to set beside the one it was made from. `jobId` keeps it on the
+ * same job's photos.
+ */
+export const sampleWithSteps = internalMutation({
+  args: { name: v.string(), jobId: v.optional(v.id("adJobs")) },
+  handler: async (ctx, { name, jobId }) => {
+    const c = await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first();
+    if (!c) fail("NOT_FOUND", `No ad named ${name}`);
+    const batch = await ctx.db.get(c.batchId);
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: [c.hookId], trade: tradeOf(batch?.trade).slug, steps: true, ...(jobId ? { jobId } : {}) });
+    return { hookId: c.hookId };
+  },
+});
+
+/**
  * Sends ads back to be drawn again from the words and voice they already
  * have, after a change to how ads are drawn: nothing is rewritten or re-read.
  * The old file goes; the new one takes its place when the render is back.
@@ -3378,6 +3605,8 @@ export const weeklyRun = internalAction({
     trade: v.optional(v.string()),
     // For the ideas named in only: draw them as a checklist, or as a quick offer, whatever their family.
     style: v.optional(v.union(v.literal("explainer"), v.literal("quick"))),
+    // A reel's title and headlines add to what is said (numbered steps, what the photo shows), never repeat it.
+    steps: v.optional(v.boolean()),
     // A "make an ad for…" request (makeFor): the batch is its, the town it named is the one spoken to, and the
     // quick offer is made too, though the ideas are named.
     requestId: v.optional(v.id("adRequests")),
@@ -3386,7 +3615,7 @@ export const weeklyRun = internalAction({
     // The job a request named: every version shows that job's photos only.
     jobId: v.optional(v.id("adJobs")),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo, jobId }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo, jobId, steps }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     const trade = tradeOf(slug);
@@ -3430,7 +3659,7 @@ export const weeklyRun = internalAction({
         const playbook = playbooks[hook.scope] ?? playbooks.general;
         const plan = await writePlan<MotionPlan>(
           motionPrompt(
-            { ...hook, style: shape, quick, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
+            { ...hook, style: shape, quick, steps, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
             cfg.brand.name,
             offered,
             inScope,
@@ -3443,7 +3672,10 @@ export const weeklyRun = internalAction({
           ),
           offered,
           "ad",
-          (p) => motionPlanProblems(p, offered, quick ? { town: askedTown ?? cfg.researchMarkets[0] ?? "" } : undefined, quick ? undefined : scriptLength(hook.basedOn)),
+          (p) =>
+            motionPlanProblems(p, offered, quick ? { town: askedTown ?? cfg.researchMarkets[0] ?? "" } : undefined, quick ? undefined : scriptLength(hook.basedOn), {
+              noEcho: steps,
+            }),
         );
         const { script, design } = composeMotion(
           plan,
@@ -3472,7 +3704,9 @@ export const weeklyRun = internalAction({
         }
         // A request's versions are the same offer told different ways, so each may use the best photos for it; a
         // week's ads each keep to photos the others haven't used.
-        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? []);
+        // What the idea names (a front door, a fence) is offered first.
+        const want = itemsIn(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`, trade);
+        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? [], want);
         // An ad made for one job's photo shows that job only: the photo, and its pair if it has one. Other jobs' work would pass for this one.
         const lead = hook.photoId ? photos.find((a: { _id: string }) => a._id === hook.photoId) : undefined;
         if (lead) {
@@ -3490,7 +3724,7 @@ export const weeklyRun = internalAction({
           : jobId
             ? { jobId: String(jobId), assets: jobInOrder(photos.filter((a: { jobId?: string }) => a.jobId === jobId)) }
             : shape !== "explainer"
-              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used)
+              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, want)
               : null;
         if (job) {
           picked.assets.splice(0, picked.assets.length, ...job.assets);

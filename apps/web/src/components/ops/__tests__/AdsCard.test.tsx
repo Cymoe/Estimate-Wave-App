@@ -52,6 +52,7 @@ const creatorBrief = jest.fn(async (..._args: unknown[]) => 'GoodFit Pros: on-ca
 const addTake = jest.fn(async (..._args: unknown[]) => 2);
 const makeFootage = jest.fn(async (..._args: unknown[]) => ({ batchId: 'b9', builtOn: 'Rodgers Painting' }));
 const addJob = jest.fn(async (..._args: unknown[]) => 'j2');
+const setItems = jest.fn(async (..._args: unknown[]) => undefined);
 const groupIntoJob = jest.fn(async (..._args: unknown[]) => ({ jobId: 'j3', moved: 2 }));
 const setAssetJob = jest.fn(async (..._args: unknown[]) => undefined);
 const removeJob = jest.fn(async (..._args: unknown[]) => undefined);
@@ -89,6 +90,7 @@ jest.mock('../../../lib/api', () => ({
     addJob: (...args: unknown[]) => addJob(...args),
     setAssetJob: (...args: unknown[]) => setAssetJob(...args),
     groupIntoJob: (...args: unknown[]) => groupIntoJob(...args),
+    setItems: (...args: unknown[]) => setItems(...args),
     removeJob: (...args: unknown[]) => removeJob(...args),
     renameJob: async () => undefined,
   },
@@ -124,6 +126,12 @@ function type(el: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
+
+/** Opens a library file's window, or the upload window. */
+const openFile = (fileName: string) => act(async () => (document.body.querySelector(`[aria-label="Open ${fileName}"]`) as HTMLButtonElement).click());
+const openAdd = () => act(async () => byText('Add photos or clips')!.click());
+const dialog = () => document.body.querySelector('[role="dialog"]') as HTMLElement;
+const closeDialog = () => act(async () => (dialog().querySelector('[aria-label="Close"]') as HTMLButtonElement).click());
 
 async function render(owner = true) {
   const container = document.createElement('div');
@@ -379,9 +387,11 @@ describe('Ops → Ads', () => {
     // The Library offers the trade's own labels and files an upload under it.
     await tab('Library');
     expect(asked).toContain('library:outdoor-construction');
-    const labels = Array.from(document.body.querySelectorAll('button')).map((b) => b.textContent);
+    await openAdd();
+    const labels = Array.from(dialog().querySelectorAll('button')).map((b) => b.textContent);
     expect(labels).toEqual(expect.arrayContaining(['patio', 'wall', 'outdoor-living', 'crew', 'before']));
     expect(labels).not.toContain('cabinets');
+    await closeDialog();
     // Hooks start on the trade's first subject, with no offer of painting's six.
     await tab('Hooks');
     expect(asked).toContain('hooks:outdoor-construction');
@@ -450,61 +460,160 @@ describe('Ops → Ads', () => {
     expect(rows[1].querySelector('button')).toBeNull();
   });
 
-  it('Library: a job is a tag; tapping it tags a photo or takes it off, + job names one, an upload can carry one, and a job is taken away', async () => {
+  it('Library: photos in their job boxes, quiet cards; a job is a tag in a photo\'s window; + job names one; an upload can carry one; a job is taken away', async () => {
     const photo = (id: string, fileName: string, tags: string[], jobId?: string) => ({ id, kind: 'photo' as const, fileName, tags, jobId, createdAt: new Date().toISOString() });
     // The job about to be added is already listed, as it is once the add comes back.
     jobs = [
       { id: 'j1', name: 'Smith kitchen', photos: 2, createdAt: new Date().toISOString() },
       { id: 'j2', name: 'Jones exterior', photos: 0, createdAt: new Date().toISOString() },
     ];
-    assets = [photo('a1', 'before.jpg', ['cabinets', 'before'], 'j1'), photo('a2', 'after.jpg', ['cabinets', 'after'], 'j1'), photo('a3', 'loose.jpg', [])];
+    // Claude matched the before with the after of the same spot.
+    assets = [
+      { ...photo('a1', 'before.jpg', ['cabinets', 'before'], 'j1'), pairKey: 'p-1' },
+      { ...photo('a2', 'after.jpg', ['cabinets', 'after'], 'j1'), pairKey: 'p-1', thumbUrl: 'https://cdn.example/a2-small.jpg' },
+      photo('a3', 'loose.jpg', []),
+    ];
     (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
     await render();
     await tab('Library');
     const group = document.body.querySelector('[data-testid="job"]')!;
     expect(group.textContent).toContain('Smith kitchen');
-    expect(group.textContent).toContain('2 photos · before and after');
+    expect(group.textContent).toContain('2 photos · 1 before/after pair');
     expect(group.textContent).toContain('once it has 3 photos or more');
-    expect(Array.from(group.querySelectorAll('[data-testid="asset"]')).map((c) => c.textContent?.includes('before.jpg') || c.textContent?.includes('after.jpg'))).toEqual([true, true]);
-    expect(document.body.querySelector('[aria-label="Not in a job"]')!.textContent).toContain('loose.jpg');
-    // A job is a tag: tap a job's tag on a photo to tag it, tap again to take it off.
-    const jobTag = (job: string, where: string) => document.body.querySelector(`[aria-label="Job ${job} for ${where}"]`) as HTMLButtonElement;
-    expect(jobTag('Smith kitchen', 'before.jpg').getAttribute('aria-pressed')).toBe('true');
+    expect(group.querySelectorAll('[data-testid="asset"]')).toHaveLength(2);
+    const looseCard = document.body.querySelector('[aria-label="Not in a job"] [data-testid="asset"]')!;
+    expect(looseCard.textContent).toContain('No tags yet');
+    // The cards have nothing to fill in: no tag buttons, no inputs.
+    expect(document.body.querySelector('[aria-label="Library"] [data-testid="asset"] input')).toBeNull();
+    expect(document.body.querySelector('[aria-label^="Job Smith kitchen for"]')).toBeNull();
+    // In a photo's window the job is one wide row; tapping it lists the jobs as big rows to pick from.
+    const jobTag = (job: string, where: string) => dialog().querySelector(`[aria-label="Job ${job} for ${where}"]`) as HTMLButtonElement;
+    const change = (where: string) => act(async () => (dialog().querySelector(`[aria-label="Change the job for ${where}"]`) as HTMLButtonElement).click());
+    await openFile('loose.jpg');
+    expect(dialog().querySelector('[aria-label="Change the job for loose.jpg"]')!.textContent).toContain('No job');
+    expect(jobTag('Smith kitchen', 'loose.jpg')).toBeNull();
+    await change('loose.jpg');
     expect(jobTag('Smith kitchen', 'loose.jpg').getAttribute('aria-pressed')).toBe('false');
+    expect(jobTag('Smith kitchen', 'loose.jpg').textContent).toContain('2 photos');
     await act(async () => jobTag('Smith kitchen', 'loose.jpg').click());
     await flush();
     expect(setAssetJob).toHaveBeenLastCalledWith('a3', 'j1');
-    await act(async () => jobTag('Smith kitchen', 'before.jpg').click());
-    await flush();
-    expect(setAssetJob).toHaveBeenLastCalledWith('a1', undefined);
-    // "+ job" names a new job and tags the photo with it.
-    await act(async () => (document.body.querySelector('[aria-label="New job for loose.jpg"]') as HTMLButtonElement).click());
-    const name = document.body.querySelector('input[aria-label="New job for loose.jpg"]') as HTMLInputElement;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Jones exterior');
-      name.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    // A new job by name, and the photo goes in it.
+    await change('loose.jpg');
+    const name = dialog().querySelector('input[aria-label="New job for loose.jpg"]') as HTMLInputElement;
+    await act(async () => type(name, 'Jones exterior'));
     await act(async () => (name.form as HTMLFormElement).requestSubmit());
     await flush();
     expect(addJob).toHaveBeenCalledWith('Jones exterior', 'painting');
     expect(setAssetJob).toHaveBeenLastCalledWith('a3', 'j2');
-    // The old ways are gone: no grouping mode, no job menus.
-    expect(byText('Group photos into a job')).toBeUndefined();
-    expect(document.body.querySelector('select[aria-label^="Job"]')).toBeNull();
-    // The next upload is tagged with a job the same way.
+    await closeDialog();
+    await openFile('before.jpg');
+    // Its match shows, and opens the after.
+    const pair = dialog().querySelector('[data-testid="pair"]')!;
+    expect(pair.textContent).toContain('Same spot as this after photo');
+    expect(pair.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/a2-small.jpg');
+    await act(async () => (pair as HTMLButtonElement).click());
+    expect(dialog().getAttribute('aria-label')).toBe('after.jpg');
+    await closeDialog();
+    await openFile('before.jpg');
+    expect(dialog().querySelector('[aria-label="Change the job for before.jpg"]')!.textContent).toContain('Smith kitchen');
+    await change('before.jpg');
+    expect(jobTag('Smith kitchen', 'before.jpg').getAttribute('aria-pressed')).toBe('true');
+    // "No job" takes it out.
+    await act(async () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent?.startsWith('No job'))!.click());
+    await flush();
+    expect(setAssetJob).toHaveBeenLastCalledWith('a1', undefined);
+    await closeDialog();
+    // The upload window can carry a job too.
+    await openAdd();
+    await change('the next upload');
     await act(async () => jobTag('Jones exterior', 'the next upload').click());
-    const fileInput = document.body.querySelector('input[type="file"]') as HTMLInputElement;
-    Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'house.jpg', { type: 'image/jpeg' })] });
+    const fileInput = dialog().querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'house.jpg', { type: 'image/jpeg' }), new File(['v'], 'walk.mov', { type: 'video/quicktime' })] });
     await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
     await flush();
     expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'house.jpg', jobId: 'j2', trade: 'painting' }));
+    // A clip goes up without the job: jobs are for photos.
+    expect(addAsset.mock.calls.map((c) => c[0] as { fileName: string; jobId?: string }).find((x) => x.fileName === 'walk.mov')!.jobId).toBeUndefined();
+    expect(dialog()).toBeNull();
+    // Select: tap several photos, then one job tag tags them all.
+    await act(async () => byText('Select')!.click());
+    // While selecting, a tap picks a photo instead of opening it.
+    expect(document.body.querySelector('[aria-label="Open loose.jpg"]')).toBeNull();
+    const pickIt = (f: string) => act(async () => (document.body.querySelector(`[aria-label="Pick ${f}"]`) as HTMLButtonElement).click());
+    await pickIt('loose.jpg');
+    await pickIt('after.jpg');
+    await pickIt('before.jpg');
+    await pickIt('before.jpg');
+    const bar = document.body.querySelector('[aria-label="Tag picked photos"]')!;
+    expect(bar.textContent).toContain('2 photos picked');
+    await act(async () => (bar.querySelector('[aria-label="Job Jones exterior for the picked photos"]') as HTMLButtonElement).click());
+    await flush();
+    expect(groupIntoJob).toHaveBeenLastCalledWith(['a3', 'a2'], { jobId: 'j2' }, 'painting');
+    expect(document.body.querySelector('[aria-label="Tag picked photos"]')).toBeNull();
+    expect(document.body.textContent).toContain('2 photos tagged Jones exterior.');
+    // A new job for the picked ones.
+    await act(async () => byText('Select')!.click());
+    await pickIt('loose.jpg');
+    const named = document.body.querySelector('input[aria-label="New job for the picked photos"]') as HTMLInputElement;
+    await act(async () => type(named, 'Garage door'));
+    await act(async () => (named.form as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(groupIntoJob).toHaveBeenLastCalledWith(['a3'], { name: 'Garage door' }, 'painting');
+    // Photos go straight into a job from the dotted tile at the end of its box, untagged so Claude tags them.
+    addAsset.mockClear();
+    const box = document.body.querySelector('[aria-label="Job Smith kitchen"]')!;
+    const cells = Array.from(box.querySelectorAll('li'));
+    expect(cells[cells.length - 1].getAttribute('data-testid')).toBe('add-tile');
+    const into = box.querySelector('input[aria-label="Add photos to Smith kitchen"]') as HTMLInputElement;
+    Object.defineProperty(into, 'files', { value: [new File(['x'], 'sink.jpg', { type: 'image/jpeg' })] });
+    await act(async () => into.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+    expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'sink.jpg', jobId: 'j1', tags: [] }));
+    expect(document.body.textContent).toContain('1 file in the library. Claude is tagging it.');
+    // Not in a job has its own tile, with no job.
+    const loose = document.body.querySelector('[aria-label="Not in a job"] input[aria-label="Add photos"]') as HTMLInputElement;
+    Object.defineProperty(loose, 'files', { value: [new File(['x'], 'yard.jpg', { type: 'image/jpeg' })] });
+    await act(async () => loose.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+    expect((addAsset.mock.calls.map((c) => c[0]) as Array<{ fileName: string; jobId?: string }>).find((x) => x.fileName === 'yard.jpg')!.jobId).toBeUndefined();
+    // New job: a name, and its box is there with its own tile.
+    await act(async () => byText('New job')!.click());
+    await act(async () => type(dialog().querySelector('input[aria-label="Job name"]') as HTMLInputElement, 'Jones exterior'));
+    await act(async () => (dialog().querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(addJob).toHaveBeenLastCalledWith('Jones exterior', 'painting');
+    expect(dialog()).toBeNull();
+    expect(document.body.querySelector('input[aria-label="Add photos to Jones exterior"]')).not.toBeNull();
     await act(async () => byText('Take away job')!.click());
     await flush();
     expect(removeJob).toHaveBeenCalledWith('j1');
     expect(asked).toContain('jobs:painting');
   });
 
-  it('Library uploads a file with the chosen tags and retags one already there', async () => {
+  it('Library labels: each card says what it shows, a filter row shows only those photos, and the window fixes a label', async () => {
+    const photo = (id: string, fileName: string, items: string[]) => ({ id, kind: 'photo' as const, fileName, tags: ['exterior'], items, createdAt: new Date().toISOString() });
+    assets = [photo('d1', 'door.jpg', ['front door', 'brick']), photo('d2', 'door2.jpg', ['front door']), photo('f1', 'fence.jpg', ['fence']), photo('n1', 'new.jpg', [])];
+    await render();
+    await tab('Library');
+    expect(document.body.querySelector('[aria-label="Open door.jpg"] [data-testid="items"]')!.textContent).toBe('front door · brick');
+    // The filter row: labels in use, most used first.
+    const filters = () => Array.from(document.body.querySelectorAll('[aria-label="Show photos of"] button')) as HTMLButtonElement[];
+    expect(filters().map((b) => b.textContent)).toEqual(['All', 'front door 2', 'brick 1', 'fence 1']);
+    await act(async () => filters()[1].click());
+    expect(Array.from(document.body.querySelectorAll('[data-testid="asset"]')).map((c) => c.querySelector('button')!.getAttribute('aria-label'))).toEqual(['Open door.jpg', 'Open door2.jpg']);
+    await act(async () => filters()[0].click());
+    expect(document.body.querySelectorAll('[data-testid="asset"]')).toHaveLength(4);
+    // In the window: the labels as they are; Change opens the list, and a tap saves.
+    await openFile('new.jpg');
+    expect(dialog().textContent).toContain('Claude is still looking at it');
+    await act(async () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'Change')!.click());
+    await act(async () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'garage door')!.click());
+    await flush();
+    expect(setItems).toHaveBeenCalledWith('n1', ['garage door']);
+  });
+
+  it('Library uploads a file with the chosen tags; a photo opened is retagged and saved, with no pair key to type', async () => {
     assets = [
       {
         id: 'a1',
@@ -523,19 +632,17 @@ describe('Ops → Ads', () => {
     await render();
     await tab('Library');
     // Nothing is on by default; light up "interior" and "before", then upload.
-    await act(async () =>
-      Array.from(document.body.querySelectorAll('[aria-label="Tags for the next upload"] button'))
-        .find((b) => b.textContent === 'interior')!
-        .click(),
-    );
-    await act(async () =>
-      Array.from(document.body.querySelectorAll('[aria-label="Tags for the next upload"] button'))
-        .find((b) => b.textContent === 'before')!
-        .click(),
-    );
-    const fileInput = document.body.querySelector('input[type="file"]') as HTMLInputElement;
-    const file = new File(['x'], 'hall.jpg', { type: 'image/jpeg' });
-    Object.defineProperty(fileInput, 'files', { value: [file] });
+    await openAdd();
+    const upTag = (t: string) =>
+      act(async () =>
+        Array.from(dialog().querySelectorAll('[aria-label="Tags for the next upload"] button'))
+          .find((b) => b.textContent === t)!
+          .click(),
+      );
+    await upTag('interior');
+    await upTag('before');
+    const fileInput = dialog().querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'hall.jpg', { type: 'image/jpeg' })] });
     await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
     await flush();
     expect(uploadUrl).toHaveBeenCalled();
@@ -549,31 +656,38 @@ describe('Ops → Ads', () => {
     });
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('1 file in the library.');
 
+    // The card is quiet: the picture, its tags, how many ads, and a mark when Claude suggests other tags.
     const card = document.body.querySelector('[data-testid="asset"]')!;
-    expect(card.textContent).toContain('kitchen.jpg');
     expect(card.textContent).toContain('in 2 ads');
-    expect(card.textContent).toContain('White shaker cabinets in a bright kitchen.');
+    expect(card.textContent).toContain('cabinets');
+    expect(card.textContent).not.toContain('White shaker cabinets');
+    // With no small copy yet, the card shows the still, loading only as it scrolls near; the page makes the small
+    // copy from the still, quietly.
     expect(card.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/a1-still.jpg');
-    expect(card.querySelector('[data-testid="suggested-tags"]')!.textContent).toBe('Suggested: cabinets, after · Use these');
+    expect(card.querySelector('img')!.getAttribute('loading')).toBe('lazy');
+    expect((global as unknown as { fetch: jest.Mock }).fetch.mock.calls.map((c) => c[0])).toContain('https://cdn.example/a1-still.jpg');
+    expect(card.querySelector('[data-testid="suggested-mark"]')).not.toBeNull();
+    // Opened, it says what Claude saw and offers its tags.
+    await openFile('kitchen.jpg');
+    expect(dialog().textContent).toContain('White shaker cabinets in a bright kitchen.');
+    expect(dialog().querySelector('[data-testid="suggested-tags"]')!.textContent).toBe('Claude suggests: cabinets, after · Use these');
     await act(async () =>
-      Array.from(card.querySelectorAll('button'))
+      Array.from(dialog().querySelectorAll('button'))
         .find((b) => b.textContent === 'Use these')!
         .click(),
     );
     expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
     tagAsset.mockClear();
+    const save = () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'Save')!;
+    expect(save().disabled).toBe(true);
     await act(async () =>
-      Array.from(card.querySelectorAll('button'))
+      Array.from(dialog().querySelectorAll(`[aria-label="Tags for kitchen.jpg"] button`))
         .find((b) => b.textContent === 'after')!
         .click(),
     );
-    await act(async () => type(card.querySelector('input[aria-label="Pair key for kitchen.jpg"]') as HTMLInputElement, 'elm'));
-    await act(async () =>
-      Array.from(card.querySelectorAll('button'))
-        .find((b) => b.textContent === 'Save')!
-        .click(),
-    );
-    expect(tagAsset).toHaveBeenCalledWith('a1', ['cabinets', 'after'], 'elm', undefined);
+    expect(dialog().querySelector('input[aria-label^="Pair key"]')).toBeNull();
+    await act(async () => save().click());
+    expect(tagAsset).toHaveBeenCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
   });
 
   it('Hooks seeds the six, adds one, and switches one off', async () => {
@@ -1093,19 +1207,33 @@ describe('Ops → Ads', () => {
     expect(site.textContent).not.toContain('on-camera take');
   });
 
-  it('a job site video: a clip in the Library is made into an ad as it was shot; a photo has no such button', async () => {
+  it('a job site video: clips are on their own; a clip is made into an ad as it was shot, and has no job or before/after', async () => {
     assets = [
-      { id: 'v1', kind: 'video', fileName: 'spraying.mp4', tags: ['cabinets'], createdAt: new Date().toISOString() },
-      { id: 'p1', kind: 'photo', fileName: 'kitchen.jpg', tags: ['cabinets'], createdAt: new Date().toISOString() },
+      { id: 'v1', kind: 'video', fileName: 'spraying.mp4', tags: ['cabinets'], durationSec: 12.4, createdAt: new Date().toISOString() },
+      { id: 'p1', kind: 'photo', fileName: 'kitchen.jpg', url: 'https://cdn.example/p1.jpg', thumbUrl: 'https://cdn.example/p1-small.jpg', tags: ['cabinets'], createdAt: new Date().toISOString() },
     ];
+    jobs = [{ id: 'j1', name: 'Smith kitchen', photos: 0, createdAt: new Date().toISOString() }];
     await render();
     await tab('Library');
-    const [clip, photo] = Array.from(document.body.querySelectorAll('[data-testid="asset"]'));
-    expect(photo.textContent).not.toContain('Make a job site ad');
-    const make = Array.from(clip.querySelectorAll('button')).find((b) => b.textContent === 'Make a job site ad')!;
-    await act(async () => make.click());
+    const show = (label: string) => Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith(label)) as HTMLButtonElement;
+    expect(show('Photos').textContent).toBe('Photos (1)');
+    expect(show('Clips').textContent).toBe('Clips (1)');
+    // A card shows the small copy, never the full photo.
+    expect(document.body.querySelector('[aria-label="Open kitchen.jpg"] img')!.getAttribute('src')).toBe('https://cdn.example/p1-small.jpg');
+    // Photos first: the clip isn't among them.
+    expect(document.body.querySelector('[aria-label="Open spraying.mp4"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Make a job site ad');
+    await act(async () => show('Clips').click());
+    expect(document.body.querySelector('[aria-label="Open kitchen.jpg"]')).toBeNull();
+    const clip = document.body.querySelector('[data-testid="asset"]')!;
+    expect(clip.textContent).toContain('12s');
+    expect((document.body.querySelector('[aria-label="Clips"] input[aria-label="Add clips"]') as HTMLInputElement).accept).toBe('video/*');
+    await act(async () => Array.from(clip.querySelectorAll('button')).find((b) => b.textContent === 'Make a job site ad')!.click());
     await flush();
     expect(makeFootage).toHaveBeenCalledWith('v1');
     expect(document.body.textContent).toContain('Making a job site ad from this clip');
+    await openFile('spraying.mp4');
+    expect(dialog().querySelector('[aria-label^="Job Smith kitchen"]')).toBeNull();
+    expect(Array.from(dialog().querySelectorAll('[aria-label="Tags for spraying.mp4"] button')).map((b) => b.textContent)).not.toContain('before');
   });
 });

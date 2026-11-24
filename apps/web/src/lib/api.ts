@@ -1081,6 +1081,7 @@ export const adsAPI = {
     note?: string;
     durationSec?: number;
     posterStorageId?: string;
+    thumbStorageId?: string;
     trade?: string;
     jobId?: string;
     jobPhotoId?: string;
@@ -1099,6 +1100,10 @@ export const adsAPI = {
   tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
   removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
   /** A clip's still, made after its upload, so it shows in the library and Claude can describe it. */
+  /** A library file's small copy for the grid. */
+  /** What a photo shows in detail (doors, trim...), as a person fixed it. */
+  setItems: (id: string, items: string[]) => run('mutation', api.ads.setItems, { id, items }),
+  setThumb: (id: string, thumbStorageId: string) => run('mutation', api.ads.setThumb, { id, thumbStorageId }),
   setPoster: (id: string, posterStorageId: string, durationSec?: number) => run('mutation', api.ads.setPoster, defined({ id, posterStorageId, durationSec })),
   saveHook: (args: { id?: string; family: string; scope: string; trade: string; textEn: string; active: boolean }) =>
     run('mutation', api.ads.saveHook, defined(args)),

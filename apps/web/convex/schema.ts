@@ -2481,6 +2481,11 @@ export default defineSchema({
     // A JPEG still made in the browser at upload: what Claude looks at, the
     // render source for HEIC photos, and the poster for video ads.
     posterStorageId: v.optional(v.id("_storage")),
+    // A small JPEG (about 480 pixels) the library grid shows, so the page loads fast; the still is for the big view.
+    thumbStorageId: v.optional(v.id("_storage")),
+    // What it shows in detail, from the trade's list (doors, trim, front door...): Claude's, or as a person fixed them.
+    items: v.optional(v.array(v.string())),
+    itemsSetByPerson: v.optional(v.boolean()),
     // What Claude saw in it, and the tags it would give it.
     description: v.optional(v.string()),
     suggestedTags: v.optional(v.array(v.string())),
@@ -2522,6 +2527,8 @@ export default defineSchema({
     // The project it came from, when its photos were sent from there.
     projectId: v.optional(v.id("projects")),
     createdBy: v.optional(v.id("users")),
+    // When its befores and afters were last asked to be matched (ads.pairJob): only the latest ask runs.
+    pairAskedAt: v.optional(v.string()),
     createdAt: v.string(),
   }).index("by_project", ["projectId"]),
 
@@ -2814,6 +2821,8 @@ export default defineSchema({
     videoUrl: v.optional(v.string()),
     posterUrl: v.optional(v.string()),
     mediaType: v.optional(v.string()),
+    // When a "make an ad for…" request was last built on it, so the best few take turns (pickRequestSwipes).
+    lastUsedAt: v.optional(v.string()),
     // Claude's read of the ad (ads.tagSwipe).
     family: v.optional(v.string()),
     claims: v.optional(v.array(v.string())),

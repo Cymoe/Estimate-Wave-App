@@ -26,6 +26,8 @@ export interface AdTrade {
   scopeLabels: Record<string, string>;
   /** The states a job photo can show, for describing an upload. */
   states: string;
+  /** What a photo can show in detail (the things worked on, and the rooms): Claude labels each upload with them. */
+  items: readonly string[];
   /** Searches that find its competitors' ads. */
   keywords: readonly string[];
 }
@@ -39,6 +41,12 @@ export const AD_TRADES: Record<string, AdTrade> = {
     scopes: ["interior", "exterior", "cabinets"],
     scopeLabels: { interior: "Interior", exterior: "Exterior", cabinets: "Cabinets" },
     states: "unpainted, being prepped, being painted, finished",
+    items: [
+      "walls", "ceiling", "trim", "baseboards", "crown molding", "doors", "cabinets", "kitchen island", "vanity", "built-ins",
+      "shelves", "stairs and railing", "fireplace", "windows",
+      "front door", "garage door", "siding", "brick", "stucco", "fascia and soffit", "shutters", "porch", "deck", "fence", "columns",
+      "kitchen", "bathroom", "bedroom", "living room", "hallway", "entry", "garage",
+    ],
     keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
   },
   "outdoor-construction": {
@@ -49,6 +57,7 @@ export const AD_TRADES: Record<string, AdTrade> = {
     scopes: ["patio", "walkway", "wall", "outdoor-living"],
     scopeLabels: { patio: "Patios", walkway: "Walkways and driveways", wall: "Retaining walls", "outdoor-living": "Outdoor kitchens and fire pits" },
     states: "bare ground, being dug or laid, finished",
+    items: ["pavers", "flagstone", "concrete", "driveway", "walkway", "steps", "retaining wall", "fire pit", "outdoor kitchen", "pergola", "turf", "edging"],
     keywords: ["paver patio", "retaining wall", "hardscaping", "outdoor kitchen", "artificial turf"],
   },
   "bathroom-remodeling": {
@@ -64,6 +73,7 @@ export const AD_TRADES: Record<string, AdTrade> = {
       "full-bath": "Full bathroom remodels",
     },
     states: "old or worn, being torn out or installed, finished",
+    items: ["shower", "tile", "tub", "vanity", "glass door", "fixtures", "niche", "floor", "toilet"],
     keywords: ["walk-in shower", "tub to shower conversion", "bathroom remodel", "shower replacement", "one day bath remodel"],
   },
 };
@@ -222,6 +232,8 @@ export interface AssetRow {
   uses?: number;
   /** The job it was shot on (adJobs), when it was filed under one. */
   jobId?: string;
+  /** What it shows in detail (AdTrade.items). */
+  items?: string[];
 }
 
 export const MAX_CANDIDATES = 6;
@@ -245,9 +257,12 @@ export function pickAssets<A extends AssetRow>(
   used: Set<string>,
   max = MAX_CANDIDATES,
   prefer: string[] = [],
+  want: string[] = [],
 ): { assets: A[]; inScope: boolean } {
-  // The playbook's footage preferences: an asset carrying an earlier preferred tag sorts first, then least used, then newest.
+  // What the idea names (front door, fence...) first; then the playbook's footage preferences: an asset carrying an
+  // earlier preferred tag sorts first, then least used, then newest.
   const preference = (a: A) => {
+    if (want.length && (a.items ?? []).some((i) => want.includes(i))) return -1;
     const ranks = a.tags.map((t) => prefer.indexOf(t)).filter((i) => i >= 0);
     return ranks.length ? Math.min(...ranks) : prefer.length;
   };
@@ -287,15 +302,23 @@ export const JOB_MIN = 3;
  * for a general idea), and none was used by another ad this week. One with a before and an after goes first, then
  * the least used, then the newest. Null when no job fits: the photos are then picked across the library.
  */
-export function pickJob<A extends AssetRow>(assets: A[], scope: string, used: Set<string>, max = REEL_CANDIDATES): { jobId: string; assets: A[] } | null {
+export function pickJob<A extends AssetRow>(
+  assets: A[],
+  scope: string,
+  used: Set<string>,
+  max = REEL_CANDIDATES,
+  want: string[] = [],
+): { jobId: string; assets: A[] } | null {
   const jobs = new Map<string, A[]>();
   for (const a of assets) if (a.jobId) jobs.set(a.jobId, [...(jobs.get(a.jobId) ?? []), a]);
   const hasBoth = (ps: A[]) => ps.some((p) => p.tags.includes("before")) && ps.some((p) => p.tags.includes("after"));
+  // A job showing what the idea names (its front door, its fence) goes first.
+  const shows = (ps: A[]) => want.length > 0 && ps.some((p) => (p.items ?? []).some((i) => want.includes(i)));
   const uses = (ps: A[]) => ps.reduce((n, p) => n + (p.uses ?? 0), 0) / ps.length;
   const newest = (ps: A[]) => ps.reduce((d, p) => (p.createdAt > d ? p.createdAt : d), "");
   const fits = [...jobs]
     .filter(([, ps]) => ps.length >= JOB_MIN && !ps.some((p) => used.has(p._id)) && (scope === ANY_SCOPE || ps.some((p) => p.tags.includes(scope))))
-    .sort(([, x], [, y]) => Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
+    .sort(([, x], [, y]) => Number(shows(y)) - Number(shows(x)) || Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
   if (fits.length === 0) return null;
   const [jobId, photos] = fits[0];
   return { jobId, assets: jobInOrder(photos, max) };
@@ -377,6 +400,8 @@ export interface Candidate {
   tags: string[];
   pairKey?: string;
   description?: string;
+  /** What it shows in detail (AdTrade.items). */
+  items?: string[];
   durationSec?: number;
   /** The still Claude looks at; none for a video or HEIC with no still. */
   imageUrl?: string;
@@ -513,9 +538,10 @@ function balancedEnd(text: string, from: number): number {
 export const describePrompt = (trade: AdTrade): string =>
   [
     `This is a photo (or a still from a video) a ${trade.contractor} took on a job. It will be used in ads.`,
-    `Describe what is visible in one plain sentence: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
+    `Describe what is visible in one plain sentence of at most 30 words: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
     `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
-    'Return only JSON: {"description":"...","tags":["..."]}',
+    `Then list what the photo shows, from this list only, every one that is clearly in it (the things worked on, and the room): ${trade.items.join(", ")}.`,
+    'Return only JSON: {"description":"...","tags":["..."],"items":["..."]}',
   ].join("\n");
 export const DESCRIBE_PROMPT = describePrompt(AD_TRADES.painting);
 
@@ -692,7 +718,8 @@ export function scriptLength(basedOn?: Pick<BasedOn, "transcript" | "adCopy">): 
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
-  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean },
+  // steps: the reel's title and headlines add to what is said, never repeat it (motionPlanProblems' noEcho).
+  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean; steps?: boolean },
   brand: string,
   photos: Candidate[],
   inScope: boolean,
@@ -731,6 +758,7 @@ export function motionPrompt(
       f.tags.length ? `tags: ${f.tags.join(", ")}` : "",
       f.pairKey ? `pair "${f.pairKey}"` : "",
       f.description ? `looks like: ${f.description}` : "",
+      f.items?.length ? `shows: ${f.items.join(", ")}` : "",
       "(attached below)",
     ]
       .filter(Boolean)
@@ -778,7 +806,9 @@ export function motionPrompt(
           "- Each point is something the homeowner can check in any quote, said in a few words they could repeat to a painter.",
         ]
       : [
-    "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. Read in order with the title, the headlines alone tell the story to someone watching with the sound off (\"Bare dirt, every summer\", \"Base dug and packed\", \"Same yard, finished\").",
+    hook.steps
+      ? "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. The captions already show what is said, so a label never repeats the line's words: it adds what the voice doesn't say. Where the ad walks through how the work is done, number the steps (\"Step 1: Off to our shop\", \"Step 2: Into the spray booth\"); otherwise name what the photo shows that isn't said (\"Sage green, brass pulls\"). The title doesn't repeat the first line either. Read in order with the title, the headlines alone still tell the story with the sound off."
+      : "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. Read in order with the title, the headlines alone tell the story to someone watching with the sound off (\"Bare dirt, every summer\", \"Base dug and packed\", \"Same yard, finished\").",
     "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
     `- A photo may itself be two pictures in one, such as a before and its after, side by side or one above the other. Then give the line "cut": [from, to], the part of the photo to show, so a line about the before never shows the after. For two side by side it is measured across ([0, 50] is the left picture). For one above the other add "stacked": true and it is measured down ([0, 50] is the top picture). Where a word such as Before or After is printed on the photo by the join, stop the cut short of it. x and y are then within that part. A photo tagged both before and after is one of these, and always needs a cut.`,
     "- Use as many different photos as honestly fit the hook, each one once where you can, so the picture keeps changing and nothing comes back.",
@@ -861,12 +891,34 @@ export interface MotionPlan {
 const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9']/g, "");
 
 /** What's wrong with an animated ad Claude returned, against the photos it was offered. */
+const ECHO_SKIP = new Set(["your", "with", "that", "this", "from", "they", "them", "what", "when", "have", "will", "into", "just", "more", "than", "every", "each", "here", "there", "then", "were", "does", "make", "like", "about", "also", "step"]);
+const echoWords = (text: string) =>
+  new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9' ]+/g, " ")
+      .split(/\s+/)
+      .map((w) => w.replace(/'s$/, "").replace(/'/g, ""))
+      .filter((w) => w.length >= 4 && !ECHO_SKIP.has(w))
+      .map((w) => w.replace(/(ing|ed|es|s)$/, "")),
+  );
+
+/** Words across the top that only repeat the words said under them: two or more of their words, and most of them, are said. */
+export function echoes(shown: string, said: string): boolean {
+  const top = echoWords(shown);
+  const spoken = echoWords(said);
+  const hit = [...top].filter((w) => spoken.has(w)).length;
+  return hit >= 2 && hit / top.size >= 0.6;
+}
+
 export function motionPlanProblems(
   plan: MotionPlan,
   photos: Array<{ tags: string[]; pairKey?: string }>,
   quick?: { town: string },
   // A competitor's script being followed: its length is ours, not the usual 20 seconds.
   follow?: { words: number; copyChars: number },
+  // noEcho: a reel's title and headlines may not repeat the words said under them (motionPrompt's steps).
+  opts: { noEcho?: boolean } = {},
 ): string[] {
   const out: string[] = [];
   const style = AD_STYLES.find((x) => x === plan.style);
@@ -879,6 +931,13 @@ export function motionPlanProblems(
   // A followed script takes a line per sentence; anything else is three to five.
   const most = follow && !quick ? (style === "explainer" ? CHECKLIST_POINTS_MAX + 2 : SCRIPT_LINES_MAX) : 5;
   if (lines.length < 3 || lines.length > most) out.push(`${lines.length} lines (write 3 to ${most})`);
+  // On a reel the captions already show what is said: words across the top that only repeat them are wasted.
+  if (opts.noEcho && style !== "explainer") {
+    if (title && lines[0]?.voice && echoes(title, lines[0].voice)) out.push("the title repeats the first line's words: say what the voice doesn't");
+    lines.forEach((line, i) => {
+      if (line.label && line.voice && echoes(line.label, line.voice)) out.push(`line ${i + 1}'s headline "${line.label.trim()}" repeats what is said: give the step, or what the photo shows that isn't said`);
+    });
+  }
   lines.forEach((line, i) => {
     const n = line.photo;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photos.length) out.push(`line ${i + 1} names photo ${n ?? "nothing"}`);
@@ -1997,9 +2056,28 @@ export function requestPrompt(ask: string, brand: string, markets: string[], tra
       ? ["", "The jobs whose photos are on file, by the owner's own names for them:", ...jobs.map((j, i) => `${i + 1}. ${j.replace(/\s+/g, " ").slice(0, 80)}`)]
       : []),
     "",
+    ...(jobs.length ? ["", "Those job names are the owner's own and private: never put one in the idea."] : []),
     'Answer with JSON only: {"trade": the trade\'s slug, or null if it is none of these, "scope": the kind of job, or null if the line names none, "town": the town it names, or null, "idea": one plain sentence saying what the ad offers, as the owner would say it, with no prices, discounts or promises' +
       (jobs.length ? ', "job": the number of the job the request asks the ad to be made from, or null if it names none of them}.' : "}."),
   ].join("\n");
+}
+
+/**
+ * The idea with the owner's job names taken out: they are private and can say where a job was, and the idea goes to
+ * the writer and the page. A phrase like ", as we did in the Smith kitchen job" is dropped; null when a name is
+ * still left in it after that, so the caller uses a plain idea instead.
+ */
+export function withoutJobNames(text: string, names: string[]): string | null {
+  const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let out = text;
+  for (const name of names) {
+    const words = name.trim().split(/\s+/).filter(Boolean).map(esc).join("\\s+");
+    if (name.trim().length < 3) continue;
+    const named = `(?:the\\s+|our\\s+)?${words}(?:\\s+(?:job|project))?`;
+    out = out.replace(new RegExp(`,?\\s*(?:just\\s+)?(?:as|like)\\s+(?:we\\s+did\\s+)?(?:(?:in|on|for|at|with)\\s+)?${named}`, "gi"), "");
+    if (new RegExp(`\\b${words}\\b`, "i").test(out)) return null;
+  }
+  return out.replace(/\s+([.,!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
 }
 
 /** The reply to requestPrompt, checked against the trades on offer; null when it names none of them. */
@@ -2020,17 +2098,24 @@ export function readRequestReply(reply: string, trades: AdTrade[], jobCount = 0)
  * when there is one, from the same kind of job first. The lesson prefers an ad Claude read as teaching
  * (family "education"); either may be missing when too few are on file.
  */
-export function pickRequestSwipes<S extends Scored & { scope?: string; transcript?: string; adCopy?: string; family?: string; company: string; importedAt: string }>(
-  swipes: S[],
-  scope: string,
-): { story?: S; lesson?: S } {
+/** How many of the best competitor ads for a kind of job take turns, so requests aren't all built on the same one. */
+export const REQUEST_ROTATION = 3;
+
+export function pickRequestSwipes<
+  S extends Scored & { scope?: string; transcript?: string; adCopy?: string; family?: string; company: string; importedAt: string; lastUsedAt?: string },
+>(swipes: S[], scope: string): { story?: S; lesson?: S } {
   const ranked = pickExamples(swipes, scope, swipes.length).filter((x) => !x.scope || x.scope === scope || scope === ANY_SCOPE);
   // Ads with a script to follow first, so ours can be written at their full length; then the rest, by angle only.
   const scripted = ranked.filter((x) => scriptLength(x) !== undefined);
   const pool = [...scripted, ...ranked.filter((x) => !scripted.includes(x))];
-  const story = pool.find((x) => x.family !== "education") ?? pool[0];
+  // Of the best few that fit, the one used longest ago (never used first); the best of those when they tie.
+  const turn = (fits: S[]) =>
+    fits.slice(0, REQUEST_ROTATION).reduce<S | undefined>((best, x) => (!best || (x.lastUsedAt ?? "") < (best.lastUsedAt ?? "") ? x : best), undefined);
+  // Turns are taken among ads with a script when there are any, so a script is never passed over for a headline.
+  const among = (fits: S[]) => turn(fits.filter((x) => scripted.includes(x)).length ? fits.filter((x) => scripted.includes(x)) : fits);
+  const story = among(pool.filter((x) => x.family !== "education")) ?? pool[0];
   const rest = pool.filter((x) => x !== story);
-  const lesson = rest.find((x) => x.family === "education") ?? rest.find((x) => x.company !== story?.company) ?? rest[0];
+  const lesson = among(rest.filter((x) => x.family === "education")) ?? rest.find((x) => x.company !== story?.company) ?? rest[0];
   return { story, lesson };
 }
 
@@ -2053,4 +2138,56 @@ export function requestStage(
   if (ads.some((c) => c.status === "draft")) return "voicing";
   if (ads.some((c) => c.status === "voiced" || c.status === "rendering")) return "drawing";
   return ads.length ? "ready" : "writing";
+}
+
+/** The question that matches a job's befores with its afters: which show the same spot. */
+export function pairingPrompt(befores: number, afters: number): string {
+  return [
+    `These photos are all from one painting or remodelling job. The first ${befores} are befores, the next ${afters} are afters, each labelled.`,
+    "Which before and which after show the same spot (the same room, wall, door or cabinets, from a similar view), so they could be shown as a before and its after?",
+    "Pair only the ones you are sure of; a photo is in one pair at most, and leave out any with no match.",
+    'Answer with JSON only: {"pairs":[{"before":1,"after":2}]}, or {"pairs":[]} if none match.',
+  ].join("\n");
+}
+
+/** The reply to pairingPrompt as [before, after] indexes from 0; each photo once; null when the reply isn't JSON. */
+export function readPairing(reply: string, befores: number, afters: number): Array<[number, number]> | null {
+  const out = parseJson<{ pairs?: Array<{ before?: unknown; after?: unknown }> }>(reply);
+  if (!out || !Array.isArray(out.pairs)) return null;
+  const usedB = new Set<number>();
+  const usedA = new Set<number>();
+  const pairs: Array<[number, number]> = [];
+  for (const p of out.pairs) {
+    const b = Number(p?.before) - 1;
+    const a = Number(p?.after) - 1;
+    if (!Number.isInteger(b) || !Number.isInteger(a) || b < 0 || a < 0 || b >= befores || a >= afters || usedB.has(b) || usedA.has(a)) continue;
+    usedB.add(b);
+    usedA.add(a);
+    pairs.push([b, a]);
+  }
+  return pairs;
+}
+
+/** Claude's labels for a photo, kept to the trade's list, each once, in the list's order. */
+export function cleanItems(items: unknown, trade: AdTrade): string[] {
+  const asked = new Set((Array.isArray(items) ? items : []).map((i) => String(i).toLowerCase().trim()));
+  return trade.items.filter((i) => asked.has(i));
+}
+
+/**
+ * The labels an idea's words name ("front door painting" names front door, not doors too): the longest first, each
+ * taking its words so a shorter label can't match them again. Plurals match either way.
+ */
+export function itemsIn(text: string, trade: AdTrade): string[] {
+  let words = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+  const found: string[] = [];
+  for (const item of [...trade.items].sort((a, b) => b.length - a.length)) {
+    const parts = item.replace(/[^a-z0-9]+/g, " ").trim().split(" ").map((w) => w.replace(/s$/, ""));
+    const re = new RegExp(` ${parts.join("s? ")}s? `);
+    if (re.test(words)) {
+      found.push(item);
+      words = words.replace(re, " ");
+    }
+  }
+  return found;
 }
