@@ -966,14 +966,39 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   // The file open in its window (read fresh from the live list, so a change shows at once), and the upload window.
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // "Select": tap several photos, then one job tag puts them all in that job.
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
+  const toJob = (job: { jobId?: string; name?: string }, label: string) =>
+    act(async () => {
+      await adsAPI.groupIntoJob(picked, job, trade);
+      stopSelecting();
+    }, `${picked.length} photo${picked.length === 1 ? '' : 's'} tagged ${label}.`);
   const photos = (assets ?? []).filter((a) => a.kind === 'photo');
   const clips = (assets ?? []).filter((a) => a.kind === 'video');
   const open = (assets ?? []).find((a) => a.id === openId);
   const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
   // In a job's box the job is its heading, so the card doesn't repeat it.
-  const tile = (a: AdAsset, inBox = false) => <AssetTile key={a.id} a={a} jobs={inBox ? [] : jobs} onOpen={() => setOpenId(a.id)} act={act} />;
+  const tile = (a: AdAsset, inBox = false) => (
+    <AssetTile
+      key={a.id}
+      a={a}
+      jobs={inBox ? [] : jobs}
+      onOpen={() => setOpenId(a.id)}
+      act={act}
+      pick={
+        selecting
+          ? { on: picked.includes(a.id), toggle: () => setPicked((cur) => (cur.includes(a.id) ? cur.filter((x) => x !== a.id) : [...cur, a.id])) }
+          : undefined
+      }
+    />
+  );
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${selecting ? 'pb-40' : ''}`}>
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-full bg-[#1A1A1A] border border-[#2A2A2A] p-1" role="group" aria-label="Show">
           {(
@@ -986,20 +1011,30 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
               key={v}
               type="button"
               aria-pressed={view === v}
-              onClick={() => setView(v)}
+              onClick={() => {
+                setView(v);
+                stopSelecting();
+              }}
               className={`px-4 py-1.5 rounded-full text-sm ${view === v ? 'bg-[#336699] text-white' : 'text-gray-400'}`}
             >
               {label}
             </button>
           ))}
         </div>
-        <button type="button" className={`${primary} ml-auto`} onClick={() => setAdding(true)}>
+        {view === 'photos' && photos.length > 0 && (
+          <button type="button" className={`${secondary} ml-auto`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+            {selecting ? 'Cancel' : 'Select'}
+          </button>
+        )}
+        <button type="button" className={`${primary} ${view === 'photos' && photos.length > 0 ? '' : 'ml-auto'}`} onClick={() => setAdding(true)}>
           <Upload className="w-4 h-4" /> Add photos or clips
         </button>
       </div>
       <p className="text-xs text-gray-500">
-        {view === 'photos'
-          ? 'Tap a photo to tag it. Give one job’s photos the same purple job tag, and a story ad shows that job, before to finish.'
+        {selecting
+          ? 'Tap the photos from one job, then tap its job tag below.'
+          : view === 'photos'
+          ? 'Tap a photo to tag it, or Select to tag several at once. Give one job’s photos the same purple job tag, and a story ad shows that job, before to finish.'
           : 'Video clips from job sites. Tap one to tag it, or make a job site ad from it.'}
       </p>
       {assets === undefined ? (
@@ -1028,6 +1063,24 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         <ul className={grid} aria-label="Clips">
           {clips.map((a) => tile(a))}
         </ul>
+      )}
+      {selecting && (
+        // Held at the bottom of the screen while photos are picked.
+        <div className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-3xl rounded-lg border border-[#7c5cc4] bg-[#16121f]/95 p-3 shadow-2xl space-y-2" aria-label="Tag picked photos">
+          <p className="text-sm text-white">
+            {picked.length === 0 ? 'Tap photos to pick them.' : `${picked.length} photo${picked.length === 1 ? '' : 's'} picked. Tap a job tag to tag them all:`}
+          </p>
+          {picked.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <JobTags
+                jobs={jobs}
+                where="the picked photos"
+                onPick={(jobId) => jobId && toJob({ jobId }, jobs.find((j) => j.id === jobId)?.name ?? 'with the job')}
+                onNew={(name) => toJob({ name }, name)}
+              />
+            </div>
+          )}
+        </div>
       )}
       {open && <AssetEditor a={open} jobs={jobs} act={act} onClose={() => setOpenId(null)} />}
       {adding && <AddFiles jobs={jobs} act={act} onClose={() => setAdding(false)} />}
@@ -1060,13 +1113,36 @@ const Picture: React.FC<{ a: AdAsset; className: string; play?: boolean }> = ({ 
 const suggestsOther = (a: AdAsset) => Boolean(a.suggestedTags?.length) && [...a.suggestedTags!].sort().join(',') !== [...a.tags].sort().join(',');
 
 /** A file in the grid: its picture and what it is tagged, nothing to fill in. Tapping it opens it. */
-const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: Act }> = ({ a, jobs, onOpen, act }) => {
+const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: Act; pick?: { on: boolean; toggle: () => void } }> = ({
+  a,
+  jobs,
+  onOpen,
+  act,
+  pick,
+}) => {
   const job = jobs.find((j) => j.id === a.jobId);
   return (
-    <li className="border border-[#2A2A2A] rounded bg-[#121212] overflow-hidden" data-testid="asset">
-      <button type="button" onClick={onOpen} aria-label={`Open ${a.fileName}`} className="block w-full text-left">
+    <li
+      className={`border rounded bg-[#121212] overflow-hidden ${pick?.on ? 'border-[#7c5cc4] ring-2 ring-[#7c5cc4]' : 'border-[#2A2A2A]'}`}
+      data-testid="asset"
+    >
+      <button
+        type="button"
+        onClick={pick ? pick.toggle : onOpen}
+        aria-label={pick ? `Pick ${a.fileName}` : `Open ${a.fileName}`}
+        aria-pressed={pick ? pick.on : undefined}
+        className="block w-full text-left"
+      >
         <div className="relative">
           <Picture a={a} className="w-full aspect-square object-cover" />
+          {pick && (
+            <span
+              aria-hidden="true"
+              className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold ${pick.on ? 'bg-[#7c5cc4] border-[#7c5cc4] text-white' : 'bg-black/50 border-white text-transparent'}`}
+            >
+              ✓
+            </span>
+          )}
           {a.kind === 'video' && (
             <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white inline-flex items-center gap-1">
               <Film className="w-3 h-3" /> {a.durationSec ? `${Math.round(a.durationSec)}s` : 'clip'}

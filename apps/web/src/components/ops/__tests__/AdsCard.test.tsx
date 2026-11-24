@@ -513,6 +513,31 @@ describe('Ops → Ads', () => {
     // A clip goes up without the job: jobs are for photos.
     expect(addAsset.mock.calls.map((c) => c[0] as { fileName: string; jobId?: string }).find((x) => x.fileName === 'walk.mov')!.jobId).toBeUndefined();
     expect(dialog()).toBeNull();
+    // Select: tap several photos, then one job tag tags them all.
+    await act(async () => byText('Select')!.click());
+    // While selecting, a tap picks a photo instead of opening it.
+    expect(document.body.querySelector('[aria-label="Open loose.jpg"]')).toBeNull();
+    const pickIt = (f: string) => act(async () => (document.body.querySelector(`[aria-label="Pick ${f}"]`) as HTMLButtonElement).click());
+    await pickIt('loose.jpg');
+    await pickIt('after.jpg');
+    await pickIt('before.jpg');
+    await pickIt('before.jpg');
+    const bar = document.body.querySelector('[aria-label="Tag picked photos"]')!;
+    expect(bar.textContent).toContain('2 photos picked');
+    await act(async () => (bar.querySelector('[aria-label="Job Jones exterior for the picked photos"]') as HTMLButtonElement).click());
+    await flush();
+    expect(groupIntoJob).toHaveBeenLastCalledWith(['a3', 'a2'], { jobId: 'j2' }, 'painting');
+    expect(document.body.querySelector('[aria-label="Tag picked photos"]')).toBeNull();
+    expect(document.body.textContent).toContain('2 photos tagged Jones exterior.');
+    // A new job for the picked ones.
+    await act(async () => byText('Select')!.click());
+    await pickIt('loose.jpg');
+    await act(async () => (document.body.querySelector('[aria-label="New job for the picked photos"]') as HTMLButtonElement).click());
+    const named = document.body.querySelector('input[aria-label="New job for the picked photos"]') as HTMLInputElement;
+    await act(async () => type(named, 'Garage door'));
+    await act(async () => (named.form as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(groupIntoJob).toHaveBeenLastCalledWith(['a3'], { name: 'Garage door' }, 'painting');
     await act(async () => byText('Take away job')!.click());
     await flush();
     expect(removeJob).toHaveBeenCalledWith('j1');
