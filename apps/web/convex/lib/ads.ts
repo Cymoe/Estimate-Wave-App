@@ -841,7 +841,9 @@ export function motionPrompt(
     "Write:",
     explain
       ? `- tag: 1 to 3 words naming the subject ("Painting quotes"). title: at most 9 words and ${EXPLAINER_TITLE_MAX} characters naming the lesson ("3 things to check in a painting quote"); a number in it matches the points.`
-      : `- title: at most 5 words and ${TITLE_MAX} characters: the problem or the change, not the brand.`,
+      : hook.steps
+        ? `- title: at most 5 words and ${TITLE_MAX} characters: the problem or the change, not the brand. It sits over the first line while that line is said, so it must not use that line's words: if the line says "give your kitchen a fresh new look", the title is something like "Skip the remodel", never "A fresh new look".`
+        : `- title: at most 5 words and ${TITLE_MAX} characters: the problem or the change, not the brand.`,
     explain
       ? length
         ? `- lines: the opening, one line per point, then the ask, ${Math.round(length.words * 0.85)} to ${Math.round(length.words * 1.1)} words in all (theirs is ${length.words}): say each point the way their script does, at full length, each line at most ${SCRIPT_LINE_WORDS_MAX} words. Each names the photo on screen while it is said.`
