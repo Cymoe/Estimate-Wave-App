@@ -53,6 +53,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
+import { pairingPrompt, readPairing } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -235,6 +236,16 @@ function quickPlanFor(photoCount: number, town = "Midland") {
 }
 
 describe("one job's photos", () => {
+  test("Claude's answer on which before and after show the same spot is read safely: each photo once, nothing out of range", () => {
+    expect(pairingPrompt(2, 3)).toContain("The first 2 are befores, the next 3 are afters");
+    expect(readPairing('{"pairs":[{"before":1,"after":2},{"before":1,"after":3},{"before":2,"after":2},{"before":2,"after":9},{"before":2,"after":1}]}', 2, 3)).toEqual([
+      [0, 1],
+      [1, 0],
+    ]);
+    expect(readPairing('{"pairs":[]}', 1, 1)).toEqual([]);
+    expect(readPairing("no idea", 1, 1)).toBeNull();
+  });
+
   const p = (id: string, tags: string[], jobId?: string, day = 1, uses = 0) => ({ _id: id, kind: "photo" as const, tags, jobId, uses, createdAt: `2026-11-${String(day).padStart(2, "0")}` });
   test("a story picks a job with enough photos of its kind, one with a before and an after first, then the least used; never one used this week", () => {
     const lib = [
@@ -1083,6 +1094,48 @@ describe("the library, hooks and settings", () => {
     expect(await t.run(async (ctx) => await ctx.db.system.get(next))).toBeNull();
   });
 
+  test("within a job Claude matches each before with the after of the same spot, by itself, once a run of changes settles", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    const calls: Call[] = [];
+    // Before 1 is the same spot as After 2.
+    stubServices(calls, { pairs: { pairs: [{ before: 1, after: 2 }] } });
+    vi.useFakeTimers();
+    const jobId = await staff.as.mutation(api.ads.addJob, { name: "Elm kitchen" });
+    const add = async (fileName: string, tags: string[]) => await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", fileName), fileName, tags, jobId });
+    const b1 = await add("b1.jpg", ["cabinets", "before"]);
+    const a1 = await add("a1.jpg", ["cabinets", "after"]);
+    const a2 = await add("a2.jpg", ["cabinets", "after"]);
+    const work = await add("work.jpg", ["process"]);
+    await oneAtATime(t);
+    vi.useRealTimers();
+    const key = async (id: Id<"adAssets">) => (await t.run(async (ctx) => await ctx.db.get(id)))!.pairKey;
+    expect(await key(b1)).toEqual(expect.any(String));
+    expect(await key(a2)).toBe(await key(b1));
+    expect(await key(a1)).toBeUndefined();
+    expect(await key(work)).toBeUndefined();
+    // Four uploads, one look: only the last ask ran.
+    const looks = calls.filter((c) => c.url.includes("anthropic") && c.body!.includes("Which before and which after show the same spot"));
+    expect(looks).toHaveLength(1);
+    expect(JSON.stringify(JSON.parse(looks[0].body!).messages[0].content.filter((c: { type: string; text?: string }) => c.type === "text").map((c: { text?: string }) => c.text))).toContain("Before 1:");
+    // A photo moved out of the job leaves its pair.
+    vi.useFakeTimers();
+    await staff.as.mutation(api.ads.setAssetJob, { id: a2 });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(await key(a2)).toBeUndefined();
+    // Retagging keeps a pair key nobody typed.
+    stubServices(calls, { pairs: { pairs: [{ before: 1, after: 1 }] } });
+    vi.useFakeTimers();
+    await staff.as.mutation(api.ads.tagAsset, { id: a1, tags: ["cabinets", "after", "interior"] });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect(await key(a1)).toBe(await key(b1));
+    await staff.as.mutation(api.ads.tagAsset, { id: a1, tags: ["cabinets", "after", "interior"], note: "kept" });
+    expect(await key(a1)).toBe(await key(b1));
+  });
+
   test("photos of one job are kept together: a job is named, renamed and taken away without losing its photos; a project's photos go to one job, once each", async () => {
     const t = setup();
     const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
@@ -1390,6 +1443,7 @@ type StubOpts = {
   style?: "beforeAfter" | "reel";
   /** How Claude reads a "make an ad for…" line. */
   request?: unknown;
+  pairs?: unknown;
 };
 
 /** Claude's read of a competitor ad, from what the prompt names. */
@@ -1546,7 +1600,8 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         const retry = content.some((c) => c.text?.startsWith("Your last answer had these problems"));
         const offered = content.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length;
         let reply: unknown;
-        if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
+        if (prompt.includes("Which before and which after show the same spot")) reply = opts.pairs ?? { pairs: [{ before: 1, after: 2 }] };
+        else if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
         else if (prompt.includes(IDEA_MARK)) reply = { ideas: ideasOf(prompt) };
         else if (prompt.includes(PICK_MARK)) reply = { picks: picksFor(prompt) };
         else if (prompt.includes(TASTE_MARK)) reply = { note: TASTE_NOTE };

@@ -220,6 +220,10 @@ into jobs (`adJobs`; `adAssets.jobId`):
     each project photo through the normal upload, so it gets its JPEG still and Claude's tags.
   - `jobForProject` returns the job and the project photos already copied (`adAssets.jobPhotoId`), so sending again
     adds only new photos.
+- **Pairs are automatic.** Nobody types a pair key. Within a job, Claude matches each before with the after of the
+  same spot (`pairJob`, `pairingPrompt`/`readPairing`). It runs 20 seconds after the job's photos or their
+  before/after tags change, and only the latest ask runs. Moving a photo out of a job drops its pair.
+  `ads:pairAllJobs` asks for every job at once.
 - **The job's name is private.** It is the owner's own and can say where the job was. It goes to the request reader
   only, never to the writer, an ad or the private page.
 - **A story or quick offer** is told from one job when one fits: 3 or more photos (`JOB_MIN`), one of them of the

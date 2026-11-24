@@ -465,13 +465,18 @@ describe('Ops → Ads', () => {
       { id: 'j1', name: 'Smith kitchen', photos: 2, createdAt: new Date().toISOString() },
       { id: 'j2', name: 'Jones exterior', photos: 0, createdAt: new Date().toISOString() },
     ];
-    assets = [photo('a1', 'before.jpg', ['cabinets', 'before'], 'j1'), photo('a2', 'after.jpg', ['cabinets', 'after'], 'j1'), photo('a3', 'loose.jpg', [])];
+    // Claude matched the before with the after of the same spot.
+    assets = [
+      { ...photo('a1', 'before.jpg', ['cabinets', 'before'], 'j1'), pairKey: 'p-1' },
+      { ...photo('a2', 'after.jpg', ['cabinets', 'after'], 'j1'), pairKey: 'p-1', thumbUrl: 'https://cdn.example/a2-small.jpg' },
+      photo('a3', 'loose.jpg', []),
+    ];
     (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
     await render();
     await tab('Library');
     const group = document.body.querySelector('[data-testid="job"]')!;
     expect(group.textContent).toContain('Smith kitchen');
-    expect(group.textContent).toContain('2 photos · before and after');
+    expect(group.textContent).toContain('2 photos · 1 before/after pair');
     expect(group.textContent).toContain('once it has 3 photos or more');
     expect(group.querySelectorAll('[data-testid="asset"]')).toHaveLength(2);
     const looseCard = document.body.querySelector('[aria-label="Not in a job"] [data-testid="asset"]')!;
@@ -499,6 +504,14 @@ describe('Ops → Ads', () => {
     await flush();
     expect(addJob).toHaveBeenCalledWith('Jones exterior', 'painting');
     expect(setAssetJob).toHaveBeenLastCalledWith('a3', 'j2');
+    await closeDialog();
+    await openFile('before.jpg');
+    // Its match shows, and opens the after.
+    const pair = dialog().querySelector('[data-testid="pair"]')!;
+    expect(pair.textContent).toContain('Same spot as this after photo');
+    expect(pair.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/a2-small.jpg');
+    await act(async () => (pair as HTMLButtonElement).click());
+    expect(dialog().getAttribute('aria-label')).toBe('after.jpg');
     await closeDialog();
     await openFile('before.jpg');
     expect(dialog().querySelector('[aria-label="Change the job for before.jpg"]')!.textContent).toContain('Smith kitchen');
@@ -576,7 +589,7 @@ describe('Ops → Ads', () => {
     expect(asked).toContain('jobs:painting');
   });
 
-  it('Library uploads a file with the chosen tags; a photo opened is retagged, its pair key under More, and saved', async () => {
+  it('Library uploads a file with the chosen tags; a photo opened is retagged and saved, with no pair key to type', async () => {
     assets = [
       {
         id: 'a1',
@@ -648,9 +661,9 @@ describe('Ops → Ads', () => {
         .find((b) => b.textContent === 'after')!
         .click(),
     );
-    await act(async () => type(dialog().querySelector('input[aria-label="Pair key for kitchen.jpg"]') as HTMLInputElement, 'elm'));
+    expect(dialog().querySelector('input[aria-label^="Pair key"]')).toBeNull();
     await act(async () => save().click());
-    expect(tagAsset).toHaveBeenCalledWith('a1', ['cabinets', 'after'], 'elm', undefined);
+    expect(tagAsset).toHaveBeenCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
   });
 
   it('Hooks seeds the six, adds one, and switches one off', async () => {

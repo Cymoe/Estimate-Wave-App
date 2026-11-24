@@ -1114,7 +1114,16 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           )}
         </div>
       )}
-      {open && <AssetEditor a={open} jobs={jobs} act={act} onClose={() => setOpenId(null)} />}
+      {open && (
+        <AssetEditor
+          a={open}
+          jobs={jobs}
+          act={act}
+          partner={open.pairKey ? (assets ?? []).find((x) => x.id !== open.id && x.pairKey === open.pairKey) : undefined}
+          onOpen={setOpenId}
+          onClose={() => setOpenId(null)}
+        />
+      )}
       {adding && <AddFiles jobs={jobs} act={act} startJob={adding.jobId} onClose={() => setAdding(null)} />}
       {naming && (
         <NewJob
@@ -1304,18 +1313,24 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
 };
 
 /** One file, opened: the big picture, what Claude saw, its tags and job, and the rest tucked under More. */
-const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () => void }> = ({ a, jobs, act, onClose }) => {
+const AssetEditor: React.FC<{
+  a: AdAsset;
+  jobs: AdJob[];
+  act: Act;
+  /** The before or after Claude matched with this one, in its job. */
+  partner?: AdAsset;
+  onOpen: (id: string) => void;
+  onClose: () => void;
+}> = ({ a, jobs, act, partner, onOpen, onClose }) => {
   const trade = useTrade();
   const photo = a.kind === 'photo';
   const [tags, setTags] = useState(a.tags);
-  const [pairKey, setPairKey] = useState(a.pairKey ?? '');
   const [note, setNote] = useState(a.note ?? '');
   useEffect(() => {
     setTags(a.tags);
-    setPairKey(a.pairKey ?? '');
     setNote(a.note ?? '');
-  }, [a.tags, a.pairKey, a.note]);
-  const changed = tags.join(',') !== a.tags.join(',') || pairKey !== (a.pairKey ?? '') || note !== (a.note ?? '');
+  }, [a.tags, a.note]);
+  const changed = tags.join(',') !== a.tags.join(',') || note !== (a.note ?? '');
   return (
     <Dialog title={a.fileName} onClose={onClose} wide>
       <div className="space-y-4">
@@ -1327,7 +1342,7 @@ const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () =
             <button
               type="button"
               className="underline"
-              onClick={() => act(() => adsAPI.tagAsset(a.id, a.suggestedTags!, a.pairKey, a.note), 'Tags updated.')}
+              onClick={() => act(() => adsAPI.tagAsset(a.id, a.suggestedTags!, undefined, a.note), 'Tags updated.')}
             >
               Use these
             </button>
@@ -1356,14 +1371,23 @@ const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () =
             </div>
           </div>
         )}
+        {photo && partner && (
+          // Claude matched it within its job: nothing to type.
+          <button
+            type="button"
+            onClick={() => onOpen(partner.id)}
+            className="w-full flex items-center gap-3 rounded-lg border border-[#2A2A2A] p-2 text-left [@media(hover:hover)]:hover:bg-[#1a1a1a]"
+            data-testid="pair"
+          >
+            <img src={partner.thumbUrl ?? partner.posterUrl ?? partner.url} alt="" className="w-14 h-14 rounded object-cover bg-[#1d1d1d] flex-none" />
+            <span className="text-sm text-gray-300">
+              Same spot as this {partner.tags.includes('after') ? 'after' : 'before'} photo. Shown together as a before and after.
+            </span>
+          </button>
+        )}
         <details className="text-sm">
           <summary className="cursor-pointer text-gray-400">More</summary>
           <div className="mt-3">
-            {photo && (
-              <Field label="Pair key" hint="Same word on a before and its after of the same spot, e.g. kitchen-elm">
-                <input value={pairKey} onChange={(e) => setPairKey(e.target.value)} aria-label={`Pair key for ${a.fileName}`} className={input} />
-              </Field>
-            )}
             <Field label="Note" hint="Where it was shot and whose permission you have. Never shown in an ad.">
               <input value={note} onChange={(e) => setNote(e.target.value)} aria-label={`Note for ${a.fileName}`} className={input} />
             </Field>
@@ -1400,7 +1424,7 @@ const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () =
             type="button"
             className={`${primary} ml-auto`}
             disabled={!changed}
-            onClick={() => act(() => adsAPI.tagAsset(a.id, tags, pairKey || undefined, note || undefined), 'Saved.')}
+            onClick={() => act(() => adsAPI.tagAsset(a.id, tags, undefined, note || undefined), 'Saved.')}
           >
             Save
           </button>
@@ -1443,7 +1467,6 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
   const [tags, setTags] = useState<string[]>([]);
   const [jobId, setJobId] = useState(startJob ?? '');
   const into = startJob ? jobs.find((j) => j.id === startJob) : undefined;
-  const [pairKey, setPairKey] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const onFiles = async (files: FileList | null) => {
@@ -1453,7 +1476,7 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
       async () => {
         // A job is for photos: a clip goes up without one.
         for (const f of Array.from(files))
-          await uploadAsset(f, tags, trade, pairKey || undefined, note || undefined, jobId && !isVideo(f) ? { jobId } : undefined);
+          await uploadAsset(f, tags, trade, undefined, note || undefined, jobId && !isVideo(f) ? { jobId } : undefined);
         onClose();
       },
       `${files.length} file${files.length === 1 ? '' : 's'} in the library.`,
@@ -1480,9 +1503,6 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
         <details className="text-sm">
           <summary className="cursor-pointer text-gray-400">More</summary>
           <div className="mt-3">
-            <Field label="Pair key" hint="Same word on a before and its after of the same spot, e.g. kitchen-elm">
-              <input value={pairKey} onChange={(e) => setPairKey(e.target.value)} className={input} />
-            </Field>
             <Field label="Note" hint="Where it was shot and whose permission you have">
               <input value={note} onChange={(e) => setNote(e.target.value)} className={input} />
             </Field>
@@ -1602,6 +1622,8 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: Re
   const [name, setName] = useState<string | null>(null);
   const hasBefore = assets.some((a) => a.tags.includes('before'));
   const hasAfter = assets.some((a) => a.tags.includes('after'));
+  // Claude's matches of a before with the after of the same spot.
+  const pairs = new Set(assets.flatMap((a) => (a.pairKey && assets.filter((b) => b.pairKey === a.pairKey).length === 2 ? [a.pairKey] : []))).size;
   return (
     <section className="space-y-2 border border-[#2A2A2A] rounded p-3" aria-label={`Job ${job.name}`} data-testid="job">
       <div className="flex flex-wrap items-center gap-2">
@@ -1623,7 +1645,16 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: Re
         )}
         <span className="text-xs text-gray-500">
           {assets.length} photo{assets.length === 1 ? '' : 's'}
-          {assets.length > 0 && (hasBefore && hasAfter ? ' · before and after' : hasAfter ? ' · no before yet' : hasBefore ? ' · no finish yet' : ' · tag a before and an after')}
+          {assets.length > 0 &&
+            (pairs > 0
+              ? ` · ${pairs} before/after pair${pairs === 1 ? '' : 's'}`
+              : hasBefore && hasAfter
+                ? ' · before and after'
+                : hasAfter
+                  ? ' · no before yet'
+                  : hasBefore
+                    ? ' · no finish yet'
+                    : ' · tag a before and an after')}
         </span>
         <span className="ml-auto flex items-center gap-2 text-xs">
           {name === null && (

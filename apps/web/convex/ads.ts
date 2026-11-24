@@ -18,6 +18,9 @@ import {
   apifyInput,
   composeMotion,
   creativeName,
+  shortId,
+  pairingPrompt,
+  readPairing,
   fromApifyItem,
   isFatigued,
   isLocal,
@@ -258,6 +261,7 @@ export const addAsset = mutation({
     });
     // Claude looks at it and says what it shows; the card offers its tags.
     if (process.env.ANTHROPIC_API_KEY) await ctx.scheduler.runAfter(0, internal.ads.describeAsset, { id });
+    if (jobId) await askPairing(ctx, jobId);
     return id;
   },
 });
@@ -331,11 +335,14 @@ export const saveDescription = internalMutation({
     const a = await ctx.db.get(id);
     if (a === null) return;
     // An upload nobody tagged takes Claude's tags; tags a person chose stay, with the suggestion shown beside them.
+    const takes = a.tags.length === 0 && suggestedTags.length > 0;
     await ctx.db.patch(id, {
       description: description.slice(0, 300),
       suggestedTags,
-      ...(a.tags.length === 0 && suggestedTags.length > 0 ? { tags: suggestedTags } : {}),
+      ...(takes ? { tags: suggestedTags } : {}),
     });
+    // Its before or after tag may have just arrived: its job's pairs are looked at again.
+    if (takes && a.jobId) await askPairing(ctx, a.jobId);
   },
 });
 
@@ -444,7 +451,9 @@ export const removeJob = mutation({
   args: { id: v.id("adJobs") },
   handler: async (ctx, { id }) => {
     await requireStaff(ctx);
-    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", id)).take(500)) await ctx.db.patch(a._id, { jobId: undefined });
+    // Its photos stay, out of any job; the pairs were the job's, so they go.
+    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", id)).take(500))
+      await ctx.db.patch(a._id, { jobId: undefined, pairKey: undefined });
     await ctx.db.delete(id);
   },
 });
@@ -461,7 +470,10 @@ export const setAssetJob = mutation({
       if (job === null) fail("NOT_FOUND", "That job isn't in the library");
       if (tradeOf(job.trade).slug !== tradeOf(a.trade).slug) fail("INVALID", "That job is of another trade");
     }
-    await ctx.db.patch(id, { jobId });
+    if (a.jobId === jobId) return;
+    // A pair is within one job: a photo that moves leaves its pair, and both jobs are looked at again.
+    await ctx.db.patch(id, { jobId, pairKey: undefined });
+    for (const j of [a.jobId, jobId]) if (j) await askPairing(ctx, j);
   },
 });
 
@@ -482,9 +494,11 @@ export const groupIntoJob = mutation({
     for (const assetId of ids) {
       const a = await ctx.db.get(assetId);
       if (a === null || tradeOf(a.trade).slug !== slug) continue;
-      await ctx.db.patch(assetId, { jobId: id });
+      if (a.jobId && a.jobId !== id) await askPairing(ctx, a.jobId);
+      await ctx.db.patch(assetId, { jobId: id, pairKey: undefined });
       moved += 1;
     }
+    if (moved) await askPairing(ctx, id);
     return { jobId: id, moved };
   },
 });
@@ -510,6 +524,88 @@ export const jobForProject = mutation({
   },
 });
 
+// ------------------------------------------------------------------ Pairs
+//
+// A before and the after of the same spot become a pair (pairKey): a wipe, a still of the two. Nobody types them:
+// within a job, Claude looks at its befores and afters and says which show the same spot. Asked whenever the job's
+// photos or their before/after tags change, a little later, so a run of changes is looked at once.
+
+/** How long after a change the pairs are looked at, so an upload of several photos is one look. */
+const PAIR_DELAY_MS = 20_000;
+
+async function askPairing(ctx: MutationCtx, jobId: Id<"adJobs">) {
+  if (!process.env.ANTHROPIC_API_KEY) return;
+  const job = await ctx.db.get(jobId);
+  if (job === null) return;
+  const at = `${nowIso()}#${Math.random().toString(36).slice(2, 8)}`;
+  await ctx.db.patch(jobId, { pairAskedAt: at });
+  await ctx.scheduler.runAfter(PAIR_DELAY_MS, internal.ads.pairJob, { jobId, at });
+}
+
+export const jobForPairing = internalQuery({
+  args: { jobId: v.id("adJobs") },
+  handler: async (ctx, { jobId }) => {
+    const job = await ctx.db.get(jobId);
+    if (job === null) return null;
+    const photos = (await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", jobId)).take(200)).filter((a) => a.kind === "photo");
+    return {
+      pairAskedAt: job.pairAskedAt,
+      photos: await Promise.all(photos.map(async (a) => ({ id: a._id, tags: a.tags, pairKey: a.pairKey, createdAt: a.createdAt, url: await lookUrl(ctx, a) }))),
+    };
+  },
+});
+
+/** Writes a job's pairs: each pair one key, every other photo of the job none. */
+export const setJobPairs = internalMutation({
+  args: { jobId: v.id("adJobs"), pairs: v.array(v.array(v.id("adAssets"))) },
+  handler: async (ctx, { jobId, pairs }) => {
+    const keyOf = new Map<string, string>();
+    pairs.forEach((p, i) => p.forEach((id) => keyOf.set(id, `${shortId(jobId)}-${i + 1}`)));
+    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", jobId)).take(200)) {
+      const key = keyOf.get(a._id);
+      if (a.pairKey !== key) await ctx.db.patch(a._id, { pairKey: key });
+    }
+    return { pairs: pairs.length };
+  },
+});
+
+/** Asks for every job's pairs to be looked at, from the deployment: for jobs made before pairs were matched. */
+export const pairAllJobs = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const jobs = await ctx.db.query("adJobs").take(200);
+    for (const j of jobs) await askPairing(ctx, j._id);
+    return { jobs: jobs.length };
+  },
+});
+
+/** Claude matches a job's befores with its afters of the same spot. Only the latest ask for the job runs. */
+export const pairJob = internalAction({
+  args: { jobId: v.id("adJobs"), at: v.string() },
+  handler: async (ctx, { jobId, at }) => {
+    const job = await ctx.runQuery(internal.ads.jobForPairing, { jobId });
+    if (!job || job.pairAskedAt !== at) return;
+    // An image already holding a before and its after is its own pair.
+    const byAge = [...job.photos].filter((p) => p.url).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const befores = byAge.filter((p) => p.tags.includes("before") && !p.tags.includes("after")).slice(0, 8);
+    const afters = byAge.filter((p) => p.tags.includes("after") && !p.tags.includes("before")).slice(0, 8);
+    if (befores.length === 0 || afters.length === 0) {
+      await ctx.runMutation(internal.ads.setJobPairs, { jobId, pairs: [] });
+      return;
+    }
+    try {
+      const content: unknown[] = [{ type: "text", text: pairingPrompt(befores.length, afters.length) }];
+      befores.forEach((p, i) => content.push({ type: "text", text: `Before ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
+      afters.forEach((p, i) => content.push({ type: "text", text: `After ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
+      const pairs = readPairing(await claude(content, 400), befores.length, afters.length);
+      if (pairs === null) return;
+      await ctx.runMutation(internal.ads.setJobPairs, { jobId, pairs: pairs.map(([b, a]) => [befores[b].id, afters[a].id]) });
+    } catch (e) {
+      console.error("pair job", jobId, errText(e));
+    }
+  },
+});
+
 /** The library as text, from the deployment: to see which photos are of the same job before filing them under one. */
 export const libraryForJobs = internalQuery({
   args: { trade: v.optional(v.string()) },
@@ -531,9 +627,10 @@ export const fileIntoJob = internalMutation({
     for (const id of ids) {
       const a = await ctx.db.get(id);
       if (a === null || tradeOf(a.trade).slug !== slug) continue;
-      await ctx.db.patch(id, { jobId });
+      await ctx.db.patch(id, { jobId, pairKey: undefined });
       filed.push(a.fileName);
     }
+    await askPairing(ctx, jobId);
     return { jobId, filed };
   },
 });
@@ -553,8 +650,15 @@ export const tagAsset = mutation({
   args: { id: v.id("adAssets"), tags: v.array(v.string()), pairKey: v.optional(v.string()), note: v.optional(v.string()) },
   handler: async (ctx, { id, tags, pairKey, note }) => {
     await requireStaff(ctx);
-    if ((await ctx.db.get(id)) === null) fail("NOT_FOUND", "That file isn't in the library");
-    await ctx.db.patch(id, { tags: cleanTags(tags), pairKey: pairKey?.trim() || undefined, note: note?.trim().slice(0, 300) || undefined });
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That file isn't in the library");
+    // Pairs are matched by Claude within a job; a pair key is only changed when one is given.
+    await ctx.db.patch(id, {
+      tags: cleanTags(tags),
+      ...(pairKey !== undefined ? { pairKey: pairKey.trim() || undefined } : {}),
+      note: note?.trim().slice(0, 300) || undefined,
+    });
+    if (a.jobId && cleanTags(tags).join(",") !== a.tags.join(",")) await askPairing(ctx, a.jobId);
   },
 });
 
@@ -589,6 +693,7 @@ export const removeAsset = mutation({
     const a = await ctx.db.get(id);
     if (a === null) return;
     await ctx.db.delete(id);
+    if (a.jobId) await askPairing(ctx, a.jobId);
     for (const sid of [a.storageId, a.posterStorageId, a.thumbStorageId, a.motion?.storageId])
       if (sid && (await ctx.db.system.get(sid)) !== null) await ctx.storage.delete(sid);
   },

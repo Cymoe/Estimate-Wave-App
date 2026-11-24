@@ -2054,3 +2054,31 @@ export function requestStage(
   if (ads.some((c) => c.status === "voiced" || c.status === "rendering")) return "drawing";
   return ads.length ? "ready" : "writing";
 }
+
+/** The question that matches a job's befores with its afters: which show the same spot. */
+export function pairingPrompt(befores: number, afters: number): string {
+  return [
+    `These photos are all from one painting or remodelling job. The first ${befores} are befores, the next ${afters} are afters, each labelled.`,
+    "Which before and which after show the same spot (the same room, wall, door or cabinets, from a similar view), so they could be shown as a before and its after?",
+    "Pair only the ones you are sure of; a photo is in one pair at most, and leave out any with no match.",
+    'Answer with JSON only: {"pairs":[{"before":1,"after":2}]}, or {"pairs":[]} if none match.',
+  ].join("\n");
+}
+
+/** The reply to pairingPrompt as [before, after] indexes from 0; each photo once; null when the reply isn't JSON. */
+export function readPairing(reply: string, befores: number, afters: number): Array<[number, number]> | null {
+  const out = parseJson<{ pairs?: Array<{ before?: unknown; after?: unknown }> }>(reply);
+  if (!out || !Array.isArray(out.pairs)) return null;
+  const usedB = new Set<number>();
+  const usedA = new Set<number>();
+  const pairs: Array<[number, number]> = [];
+  for (const p of out.pairs) {
+    const b = Number(p?.before) - 1;
+    const a = Number(p?.after) - 1;
+    if (!Number.isInteger(b) || !Number.isInteger(a) || b < 0 || a < 0 || b >= befores || a >= afters || usedB.has(b) || usedA.has(a)) continue;
+    usedB.add(b);
+    usedA.add(a);
+    pairs.push([b, a]);
+  }
+  return pairs;
+}

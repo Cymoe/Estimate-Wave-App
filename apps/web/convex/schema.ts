@@ -2524,6 +2524,8 @@ export default defineSchema({
     // The project it came from, when its photos were sent from there.
     projectId: v.optional(v.id("projects")),
     createdBy: v.optional(v.id("users")),
+    // When its befores and afters were last asked to be matched (ads.pairJob): only the latest ask runs.
+    pairAskedAt: v.optional(v.string()),
     createdAt: v.string(),
   }).index("by_project", ["projectId"]),
 
