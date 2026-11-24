@@ -913,6 +913,12 @@ export function echoes(shown: string, said: string): boolean {
   return hit >= 2 && hit / top.size >= 0.6;
 }
 
+/** A reel's plan with any headline that only repeats its line's words taken off: that moment shows the captions alone. */
+export function withoutEchoes<P extends { style?: string; lines?: Array<{ voice?: string; label?: string }> }>(plan: P): P {
+  if (plan.style === "explainer" || !plan.lines) return plan;
+  return { ...plan, lines: plan.lines.map((l) => (l.label && l.voice && echoes(l.label, l.voice) ? { ...l, label: undefined } : l)) };
+}
+
 export function motionPlanProblems(
   plan: MotionPlan,
   photos: Array<{ tags: string[]; pairKey?: string }>,
@@ -934,12 +940,9 @@ export function motionPlanProblems(
   const most = follow && !quick ? (style === "explainer" ? CHECKLIST_POINTS_MAX + 2 : SCRIPT_LINES_MAX) : 5;
   if (lines.length < 3 || lines.length > most) out.push(`${lines.length} lines (write 3 to ${most})`);
   // On a reel the captions already show what is said: words across the top that only repeat them are wasted.
-  if (opts.noEcho && style !== "explainer") {
-    if (title && lines[0]?.voice && echoes(title, lines[0].voice)) out.push("the title repeats the first line's words: say what the voice doesn't");
-    lines.forEach((line, i) => {
-      if (line.label && line.voice && echoes(line.label, line.voice)) out.push(`line ${i + 1}'s headline "${line.label.trim()}" repeats what is said: give the step, or what the photo shows that isn't said`);
-    });
-  }
+  // (A headline that echoes its line is dropped afterwards by withoutEchoes, not sent back.)
+  if (opts.noEcho && style !== "explainer" && title && lines[0]?.voice && echoes(title, lines[0].voice))
+    out.push("the title repeats the first line's words: say what the voice doesn't");
   lines.forEach((line, i) => {
     const n = line.photo;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photos.length) out.push(`line ${i + 1} names photo ${n ?? "nothing"}`);

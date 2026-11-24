@@ -83,6 +83,7 @@ import {
   requestPrompt,
   readRequestReply,
   withoutJobNames,
+  withoutEchoes,
   pickRequestSwipes,
   requestStage,
   angleOf,
@@ -3678,7 +3679,7 @@ export const weeklyRun = internalAction({
             }),
         );
         const { script, design } = composeMotion(
-          plan,
+          steps ? withoutEchoes(plan) : plan,
           offered.map((a: { _id: string }) => a._id),
           offered,
         );

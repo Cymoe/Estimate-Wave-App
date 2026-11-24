@@ -25,6 +25,7 @@ import {
   PREP_ANGLE,
   motionPlanProblems,
   echoes,
+  withoutEchoes,
   motionPrompt,
   scriptLength,
   parseCsv,
@@ -402,7 +403,12 @@ describe("a quick offer", () => {
     const good = quickPlanFor(2);
     const echo = { ...good, lines: good.lines.map((l, i) => (i === 1 ? { ...l, label: "Every cabinet door painted", voice: "We painted every cabinet door in this kitchen." } : l)) };
     expect(motionPlanProblems(echo, pair, { town: "Midland" }).join()).not.toContain("repeats");
-    expect(motionPlanProblems(echo, pair, { town: "Midland" }, undefined, { noEcho: true }).join()).toContain('headline "Every cabinet door painted" repeats what is said');
+    // A headline that echoes is taken off (its moment shows the captions alone); the ad isn't sent back for it.
+    expect(motionPlanProblems(echo, pair, { town: "Midland" }, undefined, { noEcho: true }).join()).not.toContain("repeats");
+    const kept = { ...echo, lines: echo.lines.map((l, i) => (i === 2 ? { ...l, label: "The hardware upgrade", voice: "Get a free quote from GoodFit Pros." } : l)) };
+    expect(withoutEchoes(kept).lines.map((l) => l.label)).toEqual([kept.lines[0].label, undefined, "The hardware upgrade"]);
+    const echoTitle = { ...good, title: "Paint every cabinet door", lines: [{ ...good.lines[0], voice: "Midland, we paint every cabinet door." }, ...good.lines.slice(1)] };
+    expect(motionPlanProblems(echoTitle, pair, { town: "Midland" }, undefined, { noEcho: true }).join()).toContain("the title repeats the first line's words");
     const ask = motionPrompt({ textEn: "Paint them", family: "before_after", scope: "cabinets", style: "reel", steps: true }, "GoodFit Pros", [], true, [], "Midland");
     expect(ask).toContain("a label never repeats the line's words");
   });
