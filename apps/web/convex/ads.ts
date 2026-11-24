@@ -304,7 +304,9 @@ export const assetForDescribe = internalQuery({
   args: { id: v.id("adAssets") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
-    return a ? { imageUrl: await lookUrl(ctx, a), kind: a.kind, trade: a.trade } : null;
+    return a
+      ? { imageUrl: await lookUrl(ctx, a), thumbUrl: a.thumbStorageId ? ((await ctx.storage.getUrl(a.thumbStorageId)) ?? undefined) : undefined, kind: a.kind, trade: a.trade }
+      : null;
   },
 });
 
@@ -376,6 +378,22 @@ export const describeAsset = internalAction({
       // little later, three more times at most.
       if (tries < 3 && /^Claude: (429|5\d\d)\b|download|fetch failed|timed? ?out/i.test(why))
         await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1 });
+    }
+  },
+});
+
+/** From the deployment: one look at a file, with what Claude answered or the error, to see why a file gets no labels. */
+export const lookOnce = internalAction({
+  args: { id: v.id("adAssets"), small: v.optional(v.boolean()) },
+  handler: async (ctx, { id, small }) => {
+    const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
+    const url = small ? a?.thumbUrl : a?.imageUrl;
+    if (!url) return { error: "no picture to look at" };
+    try {
+      const reply = await claude([{ type: "image", source: { type: "url", url } }, { type: "text", text: describePrompt(tradeOf(a!.trade)) }], 400);
+      return { reply: reply.slice(0, 600) };
+    } catch (e) {
+      return { error: errText(e) };
     }
   },
 });
