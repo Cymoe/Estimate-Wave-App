@@ -2501,6 +2501,39 @@ describe("the weekly run", () => {
     expect((await latest()).creatives.some((c) => c.name.endsWith("_collage"))).toBe(true);
   });
 
+  test("a story can be copied with only its title and captions: no headline over the later lines, same voice; others can't", async () => {
+    const { t, calls, draft } = await ready();
+    stubServices(calls);
+    const batch = await draft();
+    const first = batch.creatives[0];
+    const asset = await t.run(async (ctx) => (await ctx.db.query("adAssets").first())!._id);
+    const shots = [
+      { assetId: asset, voice: "Your cabinets look tired.", onScreen: "Tired cabinets", start: 0, end: 2 },
+      { assetId: asset, voice: "We paint them like new.", onScreen: "Painted like new", start: 2, end: 4 },
+    ];
+    await t.run(async (ctx) => {
+      const c = (await ctx.db.query("adCreatives").collect()).find((x) => x.name === first.name)!;
+      await ctx.db.patch(c._id, { design: { ...c.design!, style: "explainer" } });
+    });
+    await expect(t.mutation(internal.ads.sampleCaptionsOnly, { names: [first.name] })).rejects.toThrow("isn't a story ad");
+    await t.run(async (ctx) => {
+      const c = (await ctx.db.query("adCreatives").collect()).find((x) => x.name === first.name)!;
+      await ctx.db.patch(c._id, { design: { ...c.design!, style: "reel" }, script: { ...c.script, shots, onScreen: ["A title", "Tired cabinets", "Painted like new"] } });
+    });
+    expect((await t.mutation(internal.ads.sampleCaptionsOnly, { names: [first.name] })).made).toEqual([`${first.name}_cap`]);
+    const [original, copy] = await t.run(async (ctx) => {
+      const all = await ctx.db.query("adCreatives").collect();
+      return [all.find((c) => c.name === first.name)!, all.find((c) => c.name === `${first.name}_cap`)!];
+    });
+    expect(copy.status).toBe("voiced");
+    expect(copy.audioStorageId).toBe(original.audioStorageId);
+    expect(copy.script.shots!.map((x) => x.voice)).toEqual(shots.map((x) => x.voice));
+    expect(copy.script.shots!.every((x) => x.onScreen === "")).toBe(true);
+    expect(copy.script.onScreen).toEqual(["A title"]);
+    // Asked again, nothing is copied twice.
+    expect((await t.mutation(internal.ads.sampleCaptionsOnly, { names: [first.name] })).made).toEqual([]);
+  });
+
   test("each week also makes a quick offer: one job from the week's story, a hook that speaks to the area, about 9 seconds", async () => {
     const { t, calls, draft } = await ready({ quick: true });
     stubServices(calls);

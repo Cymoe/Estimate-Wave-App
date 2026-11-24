@@ -3068,6 +3068,43 @@ export const addLook = internalMutation({
   },
 });
 
+/**
+ * From the deployment: a story copied with only its opening title and the captions, no headline over each later
+ * line, to set beside the one it was made from. Same words, voice and photos; nothing is rewritten. For jobs with
+ * only finished photos, where a headline per step has nothing new to say and repeats the voice.
+ */
+export const sampleCaptionsOnly = internalMutation({
+  args: { names: v.array(v.string()) },
+  handler: async (ctx, { names }) => {
+    const made: string[] = [];
+    for (const name of names) {
+      const c = await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first();
+      if (!c) fail("NOT_FOUND", `No ad named ${name}`);
+      if (c.design?.style !== "reel" || c.design.quick) fail("INVALID", `${name} isn't a story ad`);
+      if (!c.audioStorageId || !c.script.shots?.length) fail("INVALID", `${name} has no voice yet`);
+      const copy = `${name}_cap`;
+      if (await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", copy)).first()) continue;
+      const shots = c.script.shots.map((x) => ({ ...x, onScreen: "" }));
+      await ctx.db.insert("adCreatives", {
+        batchId: c.batchId,
+        hookId: c.hookId,
+        ratio: c.ratio,
+        name: copy,
+        script: { ...c.script, shots, onScreen: c.script.onScreen.slice(0, 1) },
+        design: c.design,
+        assetIds: c.assetIds,
+        audioStorageId: c.audioStorageId,
+        audioDurationSec: c.audioDurationSec,
+        status: "voiced",
+        createdAt: nowIso(),
+      });
+      made.push(copy);
+    }
+    if (made.length) await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
+    return { made };
+  },
+});
+
 export const patchCreative = internalMutation({
   args: {
     id: v.id("adCreatives"),
