@@ -3273,12 +3273,19 @@ export const lastBatch = internalQuery({
  * same job's photos.
  */
 export const sampleWithSteps = internalMutation({
-  args: { name: v.string(), jobId: v.optional(v.id("adJobs")) },
-  handler: async (ctx, { name, jobId }) => {
+  // `checklist`: the same idea drawn as a checklist instead (the lesson's look), its steps ticked as they're said.
+  args: { name: v.string(), jobId: v.optional(v.id("adJobs")), checklist: v.optional(v.boolean()) },
+  handler: async (ctx, { name, jobId, checklist }) => {
     const c = await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first();
     if (!c) fail("NOT_FOUND", `No ad named ${name}`);
     const batch = await ctx.db.get(c.batchId);
-    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: [c.hookId], trade: tradeOf(batch?.trade).slug, steps: true, ...(jobId ? { jobId } : {}) });
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, {
+      force: true,
+      only: [c.hookId],
+      trade: tradeOf(batch?.trade).slug,
+      ...(checklist ? { style: "explainer" as const } : { steps: true }),
+      ...(jobId ? { jobId } : {}),
+    });
     return { hookId: c.hookId };
   },
 });
