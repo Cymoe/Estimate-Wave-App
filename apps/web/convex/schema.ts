@@ -2821,6 +2821,8 @@ export default defineSchema({
     videoUrl: v.optional(v.string()),
     posterUrl: v.optional(v.string()),
     mediaType: v.optional(v.string()),
+    // When a "make an ad for…" request was last built on it, so the best few take turns (pickRequestSwipes).
+    lastUsedAt: v.optional(v.string()),
     // Claude's read of the ad (ads.tagSwipe).
     family: v.optional(v.string()),
     claims: v.optional(v.array(v.string())),

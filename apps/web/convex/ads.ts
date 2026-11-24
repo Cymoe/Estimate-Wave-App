@@ -1376,12 +1376,14 @@ export const countJunk = internalMutation({
 /** The monthly search, or the button (force). One Apify call per keyword, each under the actor's five-minute cap. */
 export const researchRun = internalAction({
   // `trade`: search for that trade's ads with its own keywords; painting (and the keywords in Settings) when none is given.
-  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()), trade: v.optional(v.string()) },
-  handler: async (ctx, { startedBy, force, trade: slug }) => {
+  // `also`: more words to search this once, beside the usual ones (from a cloud session: a kind of job with few ads).
+  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()), trade: v.optional(v.string()), also: v.optional(v.array(v.string())) },
+  handler: async (ctx, { startedBy, force, trade: slug, also }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.researchMonthly && !force) return;
     const trade = tradeOf(slug);
-    const keywords = trade.slug === DEFAULT_TRADE ? cfg.researchKeywords : [...trade.keywords];
+    const usual = trade.slug === DEFAULT_TRADE ? cfg.researchKeywords : [...trade.keywords];
+    const keywords = [...new Set([...usual, ...(also ?? []).map((k) => k.trim().slice(0, 60)).filter(Boolean).slice(0, 6)])];
     const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords, startedBy });
     const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0 };
     const source = `research ${nowIso().slice(0, 10)}`;
@@ -2221,6 +2223,8 @@ export const startRequestAds = internalMutation({
         swipeId: swipe._id,
       });
     const hookIds = [await hook("before_after", story), ...(lesson ? [await hook("education", lesson)] : [])];
+    // Used now: the next request takes the next of the best few.
+    for (const x of [story, lesson]) if (x) await ctx.db.patch(x._id, { lastUsedAt: nowIso() });
     await ctx.db.patch(requestId, { status: "made", trade: trade.slug, scope, idea, hookIds, ...(town ? { town } : {}), ...(jobId ? { jobId } : {}) });
     await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: hookIds, trade: trade.slug, requestId, town, quickToo: true, ...(jobId ? { jobId } : {}) });
   },
@@ -3263,6 +3267,22 @@ export const lastBatch = internalQuery({
 });
 
 /**
+ * From the deployment: a story made again from the same idea and competitor ad, with headlines that add to what is
+ * said instead of repeating it (weeklyRun's `steps`), to set beside the one it was made from. `jobId` keeps it on the
+ * same job's photos.
+ */
+export const sampleWithSteps = internalMutation({
+  args: { name: v.string(), jobId: v.optional(v.id("adJobs")) },
+  handler: async (ctx, { name, jobId }) => {
+    const c = await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first();
+    if (!c) fail("NOT_FOUND", `No ad named ${name}`);
+    const batch = await ctx.db.get(c.batchId);
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { force: true, only: [c.hookId], trade: tradeOf(batch?.trade).slug, steps: true, ...(jobId ? { jobId } : {}) });
+    return { hookId: c.hookId };
+  },
+});
+
+/**
  * Sends ads back to be drawn again from the words and voice they already
  * have, after a change to how ads are drawn: nothing is rewritten or re-read.
  * The old file goes; the new one takes its place when the render is back.
@@ -3585,6 +3605,8 @@ export const weeklyRun = internalAction({
     trade: v.optional(v.string()),
     // For the ideas named in only: draw them as a checklist, or as a quick offer, whatever their family.
     style: v.optional(v.union(v.literal("explainer"), v.literal("quick"))),
+    // A reel's title and headlines add to what is said (numbered steps, what the photo shows), never repeat it.
+    steps: v.optional(v.boolean()),
     // A "make an ad for…" request (makeFor): the batch is its, the town it named is the one spoken to, and the
     // quick offer is made too, though the ideas are named.
     requestId: v.optional(v.id("adRequests")),
@@ -3593,7 +3615,7 @@ export const weeklyRun = internalAction({
     // The job a request named: every version shows that job's photos only.
     jobId: v.optional(v.id("adJobs")),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo, jobId }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo, jobId, steps }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     const trade = tradeOf(slug);
@@ -3637,7 +3659,7 @@ export const weeklyRun = internalAction({
         const playbook = playbooks[hook.scope] ?? playbooks.general;
         const plan = await writePlan<MotionPlan>(
           motionPrompt(
-            { ...hook, style: shape, quick, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
+            { ...hook, style: shape, quick, steps, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
             cfg.brand.name,
             offered,
             inScope,
@@ -3650,7 +3672,10 @@ export const weeklyRun = internalAction({
           ),
           offered,
           "ad",
-          (p) => motionPlanProblems(p, offered, quick ? { town: askedTown ?? cfg.researchMarkets[0] ?? "" } : undefined, quick ? undefined : scriptLength(hook.basedOn)),
+          (p) =>
+            motionPlanProblems(p, offered, quick ? { town: askedTown ?? cfg.researchMarkets[0] ?? "" } : undefined, quick ? undefined : scriptLength(hook.basedOn), {
+              noEcho: steps,
+            }),
         );
         const { script, design } = composeMotion(
           plan,

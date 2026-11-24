@@ -24,6 +24,7 @@ import {
   mergeSwipeCsvs,
   PREP_ANGLE,
   motionPlanProblems,
+  echoes,
   motionPrompt,
   scriptLength,
   parseCsv,
@@ -341,6 +342,22 @@ describe("make an ad for…, the pure parts", () => {
     expect(pickRequestSwipes([swipe("Outside", { scope: "exterior", transcript: script })], "cabinets").story).toBeUndefined();
   });
 
+  test("the best three ads with a script take turns: each request is built on the one used longest ago", () => {
+    const ads = [
+      swipe("First", { scope: "cabinets", transcript: script, quality: 40 }),
+      swipe("Second", { scope: "cabinets", transcript: script, quality: 35 }),
+      swipe("Third", { scope: "cabinets", transcript: script, quality: 30 }),
+      swipe("Fourth", { scope: "cabinets", transcript: script, quality: 25 }),
+    ] as Array<ReturnType<typeof swipe> & { lastUsedAt?: string }>;
+    const order: string[] = [];
+    for (let day = 1; day <= 5; day++) {
+      const { story } = pickRequestSwipes(ads, "cabinets");
+      order.push(story!.company);
+      story!.lastUsedAt = `2026-11-0${day}`;
+    }
+    expect(order).toEqual(["First", "Second", "Third", "First", "Second"]);
+  });
+
   test("the page's stage follows the request, its batch and its ads", () => {
     const made = { status: "made" as const };
     expect(requestStage({ status: "reading" }, null, [])).toBe("reading");
@@ -376,6 +393,18 @@ describe("a quick offer", () => {
     expect(motionPlanProblems(good, twoJobs, { town: "Midland" })).toContain("a quick offer shows one job: one photo, or a before and its after");
     // Its 27 words are too few for a story reel.
     expect(motionPlanProblems(good, pair).join()).toContain("words of voice (write 45 to 55)");
+  });
+  test("with steps on, the title and headlines may not just repeat the words said under them; a checklist's points may", () => {
+    expect(echoes("Doors and drawers go to our shop", "First, we take your doors and drawers back to our shop.")).toBe(true);
+    expect(echoes("A fresh new look for cabinets", "Give your kitchen a fresh new look with cabinet painting.")).toBe(true);
+    expect(echoes("Step 1: Off to our shop", "First, we take your doors and drawers back to our shop.")).toBe(false);
+    expect(echoes("Not sure how it works?", "But you're unsure of the process.")).toBe(false);
+    const good = quickPlanFor(2);
+    const echo = { ...good, lines: good.lines.map((l, i) => (i === 1 ? { ...l, label: "Every cabinet door painted", voice: "We painted every cabinet door in this kitchen." } : l)) };
+    expect(motionPlanProblems(echo, pair, { town: "Midland" }).join()).not.toContain("repeats");
+    expect(motionPlanProblems(echo, pair, { town: "Midland" }, undefined, { noEcho: true }).join()).toContain('headline "Every cabinet door painted" repeats what is said');
+    const ask = motionPrompt({ textEn: "Paint them", family: "before_after", scope: "cabinets", style: "reel", steps: true }, "GoodFit Pros", [], true, [], "Midland");
+    expect(ask).toContain("a label never repeats the line's words");
   });
   test("its photos: a tagged pair first, then one image holding both, else one finished photo; never a lone before or an untagged photo", () => {
     const other = { tags: ["cabinets", "after"] };

@@ -718,7 +718,8 @@ export function scriptLength(basedOn?: Pick<BasedOn, "transcript" | "adCopy">): 
 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
-  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean },
+  // steps: the reel's title and headlines add to what is said, never repeat it (motionPlanProblems' noEcho).
+  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean; steps?: boolean },
   brand: string,
   photos: Candidate[],
   inScope: boolean,
@@ -805,7 +806,9 @@ export function motionPrompt(
           "- Each point is something the homeowner can check in any quote, said in a few words they could repeat to a painter.",
         ]
       : [
-    "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. Read in order with the title, the headlines alone tell the story to someone watching with the sound off (\"Bare dirt, every summer\", \"Base dug and packed\", \"Same yard, finished\").",
+    hook.steps
+      ? "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. The captions already show what is said, so a label never repeats the line's words: it adds what the voice doesn't say. Where the ad walks through how the work is done, number the steps (\"Step 1: Off to our shop\", \"Step 2: Into the spray booth\"); otherwise name what the photo shows that isn't said (\"Sage green, brass pulls\"). The title doesn't repeat the first line either. Read in order with the title, the headlines alone still tell the story with the sound off."
+      : "- Each line after the first has a label: a headline of 3 to 7 words across the top while the line is said. Read in order with the title, the headlines alone tell the story to someone watching with the sound off (\"Bare dirt, every summer\", \"Base dug and packed\", \"Same yard, finished\").",
     "- For each line give x and y: the point on its photo the line is about, where the camera should move in (x from 0 at the left to 100 at the right, y from 0 at the top to 100 at the bottom).",
     `- A photo may itself be two pictures in one, such as a before and its after, side by side or one above the other. Then give the line "cut": [from, to], the part of the photo to show, so a line about the before never shows the after. For two side by side it is measured across ([0, 50] is the left picture). For one above the other add "stacked": true and it is measured down ([0, 50] is the top picture). Where a word such as Before or After is printed on the photo by the join, stop the cut short of it. x and y are then within that part. A photo tagged both before and after is one of these, and always needs a cut.`,
     "- Use as many different photos as honestly fit the hook, each one once where you can, so the picture keeps changing and nothing comes back.",
@@ -888,12 +891,34 @@ export interface MotionPlan {
 const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9']/g, "");
 
 /** What's wrong with an animated ad Claude returned, against the photos it was offered. */
+const ECHO_SKIP = new Set(["your", "with", "that", "this", "from", "they", "them", "what", "when", "have", "will", "into", "just", "more", "than", "every", "each", "here", "there", "then", "were", "does", "make", "like", "about", "also", "step"]);
+const echoWords = (text: string) =>
+  new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9' ]+/g, " ")
+      .split(/\s+/)
+      .map((w) => w.replace(/'s$/, "").replace(/'/g, ""))
+      .filter((w) => w.length >= 4 && !ECHO_SKIP.has(w))
+      .map((w) => w.replace(/(ing|ed|es|s)$/, "")),
+  );
+
+/** Words across the top that only repeat the words said under them: two or more of their words, and most of them, are said. */
+export function echoes(shown: string, said: string): boolean {
+  const top = echoWords(shown);
+  const spoken = echoWords(said);
+  const hit = [...top].filter((w) => spoken.has(w)).length;
+  return hit >= 2 && hit / top.size >= 0.6;
+}
+
 export function motionPlanProblems(
   plan: MotionPlan,
   photos: Array<{ tags: string[]; pairKey?: string }>,
   quick?: { town: string },
   // A competitor's script being followed: its length is ours, not the usual 20 seconds.
   follow?: { words: number; copyChars: number },
+  // noEcho: a reel's title and headlines may not repeat the words said under them (motionPrompt's steps).
+  opts: { noEcho?: boolean } = {},
 ): string[] {
   const out: string[] = [];
   const style = AD_STYLES.find((x) => x === plan.style);
@@ -906,6 +931,13 @@ export function motionPlanProblems(
   // A followed script takes a line per sentence; anything else is three to five.
   const most = follow && !quick ? (style === "explainer" ? CHECKLIST_POINTS_MAX + 2 : SCRIPT_LINES_MAX) : 5;
   if (lines.length < 3 || lines.length > most) out.push(`${lines.length} lines (write 3 to ${most})`);
+  // On a reel the captions already show what is said: words across the top that only repeat them are wasted.
+  if (opts.noEcho && style !== "explainer") {
+    if (title && lines[0]?.voice && echoes(title, lines[0].voice)) out.push("the title repeats the first line's words: say what the voice doesn't");
+    lines.forEach((line, i) => {
+      if (line.label && line.voice && echoes(line.label, line.voice)) out.push(`line ${i + 1}'s headline "${line.label.trim()}" repeats what is said: give the step, or what the photo shows that isn't said`);
+    });
+  }
   lines.forEach((line, i) => {
     const n = line.photo;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > photos.length) out.push(`line ${i + 1} names photo ${n ?? "nothing"}`);
@@ -2066,17 +2098,24 @@ export function readRequestReply(reply: string, trades: AdTrade[], jobCount = 0)
  * when there is one, from the same kind of job first. The lesson prefers an ad Claude read as teaching
  * (family "education"); either may be missing when too few are on file.
  */
-export function pickRequestSwipes<S extends Scored & { scope?: string; transcript?: string; adCopy?: string; family?: string; company: string; importedAt: string }>(
-  swipes: S[],
-  scope: string,
-): { story?: S; lesson?: S } {
+/** How many of the best competitor ads for a kind of job take turns, so requests aren't all built on the same one. */
+export const REQUEST_ROTATION = 3;
+
+export function pickRequestSwipes<
+  S extends Scored & { scope?: string; transcript?: string; adCopy?: string; family?: string; company: string; importedAt: string; lastUsedAt?: string },
+>(swipes: S[], scope: string): { story?: S; lesson?: S } {
   const ranked = pickExamples(swipes, scope, swipes.length).filter((x) => !x.scope || x.scope === scope || scope === ANY_SCOPE);
   // Ads with a script to follow first, so ours can be written at their full length; then the rest, by angle only.
   const scripted = ranked.filter((x) => scriptLength(x) !== undefined);
   const pool = [...scripted, ...ranked.filter((x) => !scripted.includes(x))];
-  const story = pool.find((x) => x.family !== "education") ?? pool[0];
+  // Of the best few that fit, the one used longest ago (never used first); the best of those when they tie.
+  const turn = (fits: S[]) =>
+    fits.slice(0, REQUEST_ROTATION).reduce<S | undefined>((best, x) => (!best || (x.lastUsedAt ?? "") < (best.lastUsedAt ?? "") ? x : best), undefined);
+  // Turns are taken among ads with a script when there are any, so a script is never passed over for a headline.
+  const among = (fits: S[]) => turn(fits.filter((x) => scripted.includes(x)).length ? fits.filter((x) => scripted.includes(x)) : fits);
+  const story = among(pool.filter((x) => x.family !== "education")) ?? pool[0];
   const rest = pool.filter((x) => x !== story);
-  const lesson = rest.find((x) => x.family === "education") ?? rest.find((x) => x.company !== story?.company) ?? rest[0];
+  const lesson = among(rest.filter((x) => x.family === "education")) ?? rest.find((x) => x.company !== story?.company) ?? rest[0];
   return { story, lesson };
 }
 
