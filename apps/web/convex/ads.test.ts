@@ -1060,6 +1060,29 @@ describe("niche research's pure parts", () => {
 });
 
 describe("the library, hooks and settings", () => {
+  test("a library file carries a small copy for the grid: given at upload or made later; replaced and removed with it", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    const member = await signUp(t, "owner@peak.example");
+    const thumb = await store(t, "image/jpeg", "small");
+    const a = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "a.jpg", tags: [], thumbStorageId: thumb });
+    const b = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "b.jpg", tags: [] });
+    const list = async () => Object.fromEntries((await staff.as.query(api.ads.listAssets, {})).map((x) => [x.fileName, x.thumbUrl]));
+    expect(await list()).toEqual({ "a.jpg": expect.any(String), "b.jpg": undefined });
+    // One uploaded before thumbnails gets its copy later; a new copy replaces the old file.
+    await staff.as.mutation(api.ads.setThumb, { id: b, thumbStorageId: await store(t, "image/jpeg", "small b") });
+    const next = await store(t, "image/jpeg", "small a2");
+    await staff.as.mutation(api.ads.setThumb, { id: a, thumbStorageId: next });
+    expect(await t.run(async (ctx) => await ctx.db.system.get(thumb))).toBeNull();
+    expect(Object.values(await list()).every((u) => typeof u === "string")).toBe(true);
+    // Nothing big will do.
+    await expect(staff.as.mutation(api.ads.setThumb, { id: b, thumbStorageId: await store(t, "image/jpeg", "x".repeat(600 * 1024)) })).rejects.toThrow("small copy");
+    await expect(member.as.mutation(api.ads.setThumb, { id: b, thumbStorageId: next })).rejects.toThrow("Only Webb Leads staff");
+    // Removing the file removes its small copy too.
+    await staff.as.mutation(api.ads.removeAsset, { id: a });
+    expect(await t.run(async (ctx) => await ctx.db.system.get(next))).toBeNull();
+  });
+
   test("photos of one job are kept together: a job is named, renamed and taken away without losing its photos; a project's photos go to one job, once each", async () => {
     const t = setup();
     const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });

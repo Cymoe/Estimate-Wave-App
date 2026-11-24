@@ -214,11 +214,12 @@ export const addAsset = mutation({
     note: v.optional(v.string()),
     durationSec: v.optional(v.number()),
     posterStorageId: v.optional(v.id("_storage")),
+    thumbStorageId: v.optional(v.id("_storage")),
     trade: v.optional(v.string()),
     jobId: v.optional(v.id("adJobs")),
     jobPhotoId: v.optional(v.id("jobPhotos")),
   },
-  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, trade, jobId, jobPhotoId }) => {
+  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, jobId, jobPhotoId }) => {
     const user = await requireStaff(ctx);
     const job = jobId ? await ctx.db.get(jobId) : null;
     if (jobId && job === null) fail("NOT_FOUND", "That job isn't in the library");
@@ -234,6 +235,7 @@ export const addAsset = mutation({
       if (poster === null || (poster.contentType !== undefined && !poster.contentType.startsWith("image/")) || poster.size > MAX_POSTER)
         fail("INVALID", "The still for this file didn't upload right");
     }
+    if (thumbStorageId) await checkThumb(ctx, thumbStorageId);
     const id = await ctx.db.insert("adAssets", {
       // A photo filed under a job is of the job's trade.
       trade: tradeOf(job?.trade ?? trade).slug,
@@ -247,6 +249,7 @@ export const addAsset = mutation({
       pairKey: pairKey?.trim() || undefined,
       note: note?.trim().slice(0, 300) || undefined,
       posterStorageId,
+      ...(thumbStorageId ? { thumbStorageId } : {}),
       ...(jobId ? { jobId } : {}),
       ...(jobPhotoId ? { jobPhotoId } : {}),
       uses: 0,
@@ -256,6 +259,31 @@ export const addAsset = mutation({
     // Claude looks at it and says what it shows; the card offers its tags.
     if (process.env.ANTHROPIC_API_KEY) await ctx.scheduler.runAfter(0, internal.ads.describeAsset, { id });
     return id;
+  },
+});
+
+/** The most a library thumbnail may weigh: a small JPEG is far under it. */
+const MAX_THUMB = 512 * 1024;
+
+async function checkThumb(ctx: MutationCtx, thumbStorageId: Id<"_storage">) {
+  const thumb = await ctx.db.system.get(thumbStorageId);
+  if (thumb === null || (thumb.contentType !== undefined && !thumb.contentType.startsWith("image/")) || thumb.size > MAX_THUMB)
+    fail("INVALID", "The small copy of this photo didn't upload right");
+}
+
+/**
+ * The small copy the library grid shows, for a file uploaded before thumbnails were made (the Library page makes
+ * them quietly, one at a time) or one whose copy is replaced.
+ */
+export const setThumb = mutation({
+  args: { id: v.id("adAssets"), thumbStorageId: v.id("_storage") },
+  handler: async (ctx, { id, thumbStorageId }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null) fail("NOT_FOUND", "That file isn't in the library");
+    await checkThumb(ctx, thumbStorageId);
+    if (a.thumbStorageId && a.thumbStorageId !== thumbStorageId && (await ctx.db.system.get(a.thumbStorageId)) !== null) await ctx.storage.delete(a.thumbStorageId);
+    await ctx.db.patch(id, { thumbStorageId });
   },
 });
 
@@ -353,6 +381,7 @@ export const listAssets = query({
         pairKey: a.pairKey,
         note: a.note,
         posterUrl: a.posterStorageId ? ((await ctx.storage.getUrl(a.posterStorageId)) ?? undefined) : undefined,
+        thumbUrl: a.thumbStorageId ? ((await ctx.storage.getUrl(a.thumbStorageId)) ?? undefined) : undefined,
         description: a.description,
         suggestedTags: a.suggestedTags,
         uses: a.uses ?? 0,
@@ -560,7 +589,7 @@ export const removeAsset = mutation({
     const a = await ctx.db.get(id);
     if (a === null) return;
     await ctx.db.delete(id);
-    for (const sid of [a.storageId, a.posterStorageId, a.motion?.storageId])
+    for (const sid of [a.storageId, a.posterStorageId, a.thumbStorageId, a.motion?.storageId])
       if (sid && (await ctx.db.system.get(sid)) !== null) await ctx.storage.delete(sid);
   },
 });

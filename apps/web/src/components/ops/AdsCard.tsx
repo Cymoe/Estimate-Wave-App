@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { ExternalLink, Film, Play, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdJobs } from '../../lib/live';
-import { isVideo, putFile, stillOfClip, uploadAsset } from '../../lib/adUpload';
+import { backfillThumb, isVideo, putFile, stillOfClip, thumbOf, uploadAsset } from '../../lib/adUpload';
 import {
   useAdsBatches,
   useAdsHooks,
@@ -148,6 +148,8 @@ export interface AdAsset {
   tags: string[];
   pairKey?: string;
   note?: string;
+  /** The small copy the grid shows (about 480 pixels), so the page loads fast. */
+  thumbUrl?: string;
   /** The JPEG still made at upload. */
   posterUrl?: string;
   /** What Claude saw in it, and the tags it suggests. */
@@ -994,6 +996,23 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const clips = (assets ?? []).filter((a) => a.kind === 'video');
   const open = (assets ?? []).find((a) => a.id === openId);
   const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
+  // Files uploaded before thumbnails were made get one here, quietly, one at a time; each is tried once a visit.
+  const tried = useRef(new Set<string>());
+  useEffect(() => {
+    const todo = (assets ?? []).filter((a) => !a.thumbUrl && !tried.current.has(a.id) && (a.posterUrl || (a.kind === 'photo' && a.url)));
+    if (todo.length === 0) return;
+    let stop = false;
+    void (async () => {
+      for (const a of todo) {
+        if (stop) return;
+        tried.current.add(a.id);
+        await backfillThumb(a.id, (a.posterUrl ?? a.url)!);
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [assets]);
   // In a job's box the job is its heading, so the card doesn't repeat it.
   const tile = (a: AdAsset, inBox = false) => (
     <AssetTile
@@ -1148,6 +1167,28 @@ const AddTile: React.FC<{ label: string; photos?: boolean; onFiles: (files: File
 };
 
 /** The picture of a library file: its still, else the photo, else the clip's first frame. */
+/**
+ * A card's picture: the small copy where there is one, loaded only as it scrolls near, on a soft grey box that it
+ * fades in over, so there is never a blank pause.
+ */
+const Thumb: React.FC<{ a: AdAsset }> = ({ a }) => {
+  const src = a.thumbUrl ?? a.posterUrl ?? (a.kind === 'photo' ? a.url : undefined);
+  const [loaded, setLoaded] = useState(false);
+  if (!src) return <Picture a={a} className="w-full aspect-square object-cover" />;
+  return (
+    <div className={`w-full aspect-square bg-[#1d1d1d] ${loaded ? '' : 'animate-pulse'}`}>
+      <img
+        src={src}
+        alt={a.fileName}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      />
+    </div>
+  );
+};
+
 const Picture: React.FC<{ a: AdAsset; className: string; play?: boolean }> = ({ a, className, play }) =>
   a.kind === 'video' && play && a.url ? (
     <video src={a.url} controls playsInline poster={a.posterUrl} className={`${className} bg-black`} />
@@ -1191,7 +1232,7 @@ const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: 
         className="block w-full text-left"
       >
         <div className="relative">
-          <Picture a={a} className="w-full aspect-square object-cover" />
+          <Thumb a={a} />
           {pick && (
             <span
               aria-hidden="true"
@@ -1336,6 +1377,8 @@ const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () =
                     const { still, durationSec } = await stillOfClip(a.url!, true);
                     if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
                     await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
+                    const thumb = await thumbOf(still);
+                    if (thumb) await adsAPI.setThumb(a.id, await putFile(thumb, 'image/jpeg'));
                   }, 'Still made. Claude is looking at the clip and will suggest its tags.')
                 }
               >

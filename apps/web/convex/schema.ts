@@ -2481,6 +2481,8 @@ export default defineSchema({
     // A JPEG still made in the browser at upload: what Claude looks at, the
     // render source for HEIC photos, and the poster for video ads.
     posterStorageId: v.optional(v.id("_storage")),
+    // A small JPEG (about 480 pixels) the library grid shows, so the page loads fast; the still is for the big view.
+    thumbStorageId: v.optional(v.id("_storage")),
     // What Claude saw in it, and the tags it would give it.
     description: v.optional(v.string()),
     suggestedTags: v.optional(v.array(v.string())),

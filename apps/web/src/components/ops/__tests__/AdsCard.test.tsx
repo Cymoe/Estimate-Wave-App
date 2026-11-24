@@ -616,7 +616,11 @@ describe('Ops → Ads', () => {
     expect(card.textContent).toContain('in 2 ads');
     expect(card.textContent).toContain('cabinets');
     expect(card.textContent).not.toContain('White shaker cabinets');
+    // With no small copy yet, the card shows the still, loading only as it scrolls near; the page makes the small
+    // copy from the still, quietly.
     expect(card.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/a1-still.jpg');
+    expect(card.querySelector('img')!.getAttribute('loading')).toBe('lazy');
+    expect((global as unknown as { fetch: jest.Mock }).fetch.mock.calls.map((c) => c[0])).toContain('https://cdn.example/a1-still.jpg');
     expect(card.querySelector('[data-testid="suggested-mark"]')).not.toBeNull();
     // Opened, it says what Claude saw and offers its tags.
     await openFile('kitchen.jpg');
@@ -1161,7 +1165,7 @@ describe('Ops → Ads', () => {
   it('a job site video: clips are on their own; a clip is made into an ad as it was shot, and has no job or before/after', async () => {
     assets = [
       { id: 'v1', kind: 'video', fileName: 'spraying.mp4', tags: ['cabinets'], durationSec: 12.4, createdAt: new Date().toISOString() },
-      { id: 'p1', kind: 'photo', fileName: 'kitchen.jpg', tags: ['cabinets'], createdAt: new Date().toISOString() },
+      { id: 'p1', kind: 'photo', fileName: 'kitchen.jpg', url: 'https://cdn.example/p1.jpg', thumbUrl: 'https://cdn.example/p1-small.jpg', tags: ['cabinets'], createdAt: new Date().toISOString() },
     ];
     jobs = [{ id: 'j1', name: 'Smith kitchen', photos: 0, createdAt: new Date().toISOString() }];
     await render();
@@ -1169,6 +1173,8 @@ describe('Ops → Ads', () => {
     const show = (label: string) => Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith(label)) as HTMLButtonElement;
     expect(show('Photos').textContent).toBe('Photos (1)');
     expect(show('Clips').textContent).toBe('Clips (1)');
+    // A card shows the small copy, never the full photo.
+    expect(document.body.querySelector('[aria-label="Open kitchen.jpg"] img')!.getAttribute('src')).toBe('https://cdn.example/p1-small.jpg');
     // Photos first: the clip isn't among them.
     expect(document.body.querySelector('[aria-label="Open spraying.mp4"]')).toBeNull();
     expect(document.body.textContent).not.toContain('Make a job site ad');
