@@ -538,6 +538,23 @@ describe('Ops → Ads', () => {
     await act(async () => (named.form as HTMLFormElement).requestSubmit());
     await flush();
     expect(groupIntoJob).toHaveBeenLastCalledWith(['a3'], { name: 'Garage door' }, 'painting');
+    // Photos go straight into a job from its box.
+    addAsset.mockClear();
+    await act(async () => (document.body.querySelector('[aria-label="Add photos to Smith kitchen"]') as HTMLButtonElement).click());
+    expect(dialog().getAttribute('aria-label')).toBe('Add photos to Smith kitchen');
+    const into = dialog().querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(into, 'files', { value: [new File(['x'], 'sink.jpg', { type: 'image/jpeg' })] });
+    await act(async () => into.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+    expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'sink.jpg', jobId: 'j1' }));
+    // New job: a name, then straight on to its photos.
+    await act(async () => byText('New job')!.click());
+    await act(async () => type(dialog().querySelector('input[aria-label="Job name"]') as HTMLInputElement, 'Jones exterior'));
+    await act(async () => (dialog().querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(addJob).toHaveBeenLastCalledWith('Jones exterior', 'painting');
+    expect(dialog().getAttribute('aria-label')).toBe('Add photos to Jones exterior');
+    await closeDialog();
     await act(async () => byText('Take away job')!.click());
     await flush();
     expect(removeJob).toHaveBeenCalledWith('j1');

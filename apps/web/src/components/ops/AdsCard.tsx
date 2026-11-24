@@ -965,7 +965,10 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const [view, setView] = useState<'photos' | 'clips'>('photos');
   // The file open in its window (read fresh from the live list, so a change shows at once), and the upload window.
   const [openId, setOpenId] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  // The upload window: for the library, or straight into one job's box.
+  const [adding, setAdding] = useState<{ jobId?: string } | null>(null);
+  // "New job": name it, then its photos go straight in.
+  const [naming, setNaming] = useState(false);
   // "Select": tap several photos, then one job tag puts them all in that job.
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
@@ -1026,7 +1029,12 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
             {selecting ? 'Cancel' : 'Select'}
           </button>
         )}
-        <button type="button" className={`${primary} ${view === 'photos' && photos.length > 0 ? '' : 'ml-auto'}`} onClick={() => setAdding(true)}>
+        {view === 'photos' && !selecting && (
+          <button type="button" className={`${secondary} ${photos.length > 0 ? '' : 'ml-auto'}`} onClick={() => setNaming(true)}>
+            New job
+          </button>
+        )}
+        <button type="button" className={`${primary} ${view === 'photos' ? '' : 'ml-auto'}`} onClick={() => setAdding({})}>
           <Upload className="w-4 h-4" /> Add photos or clips
         </button>
       </div>
@@ -1045,7 +1053,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         ) : (
           <div className="space-y-5" aria-label="Library">
             {jobs.map((j) => (
-              <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
+              <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act} onAdd={() => setAdding({ jobId: j.id })}>
                 {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
               </JobGroup>
             ))}
@@ -1083,7 +1091,18 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         </div>
       )}
       {open && <AssetEditor a={open} jobs={jobs} act={act} onClose={() => setOpenId(null)} />}
-      {adding && <AddFiles jobs={jobs} act={act} onClose={() => setAdding(false)} />}
+      {adding && <AddFiles jobs={jobs} act={act} startJob={adding.jobId} onClose={() => setAdding(null)} />}
+      {naming && (
+        <NewJob
+          act={act}
+          onClose={() => setNaming(false)}
+          onMade={(jobId) => {
+            setNaming(false);
+            setView('photos');
+            setAdding({ jobId });
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -1312,11 +1331,38 @@ const AssetEditor: React.FC<{ a: AdAsset; jobs: AdJob[]; act: Act; onClose: () =
 };
 
 /** The upload, in its own window: tags and a job for what comes next, the rest under More, then the files. */
-const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void }> = ({ jobs, act, onClose }) => {
+/** "New job": a name, then straight on to its photos. */
+const NewJob: React.FC<{ act: Act; onClose: () => void; onMade: (jobId: string) => void }> = ({ act, onClose, onMade }) => {
+  const trade = useTrade();
+  const [name, setName] = useState('');
+  return (
+    <Dialog title="New job" onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const clean = name.trim();
+          if (!clean) return;
+          void act(async () => onMade(await adsAPI.addJob(clean, trade)), `Job "${clean}" added.`);
+        }}
+      >
+        <Field label="Job name" hint="Your own name for it, like Smith kitchen. It never shows in an ad.">
+          <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Job name" className={input} autoFocus />
+        </Field>
+        <button type="submit" className={`${primary} w-full`} disabled={!name.trim()}>
+          Make the job, then add its photos
+        </button>
+      </form>
+    </Dialog>
+  );
+};
+
+const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJob?: string }> = ({ jobs, act, onClose, startJob }) => {
   const trade = useTrade();
   // Nothing lit up by default: an upload with no tags takes the tags Claude suggests.
   const [tags, setTags] = useState<string[]>([]);
-  const [jobId, setJobId] = useState('');
+  const [jobId, setJobId] = useState(startJob ?? '');
+  const into = startJob ? jobs.find((j) => j.id === startJob) : undefined;
   const [pairKey, setPairKey] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1335,7 +1381,7 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void }> = ({ 
     setBusy(false);
   };
   return (
-    <Dialog title="Add photos or clips" onClose={onClose}>
+    <Dialog title={into ? `Add photos to ${into.name}` : 'Add photos or clips'} onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-gray-400">Tag them now, or leave it: Claude looks at each one and tags it for you.</p>
         <KindTags value={tags} onChange={setTags} photo label="Tags for the next upload" />
@@ -1448,7 +1494,13 @@ const JobTags: React.FC<{
 };
 
 /** One job's photos together, with its name to change and a way to take the job away (its photos stay). */
-const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: React.ReactNode }> = ({ job, assets, act, children }) => {
+const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; onAdd: () => void; children: React.ReactNode }> = ({
+  job,
+  assets,
+  act,
+  onAdd,
+  children,
+}) => {
   const [name, setName] = useState<string | null>(null);
   const hasBefore = assets.some((a) => a.tags.includes('before'));
   const hasAfter = assets.some((a) => a.tags.includes('after'));
@@ -1475,7 +1527,10 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: Re
           {assets.length} photo{assets.length === 1 ? '' : 's'}
           {assets.length > 0 && (hasBefore && hasAfter ? ' · before and after' : hasAfter ? ' · no before yet' : hasBefore ? ' · no finish yet' : ' · tag a before and an after')}
         </span>
-        <span className="ml-auto flex gap-2 text-xs">
+        <span className="ml-auto flex items-center gap-2 text-xs">
+          <button type="button" className={`${secondary} text-xs py-1`} aria-label={`Add photos to ${job.name}`} onClick={onAdd}>
+            <Upload className="w-3.5 h-3.5" /> Add photos
+          </button>
           {name === null && (
             <button type="button" className="text-gray-400 underline" onClick={() => setName(job.name)}>
               Rename
