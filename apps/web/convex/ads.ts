@@ -356,9 +356,10 @@ export const saveDescription = internalMutation({
 export const describeAsset = internalAction({
   // tries: how many looks at this file Claude has already turned away.
   args: { id: v.id("adAssets"), tries: v.optional(v.number()) },
-  handler: async (ctx, { id, tries = 0 }) => {
+  // What came of it, in a few words: for lookOnce, to see why a file has no labels.
+  handler: async (ctx, { id, tries = 0 }): Promise<string> => {
     const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
-    if (!a?.imageUrl || !process.env.ANTHROPIC_API_KEY) return;
+    if (!a?.imageUrl || !process.env.ANTHROPIC_API_KEY) return "nothing to look at";
     try {
       const reply = await claude(
         [
@@ -368,9 +369,10 @@ export const describeAsset = internalAction({
         400,
       );
       const out = parseJson<{ description?: string; tags?: string[]; items?: unknown }>(reply);
-      if (!out?.description) return;
+      if (!out?.description) return `reply not read: ${reply.slice(0, 300)}`;
       const suggestedTags = [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(tradeOf(a.trade)).includes(t));
       await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags, items: cleanItems(out.items, tradeOf(a.trade)) });
+      return "saved";
     } catch (e) {
       const why = errText(e);
       console.error("describe asset", id, why);
@@ -378,14 +380,17 @@ export const describeAsset = internalAction({
       // little later, three more times at most.
       if (tries < 3 && /^Claude: (429|5\d\d)\b|download|fetch failed|timed? ?out/i.test(why))
         await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1 });
+      return `error: ${why}`;
     }
   },
 });
 
 /** From the deployment: one look at a file, with what Claude answered or the error, to see why a file gets no labels. */
 export const lookOnce = internalAction({
-  args: { id: v.id("adAssets"), small: v.optional(v.boolean()) },
-  handler: async (ctx, { id, small }) => {
+  args: { id: v.id("adAssets"), small: v.optional(v.boolean()), save: v.optional(v.boolean()) },
+  handler: async (ctx, { id, small, save }): Promise<{ error?: string; reply?: string; outcome?: string }> => {
+    // save: the real look, saved as at upload, and what came of it.
+    if (save) return { outcome: await ctx.runAction(internal.ads.describeAsset, { id, tries: 3 }) };
     const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
     const url = small ? a?.thumbUrl : a?.imageUrl;
     if (!url) return { error: "no picture to look at" };
