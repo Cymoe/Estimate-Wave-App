@@ -538,7 +538,7 @@ function balancedEnd(text: string, from: number): number {
 export const describePrompt = (trade: AdTrade): string =>
   [
     `This is a photo (or a still from a video) a ${trade.contractor} took on a job. It will be used in ads.`,
-    `Describe what is visible in one plain sentence: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
+    `Describe what is visible in one plain sentence of at most 30 words: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
     `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
     `Then list what the photo shows, from this list only, every one that is clearly in it (the things worked on, and the room): ${trade.items.join(", ")}.`,
     'Return only JSON: {"description":"...","tags":["..."],"items":["..."]}',

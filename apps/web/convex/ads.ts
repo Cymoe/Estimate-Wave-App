@@ -366,7 +366,8 @@ export const describeAsset = internalAction({
           { type: "image", source: { type: "url", url: a.imageUrl } },
           { type: "text", text: describePrompt(tradeOf(a.trade)) + (a.kind === "video" ? "\nThis image is a still from a video clip." : "") },
         ],
-        400,
+        // Room for a busy photo's sentence and its labels: a reply cut off part-way can't be read.
+        1000,
       );
       const out = parseJson<{ description?: string; tags?: string[]; items?: unknown }>(reply);
       if (!out?.description) return `reply not read: ${reply.slice(0, 300)}`;
