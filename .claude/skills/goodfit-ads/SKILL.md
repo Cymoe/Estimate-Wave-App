@@ -222,7 +222,9 @@ into jobs (`adJobs`; `adAssets.jobId`):
     adds only new photos.
 - **Labels say what a photo shows** (`adAssets.items`, from the trade's `items` list: doors, trim, front door,
   fence...). Claude picks them in the same look that describes an upload (`describePrompt`, `cleanItems`). A
-  person's fix (`setItems`) sticks. `ads:labelLibrary` labels files that have none.
+  person's fix (`setItems`) sticks. `ads:labelLibrary` labels files that have none (3 s apart; a look Claude
+  turns away with 429/5xx is retried by itself). If a file still has none, `ads:lookOnce {"id":...,"save":true}`
+  runs the real look and says what came of it (a cut-off reply once left busy photos unlabelled).
   - When an idea names a label (`itemsIn`, e.g. "front door painting"), `pickAssets`/`pickJob` offer those photos
     first, and the writer sees each photo's labels.
   - The Library has a filter row by label.
