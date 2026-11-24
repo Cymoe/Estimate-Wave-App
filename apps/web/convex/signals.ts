@@ -335,7 +335,9 @@ async function isLandlord(ctx: MutationCtx, parcel: Doc<"parcels">): Promise<boo
   const theirs = await ctx.db
     .query("parcels")
     .withIndex("by_county_and_owner_key", (q) => q.eq("county", parcel.county).eq("ownerKey", parcel.ownerKey!))
-    .take(60);
+    // Enough to find five homes among an owner's land and buildings, without reading a big landlord's every parcel
+    // for each of their homes (a page of those is what stopped a rescore before).
+    .take(LANDLORD_HOMES * 4);
   return theirs.filter((p) => isResidentialUse(p.useCode) && !p.retiredAt).length >= LANDLORD_HOMES;
 }
 
@@ -361,7 +363,8 @@ export const recomputePage = internalMutation({
     const parcels = county
       ? ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", county))
       : ctx.db.query("parcels");
-    const page = await parcels.paginate({ cursor: cursor ?? null, numItems: 250 });
+    // 100 a page: each home reads its records, and in Odessa its owner's other parcels.
+    const page = await parcels.paginate({ cursor: cursor ?? null, numItems: 100 });
     const now = Date.now();
     for (const parcel of page.page) await restack(ctx, parcel, now);
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.signals.recomputePage, { cursor: page.continueCursor, ...(county ? { county } : {}) });
