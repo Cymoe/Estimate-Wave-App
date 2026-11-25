@@ -570,6 +570,41 @@ describe('Ops → Ads', () => {
     expect(dialog().textContent).not.toContain('Note');
   });
 
+  it('Library: in a batch, the next clip is made smaller while the one before is sent', async () => {
+    jobs = [];
+    assets = [];
+    shrinkClip.mockClear();
+    addAsset.mockClear();
+    await render();
+    await tab('Library');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith('Clips')) as HTMLButtonElement).click());
+    const tile = document.body.querySelector('input[aria-label="Add clips"]') as HTMLInputElement;
+    const clip = (name: string) => {
+      const f = new File(['v'], name, { type: 'video/quicktime' });
+      Object.defineProperty(f, 'size', { value: 120 * 1024 * 1024 });
+      return f;
+    };
+    shrinkTo = 12 * 1024 * 1024;
+    sendsWait = true;
+    await act(async () => {
+      Object.defineProperty(tile, 'files', { value: [clip('one.mov'), clip('two.mov')], configurable: true });
+      tile.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => new Promise((r) => setTimeout(r, 10)));
+    // One is being sent, and two is already being made smaller.
+    expect(shrinkClip).toHaveBeenCalledTimes(2);
+    expect(document.body.querySelector('[data-testid="sending"]')!.textContent).toContain('Uploading one.mov (1 of 2)');
+    expect(document.body.querySelector('[data-testid="sending-next"]')!.textContent).toContain('making a smaller copy of two.mov (2 of 2)');
+    await act(async () => finishSends());
+    await act(async () => new Promise((r) => setTimeout(r, 10)));
+    await act(async () => finishSends());
+    await flush();
+    expect(addAsset.mock.calls.map((c) => (c[0] as { fileName: string }).fileName)).toEqual(['one.mp4', 'two.mp4']);
+    expect(document.body.querySelector('[data-testid="sending"]')).toBeNull();
+    sendsWait = false;
+    shrinkTo = null;
+  });
+
   it('Library: deleting a photo asks first; Keep it backs out, Delete removes it and opens the next', async () => {
     const photo = (id: string, fileName: string) => ({ id, kind: 'photo' as const, fileName, tags: ['exterior', 'fence-stain'], createdAt: new Date().toISOString(), uses: 2 });
     jobs = [];

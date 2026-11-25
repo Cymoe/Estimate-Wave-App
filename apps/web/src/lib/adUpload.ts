@@ -194,6 +194,77 @@ export function tooBig(file: File): string | null {
   return null;
 }
 
+/** A file made ready to send: the clip made smaller, its still and small copy. */
+export interface PreparedAsset {
+  file: File;
+  /** The file as it was picked, for notes. */
+  picked: { name: string; size: number };
+  still?: Blob;
+  thumb?: Blob | null;
+  durationSec?: number;
+}
+
+const seconds = (since: number) => Math.round((performance.now() - since) / 100) / 10;
+
+/**
+ * Step one of an upload, all on the device: a big clip made again at 1080p (lib/shrinkClip.ts, loaded only then:
+ * the video code is large), the size checked, its still and the grid's small copy made from what will be sent.
+ * Throws when the file is too big even so.
+ */
+export async function prepareAsset(file: File, onProgress?: (fraction: number) => void): Promise<PreparedAsset> {
+  const picked = { name: file.name, size: file.size };
+  if (isVideo(file) && file.size > SHRINK_ABOVE_BYTES) {
+    onProgress?.(0);
+    const { shrinkClip } = await import('./shrinkClip');
+    const t = performance.now();
+    file = await shrinkClip(
+      file,
+      (x) => onProgress?.(x),
+      (note) => void adsAPI.uploadNote({ fileName: picked.name, size: picked.size, step: 'shrink', note, device: deviceName() }),
+    );
+    void adsAPI.uploadNote({ fileName: picked.name, size: picked.size, step: 'shrink time', note: `${seconds(t)} s, now ${file.size} bytes`, device: deviceName() });
+  }
+  const big = tooBig(file);
+  if (big) throw new Error(big);
+  const { still, durationSec } = await makeStill(file);
+  // The grid's small copy, from the still (or the photo where no still could be made).
+  const thumb = await thumbOf(still ?? file);
+  return { file, picked, still, thumb, durationSec };
+}
+
+/** Step two: the prepared file, its still and small copy sent, and filed in the library. */
+export async function sendPreparedAsset(
+  p: PreparedAsset,
+  meta: { tags: string[]; trade: string; pairKey?: string; note?: string; job?: { jobId?: string; jobPhotoId?: string } },
+  onProgress?: (fraction: number) => void,
+) {
+  const t = performance.now();
+  const storageId = await sendWithRetries(p.file, onProgress);
+  const took = seconds(t);
+  if (isVideo(p.file))
+    void adsAPI.uploadNote({
+      fileName: p.picked.name,
+      size: p.file.size,
+      step: 'send time',
+      note: `${took} s, ${took > 0 ? Math.round((p.file.size / 1048576 / took) * 10) / 10 : '?'} MB/s`,
+      device: deviceName(),
+    });
+  const posterStorageId = p.still ? await putFile(p.still, 'image/jpeg') : undefined;
+  const thumbStorageId = p.thumb ? await putFile(p.thumb, 'image/jpeg') : undefined;
+  await adsAPI.addAsset({
+    storageId,
+    fileName: p.file.name,
+    tags: meta.tags,
+    pairKey: meta.pairKey,
+    note: meta.note,
+    durationSec: p.durationSec,
+    posterStorageId,
+    thumbStorageId,
+    trade: meta.trade,
+    ...meta.job,
+  });
+}
+
 /**
  * Uploads a file and its still to Convex storage and files it in the library with its tags; under a job when one
  * is given, and with the project photo it was copied from, so that photo isn't sent twice.
@@ -207,25 +278,6 @@ export async function uploadAsset(
   job?: { jobId?: string; jobPhotoId?: string },
   onProgress?: (fraction: number, step: 'shrinking' | 'sending') => void,
 ) {
-  // A big clip is made again at 1080p on the device first (lib/shrinkClip.ts): a tenth of the size to send.
-  // Loaded only then: the video code is large, and a small clip or a photo never needs it.
-  if (isVideo(file) && file.size > SHRINK_ABOVE_BYTES) {
-    onProgress?.(0, 'shrinking');
-    const { shrinkClip } = await import('./shrinkClip');
-    const original = file;
-    file = await shrinkClip(
-      file,
-      (x) => onProgress?.(x, 'shrinking'),
-      (note) => void adsAPI.uploadNote({ fileName: original.name, size: original.size, step: 'shrink', note, device: deviceName() }),
-    );
-  }
-  const big = tooBig(file);
-  if (big) throw new Error(big);
-  const { still, durationSec } = await makeStill(file);
-  // The grid's small copy, from the still (or the photo where no still could be made).
-  const thumb = await thumbOf(still ?? file);
-  const storageId = await sendWithRetries(file, onProgress && ((x) => onProgress(x, 'sending')));
-  const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
-  const thumbStorageId = thumb ? await putFile(thumb, 'image/jpeg') : undefined;
-  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, ...job });
+  const prepared = await prepareAsset(file, onProgress && ((x) => onProgress(x, 'shrinking')));
+  await sendPreparedAsset(prepared, { tags, trade, pairKey, note, job }, onProgress && ((x) => onProgress(x, 'sending')));
 }

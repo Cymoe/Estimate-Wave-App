@@ -11,8 +11,10 @@ import { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Mp4OutputForm
 
 /** The long side of a shrunk clip, the most an ad uses. */
 const LONG_SIDE = 1920;
-/** About 6 Mbps: clean 1080p for an ad, about 45 MB a minute. */
-const VIDEO_BITRATE = 6_000_000;
+/** About 4 Mbps: clean 1080p for an ad on a phone, about 30 MB a minute. */
+const VIDEO_BITRATE = 4_000_000;
+/** The most frames a second an ad needs: a 60 fps clip is made at 30, half the work and half the size. */
+const MAX_FPS = 30;
 
 /** An even number of pixels, as video encoders want. */
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
@@ -29,11 +31,23 @@ export async function shrinkClip(file: File, onProgress?: (fraction: number) => 
     const conversion = await Conversion.init({
       input,
       output,
-      video: (track) => {
+      video: async (track) => {
         const w = track.displayWidth;
         const h = track.displayHeight;
         const scale = Math.min(1, LONG_SIDE / Math.max(w, h));
-        return { width: even(w * scale), height: even(h * scale), fit: 'contain', codec: 'avc', bitrate: VIDEO_BITRATE };
+        // Its frame rate, from its first frames: only a faster one is brought down.
+        const fps = await track
+          .computePacketStats(120)
+          .then((s) => s.averagePacketRate)
+          .catch(() => 0);
+        return {
+          width: even(w * scale),
+          height: even(h * scale),
+          fit: 'contain',
+          codec: 'avc',
+          bitrate: VIDEO_BITRATE,
+          ...(fps > MAX_FPS + 1 ? { frameRate: MAX_FPS } : {}),
+        };
       },
       // The sound as it was (a phone records AAC, which an MP4 holds as is): the crew's words become captions.
       audio: {},

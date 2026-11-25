@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { ArrowRight, Check, ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload, X } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdJobs } from '../../lib/live';
-import { backfillThumb, isVideo, putFile, stillOfClip, thumbOf, tooBig, uploadAsset } from '../../lib/adUpload';
+import { backfillThumb, isVideo, prepareAsset, putFile, sendPreparedAsset, stillOfClip, thumbOf, tooBig, type PreparedAsset } from '../../lib/adUpload';
 import {
   useAdsBatches,
   useAdsHooks,
@@ -1002,18 +1002,53 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
     // A photo too big is said before anything goes; a clip is made smaller first, then checked (uploadAsset).
     const big = files.filter((f) => !isVideo(f)).map(tooBig).find(Boolean);
     if (big) throw new Error(big);
-    // Each file on its own: one that fails doesn't stop the rest, and the end says which didn't go.
+    // Each file on its own: one that fails doesn't stop the rest, and the end says which didn't go. While one is
+    // being sent the next is made ready (made smaller, its still), so the device and the connection both keep busy.
     const failed: string[] = [];
+    const why = (err: unknown) => (err instanceof Error ? err.message : 'it failed');
+    type Ready = { ok: true; p: PreparedAsset } | { ok: false; error: string };
+    const prepare = (n: number): Promise<Ready> => {
+      const f = files[n];
+      return prepareAsset(f, (x) =>
+        setSending((s) => {
+          const base: Sending = s ?? { name: f.name, at: n + 1, of: files.length, pct: 0, step: 'shrinking' };
+          // The one being sent leads the bar; the one being made ready shows under it.
+          return base.at === n + 1 && base.step === 'shrinking'
+            ? { ...base, pct: Math.round(x * 100) }
+            : { ...base, next: { name: f.name, at: n + 1, pct: Math.round(x * 100) } };
+        }),
+      ).then(
+        (p): Ready => ({ ok: true, p }),
+        (err): Ready => ({ ok: false, error: why(err) }),
+      );
+    };
     try {
+      setSending({ name: files[0].name, at: 1, of: files.length, pct: 0, step: isVideo(files[0]) ? 'shrinking' : 'sending' });
+      let ready = files.length ? prepare(0) : null;
       for (const [n, f] of files.entries()) {
-        setSending({ name: f.name, at: n + 1, of: files.length, pct: 0, step: 'sending' });
+        const got = await ready!;
+        // The next one starts getting ready now, while this one is sent.
+        ready = n + 1 < files.length ? prepare(n + 1) : null;
+        if (!got.ok) {
+          failed.push(`${f.name}: ${got.error}`);
+          continue;
+        }
+        setSending((s) => ({ name: f.name, at: n + 1, of: files.length, pct: 0, step: 'sending', next: s?.next?.at === n + 2 ? s.next : undefined }));
         try {
-          await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined, (x, step) =>
-            setSending((s) => (s ? { ...s, pct: Math.round(x * 100), step } : s)),
+          await sendPreparedAsset(got.p, { tags, trade, job: jobId && !isVideo(f) ? { jobId } : undefined }, (x) =>
+            setSending((s) => (s ? { ...s, pct: Math.round(x * 100) } : s)),
           );
         } catch (err) {
-          failed.push(`${f.name}: ${err instanceof Error ? err.message : 'it failed'}`);
+          failed.push(`${f.name}: ${why(err)}`);
         }
+        // The next one, if it's still being made ready, leads the bar now.
+        setSending((s) =>
+          n + 1 < files.length
+            ? s?.next
+              ? { name: s.next.name, at: s.next.at, of: files.length, pct: s.next.pct, step: 'shrinking' }
+              : { name: files[n + 1].name, at: n + 2, of: files.length, pct: 0, step: isVideo(files[n + 1]) ? 'shrinking' : 'sending' }
+            : s,
+        );
       }
     } finally {
       setSending(null);
@@ -2028,7 +2063,15 @@ const NewJob: React.FC<{ act: Act; onClose: () => void; onMade: (jobId: string) 
   );
 };
 
-type Sending = { name: string; at: number; of: number; pct: number; step: 'shrinking' | 'sending' };
+type Sending = {
+  name: string;
+  at: number;
+  of: number;
+  pct: number;
+  step: 'shrinking' | 'sending';
+  /** The next file, being made ready while this one is sent. */
+  next?: { name: string; at: number; pct: number };
+};
 
 /** A file on its way: which, of how many, and how far along. */
 const SendingBar: React.FC<{ s: Sending }> = ({ s }) => (
@@ -2043,6 +2086,11 @@ const SendingBar: React.FC<{ s: Sending }> = ({ s }) => (
     <div className="h-1.5 rounded-full bg-[#2A2A2A] overflow-hidden">
       <div className="h-full bg-[#c9a24a] transition-all" style={{ width: `${s.pct}%` }} />
     </div>
+    {s.next && (
+      <p className="text-xs text-gray-400" data-testid="sending-next">
+        Meanwhile, making a smaller copy of {s.next.name} ({s.next.at} of {s.of}) · {s.next.pct}%
+      </p>
+    )}
     <p className="text-xs text-gray-500">
       {s.step === 'shrinking'
         ? 'A big clip is made at 1080p on this device first, so it sends in a fraction of the time. Keep this page open.'
