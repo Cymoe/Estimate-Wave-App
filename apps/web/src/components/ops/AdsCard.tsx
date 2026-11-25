@@ -989,14 +989,14 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   // What is being sent right now, shown as a bar: a clip can take minutes on a phone's connection.
   const [sending, setSending] = useState<Sending | null>(null);
   const send = async (files: File[], tags: string[], jobId?: string) => {
-    // Too big is said before anything goes, not after minutes of sending.
-    const big = files.map(tooBig).find(Boolean);
+    // A photo too big is said before anything goes; a clip is made smaller first, then checked (uploadAsset).
+    const big = files.filter((f) => !isVideo(f)).map(tooBig).find(Boolean);
     if (big) throw new Error(big);
     try {
       for (const [n, f] of files.entries()) {
-        setSending({ name: f.name, at: n + 1, of: files.length, pct: 0 });
-        await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined, (x) =>
-          setSending((s) => (s ? { ...s, pct: Math.round(x * 100) } : s)),
+        setSending({ name: f.name, at: n + 1, of: files.length, pct: 0, step: 'sending' });
+        await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined, (x, step) =>
+          setSending((s) => (s ? { ...s, pct: Math.round(x * 100), step } : s)),
         );
       }
     } finally {
@@ -2008,14 +2008,14 @@ const NewJob: React.FC<{ act: Act; onClose: () => void; onMade: (jobId: string) 
   );
 };
 
-type Sending = { name: string; at: number; of: number; pct: number };
+type Sending = { name: string; at: number; of: number; pct: number; step: 'shrinking' | 'sending' };
 
 /** A file on its way: which, of how many, and how far along. */
 const SendingBar: React.FC<{ s: Sending }> = ({ s }) => (
   <div className="rounded-lg border border-[#2A2A2A] bg-[#141414] px-4 py-3 space-y-2" role="status" data-testid="sending">
     <div className="flex items-center gap-3 text-sm">
       <span className="flex-1 min-w-0 truncate text-gray-200">
-        Uploading {s.name}
+        {s.step === 'shrinking' ? 'Making a smaller copy of' : 'Uploading'} {s.name}
         {s.of > 1 ? ` (${s.at} of ${s.of})` : ''}
       </span>
       <span className="font-mono text-gray-400">{s.pct}%</span>
@@ -2023,7 +2023,11 @@ const SendingBar: React.FC<{ s: Sending }> = ({ s }) => (
     <div className="h-1.5 rounded-full bg-[#2A2A2A] overflow-hidden">
       <div className="h-full bg-[#c9a24a] transition-all" style={{ width: `${s.pct}%` }} />
     </div>
-    <p className="text-xs text-gray-500">Keep this page open until it&apos;s done. A clip can take a few minutes on a phone&apos;s connection.</p>
+    <p className="text-xs text-gray-500">
+      {s.step === 'shrinking'
+        ? 'A big clip is made at 1080p on this device first, so it sends in a fraction of the time. Keep this page open.'
+        : 'Keep this page open until it’s done.'}
+    </p>
   </div>
 );
 

@@ -117,6 +117,8 @@ export async function stillOfClip(src: string, remote = false): Promise<{ still?
   }
 }
 
+/** Clips bigger than this are made smaller before sending (lib/shrinkClip.ts); smaller ones send quickly enough. */
+export const SHRINK_ABOVE_BYTES = 25 * 1024 * 1024;
 /** The largest files the library takes (convex/ads.ts addAsset checks the same). */
 export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 export const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
@@ -163,7 +165,7 @@ export async function putFile(body: Blob, type: string, onProgress?: (fraction: 
 export function tooBig(file: File): string | null {
   const mb = (n: number) => Math.round(n / (1024 * 1024));
   if (isVideo(file) && file.size > MAX_VIDEO_BYTES)
-    return `${file.name} is ${mb(file.size)} MB. A clip must be ${mb(MAX_VIDEO_BYTES)} MB or less: trim it, or save it at 1080p instead of 4K.`;
+    return `${file.name} is ${mb(file.size)} MB even made smaller. A clip must be ${mb(MAX_VIDEO_BYTES)} MB or less: trim it into shorter clips.`;
   if (!isVideo(file) && file.size > MAX_PHOTO_BYTES) return `${file.name} is ${mb(file.size)} MB. A photo must be ${mb(MAX_PHOTO_BYTES)} MB or less.`;
   return null;
 }
@@ -179,14 +181,21 @@ export async function uploadAsset(
   pairKey?: string,
   note?: string,
   job?: { jobId?: string; jobPhotoId?: string },
-  onProgress?: (fraction: number) => void,
+  onProgress?: (fraction: number, step: 'shrinking' | 'sending') => void,
 ) {
+  // A big clip is made again at 1080p on the device first (lib/shrinkClip.ts): a tenth of the size to send.
+  // Loaded only then: the video code is large, and a small clip or a photo never needs it.
+  if (isVideo(file) && file.size > SHRINK_ABOVE_BYTES) {
+    onProgress?.(0, 'shrinking');
+    const { shrinkClip } = await import('./shrinkClip');
+    file = await shrinkClip(file, (x) => onProgress?.(x, 'shrinking'));
+  }
   const big = tooBig(file);
   if (big) throw new Error(big);
   const { still, durationSec } = await makeStill(file);
   // The grid's small copy, from the still (or the photo where no still could be made).
   const thumb = await thumbOf(still ?? file);
-  const storageId = await putFile(file, file.type, onProgress);
+  const storageId = await putFile(file, file.type, onProgress && ((x) => onProgress(x, 'sending')));
   const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
   const thumbStorageId = thumb ? await putFile(thumb, 'image/jpeg') : undefined;
   await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, ...job });

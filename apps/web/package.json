@@ -26,6 +26,7 @@
     "date-fns": "^4.1.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.344.0",
+    "mediabunny": "1.65.2",
     "pdf-lib": "1.17.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

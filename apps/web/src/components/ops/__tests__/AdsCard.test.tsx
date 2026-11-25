@@ -72,6 +72,16 @@ class FakeXHR {
   }
 }
 (globalThis as unknown as { XMLHttpRequest: unknown }).XMLHttpRequest = FakeXHR;
+// Making a big clip smaller, faked: it reports a step, then gives back the clip, or a small one when shrinkTo is set.
+let shrinkTo: number | null = null;
+const shrinkClip = jest.fn(async (f: File, onProgress?: (x: number) => void) => {
+  onProgress?.(0.4);
+  if (shrinkTo === null) return f;
+  const small = new File(['v'], f.name.replace(/\.[a-z0-9]+$/i, '') + '.mp4', { type: 'video/mp4' });
+  Object.defineProperty(small, 'size', { value: shrinkTo });
+  return small;
+});
+jest.mock('../../../lib/shrinkClip', () => ({ shrinkClip: (f: File, p?: (x: number) => void) => shrinkClip(f, p) }));
 const tagAsset = jest.fn(async () => undefined);
 const removeAsset = jest.fn(async (_id: string) => undefined);
 const addAsset = jest.fn(async () => 'a9');
@@ -598,13 +608,30 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[data-testid="sending"]')).toBeNull();
     expect(addAsset).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: 'walk.mov' }));
     sendsWait = false;
-    // Too big: said at once, nothing sent.
+    // A big clip is made smaller on the device first, then sent smaller.
     addAsset.mockClear();
+    const fourK = new File(['v'], 'deck.mov', { type: 'video/quicktime' });
+    Object.defineProperty(fourK, 'size', { value: 120 * 1024 * 1024 });
+    shrinkTo = 12 * 1024 * 1024;
+    sendsWait = true;
+    await pick(fourK);
+    await flush();
+    await act(async () => new Promise((r) => setTimeout(r, 5)));
+    expect(shrinkClip).toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="sending"]')!.textContent).toContain('Uploading deck.mov');
+    await act(async () => finishSends());
+    await flush();
+    expect(addAsset).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: 'deck.mp4' }));
+    sendsWait = false;
+    // Still too big after: said, nothing sent.
+    addAsset.mockClear();
+    shrinkTo = null;
     const big = new File(['v'], 'long.mov', { type: 'video/quicktime' });
     Object.defineProperty(big, 'size', { value: 450 * 1024 * 1024 });
     await pick(big);
     await flush();
-    expect(document.body.textContent).toContain('long.mov is 450 MB. A clip must be 200 MB or less');
+    await act(async () => new Promise((r) => setTimeout(r, 5)));
+    expect(document.body.textContent).toContain('long.mov is 450 MB even made smaller. A clip must be 200 MB or less');
     expect(addAsset).not.toHaveBeenCalled();
     // The connection dropped: it says so instead of hanging.
     sendsFail = true;
