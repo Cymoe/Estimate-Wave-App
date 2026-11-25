@@ -1947,7 +1947,7 @@ const AssetEditor: React.FC<{
               type="button"
               onClick={confirm}
               aria-label={flip?.next ? 'Confirm, next photo' : 'Confirm'}
-              className="w-full flex items-center justify-between rounded-xl bg-[#c9a24a] px-7 min-h-[64px] text-black [@media(hover:hover)]:hover:bg-[#d4ae58]"
+              className="w-full flex items-center justify-between rounded-xl border border-[#c9a24a]/60 bg-transparent px-7 min-h-[64px] text-[#e3c47a] [@media(hover:hover)]:hover:bg-[#c9a24a]/10 [@media(hover:hover)]:hover:border-[#c9a24a]"
             >
               <span className="text-lg font-semibold">Confirm</span>
               <span className="inline-flex items-center gap-2 text-[15px] font-medium">
