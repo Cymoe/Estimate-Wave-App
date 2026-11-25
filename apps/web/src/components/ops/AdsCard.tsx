@@ -1600,7 +1600,13 @@ const ListChoice: React.FC<{ name: string; on: boolean; claude: boolean; onClick
         CLAUDE
       </span>
     )}
-    {on ? <Check className="w-4 h-4 text-white" aria-hidden="true" /> : <span className="w-4" />}
+    {on ? (
+      <span className="flex-none w-6 h-6 rounded-full bg-[#c9a24a] flex items-center justify-center" data-testid="checked">
+        <Check className="w-4 h-4 text-black" strokeWidth={3} aria-hidden="true" />
+      </span>
+    ) : (
+      <span className="flex-none w-6 h-6 rounded-full border-2 border-[#3a3a3a]" aria-hidden="true" />
+    )}
   </button>
 );
 
