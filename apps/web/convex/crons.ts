@@ -18,6 +18,9 @@ crons.daily(
 // A sold lead with no "Got it" after 15 minutes during hours gets staff an email, once.
 crons.interval("chase Got it", { minutes: 5 }, internal.delivery.escalateOverdue, {});
 
+// Clips shared to the Ads library's Google Drive folder, brought in by the runner (adDrive.ts).
+crons.interval("watch the ad clips folder", { minutes: 10 }, internal.adDrive.poll, {});
+
 // Midland's permit feed, once a day (lib/permits.ts).
 crons.daily(
   "sync Midland permits",

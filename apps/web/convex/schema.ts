@@ -1590,6 +1590,49 @@ export default defineSchema({
   }).index("by_organization", ["organizationId"]),
 
   // The OAuth state of a Connect Gmail on its way to Google and back: only its hash, for ten minutes.
+  // The Ads library's Google Drive folder (adDrive.ts): clips shared to it from a phone are imported by the
+  // runner in the background. One per trade; the refresh token sealed (lib/secretBox.ts).
+  adDrive: defineTable({
+    trade: v.string(),
+    email: v.optional(v.string()),
+    refreshTokenEnc: v.string(),
+    accessToken: v.optional(v.string()),
+    accessExpiresAt: v.optional(v.number()),
+    /** The folder watched, found by its name. */
+    folderName: v.string(),
+    folderId: v.optional(v.string()),
+    /** Who connected it: the imported clips are filed as theirs. */
+    connectedBy: v.id("users"),
+    connectedAt: v.string(),
+    lastCheckedAt: v.optional(v.string()),
+    error: v.optional(v.string()),
+    revokedAt: v.optional(v.string()),
+  }).index("by_trade", ["trade"]),
+  adDriveStates: defineTable({
+    stateHash: v.string(),
+    userId: v.id("users"),
+    trade: v.string(),
+    returnTo: v.string(),
+    expiresAt: v.number(),
+  }).index("by_state", ["stateHash"]),
+  // One file found in the Drive folder, on its way into the library.
+  adDriveImports: defineTable({
+    trade: v.string(),
+    fileId: v.string(),
+    name: v.string(),
+    size: v.optional(v.number()),
+    status: v.union(v.literal("waiting"), v.literal("working"), v.literal("done"), v.literal("failed")),
+    error: v.optional(v.string()),
+    note: v.optional(v.string()),
+    assetId: v.optional(v.id("adAssets")),
+    claimedAt: v.optional(v.number()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_file", ["fileId"])
+    .index("by_status", ["status"])
+    .index("by_trade", ["trade"]),
+
   mailboxStates: defineTable({
     stateHash: v.string(),
     userId: v.id("users"),

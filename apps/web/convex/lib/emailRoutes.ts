@@ -7,6 +7,7 @@ import { httpAction } from "../_generated/server";
 import { siteUrl } from "../delivery";
 import { tokenFrom, svixOk } from "./emailOutreach";
 import { exchangeCode, GMAIL_SCOPE } from "./gmail";
+import { DRIVE_SCOPE } from "./googleDrive";
 import { seal } from "./secretBox";
 import { sha256 } from "./oauth";
 
@@ -35,8 +36,32 @@ export function addEmailRoutes(http: HttpRouter) {
     handler: httpAction(async (ctx, request) => {
       const url = new URL(request.url);
       const state = url.searchParams.get("state");
-      const taken = state ? await ctx.runMutation(internal.emailOutreach.takeState, { state: await sha256(state) }) : null;
-      if (!taken) return page("That link has expired", "Go back to Webb Leads and tap Connect Gmail again.", 400);
+      const stateHash = state ? await sha256(state) : null;
+      // The Ads library's Drive folder (adDrive.ts) comes back here too, with its own state.
+      const drive = stateHash ? await ctx.runMutation(internal.adDrive.takeState, { state: stateHash }) : null;
+      if (drive) {
+        const back = (query: string) => Response.redirect(`${siteUrl()}${drive.returnTo}${drive.returnTo.includes("?") ? "&" : "?"}${query}`, 302);
+        const code = url.searchParams.get("code");
+        if (!code) return back(`drive=${encodeURIComponent(url.searchParams.get("error") === "access_denied" ? "denied" : "failed")}`);
+        try {
+          const tokens = await exchangeCode(code);
+          if (!tokens.scope.split(" ").includes(DRIVE_SCOPE)) return back("drive=no_read");
+          if (!tokens.refresh) return back("drive=failed");
+          await ctx.runMutation(internal.adDrive.saveConnection, {
+            trade: drive.trade,
+            userId: drive.userId,
+            email: tokens.email,
+            refreshTokenEnc: await seal(tokens.refresh),
+            accessToken: tokens.access,
+            accessExpiresAt: tokens.expiresAt,
+          });
+          return back("drive=connected");
+        } catch {
+          return back("drive=failed");
+        }
+      }
+      const taken = stateHash ? await ctx.runMutation(internal.emailOutreach.takeState, { state: stateHash }) : null;
+      if (!taken) return page("That link has expired", "Go back to Webb Leads and tap Connect again.", 400);
       const back = (query: string) => Response.redirect(`${siteUrl()}${taken.returnTo}${taken.returnTo.includes("?") ? "&" : "?"}${query}`, 302);
       const code = url.searchParams.get("code");
       if (!code) return back(`gmail=${encodeURIComponent(url.searchParams.get("error") === "access_denied" ? "denied" : "failed")}`);

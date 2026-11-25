@@ -1135,6 +1135,10 @@ export const adsAPI = {
   /** What to send an on-camera creator for one ad: its lines and how to film them. */
   creatorBrief: (id: string): Promise<string> => run('query', api.voiceActors.creatorBrief, { id }),
   /** Runs a job site video from the Library as an ad, as it was shot, with its title, captions and the ask. */
+  /** Google's consent screen for the clips folder; the page goes there and comes back. */
+  driveConnect: (trade: string): Promise<string> => run('mutation', api.adDrive.connect, { trade, returnTo: '/ops?tab=ads&ads=library&view=clips' }),
+  driveDisconnect: (trade: string) => run('mutation', api.adDrive.disconnect, { trade }),
+  driveRetry: (id: string) => run('mutation', api.adDrive.retry, { id }),
   makeFootage: (assetId: string): Promise<{ batchId: string; builtOn: string }> => run('mutation', api.footage.make, { assetId }),
   /** Puts an on-camera creator's take (already uploaded) on an ad and its other size. */
   addTake: (id: string, storageId: string, fileName?: string): Promise<number> =>

@@ -1,0 +1,51 @@
+name: Bring in the ad clips
+
+# Clips shared to the Ads library's Google Drive folder (apps/web/convex/adDrive.ts): the backend notes each new
+# video in the folder and starts this run, which downloads it, makes it 1080p with ffmpeg and puts it in the
+# library (ads-video/scripts/import-clips.mjs).
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ads-clips
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check deploy key
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          [ -n "$key" ] || { echo "::error::Add a CONVEX_DEPLOY_KEY repository secret."; exit 1; }
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          echo "CONVEX_DEPLOY_KEY=$key" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install the app (for the calls to the backend)
+        run: npm ci --no-audit --no-fund
+
+      - name: ffmpeg
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq ffmpeg >/dev/null
+          ffmpeg -version | head -1
+
+      - name: Bring in what's waiting
+        run: node ads-video/scripts/import-clips.mjs

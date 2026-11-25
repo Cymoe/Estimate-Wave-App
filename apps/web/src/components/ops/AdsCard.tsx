@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload, X } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
-import { useAdJobs } from '../../lib/live';
+import { useAdDrive, useAdJobs } from '../../lib/live';
 import { backfillThumb, isVideo, prepareAsset, putFile, sendPreparedAsset, stillOfClip, thumbOf, tooBig, type PreparedAsset } from '../../lib/adUpload';
 import {
   useAdsBatches,
@@ -275,7 +275,15 @@ const pct = (n: number) => `${n.toFixed(2)}%`;
 
 
 export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
-  const [section, setSection] = useState<Section>('week');
+  // A link can open a tab (Google Drive sends the person back to the Library's clips).
+  const [section, setSection] = useState<Section>(() => {
+    try {
+      const want = new URLSearchParams(window.location.search).get('ads');
+      return SECTIONS.some(([v]) => v === want) ? (want as Section) : 'week';
+    } catch {
+      return 'week';
+    }
+  });
   const [trade, setTrade] = useState<string>(rememberedTrade);
   const pickTrade = (slug: string) => {
     setTrade(slug);
@@ -859,7 +867,15 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const assets = useAdsLibrary<AdAsset[]>(trade);
   const jobs = useAdJobs<AdJob[]>(trade) ?? [];
   // Photos and clips are kept apart: clips have no jobs and no before or after.
-  const [view, setView] = useState<'photos' | 'clips'>('photos');
+  // Back from connecting Google Drive (or asked for by link): the clips, where its imports show.
+  const [view, setView] = useState<'photos' | 'clips'>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('view') === 'clips' || p.has('drive') ? 'clips' : 'photos';
+    } catch {
+      return 'photos';
+    }
+  });
   // The file open in its window (read fresh from the live list, so a change shows at once), and the upload window.
   const [openId, setOpenId] = useState<string | null>(null);
   // The upload window: for the library, or straight into one job's box.
@@ -1146,10 +1162,13 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           </section>
         </div>
       ) : (
+        <div className="space-y-4">
+        <DriveFolder act={act} />
         <ul className={grid} aria-label="Clips">
           <AddTile label="Add clips" onFiles={(files) => addHere(files)} />
           {clips.map((a) => tile(a))}
         </ul>
+        </div>
       )}
       {selecting && (
         // Held at the bottom of the screen while photos are picked.
@@ -1953,6 +1972,108 @@ const NewJob: React.FC<{ act: Act; onClose: () => void; onMade: (jobId: string) 
         </button>
       </form>
     </Dialog>
+  );
+};
+
+type DriveStatus = {
+  setupMissing: string[];
+  connected: { email?: string; folderName: string; found: boolean; lastCheckedAt?: string; error?: string } | null;
+  imports: Array<{ id: string; name: string; status: 'waiting' | 'working' | 'done' | 'failed'; error?: string; note?: string; updatedAt: string }>;
+};
+
+/** What came back from Google's consent screen, said once. */
+const DRIVE_BACK: Record<string, string> = {
+  connected: 'Google Drive is connected. Clips shared to the "Ad clips" folder come in here on their own.',
+  denied: 'Google Drive wasn’t connected: the permission wasn’t given.',
+  no_read: 'Google Drive wasn’t connected: tick the box that lets it see your Drive files, then try again.',
+  failed: 'Google Drive couldn’t be connected. Try again.',
+};
+
+/**
+ * Clips without the page open: shared from the iPad to a Google Drive folder, then brought in by the server
+ * (convex/adDrive.ts). Connect it here; what's being brought in, and what couldn't be, shows under it.
+ */
+const DriveFolder: React.FC<{ act: Act }> = ({ act }) => {
+  const trade = useTrade();
+  const d = useAdDrive<DriveStatus>(trade);
+  const [back] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('drive');
+    } catch {
+      return null;
+    }
+  });
+  if (!d) return null;
+  const busy = d.imports.filter((i) => i.status === 'waiting' || i.status === 'working');
+  const failed = d.imports.filter((i) => i.status === 'failed');
+  const recent = d.imports.filter((i) => i.status === 'done').slice(0, 3);
+  const box = 'rounded-xl border border-[#2A2A2A] bg-[#111] p-4 space-y-3';
+  return (
+    <section className={box} aria-label="Google Drive folder">
+      {back && DRIVE_BACK[back] && <p className={`text-sm ${back === 'connected' ? 'text-emerald-300' : 'text-amber-300'}`}>{DRIVE_BACK[back]}</p>}
+      {!d.connected ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[16rem]">
+            <p className="text-[15px] font-medium text-white">Upload with the page closed</p>
+            <p className="text-sm text-gray-400">
+              Share clips from your iPad to a Google Drive folder named <span className="text-gray-200">Ad clips</span>. The Drive app keeps uploading in the
+              background, and they come in here on their own: made smaller, tagged by Claude.
+            </p>
+            {d.setupMissing.length > 0 && <p className="text-xs text-amber-300 mt-1">Not set up on the server yet: {d.setupMissing.join(' and ')}.</p>}
+          </div>
+          <button
+            type="button"
+            className={primary}
+            disabled={d.setupMissing.length > 0}
+            onClick={() =>
+              act(async () => {
+                window.location.href = await adsAPI.driveConnect(trade);
+              })
+            }
+          >
+            Connect Google Drive
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-white font-medium">Google Drive · {d.connected.folderName}</span>
+            {d.connected.email && <span className="text-gray-500">{d.connected.email}</span>}
+            <span className="text-gray-500" data-testid="drive-checked">
+              {d.connected.lastCheckedAt ? `checked ${ago(d.connected.lastCheckedAt)}` : 'checking…'}
+            </span>
+            <button type="button" className="ml-auto text-sm text-gray-500 hover:text-gray-300" onClick={() => act(() => adsAPI.driveDisconnect(trade), 'Google Drive disconnected.')}>
+              Disconnect
+            </button>
+          </div>
+          {d.connected.error && <p className="text-sm text-amber-300">{d.connected.error}</p>}
+          {busy.length > 0 && (
+            <p className="text-sm text-gray-300" data-testid="drive-busy">
+              Bringing in {busy.length} clip{busy.length === 1 ? '' : 's'}: {busy.map((i) => i.name).join(', ')}. They show here once ready.
+            </p>
+          )}
+          {recent.length > 0 && busy.length === 0 && (
+            <p className="text-sm text-gray-500">
+              Latest from Drive: {recent.map((i) => i.name).join(', ')}
+              {recent.some((i) => i.note) ? ' (some without sound: it couldn’t be read)' : ''}.
+            </p>
+          )}
+          {failed.map((i) => (
+            <p key={i.id} className="text-sm text-amber-300 flex flex-wrap items-center gap-2" data-testid="drive-failed">
+              <span>
+                {i.name} couldn’t come in: {i.error}
+              </span>
+              <button type="button" className="underline text-gray-300" onClick={() => act(() => adsAPI.driveRetry(i.id), 'Trying it again.')}>
+                Try again
+              </button>
+            </p>
+          ))}
+          {busy.length === 0 && failed.length === 0 && recent.length === 0 && !d.connected.error && (
+            <p className="text-sm text-gray-500">Share clips to the {d.connected.folderName} folder in Google Drive; they come in here within about 10 minutes.</p>
+          )}
+        </>
+      )}
+    </section>
   );
 };
 

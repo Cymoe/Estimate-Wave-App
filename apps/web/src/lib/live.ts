@@ -91,6 +91,8 @@ export const useAdsLibrary = <T>(trade?: string, on = true) => useLive<T>(q('ads
 export const useAdJobs = <T>(trade?: string, on = true) => useLive<T>(q('ads:listJobs'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsHooks = <T>(trade?: string, on = true) => useLive<T>(q('ads:listHooks'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsSettings = <T>(on = true) => useLive<T>(q('ads:settings'), on ? {} : 'skip');
+/** The Ads library's Google Drive folder: connected or not, and the latest clips brought in from it. */
+export const useAdDrive = <T>(trade?: string, on = true) => useLive<T>(q('adDrive:status'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsSwipes = <T>(trade?: string, on = true) => useLive<T>(q('ads:listSwipes'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsPlaybooks = <T>(on = true) => useLive<T>(q('ads:listPlaybooks'), on ? {} : 'skip');
 export const useAdsReadiness = <T>(on = true) => useLive<T>(q('ads:readiness'), on ? {} : 'skip');

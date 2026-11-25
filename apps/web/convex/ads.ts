@@ -247,8 +247,45 @@ export const addAsset = mutation({
     jobId: v.optional(v.id("adJobs")),
     jobPhotoId: v.optional(v.id("jobPhotos")),
   },
-  handler: async (ctx, { storageId, fileName, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, jobId, jobPhotoId }) => {
+  handler: async (ctx, args) => {
     const user = await requireStaff(ctx);
+    return await insertAsset(ctx, user._id, args);
+  },
+});
+
+/**
+ * A file put in the library: checked (kind, size, its still and small copy), filed, and Claude asked what it shows.
+ * For an upload from the page (addAsset) and a clip brought in from the Drive folder (adDrive.ts).
+ */
+export async function insertAsset(
+  ctx: MutationCtx,
+  uploadedBy: Id<"users">,
+  {
+    storageId,
+    fileName,
+    tags,
+    pairKey,
+    note,
+    durationSec,
+    posterStorageId,
+    thumbStorageId,
+    trade,
+    jobId,
+    jobPhotoId,
+  }: {
+    storageId: Id<"_storage">;
+    fileName: string;
+    tags: string[];
+    pairKey?: string;
+    note?: string;
+    durationSec?: number;
+    posterStorageId?: Id<"_storage">;
+    thumbStorageId?: Id<"_storage">;
+    trade?: string;
+    jobId?: Id<"adJobs">;
+    jobPhotoId?: Id<"jobPhotos">;
+  },
+): Promise<Id<"adAssets">> {
     const job = jobId ? await ctx.db.get(jobId) : null;
     if (jobId && job === null) fail("NOT_FOUND", "That job isn't in the library");
     const file = await ctx.db.system.get(storageId);
@@ -281,15 +318,14 @@ export const addAsset = mutation({
       ...(jobId ? { jobId } : {}),
       ...(jobPhotoId ? { jobPhotoId } : {}),
       uses: 0,
-      uploadedBy: user._id,
+      uploadedBy,
       createdAt: nowIso(),
     });
     // Claude looks at it and says what it shows; the card offers its tags.
     if (process.env.ANTHROPIC_API_KEY) await ctx.scheduler.runAfter(0, internal.ads.describeAsset, { id });
     if (jobId) await askPairing(ctx, jobId);
     return id;
-  },
-});
+}
 
 /** The most a library thumbnail may weigh: a small JPEG is far under it. */
 const MAX_THUMB = 512 * 1024;

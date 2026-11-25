@@ -91,6 +91,9 @@ jest.mock('../../../lib/shrinkClip', () => ({ shrinkClip: (f: File, p?: (x: numb
 const tagAsset = jest.fn(async () => undefined);
 const removeAsset = jest.fn(async (_id: string) => undefined);
 const uploadNote = jest.fn(async (_n: unknown) => undefined);
+let drive: unknown = { setupMissing: [], connected: null, imports: [] };
+const driveConnect = jest.fn(async (_trade: string) => 'https://accounts.google.com/o/oauth2/v2/auth?x');
+const driveRetry = jest.fn(async (_id: string) => undefined);
 const addAsset = jest.fn(async () => 'a9');
 const uploadUrl = jest.fn(async () => 'https://upload.example/u1');
 const seedSwipes = jest.fn(async () => 30);
@@ -127,6 +130,9 @@ jest.mock('../../../lib/api', () => ({
     uploadUrl: () => uploadUrl(),
     removeAsset: (id: string) => removeAsset(id),
     uploadNote: (n: unknown) => uploadNote(n),
+    driveConnect: (t: string) => driveConnect(t),
+    driveDisconnect: async () => undefined,
+    driveRetry: (id: string) => driveRetry(id),
     removeHook: async () => undefined,
     seedSwipes: () => seedSwipes(),
     importSwipes: (...args: unknown[]) => importSwipes(...args),
@@ -161,6 +167,7 @@ jest.mock('../../../lib/live', () => ({
   useAdsReadiness: () => readiness,
   useAdRequests: () => requests,
   useAdJobs: (trade?: string) => (asked.push(`jobs:${trade}`), jobs),
+  useAdDrive: () => drive,
 }));
 
 const flush = () =>
@@ -572,6 +579,39 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[data-testid="sending"]')).toBeNull();
     sendsWait = false;
     shrinkTo = null;
+  });
+
+  it('Clips: the Google Drive folder, to connect; once connected, what is coming in and what could not', async () => {
+    jobs = [];
+    assets = [];
+    drive = { setupMissing: [], connected: null, imports: [] };
+    await render();
+    await tab('Library');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith('Clips')) as HTMLButtonElement).click());
+    const box = () => document.body.querySelector('[aria-label="Google Drive folder"]')!;
+    expect(box().textContent).toContain('Upload with the page closed');
+    expect(box().textContent).toContain('Ad clips');
+    const connect = Array.from(box().querySelectorAll('button')).find((b) => b.textContent === 'Connect Google Drive') as HTMLButtonElement;
+    expect(connect.disabled).toBe(false);
+    drive = {
+      setupMissing: [],
+      connected: { email: 'owner@gmail.com', folderName: 'Ad clips', found: true, lastCheckedAt: new Date().toISOString() },
+      imports: [
+        { id: 'i1', name: 'deck.mov', status: 'working', updatedAt: new Date().toISOString() },
+        { id: 'i2', name: 'huge.mov', status: 'failed', error: "It's over 2 GB: trim it into shorter clips.", updatedAt: new Date().toISOString() },
+      ],
+    };
+    await render();
+    await tab('Library');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith('Clips')) as HTMLButtonElement).click());
+    expect(box().textContent).toContain('Google Drive · Ad clips');
+    expect(box().querySelector('[data-testid="drive-busy"]')!.textContent).toContain('Bringing in 1 clip: deck.mov');
+    const failedLine = box().querySelector('[data-testid="drive-failed"]')!;
+    expect(failedLine.textContent).toContain("huge.mov couldn’t come in: It's over 2 GB");
+    await act(async () => (Array.from(failedLine.querySelectorAll('button')).find((b) => b.textContent === 'Try again') as HTMLButtonElement).click());
+    await flush();
+    expect(driveRetry).toHaveBeenCalledWith('i2');
+    drive = { setupMissing: [], connected: null, imports: [] };
   });
 
   it('Library: deleting a photo asks first; Keep it backs out, Delete removes it and opens the next', async () => {
