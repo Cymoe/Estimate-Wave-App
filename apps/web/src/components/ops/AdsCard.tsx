@@ -1231,31 +1231,35 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           )}
           {groupBy === 'job' && jobs.map((j) => (
             <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
-              {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
               {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}
+              {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
             </JobGroup>
           ))}
           <section className="space-y-2" aria-label={groupBy === 'work' ? 'By type of work' : 'Not in a job'}>
             {groupBy === 'job' && jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
-            {byWork.map(([work, list]) => (
+            {byWork.map(([work, list], i) => (
               <div key={work} className="space-y-2" aria-label={workLabel(trade, work)}>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-200/80">
                   {workLabel(trade, work)} <span className="text-gray-500">{list.length}</span>
                 </h4>
-                <ul className={grid}>{list.map((a) => tile(a))}</ul>
+                <ul className={grid}>
+                  {/* Adding is the first square on the page, not after every photo. */}
+                  {i === 0 && !selecting && <AddTile label="Add photos" photos onFiles={(files) => addHere(files)} />}
+                  {list.map((a) => tile(a))}
+                </ul>
               </div>
             ))}
             {byWork.length > 0 && unsorted.length > 0 && <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">No type of work yet</h4>}
             <ul className={grid}>
+              {byWork.length === 0 && !selecting && <AddTile label="Add photos" photos onFiles={(files) => addHere(files)} />}
               {unsorted.map((a) => tile(a))}
-              {!selecting && <AddTile label="Add photos" photos onFiles={(files) => addHere(files)} />}
             </ul>
           </section>
         </div>
       ) : (
         <ul className={grid} aria-label="Clips">
-          {clips.map((a) => tile(a))}
           <AddTile label="Add clips" onFiles={(files) => addHere(files)} />
+          {clips.map((a) => tile(a))}
         </ul>
       )}
       {selecting && (

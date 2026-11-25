@@ -823,11 +823,11 @@ describe('Ops → Ads', () => {
     await act(async () => (named.form as HTMLFormElement).requestSubmit());
     await flush();
     expect(groupIntoJob).toHaveBeenLastCalledWith(['a3'], { name: 'Garage door' }, 'painting');
-    // Photos go straight into a job from the dotted tile at the end of its box, untagged so Claude tags them.
+    // Photos go straight into a job from the dotted tile, the first square of its box, untagged so Claude tags them.
     addAsset.mockClear();
     const box = document.body.querySelector('[aria-label="Job Smith kitchen"]')!;
     const cells = Array.from(box.querySelectorAll('li'));
-    expect(cells[cells.length - 1].getAttribute('data-testid')).toBe('add-tile');
+    expect(cells[0].getAttribute('data-testid')).toBe('add-tile');
     const into = box.querySelector('input[aria-label="Add photos to Smith kitchen"]') as HTMLInputElement;
     Object.defineProperty(into, 'files', { value: [new File(['x'], 'sink.jpg', { type: 'image/jpeg' })] });
     await act(async () => into.dispatchEvent(new Event('change', { bubbles: true })));
