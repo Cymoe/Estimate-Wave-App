@@ -823,15 +823,20 @@ describe('Ops → Ads', () => {
     expect(asked).toContain('jobs:painting');
   });
 
-  it('Library labels: each card says what it shows, a filter row shows only those photos, and the window fixes a label', async () => {
-    const photo = (id: string, fileName: string, items: string[]) => ({ id, kind: 'photo' as const, fileName, tags: ['exterior'], items, createdAt: new Date().toISOString() });
-    assets = [photo('d1', 'door.jpg', ['front door', 'brick']), photo('d2', 'door2.jpg', ['front door']), photo('f1', 'fence.jpg', ['fence']), photo('n1', 'new.jpg', [])];
+  it('Library: the filter row is the types of work, most photos first; one picked shows only those; what is visible is in the window', async () => {
+    const photo = (id: string, fileName: string, tags: string[], items: string[]) => ({ id, kind: 'photo' as const, fileName, tags, items, createdAt: new Date().toISOString() });
+    jobs = [];
+    assets = [
+      photo('d1', 'door.jpg', ['exterior', 'doors'], ['front door', 'brick']),
+      photo('d2', 'door2.jpg', ['exterior', 'doors'], ['front door']),
+      photo('f1', 'fence.jpg', ['exterior', 'fence-stain'], ['fence']),
+      photo('n1', 'new.jpg', [], []),
+    ];
     await render();
     await tab('Library');
     expect(document.body.querySelector('[aria-label="Open door.jpg"] [data-testid="items"]')!.textContent).toBe('front door · brick');
-    // The filter row: labels in use, most used first.
-    const filters = () => Array.from(document.body.querySelectorAll('[aria-label="Show photos of"] button')) as HTMLButtonElement[];
-    expect(filters().map((b) => b.textContent)).toEqual(['All', 'front door 2', 'brick 1', 'fence 1']);
+    const filters = () => Array.from(document.body.querySelectorAll('[aria-label="Show work"] button')) as HTMLButtonElement[];
+    expect(filters().map((b) => b.textContent)).toEqual(['All', 'Doors 2', 'Fence stain 1']);
     await act(async () => filters()[1].click());
     expect(Array.from(document.body.querySelectorAll('[data-testid="asset"]')).map((c) => c.querySelector('button')!.getAttribute('aria-label'))).toEqual(['Open door.jpg', 'Open door2.jpg']);
     await act(async () => filters()[0].click());

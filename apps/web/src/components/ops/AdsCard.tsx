@@ -969,21 +969,21 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
     .map((w) => [w, sorting.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w)] as const)
     .filter(([, list]) => list.length > 0);
   const unsorted = sorting.filter((a) => !a.tags.some((t) => worksFor(trade).includes(t)));
-  // The filter row: the labels in use on photos, most used first; one picked shows only its photos.
+  // The filter row: the types of work the photos are of, most photos first; one picked shows only its photos. (What
+  // is merely visible in a photo, its walls and floor, is in the photo's window, not here.)
   const [only, setOnly] = useState<string | null>(null);
-  const inUse = Object.entries(
-    photos.reduce<Record<string, number>>((n, a) => {
-      for (const i of a.items ?? []) n[i] = (n[i] ?? 0) + 1;
-      return n;
-    }, {}),
-  ).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
+  const ofWork = (w: string) => photos.filter((a) => a.tags.includes(w));
+  const inUse = worksFor(trade)
+    .map((w) => [w, ofWork(w).length] as const)
+    .filter(([, n]) => n > 0)
+    .sort((x, y) => y[1] - x[1]);
   // The files in the order the page shows them, so an open one can flip to the one beside it.
   const sortedWork = [...byWork.flatMap(([, list]) => list), ...unsorted];
   const order = (
     view === 'clips'
       ? clips
       : only
-      ? photos.filter((a) => (a.items ?? []).includes(only))
+      ? ofWork(only)
       : groupBy === 'work'
       ? sortedWork
       : [...jobs.flatMap((j) => photos.filter((a) => a.jobId === j.id)), ...sortedWork]
@@ -1068,7 +1068,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           : 'Video clips from job sites. Tap one to tag it, or make a job site ad from it.'}
       </p>
       {view === 'photos' && inUse.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="Show photos of">
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="Show work">
           <button
             type="button"
             aria-pressed={only === null}
@@ -1077,15 +1077,15 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           >
             All
           </button>
-          {inUse.map(([item, n]) => (
+          {inUse.map(([work, n]) => (
             <button
-              key={item}
+              key={work}
               type="button"
-              aria-pressed={only === item}
-              onClick={() => setOnly(only === item ? null : item)}
-              className={`flex-none px-4 min-h-[40px] rounded-full text-sm border capitalize ${only === item ? 'bg-white text-black border-white' : 'border-[#333] text-gray-300'}`}
+              aria-pressed={only === work}
+              onClick={() => setOnly(only === work ? null : work)}
+              className={`flex-none px-4 min-h-[40px] rounded-full text-sm border ${only === work ? 'bg-white text-black border-white' : 'border-[#333] text-gray-300'}`}
             >
-              {item} <span className="text-gray-500">{n}</span>
+              {workLabel(trade, work)} <span className="text-gray-500">{n}</span>
             </button>
           ))}
         </div>
@@ -1093,8 +1093,8 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
       {assets === undefined ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : view === 'photos' && only ? (
-        <section className="space-y-2" aria-label={`Photos showing ${only}`}>
-          <ul className={grid}>{photos.filter((a) => (a.items ?? []).includes(only)).map((a) => tile(a))}</ul>
+        <section className="space-y-2" aria-label={`Photos of ${workLabel(trade, only)}`}>
+          <ul className={grid}>{ofWork(only).map((a) => tile(a))}</ul>
         </section>
       ) : view === 'photos' ? (
         <div className="space-y-5" aria-label="Library">
