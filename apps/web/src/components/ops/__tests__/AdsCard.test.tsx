@@ -683,9 +683,11 @@ describe('Ops → Ads', () => {
     expect(dialog().querySelector('[data-testid="read-label"]')!.textContent).toBe('Claude is still looking');
     expect(dialog().querySelector('[data-testid="row-frame"]')!.textContent).toContain('Add what’s visible');
     await act(async () => (dialog().querySelector('[data-testid="row-frame"]') as HTMLButtonElement).click());
-    await act(async () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'garage door')!.click());
+    await act(async () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'Garage door')!.click());
     await flush();
     expect(setItems).toHaveBeenCalledWith('n1', ['garage door']);
+    // A clean list, Inside / Outside / Rooms, not a field of pills.
+    expect(Array.from(dialog().querySelectorAll(`[aria-label="What's in new.jpg"] p`)).map((p) => p.textContent)).toEqual(['Inside', 'Outside', 'Rooms']);
   });
 
   it('Library uploads a file with the chosen tags; a photo opened is retagged and saved, with no pair key to type', async () => {

@@ -1574,6 +1574,18 @@ const ReadRow: React.FC<{ label: string; value: React.ReactNode; muted?: boolean
   );
 };
 
+/** What can be in frame, as the panel lists it: the house's parts inside, outside, then the rooms. */
+const FRAME_OUTSIDE = new Set(['front door', 'garage door', 'siding', 'brick', 'stucco', 'fascia and soffit', 'shutters', 'porch', 'deck', 'fence', 'columns']);
+const FRAME_ROOMS = new Set(['kitchen', 'bathroom', 'bedroom', 'living room', 'hallway', 'entry', 'garage']);
+function frameGroups(items: readonly string[]): Array<[string, string[]]> {
+  const groups: Array<[string, string[]]> = [
+    ['Inside', items.filter((i) => !FRAME_OUTSIDE.has(i) && !FRAME_ROOMS.has(i))],
+    ['Outside', items.filter((i) => FRAME_OUTSIDE.has(i))],
+    ['Rooms', items.filter((i) => FRAME_ROOMS.has(i))],
+  ];
+  return groups.filter(([, list]) => list.length > 0);
+}
+
 /** One choice in the panel's lists (type of work, stage): its name, and CLAUDE when it was Claude's pick, a check when on. */
 const ListChoice: React.FC<{ name: string; on: boolean; claude: boolean; onClick: () => void }> = ({ name, on, claude, onClick }) => (
   <button
@@ -1769,7 +1781,7 @@ const AssetEditor: React.FC<{
                 <div className="border-t border-[#232323]">
                   <ReadRow
                     label="In frame"
-                    value={items.length ? items.join(', ') : 'Add what’s visible'}
+                    value={items.length ? items.map((i, n) => (n === 0 ? i.charAt(0).toUpperCase() + i.slice(1) : i)).join(', ') : 'Add what’s visible'}
                     muted={!items.length}
                     onClick={() => setMode('frame')}
                     testId="row-frame"
@@ -1854,21 +1866,22 @@ const AssetEditor: React.FC<{
               </div>
             )}
             {mode === 'frame' && (
-              <div className="pt-6">
+              <div className="pt-6" aria-label={`What's in ${a.fileName}`}>
                 {back('In frame')}
-                <div className="flex flex-wrap gap-2 pt-2" aria-label={`What's in ${a.fileName}`}>
-                  {tradeOf(trade).items.map((i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      aria-pressed={items.includes(i)}
-                      onClick={() => act(() => adsAPI.setItems(a.id, items.includes(i) ? items.filter((x) => x !== i) : [...items, i]), 'Saved.')}
-                      className={`px-4 min-h-[40px] text-sm rounded-full border capitalize ${items.includes(i) ? 'border-white bg-white text-black' : 'border-[#2a2a2a] text-gray-400'}`}
-                    >
-                      {i}
-                    </button>
-                  ))}
-                </div>
+                {frameGroups(tradeOf(trade).items).map(([area, list]) => (
+                  <div key={area} className="pt-5">
+                    <p className={`${mono} text-gray-500 pb-2 border-b border-[#232323]`}>{area}</p>
+                    {list.map((i) => (
+                      <ListChoice
+                        key={i}
+                        name={i.charAt(0).toUpperCase() + i.slice(1)}
+                        on={items.includes(i)}
+                        claude={false}
+                        onClick={() => act(() => adsAPI.setItems(a.id, items.includes(i) ? items.filter((x) => x !== i) : [...items, i]), 'Saved.')}
+                      />
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
             {mode === 'job' && photo && (
