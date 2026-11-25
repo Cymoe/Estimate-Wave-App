@@ -864,7 +864,7 @@ describe('Ops → Ads', () => {
     expect(asked).toContain('jobs:painting');
   });
 
-  it('Library: the filter row is the types of work, most photos first; one picked shows only those; what is visible is in the window', async () => {
+  it('Library: no filter row of pills; the headings group the photos; what is visible is in the window', async () => {
     const photo = (id: string, fileName: string, tags: string[], items: string[]) => ({ id, kind: 'photo' as const, fileName, tags, items, createdAt: new Date().toISOString() });
     jobs = [];
     assets = [
@@ -875,13 +875,10 @@ describe('Ops → Ads', () => {
     ];
     await render();
     await tab('Library');
+    expect(document.body.querySelector('[aria-label="Show work"]')).toBeNull();
+    expect(document.body.querySelector('[aria-label="Show photos of"]')).toBeNull();
+    expect(Array.from(document.body.querySelectorAll('[aria-label="By type of work"] h4')).map((h) => h.textContent)).toEqual(['Doors 2', 'Fence stain 1', 'No type of work yet']);
     expect(document.body.querySelector('[aria-label="Open door.jpg"] [data-testid="items"]')!.textContent).toBe('front door · brick');
-    const filters = () => Array.from(document.body.querySelectorAll('[aria-label="Show work"] button')) as HTMLButtonElement[];
-    expect(filters().map((b) => b.textContent)).toEqual(['All', 'Doors 2', 'Fence stain 1']);
-    await act(async () => filters()[1].click());
-    expect(Array.from(document.body.querySelectorAll('[data-testid="asset"]')).map((c) => c.querySelector('button')!.getAttribute('aria-label'))).toEqual(['Open door.jpg', 'Open door2.jpg']);
-    await act(async () => filters()[0].click());
-    expect(document.body.querySelectorAll('[data-testid="asset"]')).toHaveLength(4);
     // In the window: the In frame row opens the list, and a tap saves.
     await openFile('new.jpg');
     expect(dialog().querySelector('[data-testid="read-label"]')!.textContent).toBe('Claude is still looking');
