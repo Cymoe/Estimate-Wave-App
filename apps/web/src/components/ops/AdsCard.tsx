@@ -988,6 +988,16 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   // No tags: Claude looks at each one and tags it.
   // What is being sent right now, shown as a bar: a clip can take minutes on a phone's connection.
   const [sending, setSending] = useState<Sending | null>(null);
+  // Closing or reloading the page while a file is still on its way would stop it: the browser asks first.
+  useEffect(() => {
+    if (!sending) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [sending !== null]);
   const send = async (files: File[], tags: string[], jobId?: string) => {
     // A photo too big is said before anything goes; a clip is made smaller first, then checked (uploadAsset).
     const big = files.filter((f) => !isVideo(f)).map(tooBig).find(Boolean);
@@ -1016,7 +1026,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const addHere = (files: File[], jobId?: string) =>
     act(
       () => send(files, [], jobId),
-      `${files.length} file${files.length === 1 ? '' : 's'} in the library. Claude is tagging ${files.length === 1 ? 'it' : 'them'}.`,
+      `✓ ${files.length === 1 ? 'Sent' : `All ${files.length} sent`}. You can leave this page: Claude tags ${files.length === 1 ? 'it' : 'them'} in the background.`,
     );
   const toJob = (job: { jobId?: string; name?: string }, label: string) =>
     act(async () => {
@@ -2036,7 +2046,7 @@ const SendingBar: React.FC<{ s: Sending }> = ({ s }) => (
     <p className="text-xs text-gray-500">
       {s.step === 'shrinking'
         ? 'A big clip is made at 1080p on this device first, so it sends in a fraction of the time. Keep this page open.'
-        : 'Keep this page open until it’s done.'}
+        : 'Keep this page open until it’s sent. Once it is, you can leave: the rest happens on the server.'}
     </p>
   </div>
 );
@@ -2064,7 +2074,7 @@ const AddFiles: React.FC<{
         await send(Array.from(files), tags, jobId || undefined);
         onClose();
       },
-      `${files.length} file${files.length === 1 ? '' : 's'} in the library.`,
+      `✓ ${files.length === 1 ? 'Sent' : `All ${files.length} sent`}. You can leave this page: Claude tags ${files.length === 1 ? 'it' : 'them'} in the background.`,
     );
     setBusy(false);
   };

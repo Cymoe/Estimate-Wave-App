@@ -611,9 +611,16 @@ describe('Ops → Ads', () => {
     await act(async () => new Promise((r) => setTimeout(r, 5)));
     expect(document.body.querySelector('[data-testid="sending"]')!.textContent).toContain('Uploading walk.mov');
     expect(document.body.querySelector('[data-testid="sending"]')!.textContent).toContain('50%');
+    // While it's on its way, closing or reloading the page asks first.
+    const leaving = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
     await act(async () => finishSends());
     await flush();
     expect(document.body.querySelector('[data-testid="sending"]')).toBeNull();
+    const after = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
     expect(addAsset).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: 'walk.mov' }));
     sendsWait = false;
     // A big clip is made smaller on the device first, then sent smaller.
@@ -791,7 +798,7 @@ describe('Ops → Ads', () => {
     await act(async () => into.dispatchEvent(new Event('change', { bubbles: true })));
     await flush();
     expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'sink.jpg', jobId: 'j1', tags: [] }));
-    expect(document.body.textContent).toContain('1 file in the library. Claude is tagging it.');
+    expect(document.body.textContent).toContain('✓ Sent. You can leave this page: Claude tags it in the background.');
     // Not in a job has its own tile, with no job.
     const loose = document.body.querySelector('[aria-label="Not in a job"] input[aria-label="Add photos"]') as HTMLInputElement;
     Object.defineProperty(loose, 'files', { value: [new File(['x'], 'yard.jpg', { type: 'image/jpeg' })] });
@@ -878,7 +885,7 @@ describe('Ops → Ads', () => {
       note: undefined,
       trade: 'painting',
     });
-    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('1 file in the library.');
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('✓ Sent. You can leave this page: Claude tags it in the background.');
 
     // The card is quiet: the picture, its tags, how many ads, and a mark when Claude suggests other tags.
     const card = document.body.querySelector('[data-testid="asset"]')!;
