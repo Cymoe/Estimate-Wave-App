@@ -947,9 +947,9 @@ describe('Ops → Ads', () => {
     expect(card.querySelector('[data-testid="suggested-mark"]')).not.toBeNull();
     // Opened, it says what Claude saw and offers its tags.
     await openFile('kitchen.jpg');
-    // Its own tags differ from Claude's read: "Use Claude's read" puts Claude's on, and Confirm keeps them.
+    // Its own tags differ from Claude's read: "Use Claude's read" puts Claude's on, and Save keeps them.
     expect(dialog().querySelector('[data-testid="read-label"]')!.textContent).toBe('Your tags');
-    const save = () => dialog().querySelector('[aria-label="Confirm"]') as HTMLButtonElement;
+    const save = () => dialog().querySelector('[aria-label="Save"]') as HTMLButtonElement;
     // Nothing changed: Save only closes.
     await act(async () => save().click());
     expect(tagAsset).not.toHaveBeenCalled();
@@ -959,7 +959,7 @@ describe('Ops → Ads', () => {
         .find((b) => b.textContent === "Use Claude's read")!
         .click(),
     );
-    expect(dialog().querySelector('[data-testid="read-label"]')!.textContent).toBe("Claude's read");
+    expect(dialog().querySelector('[data-testid="read-label"]')!.textContent).toBe("Claude's tags");
     expect(dialog().querySelector('[data-testid="read"]')!.textContent).toContain('After');
     expect(dialog().querySelector('input[aria-label^="Pair key"]')).toBeNull();
     await act(async () => save().click());

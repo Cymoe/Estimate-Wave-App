@@ -1539,12 +1539,12 @@ const ReadRow: React.FC<{ label: string; value: React.ReactNode; muted?: boolean
 }) => {
   const body = (
     <>
-      <span className="w-28 flex-none font-mono text-xs uppercase tracking-[0.18em] text-gray-500">{label}</span>
-      <span className={`flex-1 min-w-0 truncate text-[17px] ${muted ? 'text-gray-500' : 'text-white'}`}>{value}</span>
+      <span className="w-20 flex-none text-sm text-gray-500">{label}</span>
+      <span className={`flex-1 min-w-0 truncate text-[15px] ${muted ? 'text-gray-500' : 'text-gray-100'}`}>{value}</span>
       {end ?? (onClick ? <ChevronRight className="w-4 h-4 text-gray-500 flex-none" aria-hidden="true" /> : null)}
     </>
   );
-  const cls = 'w-full flex items-center gap-4 min-h-[72px] border-b border-[#232323] text-left';
+  const cls = 'w-full flex items-center gap-3 min-h-[52px] border-b border-[#1f1f1f] text-left';
   return onClick ? (
     <button type="button" className={cls} onClick={onClick} data-testid={testId} aria-label={`${label}: ${typeof value === 'string' ? value : ''}`}>
       {body}
@@ -1574,20 +1574,20 @@ const ListChoice: React.FC<{ name: string; on: boolean; claude: boolean; onClick
     type="button"
     aria-pressed={on}
     onClick={onClick}
-    className={`w-full flex items-center gap-3 min-h-[58px] border-b border-[#232323] text-left text-[17px] ${on ? 'text-white font-medium' : 'text-gray-400'}`}
+    className={`w-full flex items-center gap-3 min-h-[48px] border-b border-[#1f1f1f] text-left text-[15px] ${on ? 'text-white' : 'text-gray-400'}`}
   >
     <span className="flex-1">{name}</span>
     {claude && (
-      <span className="font-mono text-[11px] tracking-[0.18em] text-[#c9a24a]" aria-label="Claude's pick">
-        CLAUDE
+      <span className="text-xs text-[#c9a24a]" aria-label="Claude's pick">
+        Claude
       </span>
     )}
     {on ? (
-      <span className="flex-none w-6 h-6 rounded-full bg-[#c9a24a] flex items-center justify-center" data-testid="checked">
-        <Check className="w-4 h-4 text-black" strokeWidth={3} aria-hidden="true" />
+      <span className="flex-none w-5 h-5 rounded-full bg-[#c9a24a] flex items-center justify-center" data-testid="checked">
+        <Check className="w-3.5 h-3.5 text-black" strokeWidth={3} aria-hidden="true" />
       </span>
     ) : (
-      <span className="flex-none w-6 h-6 rounded-full border-2 border-[#3a3a3a]" aria-hidden="true" />
+      <span className="flex-none w-5 h-5 rounded-full border-2 border-[#333]" aria-hidden="true" />
     )}
   </button>
 );
@@ -1665,11 +1665,11 @@ const AssetEditor: React.FC<{
   // A tick for each file on the page, at most 80 (more are drawn as fewer, each standing for several).
   const ticks = flip ? Math.min(flip.of, 80) : 0;
   const tickAt = flip ? Math.floor((flip.at / flip.of) * ticks) : 0;
-  const mono = 'font-mono text-xs uppercase tracking-[0.18em]';
+  const mono = 'text-sm';
   const back = (title: string) => (
     <div className="flex items-center justify-between pb-2">
       <span className={`${mono} text-gray-500`}>{title}</span>
-      <button type="button" className="text-sm font-medium text-[#c9a24a] min-h-[40px] px-2 -mr-2" onClick={() => setMode('read')}>
+      <button type="button" className="text-sm text-[#c9a24a] min-h-[40px] px-2 -mr-2" onClick={() => setMode('read')}>
         Done
       </button>
     </div>
@@ -1683,7 +1683,7 @@ const AssetEditor: React.FC<{
         aria-modal="true"
         aria-label={a.fileName}
         onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-6xl h-[100dvh] sm:h-[min(90dvh,860px)] flex flex-col md:flex-row overflow-hidden outline-none bg-black sm:rounded-2xl border border-[#1f1f1f] shadow-2xl"
+        className="w-full sm:max-w-6xl h-[100dvh] sm:h-[min(85dvh,780px)] flex flex-col md:flex-row overflow-hidden outline-none bg-black sm:rounded-2xl border border-[#1f1f1f] shadow-2xl"
       >
         {/* The picture: whole, centred; under it its place, a tick per file and the arrows. */}
         <div className="flex-none md:flex-1 h-[44dvh] md:h-auto min-w-0 flex flex-col bg-black">
@@ -1702,7 +1702,7 @@ const AssetEditor: React.FC<{
           </div>
           {flip && (
             <div className="flex-none flex items-center gap-4 px-5 h-14">
-              <span className="font-mono text-sm text-gray-300" data-testid="flip-place">
+              <span className="text-sm text-gray-300 tabular-nums" data-testid="flip-place">
                 {two(flip.at + 1)}
                 <span className="text-gray-600">/{two(flip.of)}</span>
               </span>
@@ -1724,10 +1724,10 @@ const AssetEditor: React.FC<{
           )}
         </div>
         {/* Claude's read, and what to change. */}
-        <div className="flex-1 md:flex-none md:w-[460px] min-h-0 flex flex-col bg-[#0E0E10] md:border-l border-t md:border-t-0 border-[#1f1f1f]">
-          <div className="flex items-center gap-2 px-7 pt-5">
+        <div className="flex-1 md:flex-none md:w-[400px] min-h-0 flex flex-col bg-[#0E0E10] md:border-l border-t md:border-t-0 border-[#1f1f1f]">
+          <div className="flex items-center gap-2 px-5 pt-4">
             <span className={`flex-1 ${mono} ${isClaudes ? 'text-[#c9a24a]' : 'text-gray-500'}`} data-testid="read-label">
-              {isClaudes ? "Claude's read" : claude.length ? 'Your tags' : 'Claude is still looking'}
+              {isClaudes ? "Claude's tags" : claude.length ? 'Your tags' : 'Claude is still looking'}
             </span>
             <button
               type="button"
@@ -1742,7 +1742,7 @@ const AssetEditor: React.FC<{
             </button>
           </div>
           {deleting && (
-            <div className="mx-7 mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4 space-y-3" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
+            <div className="mx-5 mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-4 space-y-3" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
               <p className="text-[15px] font-medium text-white">Delete this {photo ? 'photo' : 'clip'}?</p>
               <p className="text-sm text-gray-300">
                 It&apos;s taken out of the library for good and can&apos;t be brought back.
@@ -1766,35 +1766,30 @@ const AssetEditor: React.FC<{
               </div>
             </div>
           )}
-          <div className="flex-1 min-h-0 overflow-y-auto px-7 pb-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-3">
             {mode === 'read' && (
               <>
-                <div className="py-8 md:py-12" data-testid="read">
-                  {works.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setMode('work')}
-                      aria-label="Change the type of work"
-                      className="block text-left text-[40px] md:text-[52px] leading-[1.05] font-semibold tracking-[-0.03em] text-white"
-                    >
-                      {picked.length ? picked.map((w) => workLabel(trade, w)).join(' + ') : <span className="text-gray-600">Type of work?</span>}
+                <div className="py-4" data-testid="read">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    {works.length > 0 && (
+                      <button type="button" onClick={() => setMode('work')} aria-label="Change the type of work" className="text-left text-xl font-semibold text-white">
+                        {picked.length ? picked.map((w) => workLabel(trade, w)).join(' + ') : <span className="text-gray-500">Type of work?</span>}
+                      </button>
+                    )}
+                    <span className="text-gray-600" aria-hidden="true">
+                      ·
+                    </span>
+                    <button type="button" onClick={() => setMode('stage')} aria-label="Change the stage" className="text-left text-base text-gray-400">
+                      {stageNames.length ? stageNames.join(' + ') : <span className="text-gray-600">Stage?</span>}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setMode('stage')}
-                    aria-label="Change the stage"
-                    className="block text-left text-[40px] md:text-[52px] leading-[1.1] font-semibold tracking-[-0.03em] text-gray-500"
-                  >
-                    {stageNames.length ? stageNames.join(' + ') : <span className="text-gray-700">Stage?</span>}
-                  </button>
+                  </div>
                   {claude.length > 0 && !isClaudes && (
-                    <button type="button" className="mt-4 text-sm text-[#c9a24a]" onClick={() => setTags(claude)}>
+                    <button type="button" className="mt-2 text-sm text-[#c9a24a]" onClick={() => setTags(claude)}>
                       Use Claude&apos;s read
                     </button>
                   )}
                 </div>
-                <div className="border-t border-[#232323]">
+                <div className="border-t border-[#1f1f1f]">
                   <ReadRow
                     label="In frame"
                     value={items.length ? items.map((i, n) => (n === 0 ? i.charAt(0).toUpperCase() + i.slice(1) : i)).join(', ') : 'Add what’s visible'}
@@ -1812,9 +1807,9 @@ const AssetEditor: React.FC<{
                         aria-checked={tags.includes('crew')}
                         aria-label="Crew in the shot"
                         onClick={() => toggle('crew')}
-                        className={`relative flex-none w-14 h-8 rounded-full transition-colors ${tags.includes('crew') ? 'bg-[#c9a24a]' : 'bg-[#2a2a2a]'}`}
+                        className={`relative flex-none w-11 h-6 rounded-full transition-colors ${tags.includes('crew') ? 'bg-[#c9a24a]' : 'bg-[#2a2a2a]'}`}
                       >
-                        <span className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${tags.includes('crew') ? 'left-7' : 'left-1'}`} />
+                        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${tags.includes('crew') ? 'left-6' : 'left-1'}`} />
                       </button>
                     }
                   />
@@ -1825,7 +1820,7 @@ const AssetEditor: React.FC<{
                   <button
                     type="button"
                     onClick={() => onOpen(partner.id)}
-                    className="mt-4 w-full flex items-center gap-3 rounded-lg border border-[#232323] p-2 text-left [@media(hover:hover)]:hover:bg-[#161616]"
+                    className="mt-4 w-full flex items-center gap-3 rounded-lg border border-[#1f1f1f] p-2 text-left [@media(hover:hover)]:hover:bg-[#161616]"
                     data-testid="pair"
                   >
                     <img src={partner.thumbUrl ?? partner.posterUrl ?? partner.url} alt="" className="w-14 h-14 rounded object-cover bg-[#1d1d1d] flex-none" />
@@ -1854,7 +1849,7 @@ const AssetEditor: React.FC<{
               </>
             )}
             {mode === 'work' && (
-              <div className="pt-6" aria-label={`Tags for ${a.fileName}`}>
+              <div className="pt-3" aria-label={`Tags for ${a.fileName}`}>
                 {back('Type of work')}
                 {(
                   [
@@ -1862,8 +1857,8 @@ const AssetEditor: React.FC<{
                     ['Outside', works.filter((w) => tradeOf(trade).works![w].scope === 'exterior')],
                   ] as Array<[string, string[]]>
                 ).map(([area, list]) => (
-                  <div key={area} className="pt-5">
-                    <p className={`${mono} text-gray-500 pb-2 border-b border-[#232323]`}>{area}</p>
+                  <div key={area} className="pt-4">
+                    <p className={`${mono} text-gray-500 pb-2 border-b border-[#1f1f1f]`}>{area}</p>
                     {list.map((w) => (
                       <ListChoice key={w} name={workLabel(trade, w)} on={picked.includes(w)} claude={claude.includes(w)} onClick={() => pickWork(w)} />
                     ))}
@@ -1872,9 +1867,9 @@ const AssetEditor: React.FC<{
               </div>
             )}
             {mode === 'stage' && (
-              <div className="pt-6" aria-label={`Stage of ${a.fileName}`}>
+              <div className="pt-3" aria-label={`Stage of ${a.fileName}`}>
                 {back('Stage')}
-                <div className="border-t border-[#232323]">
+                <div className="border-t border-[#1f1f1f]">
                   {stages.map(([t, name]) => (
                     <ListChoice key={t} name={name} on={tags.includes(t)} claude={claude.includes(t)} onClick={() => toggle(t)} />
                   ))}
@@ -1882,11 +1877,11 @@ const AssetEditor: React.FC<{
               </div>
             )}
             {mode === 'frame' && (
-              <div className="pt-6" aria-label={`What's in ${a.fileName}`}>
+              <div className="pt-3" aria-label={`What's in ${a.fileName}`}>
                 {back('In frame')}
                 {frameGroups(tradeOf(trade).items).map(([area, list]) => (
-                  <div key={area} className="pt-5">
-                    <p className={`${mono} text-gray-500 pb-2 border-b border-[#232323]`}>{area}</p>
+                  <div key={area} className="pt-4">
+                    <p className={`${mono} text-gray-500 pb-2 border-b border-[#1f1f1f]`}>{area}</p>
                     {list.map((i) => (
                       <ListChoice
                         key={i}
@@ -1901,7 +1896,7 @@ const AssetEditor: React.FC<{
               </div>
             )}
             {mode === 'job' && photo && (
-              <div className="pt-6">
+              <div className="pt-3">
                 {back('Job')}
                 <div aria-label={`Job of ${a.fileName}`}>
                   <JobPicker
@@ -1924,20 +1919,23 @@ const AssetEditor: React.FC<{
               </div>
             )}
           </div>
-          <div className="px-7 pt-3 pb-5 space-y-2">
+          <div className="flex items-center gap-3 px-5 py-3 border-t border-[#1f1f1f]">
+            <button type="button" onClick={skip} className="min-h-[44px] px-2 text-sm text-gray-500 hover:text-gray-300">
+              Skip
+            </button>
             <button
               type="button"
               onClick={confirm}
-              aria-label={flip?.next ? 'Confirm, next photo' : 'Confirm'}
-              className="w-full flex items-center justify-between rounded-xl border border-[#c9a24a]/60 bg-transparent px-7 min-h-[64px] text-[#e3c47a] [@media(hover:hover)]:hover:bg-[#c9a24a]/10 [@media(hover:hover)]:hover:border-[#c9a24a]"
+              aria-label={flip?.next ? 'Save & next' : 'Save'}
+              className="ml-auto inline-flex items-center justify-center gap-2 rounded-lg border border-[#c9a24a]/60 bg-transparent px-5 min-h-[44px] text-[15px] font-medium text-[#e3c47a] [@media(hover:hover)]:hover:bg-[#c9a24a]/10 [@media(hover:hover)]:hover:border-[#c9a24a]"
             >
-              <span className="text-lg font-semibold">Confirm</span>
-              <span className="inline-flex items-center gap-2 text-[15px] font-medium">
-                {flip?.next ? 'Next photo' : 'Done'} <ArrowRight className="w-4 h-4" />
-              </span>
-            </button>
-            <button type="button" onClick={skip} className="w-full min-h-[44px] text-[15px] text-gray-500 hover:text-gray-300">
-              Skip for now
+              {flip?.next ? (
+                <>
+                  Save &amp; next <ArrowRight className="w-4 h-4" />
+                </>
+              ) : (
+                'Save'
+              )}
             </button>
           </div>
         </div>
