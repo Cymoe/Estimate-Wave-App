@@ -1,5 +1,26 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Film, Play, Star, Trash2, Upload } from 'lucide-react';
+import {
+  BrickWall,
+  Check,
+  DoorOpen,
+  Droplet,
+  ExternalLink,
+  Fence,
+  Film,
+  Footprints,
+  Hammer,
+  Home,
+  Layers,
+  PaintRoller,
+  Paintbrush,
+  Play,
+  Sparkles,
+  Star,
+  Trash2,
+  Upload,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdJobs } from '../../lib/live';
 import { backfillThumb, isVideo, putFile, stillOfClip, thumbOf, uploadAsset } from '../../lib/adUpload';
@@ -1419,22 +1440,128 @@ const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: 
   );
 };
 
-/** Tag buttons: the trade's kinds of job, and before and after (photos only). */
+/** Each type of work's picture on its card. */
+const WORK_ICONS: Record<string, LucideIcon> = {
+  'interior-walls': PaintRoller,
+  'cabinets-painted': Paintbrush,
+  'cabinets-stained': Droplet,
+  doors: DoorOpen,
+  'stairs-balusters': Footprints,
+  'flooring-lvp': Layers,
+  'exterior-repaint': Home,
+  brick: BrickWall,
+  'fence-stain': Fence,
+  'fence-build': Hammer,
+};
+/** Where a photo is in the job, in the owner's words: the before, the work going on, the finish. */
+const STAGES: Array<[string, string]> = [
+  ['before', 'Before'],
+  ['process', 'In progress'],
+  ['after', 'After'],
+];
+
+/**
+ * A photo's types of work changed: its scopes (interior, exterior, cabinets) follow from them, so they aren't picked
+ * by hand. With no type of work left, the scopes it had stay.
+ */
+function withWork(tags: string[], works: string[], trade: string): string[] {
+  const t = tradeOf(trade);
+  const all = worksFor(trade);
+  const rest = tags.filter((x) => !all.includes(x));
+  if (works.length === 0) return rest;
+  const scopes = [...new Set(works.map((w) => t.works![w].scope))];
+  return [...works, ...rest.filter((x) => !t.scopes.includes(x)), ...scopes];
+}
+
+/**
+ * Tags, picked: the type of work as cards with a picture, inside and outside apart; where in the job it is
+ * (before, in progress, after) as one switch; and whether the crew is in it. A trade with no types of work picks
+ * its kinds of job as plain buttons.
+ */
 const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; photo: boolean; label: string }> = ({ value, onChange, photo, label }) => {
   const trade = useTrade();
+  const works = worksFor(trade);
+  const toggle = (t: string) => onChange(value.includes(t) ? value.filter((x) => x !== t) : [...value, t]);
+  if (works.length === 0)
+    return (
+      <div className="flex flex-wrap gap-2" aria-label={label}>
+        {[...scopesFor(trade), ...(photo ? ['before', 'after'] : [])].map((t) => (
+          <button
+            key={t}
+            type="button"
+            aria-pressed={value.includes(t)}
+            onClick={() => toggle(t)}
+            className={`px-3.5 min-h-[40px] text-sm rounded-lg border ${value.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-300'}`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+    );
+  const picked = works.filter((w) => value.includes(w));
+  const pickWork = (w: string) => onChange(withWork(value, picked.includes(w) ? picked.filter((x) => x !== w) : [...picked, w], trade));
+  const areas: Array<[string, string[]]> = [
+    ['Inside', works.filter((w) => tradeOf(trade).works![w].scope !== 'exterior')],
+    ['Outside', works.filter((w) => tradeOf(trade).works![w].scope === 'exterior')],
+  ];
+  const stages = photo ? STAGES : STAGES.filter(([t]) => t === 'process');
   return (
-    <div className="flex flex-wrap gap-2" aria-label={label}>
-      {[...scopesFor(trade), ...(photo ? ['before', 'after'] : []), ...worksFor(trade)].map((t) => (
-        <button
-          key={t}
-          type="button"
-          aria-pressed={value.includes(t)}
-          onClick={() => onChange(value.includes(t) ? value.filter((x) => x !== t) : [...value, t])}
-          className={`px-3.5 min-h-[40px] text-sm rounded-lg border ${value.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-300'}`}
-        >
-          {worksFor(trade).includes(t) ? workLabel(trade, t) : t}
-        </button>
-      ))}
+    <div className="space-y-5" aria-label={label}>
+      <div className="space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Type of work</p>
+        {areas.map(([area, list]) => (
+          <div key={area} className="space-y-2">
+            <p className="text-xs text-gray-400">{area}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {list.map((w) => {
+                const on = picked.includes(w);
+                const Icon = WORK_ICONS[w] ?? Sparkles;
+                return (
+                  <button
+                    key={w}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => pickWork(w)}
+                    className={`relative flex items-center gap-3 rounded-xl border px-3 py-2.5 min-h-[56px] text-left text-sm transition-colors ${
+                      on ? 'border-amber-400 bg-amber-400/15 text-amber-50' : 'border-[#2E2E2E] bg-[#161616] text-gray-300 hover:border-[#444]'
+                    }`}
+                  >
+                    <span className={`flex-none w-9 h-9 rounded-lg flex items-center justify-center ${on ? 'bg-amber-400 text-black' : 'bg-[#222] text-gray-400'}`}>
+                      <Icon className="w-5 h-5" aria-hidden="true" />
+                    </span>
+                    <span className="leading-tight">{workLabel(trade, w)}</span>
+                    {on && <Check className="absolute top-1.5 right-1.5 w-3.5 h-3.5 text-amber-300" aria-hidden="true" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Stage</p>
+        <div className="inline-flex rounded-full bg-[#161616] border border-[#2E2E2E] p-1" role="group" aria-label="Stage">
+          {stages.map(([t, name]) => (
+            <button
+              key={t}
+              type="button"
+              aria-pressed={value.includes(t)}
+              onClick={() => toggle(t)}
+              className={`px-4 min-h-[40px] rounded-full text-sm ${value.includes(t) ? 'bg-[#336699] text-white' : 'text-gray-400'}`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button
+        type="button"
+        aria-pressed={value.includes('crew')}
+        onClick={() => toggle('crew')}
+        className={`inline-flex items-center gap-2 rounded-full border px-4 min-h-[40px] text-sm ${value.includes('crew') ? 'border-sky-400 bg-sky-400/15 text-sky-100' : 'border-[#2E2E2E] text-gray-400'}`}
+      >
+        <Users className="w-4 h-4" aria-hidden="true" /> Crew in the shot
+      </button>
     </div>
   );
 };
@@ -1555,19 +1682,26 @@ const AssetEditor: React.FC<{
         </div>
         {a.description && <p className="text-sm text-gray-400">{a.description}</p>}
         {suggestsOther(a) && (
-          <p className="text-sm text-sky-300" data-testid="suggested-tags">
-            Claude suggests: {a.suggestedTags!.map((t) => (worksFor(trade).includes(t) ? workLabel(trade, t) : t)).join(', ')} ·{' '}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2" data-testid="suggested-tags">
+            <Sparkles className="w-4 h-4 text-sky-300" aria-hidden="true" />
+            <span className="text-sm text-sky-200">Claude sees</span>
+            {a
+              .suggestedTags!.filter((t) => !tradeOf(trade).scopes.includes(t) || !a.suggestedTags!.some((x) => worksFor(trade).includes(x)))
+              .map((t) => (
+                <span key={t} className="rounded-full bg-sky-400/20 px-2.5 py-0.5 text-xs text-sky-100">
+                  {worksFor(trade).includes(t) ? workLabel(trade, t) : STAGES.find(([s]) => s === t)?.[1] ?? t}
+                </span>
+              ))}
             <button
               type="button"
-              className="underline"
+              className="ml-auto rounded-full bg-sky-400 px-3 min-h-[32px] text-sm font-medium text-black"
               onClick={() => act(() => adsAPI.tagAsset(a.id, a.suggestedTags!, undefined, a.note), 'Tags updated.')}
             >
               Use these
             </button>
-          </p>
+          </div>
         )}
         <div className="space-y-2">
-          <p className="text-xs text-gray-400">What it shows</p>
           <KindTags value={tags} onChange={setTags} photo={photo} label={`Tags for ${a.fileName}`} />
         </div>
         <ItemsPicker a={a} act={act} />

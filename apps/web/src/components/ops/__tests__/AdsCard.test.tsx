@@ -703,7 +703,7 @@ describe('Ops → Ads', () => {
     (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
     await render();
     await tab('Library');
-    // Nothing is on by default; light up "interior" and "before", then upload.
+    // Nothing is on by default; pick a type of work (its scope comes with it) and "Before", then upload.
     await openAdd();
     const upTag = (t: string) =>
       act(async () =>
@@ -711,8 +711,8 @@ describe('Ops → Ads', () => {
           .find((b) => b.textContent === t)!
           .click(),
       );
-    await upTag('interior');
-    await upTag('before');
+    await upTag('Interior walls');
+    await upTag('Before');
     const fileInput = dialog().querySelector('input[type="file"]') as HTMLInputElement;
     Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'hall.jpg', { type: 'image/jpeg' })] });
     await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
@@ -721,7 +721,7 @@ describe('Ops → Ads', () => {
     expect(addAsset).toHaveBeenCalledWith({
       storageId: 's1',
       fileName: 'hall.jpg',
-      tags: ['interior', 'before'],
+      tags: ['interior-walls', 'interior', 'before'],
       pairKey: undefined,
       note: undefined,
       trade: 'painting',
@@ -742,7 +742,7 @@ describe('Ops → Ads', () => {
     // Opened, it says what Claude saw and offers its tags.
     await openFile('kitchen.jpg');
     expect(dialog().textContent).toContain('White shaker cabinets in a bright kitchen.');
-    expect(dialog().querySelector('[data-testid="suggested-tags"]')!.textContent).toBe('Claude suggests: cabinets, after · Use these');
+    expect(dialog().querySelector('[data-testid="suggested-tags"]')!.textContent).toBe('Claude seescabinetsAfterUse these');
     await act(async () =>
       Array.from(dialog().querySelectorAll('button'))
         .find((b) => b.textContent === 'Use these')!
@@ -754,7 +754,7 @@ describe('Ops → Ads', () => {
     expect(save().disabled).toBe(true);
     await act(async () =>
       Array.from(dialog().querySelectorAll(`[aria-label="Tags for kitchen.jpg"] button`))
-        .find((b) => b.textContent === 'after')!
+        .find((b) => b.textContent === 'After')!
         .click(),
     );
     expect(dialog().querySelector('input[aria-label^="Pair key"]')).toBeNull();
