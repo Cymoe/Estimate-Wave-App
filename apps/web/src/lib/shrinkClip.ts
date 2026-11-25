@@ -4,8 +4,8 @@
  * is made again at 1080p (its long side 1920) in H.264 with AAC sound, by the device's own video encoder (WebCodecs,
  * through mediabunny): usually faster than the clip plays, and about a tenth of the size.
  *
- * Only clips over SHRINK_ABOVE_BYTES come here (lib/adUpload.ts). A browser without WebCodecs, a clip whose sound
- * would be lost, or anything that goes wrong: the clip goes up as it was.
+ * Only clips over SHRINK_ABOVE_BYTES come here (lib/adUpload.ts). Sound that can't be read here (Spatial Audio) is
+ * left off. A browser without WebCodecs, or anything that goes wrong: the clip goes up as it was.
  */
 import { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Mp4OutputFormat, Output } from 'mediabunny';
 
@@ -26,34 +26,45 @@ export async function shrinkClip(file: File, onProgress?: (fraction: number) => 
   }
   try {
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-    const target = new BufferTarget();
-    const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
-    const conversion = await Conversion.init({
-      input,
-      output,
-      video: async (track) => {
-        const w = track.displayWidth;
-        const h = track.displayHeight;
-        const scale = Math.min(1, LONG_SIDE / Math.max(w, h));
-        // Its frame rate, from its first frames: only a faster one is brought down.
-        const fps = await track
-          .computePacketStats(120)
-          .then((s) => s.averagePacketRate)
-          .catch(() => 0);
-        return {
-          width: even(w * scale),
-          height: even(h * scale),
-          fit: 'contain',
-          codec: 'avc',
-          bitrate: VIDEO_BITRATE,
-          ...(fps > MAX_FPS + 1 ? { frameRate: MAX_FPS } : {}),
-        };
-      },
-      // The sound as it was (a phone records AAC, which an MP4 holds as is): the crew's words become captions.
-      audio: {},
-    });
-    // A clip whose sound would be lost goes as it was: its words are what the captions are made from.
-    if (!conversion.isValid || conversion.discardedTracks.some((d) => d.track.type === 'audio')) {
+    const convert = async (withSound: boolean) => {
+      const target = new BufferTarget();
+      const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+      const conversion = await Conversion.init({
+        input,
+        output,
+        video: async (track) => {
+          const w = track.displayWidth;
+          const h = track.displayHeight;
+          const scale = Math.min(1, LONG_SIDE / Math.max(w, h));
+          // Its frame rate, from its first frames: only a faster one is brought down.
+          const fps = await track
+            .computePacketStats(120)
+            .then((st) => st.averagePacketRate)
+            .catch(() => 0);
+          return {
+            width: even(w * scale),
+            height: even(h * scale),
+            fit: 'contain',
+            codec: 'avc',
+            bitrate: VIDEO_BITRATE,
+            ...(fps > MAX_FPS + 1 ? { frameRate: MAX_FPS } : {}),
+          };
+        },
+        // The sound as it was (a phone records AAC, which an MP4 holds as is): the crew's words become captions.
+        audio: withSound ? {} : { discard: true },
+      });
+      return { target, conversion };
+    };
+    let { target, conversion } = await convert(true);
+    const hasSound = (await input.getAudioTracks()).length > 0;
+    const keptSound = conversion.utilizedTracks.some((t) => t.type === 'audio');
+    // A clip whose only sound can't be read here (an iPhone's Spatial Audio, Apple's own format, which nothing
+    // after this can read either) is made smaller without it, rather than sent at full size or not at all.
+    if (hasSound && !keptSound) {
+      onNote?.(`sound left off: ${conversion.discardedTracks.map((d) => `${d.track.type} ${d.reason}`).join(', ')}`);
+      ({ target, conversion } = await convert(false));
+    }
+    if (!conversion.isValid) {
       onNote?.(`not converted: ${conversion.discardedTracks.map((d) => `${d.track.type} ${d.reason}`).join(', ') || 'invalid'}`);
       return file;
     }

@@ -189,7 +189,7 @@ async function sendWithRetries(file: File, onProgress?: (fraction: number) => vo
 export function tooBig(file: File): string | null {
   const mb = (n: number) => Math.round(n / (1024 * 1024));
   if (isVideo(file) && file.size > MAX_VIDEO_BYTES)
-    return `${file.name} is ${mb(file.size)} MB even made smaller. A clip must be ${mb(MAX_VIDEO_BYTES)} MB or less: trim it into shorter clips.`;
+    return `${file.name} is ${mb(file.size)} MB and couldn't be made smaller on this device. A clip must be ${mb(MAX_VIDEO_BYTES)} MB or less: trim it into shorter clips.`;
   if (!isVideo(file) && file.size > MAX_PHOTO_BYTES) return `${file.name} is ${mb(file.size)} MB. A photo must be ${mb(MAX_PHOTO_BYTES)} MB or less.`;
   return null;
 }
@@ -213,6 +213,12 @@ const seconds = (since: number) => Math.round((performance.now() - since) / 100)
  */
 export async function prepareAsset(file: File, onProgress?: (fraction: number) => void): Promise<PreparedAsset> {
   const picked = { name: file.name, size: file.size };
+  // The iPad sometimes stops letting the page read a picked file (after leaving the page a while): said plainly.
+  try {
+    await file.slice(0, 1).arrayBuffer();
+  } catch {
+    throw new Error(`The iPad didn't let the page read ${file.name} any more. Pick it again.`);
+  }
   if (isVideo(file) && file.size > SHRINK_ABOVE_BYTES) {
     onProgress?.(0);
     const { shrinkClip } = await import('./shrinkClip');
