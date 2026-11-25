@@ -502,16 +502,16 @@ describe('Ops → Ads', () => {
     await tab('Library');
     // By type of work: Cabinets stained first, then Fence stain.
     await act(async () => (document.body.querySelector('[aria-label="Open cab1.jpg"]') as HTMLButtonElement).click());
-    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('1 of 3');
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('01 / 03');
     expect(document.body.querySelector('[aria-label="Previous"]')).toBeNull();
     await act(async () => (document.body.querySelector('[aria-label="Next"]') as HTMLButtonElement).click());
-    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('2 of 3');
-    expect(document.body.textContent).toContain('fence1.jpg');
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('02 / 03');
+    expect(document.body.textContent).toContain('fence1');
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })));
-    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('3 of 3');
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('03 / 03');
     expect(document.body.querySelector('[aria-label="Next"]')).toBeNull();
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })));
-    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('2 of 3');
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('02 / 03');
     // No note to fill in; the small copy shows at once, softened, until the full photo has loaded.
     expect(dialog().querySelector('input[aria-label^="Note"]')).toBeNull();
     expect(dialog().textContent).not.toContain('Note');
@@ -742,24 +742,22 @@ describe('Ops → Ads', () => {
     // Opened, it says what Claude saw and offers its tags.
     await openFile('kitchen.jpg');
     expect(dialog().textContent).toContain('White shaker cabinets in a bright kitchen.');
-    expect(dialog().querySelector('[data-testid="suggested-tags"]')!.textContent).toBe('Claude seescabinetsAfterUse these');
+    // Claude's picks are marked on the tags; "Use these" puts them on, and Save keeps them.
+    expect(dialog().querySelector('[data-testid="suggested-tags"]')!.textContent).toBe("Claude's picks are marked. Check, then save.Use these");
+    expect(dialog().querySelectorAll('[aria-label="Claude\'s pick"]').length).toBeGreaterThan(0);
+    const save = () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'Save')!;
+    // Nothing changed: Save only closes.
+    await act(async () => save().click());
+    expect(tagAsset).not.toHaveBeenCalled();
+    await openFile('kitchen.jpg');
     await act(async () =>
       Array.from(dialog().querySelectorAll('button'))
         .find((b) => b.textContent === 'Use these')!
         .click(),
     );
-    expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
-    tagAsset.mockClear();
-    const save = () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'Save')!;
-    expect(save().disabled).toBe(true);
-    await act(async () =>
-      Array.from(dialog().querySelectorAll(`[aria-label="Tags for kitchen.jpg"] button`))
-        .find((b) => b.textContent === 'After')!
-        .click(),
-    );
     expect(dialog().querySelector('input[aria-label^="Pair key"]')).toBeNull();
     await act(async () => save().click());
-    expect(tagAsset).toHaveBeenCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
+    expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
   });
 
   it('Hooks seeds the six, adds one, and switches one off', async () => {
