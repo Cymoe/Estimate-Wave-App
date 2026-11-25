@@ -1666,12 +1666,13 @@ const AssetEditor: React.FC<{
   const ticks = flip ? Math.min(flip.of, 80) : 0;
   const tickAt = flip ? Math.floor((flip.at / flip.of) * ticks) : 0;
   const mono = 'text-sm';
+  // A list's header: Back to the tags on the left (what's picked is saved as it's tapped), then what the list is.
   const back = (title: string) => (
-    <div className="flex items-center justify-between pb-2">
-      <span className={`${mono} text-gray-500`}>{title}</span>
-      <button type="button" className="text-sm text-[#c9a24a] min-h-[40px] px-2 -mr-2" onClick={() => setMode('read')}>
-        Done
+    <div className="flex items-center gap-2 pb-2">
+      <button type="button" aria-label="Back" className="inline-flex items-center gap-0.5 min-h-[40px] pr-2 -ml-1 text-[15px] text-[#c9a24a]" onClick={() => setMode('read')}>
+        <ChevronLeft className="w-5 h-5" aria-hidden="true" /> Back
       </button>
+      <span className="text-[15px] font-medium text-white">{title}</span>
     </div>
   );
   return createPortal(
@@ -1726,8 +1727,9 @@ const AssetEditor: React.FC<{
         {/* Claude's read, and what to change. */}
         <div className="flex-1 md:flex-none md:w-[400px] min-h-0 flex flex-col bg-[#0E0E10] md:border-l border-t md:border-t-0 border-[#1f1f1f]">
           <div className="flex items-center gap-2 px-5 pt-4">
+            {/* On a list the list's own header leads; the label is for the tags. */}
             <span className={`flex-1 ${mono} ${isClaudes ? 'text-[#c9a24a]' : 'text-gray-500'}`} data-testid="read-label">
-              {isClaudes ? "Claude's tags" : claude.length ? 'Your tags' : 'Claude is still looking'}
+              {mode === 'read' ? (isClaudes ? "Claude's tags" : claude.length ? 'Your tags' : 'Claude is still looking') : ''}
             </span>
             <button
               type="button"

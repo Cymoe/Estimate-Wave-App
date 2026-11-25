@@ -889,6 +889,10 @@ describe('Ops → Ads', () => {
     expect(setItems).toHaveBeenCalledWith('n1', ['garage door']);
     // A clean list, Inside / Outside / Rooms, not a field of pills.
     expect(Array.from(dialog().querySelectorAll(`[aria-label="What's in new.jpg"] p`)).map((p) => p.textContent)).toEqual(['Inside', 'Outside', 'Rooms']);
+    // Back, at the top left, returns to the tags.
+    expect(dialog().querySelector('[data-testid="row-frame"]')).toBeNull();
+    await act(async () => (dialog().querySelector('[aria-label="Back"]') as HTMLButtonElement).click());
+    expect(dialog().querySelector('[data-testid="row-frame"]')).not.toBeNull();
   });
 
   it('Library uploads a file with the chosen tags; a photo opened is retagged and saved, with no pair key to type', async () => {
