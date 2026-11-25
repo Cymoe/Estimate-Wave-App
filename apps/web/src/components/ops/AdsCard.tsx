@@ -1134,6 +1134,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
               ))}
             </div>
           )}
+          {!selecting && <AddBar onFiles={(files) => addHere(files)} />}
           {groupBy === 'job' && jobs.map((j) => (
             <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
               {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}
@@ -1142,21 +1143,19 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           ))}
           <section className="space-y-2" aria-label={groupBy === 'work' ? 'By type of work' : 'Not in a job'}>
             {groupBy === 'job' && jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
-            {byWork.map(([work, list], i) => (
+            {byWork.map(([work, list]) => (
               <div key={work} className="space-y-2" aria-label={workLabel(trade, work)}>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-200/80">
                   {workLabel(trade, work)} <span className="text-gray-500">{list.length}</span>
                 </h4>
                 <ul className={grid}>
                   {/* Adding is the first square on the page, not after every photo. */}
-                  {i === 0 && !selecting && <AddTile label="Add photos" photos onFiles={(files) => addHere(files)} />}
                   {list.map((a) => tile(a))}
                 </ul>
               </div>
             ))}
             {byWork.length > 0 && unsorted.length > 0 && <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">No type of work yet</h4>}
             <ul className={grid}>
-              {byWork.length === 0 && !selecting && <AddTile label="Add photos" photos onFiles={(files) => addHere(files)} />}
               {unsorted.map((a) => tile(a))}
             </ul>
           </section>
@@ -1217,6 +1216,43 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
 const grid = 'grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
 
 /** The last tile of a grid: a dotted box the size of the others. Tapping it picks files that go straight in. */
+/**
+ * Adding photos with nothing to choose: they go in untagged and outside any job, and Claude sorts each one by type
+ * of work. First on the page, before the groups, so it doesn't look like it adds to one of them.
+ */
+const AddBar: React.FC<{ onFiles: (files: File[]) => Promise<unknown> }> = ({ onFiles }) => {
+  const [busy, setBusy] = useState(false);
+  return (
+    <label
+      data-testid="add-bar"
+      className={`flex items-center gap-4 w-full min-h-[72px] px-5 rounded-xl border-2 border-dashed border-[#3a3a3a] text-gray-300 cursor-pointer [@media(hover:hover)]:hover:border-[#336699] [@media(hover:hover)]:hover:text-white ${busy ? 'opacity-60' : ''}`}
+    >
+      <Upload className="w-6 h-6 flex-none" aria-hidden="true" />
+      <span className="flex-1">
+        <span className="block text-[15px] text-white">{busy ? 'Adding…' : '+ Add photos'}</span>
+        <span className="block text-xs text-gray-500">Just pick them: Claude sorts each one by type of work. No job or tags needed.</span>
+      </span>
+      <input
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
+        aria-label="Add photos"
+        disabled={busy}
+        onChange={async (e) => {
+          const input = e.target;
+          const files = Array.from(input.files ?? []);
+          if (files.length === 0) return;
+          setBusy(true);
+          await onFiles(files);
+          setBusy(false);
+          input.value = '';
+        }}
+      />
+    </label>
+  );
+};
+
 const AddTile: React.FC<{ label: string; photos?: boolean; onFiles: (files: File[]) => Promise<unknown> }> = ({ label, photos, onFiles }) => {
   const [busy, setBusy] = useState(false);
   return (
@@ -2143,22 +2179,9 @@ const AddFiles: React.FC<{
   return (
     <Dialog title={into ? `Add photos to ${into.name}` : 'Add photos or clips'} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-sm text-gray-400">Tag them now, or leave it: Claude looks at each one and tags it for you.</p>
-        <KindTags value={tags} onChange={setTags} photo label="Tags for the next upload" />
-        <div className="space-y-2">
-          <p className="text-xs text-gray-400">Job (photos only)</p>
-          <div>
-            <JobPicker
-              jobs={jobs}
-              value={jobId}
-              where="the next upload"
-              onPick={(id) => setJobId(id ?? '')}
-              onNew={(name) => act(async () => setJobId(await adsAPI.addJob(name, trade)), `Job "${name}" added. The next upload is tagged with it.`)}
-            />
-          </div>
-        </div>
+        <p className="text-sm text-gray-400">Just pick them: Claude looks at each one and sorts it by type of work. Nothing to fill in.</p>
         {sending && <SendingBar s={sending} />}
-        <label className={`${primary} w-full cursor-pointer`}>
+        <label className={`${primary} w-full cursor-pointer min-h-[52px]`}>
           <Upload className="w-4 h-4" /> {busy ? (sending ? `Uploading… ${sending.pct}%` : 'Uploading…') : 'Choose files'}
           <input
             type="file"
@@ -2170,6 +2193,25 @@ const AddFiles: React.FC<{
             onChange={(e) => onFiles(e.target.files)}
           />
         </label>
+        <details className="text-sm" open={Boolean(startJob)}>
+          <summary className="cursor-pointer text-gray-400">Tag them yourself (optional)</summary>
+          <div className="mt-3 space-y-4">
+            <p className="text-xs text-gray-500">Only if you want: what you pick here goes on every file in this upload, instead of Claude&apos;s.</p>
+            <KindTags value={tags} onChange={setTags} photo label="Tags for the next upload" />
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">Job (photos only)</p>
+              <div>
+                <JobPicker
+                  jobs={jobs}
+                  value={jobId}
+                  where="the next upload"
+                  onPick={(id) => setJobId(id ?? '')}
+                  onNew={(name) => act(async () => setJobId(await adsAPI.addJob(name, trade)), `Job "${name}" added. The next upload is tagged with it.`)}
+                />
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     </Dialog>
   );

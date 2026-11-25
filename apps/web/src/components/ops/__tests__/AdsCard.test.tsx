@@ -843,8 +843,9 @@ describe('Ops → Ads', () => {
     await flush();
     expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'sink.jpg', jobId: 'j1', tags: [] }));
     expect(document.body.textContent).toContain('✓ Sent. You can leave this page: Claude tags it in the background.');
-    // Not in a job has its own tile, with no job.
-    const loose = document.body.querySelector('[aria-label="Not in a job"] input[aria-label="Add photos"]') as HTMLInputElement;
+    // The bar at the top adds with no job and no tags: Claude sorts them.
+    expect(document.body.querySelector('[data-testid="add-bar"]')!.textContent).toContain('Claude sorts each one by type of work');
+    const loose = document.body.querySelector('[data-testid="add-bar"] input[aria-label="Add photos"]') as HTMLInputElement;
     Object.defineProperty(loose, 'files', { value: [new File(['x'], 'yard.jpg', { type: 'image/jpeg' })] });
     await act(async () => loose.dispatchEvent(new Event('change', { bubbles: true })));
     await flush();
