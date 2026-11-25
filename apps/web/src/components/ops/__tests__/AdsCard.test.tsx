@@ -44,6 +44,8 @@ const saveSettings = jest.fn(async () => undefined);
  */
 let sendsWait = false;
 let sendsFail = false;
+/** How many sends from now fail before they work again. */
+let failNext = 0;
 const pendingSends: Array<() => void> = [];
 const finishSends = () => pendingSends.splice(0).forEach((f) => f());
 class FakeXHR {
@@ -60,6 +62,10 @@ class FakeXHR {
   send() {
     const done = () => {
       if (sendsFail) return this.onerror?.();
+      if (failNext > 0) {
+        failNext -= 1;
+        return this.onerror?.();
+      }
       this.status = 200;
       this.responseText = JSON.stringify({ storageId: 's1' });
       this.onload?.();
@@ -84,6 +90,7 @@ const shrinkClip = jest.fn(async (f: File, onProgress?: (x: number) => void) => 
 jest.mock('../../../lib/shrinkClip', () => ({ shrinkClip: (f: File, p?: (x: number) => void) => shrinkClip(f, p) }));
 const tagAsset = jest.fn(async () => undefined);
 const removeAsset = jest.fn(async (_id: string) => undefined);
+const uploadNote = jest.fn(async (_n: unknown) => undefined);
 const addAsset = jest.fn(async () => 'a9');
 const uploadUrl = jest.fn(async () => 'https://upload.example/u1');
 const seedSwipes = jest.fn(async () => 30);
@@ -119,6 +126,7 @@ jest.mock('../../../lib/api', () => ({
     addAsset: (args: unknown) => addAsset(args),
     uploadUrl: () => uploadUrl(),
     removeAsset: (id: string) => removeAsset(id),
+    uploadNote: (n: unknown) => uploadNote(n),
     removeHook: async () => undefined,
     seedSwipes: () => seedSwipes(),
     importSwipes: (...args: unknown[]) => importSwipes(...args),
@@ -633,14 +641,27 @@ describe('Ops → Ads', () => {
     await act(async () => new Promise((r) => setTimeout(r, 5)));
     expect(document.body.textContent).toContain('long.mov is 450 MB even made smaller. A clip must be 200 MB or less');
     expect(addAsset).not.toHaveBeenCalled();
-    // The connection dropped: it says so instead of hanging.
-    sendsFail = true;
-    await pick(new File(['v'], 'yard.mov', { type: 'video/quicktime' }));
-    await act(async () => new Promise((r) => setTimeout(r, 5)));
+    // A drop is tried again by itself, and noted for the logs.
+    failNext = 1;
+    await pick(new File(['v'], 'porch.mov', { type: 'video/quicktime' }));
+    await act(async () => new Promise((r) => setTimeout(r, 20)));
     await flush();
-    expect(document.body.textContent).toContain('The upload stopped before it finished');
-    expect(addAsset).not.toHaveBeenCalled();
-    sendsFail = false;
+    expect(addAsset).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: 'porch.mov' }));
+    expect(uploadNote).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'porch.mov', step: 'send 1/3' }));
+    // Several at once: one that keeps failing doesn't stop the others, and the end says which.
+    addAsset.mockClear();
+    failNext = 3;
+    await act(async () => {
+      Object.defineProperty(tile(), 'files', {
+        value: [new File(['v'], 'yard.mov', { type: 'video/quicktime' }), new File(['v'], 'hall.mov', { type: 'video/quicktime' })],
+        configurable: true,
+      });
+      tile().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => new Promise((r) => setTimeout(r, 30)));
+    await flush();
+    expect(addAsset.mock.calls.map((c) => (c[0] as { fileName: string }).fileName)).toEqual(['hall.mov']);
+    expect(document.body.textContent).toContain("1 of 2 uploaded. This one didn't, try it again: yard.mov: The upload stopped before it finished"); 
   });
 
   it('Library: an opened photo shows its small copy first, then the full one once loaded', async () => {

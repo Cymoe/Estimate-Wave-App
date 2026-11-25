@@ -161,6 +161,30 @@ export async function putFile(body: Blob, type: string, onProgress?: (fraction: 
   });
 }
 
+/** The browser and device, briefly, for upload notes. */
+const deviceName = () => (typeof navigator !== 'undefined' ? navigator.userAgent : '');
+
+/** How many times a send is tried before it's given up: a phone's connection drops now and then. */
+const SEND_TRIES = 3;
+
+/**
+ * A file sent, tried again (with a fresh upload address) when the connection drops: on a phone's connection one
+ * drop shouldn't lose a clip. Each stop is noted in the deployment's logs.
+ */
+async function sendWithRetries(file: File, onProgress?: (fraction: number) => void): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await putFile(file, file.type, onProgress);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      void adsAPI.uploadNote({ fileName: file.name, size: file.size, step: `send ${attempt}/${SEND_TRIES}`, note: why, device: deviceName() });
+      if (attempt >= SEND_TRIES || !/stopped before it finished|failed \(5\d\d\)/.test(why)) throw err;
+      onProgress?.(0);
+      await new Promise((r) => setTimeout(r, process.env.NODE_ENV === 'test' ? 0 : attempt * 2000));
+    }
+  }
+}
+
 /** A file too big for the library, said before anything is sent; null when it fits. */
 export function tooBig(file: File): string | null {
   const mb = (n: number) => Math.round(n / (1024 * 1024));
@@ -188,14 +212,19 @@ export async function uploadAsset(
   if (isVideo(file) && file.size > SHRINK_ABOVE_BYTES) {
     onProgress?.(0, 'shrinking');
     const { shrinkClip } = await import('./shrinkClip');
-    file = await shrinkClip(file, (x) => onProgress?.(x, 'shrinking'));
+    const original = file;
+    file = await shrinkClip(
+      file,
+      (x) => onProgress?.(x, 'shrinking'),
+      (note) => void adsAPI.uploadNote({ fileName: original.name, size: original.size, step: 'shrink', note, device: deviceName() }),
+    );
   }
   const big = tooBig(file);
   if (big) throw new Error(big);
   const { still, durationSec } = await makeStill(file);
   // The grid's small copy, from the still (or the photo where no still could be made).
   const thumb = await thumbOf(still ?? file);
-  const storageId = await putFile(file, file.type, onProgress && ((x) => onProgress(x, 'sending')));
+  const storageId = await sendWithRetries(file, onProgress && ((x) => onProgress(x, 'sending')));
   const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
   const thumbStorageId = thumb ? await putFile(thumb, 'image/jpeg') : undefined;
   await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, ...job });

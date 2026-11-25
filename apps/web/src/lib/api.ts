@@ -1073,6 +1073,9 @@ export const demandAPI = {
 /** Ads on autopilot: the library, hooks, settings and each week's batch (staff). */
 export const adsAPI = {
   uploadUrl: (): Promise<string> => run('mutation', api.ads.uploadUrl, {}),
+  /** What happened to an upload on this device, for the deployment's logs. Never fails the upload. */
+  uploadNote: (args: { fileName: string; size: number; step: string; note: string; device?: string }) =>
+    run('mutation', api.ads.uploadNote, args).catch(() => undefined),
   addAsset: (args: {
     storageId: string;
     fileName: string;

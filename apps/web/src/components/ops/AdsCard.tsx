@@ -992,16 +992,26 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
     // A photo too big is said before anything goes; a clip is made smaller first, then checked (uploadAsset).
     const big = files.filter((f) => !isVideo(f)).map(tooBig).find(Boolean);
     if (big) throw new Error(big);
+    // Each file on its own: one that fails doesn't stop the rest, and the end says which didn't go.
+    const failed: string[] = [];
     try {
       for (const [n, f] of files.entries()) {
         setSending({ name: f.name, at: n + 1, of: files.length, pct: 0, step: 'sending' });
-        await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined, (x, step) =>
-          setSending((s) => (s ? { ...s, pct: Math.round(x * 100), step } : s)),
-        );
+        try {
+          await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined, (x, step) =>
+            setSending((s) => (s ? { ...s, pct: Math.round(x * 100), step } : s)),
+          );
+        } catch (err) {
+          failed.push(`${f.name}: ${err instanceof Error ? err.message : 'it failed'}`);
+        }
       }
     } finally {
       setSending(null);
     }
+    if (failed.length)
+      throw new Error(
+        `${files.length - failed.length} of ${files.length} uploaded. ${failed.length === 1 ? "This one didn't" : "These didn't"}, try ${failed.length === 1 ? 'it' : 'them'} again: ${failed.join(' · ')}`,
+      );
   };
   const addHere = (files: File[], jobId?: string) =>
     act(

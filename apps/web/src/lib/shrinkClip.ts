@@ -17,8 +17,11 @@ const VIDEO_BITRATE = 6_000_000;
 /** An even number of pixels, as video encoders want. */
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
-export async function shrinkClip(file: File, onProgress?: (fraction: number) => void): Promise<File> {
-  if (typeof (globalThis as { VideoEncoder?: unknown }).VideoEncoder === 'undefined') return file;
+export async function shrinkClip(file: File, onProgress?: (fraction: number) => void, onNote?: (note: string) => void): Promise<File> {
+  if (typeof (globalThis as { VideoEncoder?: unknown }).VideoEncoder === 'undefined') {
+    onNote?.('no WebCodecs VideoEncoder in this browser');
+    return file;
+  }
   try {
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
     const target = new BufferTarget();
@@ -36,15 +39,23 @@ export async function shrinkClip(file: File, onProgress?: (fraction: number) => 
       audio: {},
     });
     // A clip whose sound would be lost goes as it was: its words are what the captions are made from.
-    if (!conversion.isValid || conversion.discardedTracks.some((d) => d.track.type === 'audio')) return file;
+    if (!conversion.isValid || conversion.discardedTracks.some((d) => d.track.type === 'audio')) {
+      onNote?.(`not converted: ${conversion.discardedTracks.map((d) => `${d.track.type} ${d.reason}`).join(', ') || 'invalid'}`);
+      return file;
+    }
     if (onProgress) conversion.onProgress = (p) => onProgress(Math.min(1, Math.max(0, p)));
     await conversion.execute();
     const buffer = target.buffer;
-    if (!buffer || buffer.byteLength === 0 || buffer.byteLength >= file.size) return file;
+    if (!buffer || buffer.byteLength === 0 || buffer.byteLength >= file.size) {
+      onNote?.(`converted but not smaller (${buffer?.byteLength ?? 0} bytes)`);
+      return file;
+    }
+    onNote?.(`made smaller: ${file.size} → ${buffer.byteLength} bytes`);
     return new File([buffer], file.name.replace(/\.[a-z0-9]+$/i, '') + '.mp4', { type: 'video/mp4' });
   } catch (err) {
     // The clip goes up as it was; the size check after says so if it's too big.
     console.warn('shrinking the clip failed; sending it as it is', err);
+    onNote?.(`failed: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`);
     return file;
   }
 }

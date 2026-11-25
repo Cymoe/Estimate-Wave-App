@@ -206,6 +206,24 @@ function assetKind(contentType: string | undefined, fileName: string): { kind: "
 
 // ---------------------------------------------------------------- Library
 
+/**
+ * What happened to an upload on the person's device (a clip not made smaller, a send that stopped), written to the
+ * deployment's logs: the only way to see what an iPad did. Nothing is stored.
+ */
+export const uploadNote = mutation({
+  args: {
+    fileName: v.string(),
+    size: v.number(),
+    step: v.string(),
+    note: v.string(),
+    device: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireStaff(ctx);
+    console.log("upload note", JSON.stringify({ ...args, fileName: args.fileName.slice(0, 120), note: args.note.slice(0, 500), device: args.device?.slice(0, 200) }));
+  },
+});
+
 export const uploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
