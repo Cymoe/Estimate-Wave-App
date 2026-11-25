@@ -494,6 +494,26 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[data-testid="job"]')).not.toBeNull();
   });
 
+  it('Library: an open photo flips to the next and previous, in the order the page shows them', async () => {
+    const photo = (id: string, fileName: string, tags: string[]) => ({ id, kind: 'photo' as const, fileName, tags, createdAt: new Date().toISOString() });
+    jobs = [];
+    assets = [photo('f1', 'fence1.jpg', ['exterior', 'fence-stain']), photo('c1', 'cab1.jpg', ['cabinets', 'cabinets-stained']), photo('f2', 'fence2.jpg', ['exterior', 'fence-stain'])];
+    await render();
+    await tab('Library');
+    // By type of work: Cabinets stained first, then Fence stain.
+    await act(async () => (document.body.querySelector('[aria-label="Open cab1.jpg"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('1 of 3');
+    expect(document.body.querySelector('[aria-label="Previous"]')).toBeNull();
+    await act(async () => (document.body.querySelector('[aria-label="Next"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('2 of 3');
+    expect(document.body.textContent).toContain('fence1.jpg');
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })));
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('3 of 3');
+    expect(document.body.querySelector('[aria-label="Next"]')).toBeNull();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })));
+    expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('2 of 3');
+  });
+
   it('Library: photos in their job boxes, quiet cards; a job is a tag in a photo\'s window; + job names one; an upload can carry one; a job is taken away', async () => {
     const photo = (id: string, fileName: string, tags: string[], jobId?: string) => ({ id, kind: 'photo' as const, fileName, tags, jobId, createdAt: new Date().toISOString() });
     // The job about to be added is already listed, as it is once the add comes back.

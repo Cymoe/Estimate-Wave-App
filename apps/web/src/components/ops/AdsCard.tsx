@@ -1017,6 +1017,18 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
       return n;
     }, {}),
   ).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
+  // The files in the order the page shows them, so an open one can flip to the one beside it.
+  const sortedWork = [...byWork.flatMap(([, list]) => list), ...unsorted];
+  const order = (
+    view === 'clips'
+      ? clips
+      : only
+      ? photos.filter((a) => (a.items ?? []).includes(only))
+      : groupBy === 'work'
+      ? sortedWork
+      : [...jobs.flatMap((j) => photos.filter((a) => a.jobId === j.id)), ...sortedWork]
+  ).map((a) => a.id);
+  const at = openId ? order.indexOf(openId) : -1;
   // Files uploaded before thumbnails were made get one here, quietly, one at a time; each is tried once a visit.
   const tried = useRef(new Set<string>());
   useEffect(() => {
@@ -1199,6 +1211,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           partner={open.pairKey ? (assets ?? []).find((x) => x.id !== open.id && x.pairKey === open.pairKey) : undefined}
           onOpen={setOpenId}
           onClose={() => setOpenId(null)}
+          flip={at >= 0 && order.length > 1 ? { at, of: order.length, prev: at > 0 ? order[at - 1] : undefined, next: at < order.length - 1 ? order[at + 1] : undefined } : undefined}
         />
       )}
       {adding && <AddFiles jobs={jobs} act={act} startJob={adding.jobId} onClose={() => setAdding(null)} />}
@@ -1456,7 +1469,9 @@ const AssetEditor: React.FC<{
   partner?: AdAsset;
   onOpen: (id: string) => void;
   onClose: () => void;
-}> = ({ a, jobs, act, partner, onOpen, onClose }) => {
+  /** Its place among the files on the page, and the ones either side, to flip to. */
+  flip?: { at: number; of: number; prev?: string; next?: string };
+}> = ({ a, jobs, act, partner, onOpen, onClose, flip }) => {
   const trade = useTrade();
   const photo = a.kind === 'photo';
   const [tags, setTags] = useState(a.tags);
@@ -1466,14 +1481,62 @@ const AssetEditor: React.FC<{
     setNote(a.note ?? '');
   }, [a.tags, a.note]);
   const changed = tags.join(',') !== a.tags.join(',') || note !== (a.note ?? '');
+  // To the next or previous file: tags changed here are saved first, so flipping never loses them.
+  const go = (id?: string) => {
+    if (!id) return;
+    if (changed) void act(() => adsAPI.tagAsset(a.id, tags, undefined, note || undefined), 'Saved.');
+    onOpen(id);
+  };
+  const goRef = useRef(go);
+  goRef.current = go;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (e.key === 'ArrowLeft') goRef.current(flip?.prev);
+      if (e.key === 'ArrowRight') goRef.current(flip?.next);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [flip?.prev, flip?.next]);
+  // A swipe across the picture flips too.
+  const touch = useRef<number | null>(null);
+  const arrow = 'absolute top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/60 text-white text-2xl flex items-center justify-center';
   return (
     <Dialog title={a.fileName} onClose={onClose} wide>
       <div className="space-y-4">
-        <Picture a={a} play className="w-full max-h-[45dvh] object-contain rounded bg-black" />
+        <div
+          className="relative"
+          onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
+          onTouchEnd={(e) => {
+            const start = touch.current;
+            touch.current = null;
+            const end = e.changedTouches[0]?.clientX;
+            if (start === null || end === undefined || Math.abs(end - start) < 50) return;
+            go(end < start ? flip?.next : flip?.prev);
+          }}
+        >
+          <Picture a={a} play className="w-full max-h-[45dvh] object-contain rounded bg-black" />
+          {flip?.prev && (
+            <button type="button" aria-label="Previous" className={`${arrow} left-2`} onClick={() => go(flip.prev)}>
+              ‹
+            </button>
+          )}
+          {flip?.next && (
+            <button type="button" aria-label="Next" className={`${arrow} right-2`} onClick={() => go(flip.next)}>
+              ›
+            </button>
+          )}
+          {flip && (
+            <span className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-0.5 text-xs text-gray-200" data-testid="flip-place">
+              {flip.at + 1} of {flip.of}
+            </span>
+          )}
+        </div>
         {a.description && <p className="text-sm text-gray-400">{a.description}</p>}
         {suggestsOther(a) && (
           <p className="text-sm text-sky-300" data-testid="suggested-tags">
-            Claude suggests: {a.suggestedTags!.join(', ')} ·{' '}
+            Claude suggests: {a.suggestedTags!.map((t) => (worksFor(trade).includes(t) ? workLabel(trade, t) : t)).join(', ')} ·{' '}
             <button
               type="button"
               className="underline"
