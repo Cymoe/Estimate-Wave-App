@@ -38,6 +38,40 @@ const makeKept = jest.fn(async (..._args: unknown[]) => 2);
 const seedHooks = jest.fn(async () => 6);
 const saveHook = jest.fn(async () => 'h9');
 const saveSettings = jest.fn(async () => undefined);
+/**
+ * The browser's upload with progress, faked: each send reports half-way, then waits for finishSends (or finishes
+ * at once when sendsWait is off) with a storage id, or fails when sendsFail is on.
+ */
+let sendsWait = false;
+let sendsFail = false;
+const pendingSends: Array<() => void> = [];
+const finishSends = () => pendingSends.splice(0).forEach((f) => f());
+class FakeXHR {
+  status = 0;
+  responseText = '';
+  timeout = 0;
+  upload: { onprogress?: (e: { lengthComputable: boolean; loaded: number; total: number }) => void } = {};
+  onload?: () => void;
+  onerror?: () => void;
+  ontimeout?: () => void;
+  onabort?: () => void;
+  open() {}
+  setRequestHeader() {}
+  send() {
+    const done = () => {
+      if (sendsFail) return this.onerror?.();
+      this.status = 200;
+      this.responseText = JSON.stringify({ storageId: 's1' });
+      this.onload?.();
+    };
+    queueMicrotask(() => {
+      this.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 });
+      if (sendsWait) pendingSends.push(done);
+      else done();
+    });
+  }
+}
+(globalThis as unknown as { XMLHttpRequest: unknown }).XMLHttpRequest = FakeXHR;
 const tagAsset = jest.fn(async () => undefined);
 const removeAsset = jest.fn(async (_id: string) => undefined);
 const addAsset = jest.fn(async () => 'a9');
@@ -538,6 +572,48 @@ describe('Ops → Ads', () => {
     await flush();
     expect(removeAsset).toHaveBeenCalledWith('f1');
     expect(dialog().getAttribute('aria-label')).toBe('fence2.jpg');
+  });
+
+  it('Library: a clip being sent shows how far along it is; one too big is stopped before sending; a dropped one says so', async () => {
+    jobs = [];
+    assets = [];
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
+    await render();
+    await tab('Library');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith('Clips')) as HTMLButtonElement).click());
+    const tile = () => document.body.querySelector('input[aria-label="Add clips"]') as HTMLInputElement;
+    const pick = (f: File) =>
+      act(async () => {
+        Object.defineProperty(tile(), 'files', { value: [f], configurable: true });
+        tile().dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    sendsWait = true;
+    await pick(new File(['v'], 'walk.mov', { type: 'video/quicktime' }));
+    await flush();
+    await act(async () => new Promise((r) => setTimeout(r, 5)));
+    expect(document.body.querySelector('[data-testid="sending"]')!.textContent).toContain('Uploading walk.mov');
+    expect(document.body.querySelector('[data-testid="sending"]')!.textContent).toContain('50%');
+    await act(async () => finishSends());
+    await flush();
+    expect(document.body.querySelector('[data-testid="sending"]')).toBeNull();
+    expect(addAsset).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: 'walk.mov' }));
+    sendsWait = false;
+    // Too big: said at once, nothing sent.
+    addAsset.mockClear();
+    const big = new File(['v'], 'long.mov', { type: 'video/quicktime' });
+    Object.defineProperty(big, 'size', { value: 450 * 1024 * 1024 });
+    await pick(big);
+    await flush();
+    expect(document.body.textContent).toContain('long.mov is 450 MB. A clip must be 200 MB or less');
+    expect(addAsset).not.toHaveBeenCalled();
+    // The connection dropped: it says so instead of hanging.
+    sendsFail = true;
+    await pick(new File(['v'], 'yard.mov', { type: 'video/quicktime' }));
+    await act(async () => new Promise((r) => setTimeout(r, 5)));
+    await flush();
+    expect(document.body.textContent).toContain('The upload stopped before it finished');
+    expect(addAsset).not.toHaveBeenCalled();
+    sendsFail = false;
   });
 
   it('Library: an opened photo shows its small copy first, then the full one once loaded', async () => {

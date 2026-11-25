@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { ArrowRight, Check, ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload, X } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdJobs } from '../../lib/live';
-import { backfillThumb, isVideo, putFile, stillOfClip, thumbOf, uploadAsset } from '../../lib/adUpload';
+import { backfillThumb, isVideo, putFile, stillOfClip, thumbOf, tooBig, uploadAsset } from '../../lib/adUpload';
 import {
   useAdsBatches,
   useAdsHooks,
@@ -986,11 +986,26 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   };
   // The dotted tile at the end of a grid: the files picked go straight in, into that job when it is a job's box.
   // No tags: Claude looks at each one and tags it.
+  // What is being sent right now, shown as a bar: a clip can take minutes on a phone's connection.
+  const [sending, setSending] = useState<Sending | null>(null);
+  const send = async (files: File[], tags: string[], jobId?: string) => {
+    // Too big is said before anything goes, not after minutes of sending.
+    const big = files.map(tooBig).find(Boolean);
+    if (big) throw new Error(big);
+    try {
+      for (const [n, f] of files.entries()) {
+        setSending({ name: f.name, at: n + 1, of: files.length, pct: 0 });
+        await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined, (x) =>
+          setSending((s) => (s ? { ...s, pct: Math.round(x * 100) } : s)),
+        );
+      }
+    } finally {
+      setSending(null);
+    }
+  };
   const addHere = (files: File[], jobId?: string) =>
     act(
-      async () => {
-        for (const f of files) await uploadAsset(f, [], trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined);
-      },
+      () => send(files, [], jobId),
       `${files.length} file${files.length === 1 ? '' : 's'} in the library. Claude is tagging ${files.length === 1 ? 'it' : 'them'}.`,
     );
   const toJob = (job: { jobId?: string; name?: string }, label: string) =>
@@ -1100,6 +1115,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           <Upload className="w-4 h-4" /> Add photos or clips
         </button>
       </div>
+      {sending && <SendingBar s={sending} />}
       <p className="text-xs text-gray-500">
         {selecting
           ? 'Tap the photos from one job, then tap its job tag below.'
@@ -1215,7 +1231,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           flip={at >= 0 && order.length > 1 ? { at, of: order.length, prev: at > 0 ? order[at - 1] : undefined, next: at < order.length - 1 ? order[at + 1] : undefined } : undefined}
         />
       )}
-      {adding && <AddFiles jobs={jobs} act={act} startJob={adding.jobId} onClose={() => setAdding(null)} />}
+      {adding && <AddFiles jobs={jobs} act={act} startJob={adding.jobId} onClose={() => setAdding(null)} send={send} sending={sending} />}
       {naming && (
         <NewJob
           act={act}
@@ -1992,7 +2008,33 @@ const NewJob: React.FC<{ act: Act; onClose: () => void; onMade: (jobId: string) 
   );
 };
 
-const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJob?: string }> = ({ jobs, act, onClose, startJob }) => {
+type Sending = { name: string; at: number; of: number; pct: number };
+
+/** A file on its way: which, of how many, and how far along. */
+const SendingBar: React.FC<{ s: Sending }> = ({ s }) => (
+  <div className="rounded-lg border border-[#2A2A2A] bg-[#141414] px-4 py-3 space-y-2" role="status" data-testid="sending">
+    <div className="flex items-center gap-3 text-sm">
+      <span className="flex-1 min-w-0 truncate text-gray-200">
+        Uploading {s.name}
+        {s.of > 1 ? ` (${s.at} of ${s.of})` : ''}
+      </span>
+      <span className="font-mono text-gray-400">{s.pct}%</span>
+    </div>
+    <div className="h-1.5 rounded-full bg-[#2A2A2A] overflow-hidden">
+      <div className="h-full bg-[#c9a24a] transition-all" style={{ width: `${s.pct}%` }} />
+    </div>
+    <p className="text-xs text-gray-500">Keep this page open until it&apos;s done. A clip can take a few minutes on a phone&apos;s connection.</p>
+  </div>
+);
+
+const AddFiles: React.FC<{
+  jobs: AdJob[];
+  act: Act;
+  onClose: () => void;
+  startJob?: string;
+  send: (files: File[], tags: string[], jobId?: string) => Promise<void>;
+  sending: Sending | null;
+}> = ({ jobs, act, onClose, startJob, send, sending }) => {
   const trade = useTrade();
   // Nothing lit up by default: an upload with no tags takes the tags Claude suggests.
   const [tags, setTags] = useState<string[]>([]);
@@ -2004,9 +2046,8 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
     setBusy(true);
     await act(
       async () => {
-        // A job is for photos: a clip goes up without one.
-        for (const f of Array.from(files))
-          await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined);
+        // A job is for photos: a clip goes up without one (send leaves it off).
+        await send(Array.from(files), tags, jobId || undefined);
         onClose();
       },
       `${files.length} file${files.length === 1 ? '' : 's'} in the library.`,
@@ -2030,8 +2071,9 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
             />
           </div>
         </div>
+        {sending && <SendingBar s={sending} />}
         <label className={`${primary} w-full cursor-pointer`}>
-          <Upload className="w-4 h-4" /> {busy ? 'Uploading…' : 'Choose files'}
+          <Upload className="w-4 h-4" /> {busy ? (sending ? `Uploading… ${sending.pct}%` : 'Uploading…') : 'Choose files'}
           <input
             type="file"
             accept="image/*,video/*"

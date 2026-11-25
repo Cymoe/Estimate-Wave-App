@@ -117,11 +117,55 @@ export async function stillOfClip(src: string, remote = false): Promise<{ still?
   }
 }
 
-export async function putFile(body: Blob, type: string): Promise<string> {
+/** The largest files the library takes (convex/ads.ts addAsset checks the same). */
+export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+export const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
+/** How long one file may take to send before it's called stuck. */
+const SEND_TIMEOUT_MS = 15 * 60 * 1000;
+const STOPPED =
+  'The upload stopped before it finished: the connection dropped or it took too long. On Wi-Fi it goes faster; a shorter clip helps too.';
+
+/**
+ * Sends a file to storage. With onProgress it goes by XMLHttpRequest, which says how far along it is (a clip can
+ * take minutes on a phone's connection) and says so when the connection drops, instead of hanging.
+ */
+export async function putFile(body: Blob, type: string, onProgress?: (fraction: number) => void): Promise<string> {
   const url = await adsAPI.uploadUrl();
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': type || 'application/octet-stream' }, body });
-  if (!res.ok) throw new Error(`The upload failed (${res.status})`);
-  return ((await res.json()) as { storageId: string }).storageId;
+  if (!onProgress || typeof XMLHttpRequest === 'undefined') {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': type || 'application/octet-stream' }, body });
+    if (!res.ok) throw new Error(`The upload failed (${res.status})`);
+    return ((await res.json()) as { storageId: string }).storageId;
+  }
+  return await new Promise<string>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', type || 'application/octet-stream');
+    xhr.timeout = SEND_TIMEOUT_MS;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) return reject(new Error(`The upload failed (${xhr.status})`));
+      try {
+        resolve((JSON.parse(xhr.responseText) as { storageId: string }).storageId);
+      } catch {
+        reject(new Error(STOPPED));
+      }
+    };
+    xhr.onerror = () => reject(new Error(STOPPED));
+    xhr.ontimeout = () => reject(new Error(STOPPED));
+    xhr.onabort = () => reject(new Error(STOPPED));
+    xhr.send(body);
+  });
+}
+
+/** A file too big for the library, said before anything is sent; null when it fits. */
+export function tooBig(file: File): string | null {
+  const mb = (n: number) => Math.round(n / (1024 * 1024));
+  if (isVideo(file) && file.size > MAX_VIDEO_BYTES)
+    return `${file.name} is ${mb(file.size)} MB. A clip must be ${mb(MAX_VIDEO_BYTES)} MB or less: trim it, or save it at 1080p instead of 4K.`;
+  if (!isVideo(file) && file.size > MAX_PHOTO_BYTES) return `${file.name} is ${mb(file.size)} MB. A photo must be ${mb(MAX_PHOTO_BYTES)} MB or less.`;
+  return null;
 }
 
 /**
@@ -135,11 +179,14 @@ export async function uploadAsset(
   pairKey?: string,
   note?: string,
   job?: { jobId?: string; jobPhotoId?: string },
+  onProgress?: (fraction: number) => void,
 ) {
+  const big = tooBig(file);
+  if (big) throw new Error(big);
   const { still, durationSec } = await makeStill(file);
   // The grid's small copy, from the still (or the photo where no still could be made).
   const thumb = await thumbOf(still ?? file);
-  const storageId = await putFile(file, file.type);
+  const storageId = await putFile(file, file.type, onProgress);
   const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
   const thumbStorageId = thumb ? await putFile(thumb, 'image/jpeg') : undefined;
   await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId, thumbStorageId, trade, ...job });
