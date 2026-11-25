@@ -1102,6 +1102,12 @@ export const adsAPI = {
     run('mutation', api.ads.jobForProject, defined({ projectId, trade })),
   tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
   removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
+  /** Two photos paired by hand as a before and its after (the older the before, unless they're tagged already). */
+  pairPhotos: (ids: string[]) => run('mutation', api.ads.pairPhotos, { ids }),
+  /** "Not a pair": the two go apart, and Claude never pairs them again. */
+  splitPair: (id: string) => run('mutation', api.ads.splitPair, { id }),
+  /** A pair the wrong way round: the before becomes the after. */
+  swapPair: (id: string) => run('mutation', api.ads.swapPair, { id }),
   /** A clip's still, made after its upload, so it shows in the library and Claude can describe it. */
   /** A library file's small copy for the grid. */
   /** What a photo shows in detail (doors, trim...), as a person fixed it. */

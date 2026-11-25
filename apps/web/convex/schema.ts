@@ -2517,8 +2517,13 @@ export default defineSchema({
     durationSec: v.optional(v.number()),
     // Scope (interior, exterior, cabinets, crew, process), before/after, trade slug.
     tags: v.array(v.string()),
-    // Links a before and an after of the same spot.
+    // Links a before and an after of the same spot (ads.ts Pairs): Claude's match, or a person's (pairSetBy).
     pairKey: v.optional(v.string()),
+    pairSetBy: v.optional(v.literal("person")),
+    // Photos a person said aren't its pair ("Not a pair"): Claude never pairs them with it.
+    notPairs: v.optional(v.array(v.id("adAssets"))),
+    // When Claude last looked for its match; cleared when its tags or job change, so it is looked at again.
+    pairLookedAt: v.optional(v.string()),
     // Where it was shot and whose permission we have.
     note: v.optional(v.string()),
     // A JPEG still made in the browser at upload: what Claude looks at, the
@@ -2570,10 +2575,14 @@ export default defineSchema({
     // The project it came from, when its photos were sent from there.
     projectId: v.optional(v.id("projects")),
     createdBy: v.optional(v.id("users")),
-    // When its befores and afters were last asked to be matched (ads.pairJob): only the latest ask runs.
+    // No longer used: pairs are asked for per pool (adPairing).
     pairAskedAt: v.optional(v.string()),
     createdAt: v.string(),
   }).index("by_project", ["projectId"]),
+
+  // When each pool of befores and afters (ads.ts pairPoolOf: a trade and a type of work) was last asked to be
+  // matched: only the latest ask runs.
+  adPairing: defineTable({ pool: v.string(), askedAt: v.string() }).index("by_pool", ["pool"]),
 
   adHooks: defineTable({
     family: v.union(

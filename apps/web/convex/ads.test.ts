@@ -1264,7 +1264,7 @@ describe("the library, hooks and settings", () => {
     expect((await t.run(async (ctx) => await ctx.db.get(lost)))!.items).toBeUndefined();
   });
 
-  test("within a job Claude matches each before with the after of the same spot, by itself, once a run of changes settles", async () => {
+  test("Claude matches each before with the after of the same spot, by itself, once a run of changes settles; a person pairs, splits and swaps", async () => {
     const t = setup();
     const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
@@ -1289,21 +1289,75 @@ describe("the library, hooks and settings", () => {
     const looks = calls.filter((c) => c.url.includes("anthropic") && c.body!.includes("Which before and which after show the same spot"));
     expect(looks).toHaveLength(1);
     expect(JSON.stringify(JSON.parse(looks[0].body!).messages[0].content.filter((c: { type: string; text?: string }) => c.type === "text").map((c: { text?: string }) => c.text))).toContain("Before 1:");
-    // A photo moved out of the job leaves its pair.
-    vi.useFakeTimers();
-    await staff.as.mutation(api.ads.setAssetJob, { id: a2 });
-    await oneAtATime(t);
-    vi.useRealTimers();
+    expect(JSON.stringify(looks[0].body)).toContain("all from one painting or remodelling job");
+    const row = async (id: Id<"adAssets">) => (await t.run(async (ctx) => await ctx.db.get(id)))!;
+    const settle = async (fn: () => Promise<unknown>) => {
+      vi.useFakeTimers();
+      await fn();
+      await oneAtATime(t);
+      vi.useRealTimers();
+    };
+    // A photo moved out of the job keeps its pair: pairs aren't kept to a job.
+    await settle(() => staff.as.mutation(api.ads.setAssetJob, { id: a2 }));
+    expect(await key(a2)).toBe(await key(b1));
+    // "Not a pair": the two go apart and the before is looked at again; Claude now matches it with a1.
+    stubServices(calls, { pairs: { pairs: [{ before: 1, after: 1 }] } });
+    await settle(() => staff.as.mutation(api.ads.splitPair, { id: b1 }));
     expect(await key(a2)).toBeUndefined();
-    // Retagging keeps a pair key nobody typed.
+    expect(await key(a1)).toEqual(expect.any(String));
+    expect(await key(a1)).toBe(await key(b1));
+    // Split again: Claude says the same, and they stay apart.
+    await settle(() => staff.as.mutation(api.ads.splitPair, { id: a1 }));
+    expect(await key(a1)).toBeUndefined();
+    expect(await key(b1)).toBeUndefined();
+    expect((await row(b1)).notPairs).toEqual(expect.arrayContaining([a1, a2]));
+    // Nothing new: asked again, nothing is looked at twice.
+    const before = calls.length;
+    await settle(() => staff.as.mutation(api.ads.tagAsset, { id: work, tags: ["process", "interior"] }));
+    expect(calls.slice(before).filter((c) => c.body?.includes("Which before and which after"))).toHaveLength(0);
+    // A person pairs two: the older is the before, whatever they were tagged.
+    await staff.as.mutation(api.ads.pairPhotos, { ids: [work, b1] });
+    expect(await row(b1)).toMatchObject({ pairSetBy: "person", tags: ["cabinets", "before"] });
+    expect(await row(work)).toMatchObject({ pairSetBy: "person", tags: ["interior", "after"] });
+    expect(await key(work)).toBe(await key(b1));
+    // Swap: the before becomes the after.
+    await staff.as.mutation(api.ads.swapPair, { id: work });
+    expect((await row(b1)).tags).toEqual(["cabinets", "after"]);
+    expect((await row(work)).tags).toEqual(["interior", "before"]);
+    // A photo retagged out of its stage leaves its pair; so does the other half of a deleted photo.
+    await settle(() => staff.as.mutation(api.ads.tagAsset, { id: work, tags: ["interior"] }));
+    expect(await key(b1)).toBeUndefined();
+    await staff.as.mutation(api.ads.pairPhotos, { ids: [a1, a2] });
+    expect(await key(a1)).toEqual(expect.any(String));
+    await settle(() => staff.as.mutation(api.ads.removeAsset, { id: a2 }));
+    expect(await key(a1)).toBeUndefined();
+    await expect(staff.as.mutation(api.ads.pairPhotos, { ids: [a1, a1] })).rejects.toThrow("Pick two photos");
+  });
+
+  test("across the library: befores and afters of one type of work pair from different jobs, or none", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    const calls: Call[] = [];
     stubServices(calls, { pairs: { pairs: [{ before: 1, after: 1 }] } });
     vi.useFakeTimers();
-    await staff.as.mutation(api.ads.tagAsset, { id: a1, tags: ["cabinets", "after", "interior"] });
+    const job = await staff.as.mutation(api.ads.addJob, { name: "Oak fence" });
+    const add = async (fileName: string, tags: string[], jobId?: Id<"adJobs">) =>
+      await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", fileName), fileName, tags, ...(jobId ? { jobId } : {}) });
+    const fenceBefore = await add("fb.jpg", ["fence-stain", "exterior", "before"], job);
+    const fenceAfter = await add("fa.jpg", ["fence-stain", "exterior", "after"]);
+    const doorAfter = await add("da.jpg", ["doors", "interior", "after"]);
     await oneAtATime(t);
     vi.useRealTimers();
-    expect(await key(a1)).toBe(await key(b1));
-    await staff.as.mutation(api.ads.tagAsset, { id: a1, tags: ["cabinets", "after", "interior"], note: "kept" });
-    expect(await key(a1)).toBe(await key(b1));
+    const key = async (id: Id<"adAssets">) => (await t.run(async (ctx) => await ctx.db.get(id)))!.pairKey;
+    expect(await key(fenceBefore)).toEqual(expect.any(String));
+    expect(await key(fenceAfter)).toBe(await key(fenceBefore));
+    expect(await key(doorAfter)).toBeUndefined();
+    const looks = calls.filter((c) => c.body?.includes("Which before and which after"));
+    expect(looks).toHaveLength(1);
+    expect(looks[0].body).toContain("Two houses that merely look alike are not a pair");
+    // The library's pools, asked once from the deployment.
+    expect((await t.mutation(internal.ads.pairLibrary, {})).pools.sort()).toEqual(["painting|work:doors", "painting|work:fence-stain"]);
   });
 
   test("photos of one job are kept together: a job is named, renamed and taken away without losing its photos; a project's photos go to one job, once each", async () => {

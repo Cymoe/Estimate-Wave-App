@@ -111,6 +111,9 @@ const setItems = jest.fn(async (..._args: unknown[]) => undefined);
 const groupIntoJob = jest.fn(async (..._args: unknown[]) => ({ jobId: 'j3', moved: 2 }));
 const setAssetJob = jest.fn(async (..._args: unknown[]) => undefined);
 const removeJob = jest.fn(async (..._args: unknown[]) => undefined);
+const pairPhotos = jest.fn(async (..._args: unknown[]) => undefined);
+const splitPair = jest.fn(async (..._args: unknown[]) => undefined);
+const swapPair = jest.fn(async (..._args: unknown[]) => undefined);
 const makeFor = jest.fn(async (..._args: unknown[]) => ({ link: 'https://app.example/ads/tok' }));
 let requests: Array<{ ask: string; createdAt: string; stage: string; link: string }> = [];
 
@@ -151,6 +154,9 @@ jest.mock('../../../lib/api', () => ({
     groupIntoJob: (...args: unknown[]) => groupIntoJob(...args),
     setItems: (...args: unknown[]) => setItems(...args),
     removeJob: (...args: unknown[]) => removeJob(...args),
+    pairPhotos: (...args: unknown[]) => pairPhotos(...args),
+    splitPair: (...args: unknown[]) => splitPair(...args),
+    swapPair: (...args: unknown[]) => swapPair(...args),
     renameJob: async () => undefined,
   },
 }));
@@ -546,6 +552,57 @@ describe('Ops → Ads', () => {
     // No note to fill in; the small copy shows at once, softened, until the full photo has loaded.
     expect(dialog().querySelector('input[aria-label^="Note"]')).toBeNull();
     expect(dialog().textContent).not.toContain('Note');
+  });
+
+  it('Library: befores and afters show together at the top, split or swapped there; two picked photos pair by hand', async () => {
+    const photo = (id: string, fileName: string, tags: string[], more: Partial<AdAsset> = {}) => ({ id, kind: 'photo' as const, fileName, tags, createdAt: new Date().toISOString(), ...more });
+    jobs = [];
+    assets = [
+      photo('b1', 'fence-before.jpg', ['fence-stain', 'before'], { pairKey: 'p1' }),
+      photo('a1', 'fence-after.jpg', ['fence-stain', 'after'], { pairKey: 'p1' }),
+      photo('b2', 'door-before.jpg', ['doors', 'before'], { pairKey: 'p2', pairSetBy: 'person' }),
+      photo('a2', 'door-after.jpg', ['doors', 'after'], { pairKey: 'p2', pairSetBy: 'person' }),
+      photo('j1', 'side-by-side.jpg', ['cabinets-painted', 'before', 'after']),
+      photo('lone', 'kitchen-before.jpg', ['cabinets-painted', 'before']),
+      photo('x', 'trim.jpg', ['interior-walls', 'after']),
+    ];
+    await render();
+    await tab('Library');
+    const group = document.body.querySelector('[aria-label="Before & after"]')!;
+    expect(group.querySelector('h3')!.textContent).toContain('3');
+    const tiles = Array.from(group.querySelectorAll('[data-testid="pair"]')).map((t) => t.textContent);
+    expect(tiles.some((t) => t!.includes('Fence stain') && t!.includes('Paired by Claude'))).toBe(true);
+    expect(tiles.some((t) => t!.includes('Paired by you'))).toBe(true);
+    expect(tiles.some((t) => t!.includes('Before and after in one'))).toBe(true);
+    // A before with no after yet is listed apart, so it can be shot.
+    const lone = document.body.querySelector('[aria-label="Befores with no after yet"]')!;
+    expect(lone.querySelectorAll('[data-testid="asset"]')).toHaveLength(1);
+    // A pair opens side by side, with its fixes.
+    await act(async () => (group.querySelector('[aria-label="Open the before and after: fence-before.jpg"]') as HTMLButtonElement).click());
+    expect(dialog().textContent).toContain('Claude paired these');
+    await act(async () => byText('Swap before and after')!.click());
+    await flush();
+    expect(swapPair).toHaveBeenLastCalledWith('b1');
+    await act(async () => byText('Not a pair')!.click());
+    await flush();
+    expect(splitPair).toHaveBeenLastCalledWith('b1');
+    expect(dialog()).toBeNull();
+    // Tapping one side opens that photo.
+    await act(async () => (group.querySelector('[aria-label="Open the before and after: door-before.jpg"]') as HTMLButtonElement).click());
+    await act(async () => (dialog().querySelector('[aria-label="Open the after: door-after.jpg"]') as HTMLButtonElement).click());
+    expect(dialog().getAttribute('aria-label')).toBe('door-after.jpg');
+    await closeDialog();
+    // Select two: "Pair these two".
+    await act(async () => byText('Select')!.click());
+    expect(document.body.querySelector('[aria-label="Before & after"]')).toBeNull();
+    const pickIt = (f: string) => act(async () => (document.body.querySelector(`[aria-label="Pick ${f}"]`) as HTMLButtonElement).click());
+    await pickIt('kitchen-before.jpg');
+    expect(byText('Pair these two as a before and after')).toBeFalsy();
+    await pickIt('trim.jpg');
+    await act(async () => byText('Pair these two as a before and after')!.click());
+    await flush();
+    expect(pairPhotos).toHaveBeenLastCalledWith(['lone', 'x']);
+    expect(document.body.querySelector('[aria-label="Tag picked photos"]')).toBeNull();
   });
 
   it('Library: in a batch, the next clip is made smaller while the one before is sent', async () => {

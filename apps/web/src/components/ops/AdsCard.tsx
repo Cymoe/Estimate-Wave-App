@@ -149,6 +149,8 @@ export interface AdAsset {
   fileName: string;
   tags: string[];
   pairKey?: string;
+  /** "person" when someone paired it by hand; else Claude's match. */
+  pairSetBy?: 'person';
   note?: string;
   /** What it shows in detail, from the trade's list (doors, trim, front door...): Claude's, or as fixed. */
   items?: string[];
@@ -879,6 +881,8 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   });
   // The file open in its window (read fresh from the live list, so a change shows at once), and the upload window.
   const [openId, setOpenId] = useState<string | null>(null);
+  // The before and after open side by side, by its pair key.
+  const [openPair, setOpenPair] = useState<string | null>(null);
   // The upload window: for the library, or straight into one job's box.
   const [adding, setAdding] = useState<{ jobId?: string } | null>(null);
   // "New job": name it, then its photos go straight in.
@@ -978,6 +982,12 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const clips = (assets ?? []).filter((a) => a.kind === 'video');
   const open = (assets ?? []).find((a) => a.id === openId);
   const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
+  const pairs = pairsOf(photos);
+  const shownPair = pairs.find((p) => p.key === openPair);
+  // A photo that already holds both (a side by side made elsewhere) is its own before and after.
+  const joined = photos.filter((a) => a.tags.includes('before') && a.tags.includes('after'));
+  const paired = new Set(pairs.flatMap((p) => [p.before.id, p.after.id]));
+  const needsAfter = photos.filter((a) => a.tags.includes('before') && !a.tags.includes('after') && !paired.has(a.id));
   // Photos not in a job, by type of work (a photo of two shows under its first); the rest after.
   // By job (each job's box, then the rest by type of work), or every photo by type of work, jobs' too.
   const [groupBy, setGroupBy] = useState<'job' | 'work'>('work');
@@ -1089,11 +1099,38 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         </div>
       </div>
       {sending && <SendingBar s={sending} />}
-      {selecting && <p className="text-xs text-gray-500">Tap the photos from one job, then tap its job tag below.</p>}
+      {selecting && <p className="text-xs text-gray-500">Tap the photos from one job, then tap its job tag below. Or pick two to pair them as a before and after.</p>}
       {assets === undefined ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : view === 'photos' ? (
         <div className="space-y-5" aria-label="Library">
+          {!selecting && pairs.length + joined.length > 0 && (
+            <section className="space-y-2" aria-label="Before & after">
+              <h3 className="text-sm font-semibold text-gray-300">
+                Before &amp; after <span className="text-gray-500 font-normal">{pairs.length + joined.length}</span>
+              </h3>
+              <ul className={grid}>
+                {pairs.map((p) => (
+                  <PairTile key={p.key} p={p} onOpen={() => setOpenPair(p.key)} />
+                ))}
+                {joined.map((a) => (
+                  <PairTile key={a.id} p={{ key: a.id, before: a }} onOpen={() => setOpenId(a.id)} />
+                ))}
+              </ul>
+            </section>
+          )}
+          {needsAfter.length > 0 && (
+            <details className="group rounded-lg border border-[#2A2A2A] bg-[#121212]">
+              <summary className="cursor-pointer list-none px-3 min-h-[44px] flex items-center gap-2 text-sm text-gray-300">
+                <ChevronRight className="w-4 h-4 text-gray-500 transition-transform group-open:rotate-90" />
+                Befores with no after yet <span className="text-gray-500">{needsAfter.length}</span>
+                <span className="ml-auto text-xs text-gray-500 hidden sm:inline">Shoot these spots when the job's done</span>
+              </summary>
+              <ul className={`${grid} p-3 pt-0`} aria-label="Befores with no after yet">
+                {needsAfter.map((a) => tile(a))}
+              </ul>
+            </details>
+          )}
           {groupBy === 'job' && jobs.map((j) => (
             <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
               {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}
@@ -1134,6 +1171,20 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           <p className="text-sm text-white">
             {picked.length === 0 ? 'Tap photos to pick them.' : `${picked.length} photo${picked.length === 1 ? '' : 's'} picked. Tap the job they belong to:`}
           </p>
+          {picked.length === 2 && (
+            <button
+              type="button"
+              className={`${secondary} w-full justify-center`}
+              onClick={() =>
+                act(async () => {
+                  await adsAPI.pairPhotos(picked);
+                  stopSelecting();
+                }, 'Paired as a before and after. Claude won’t change it.')
+              }
+            >
+              Pair these two as a before and after
+            </button>
+          )}
           {picked.length > 0 && (
             <JobPicker
               jobs={jobs}
@@ -1154,6 +1205,17 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           onOpen={setOpenId}
           onClose={() => setOpenId(null)}
           flip={at >= 0 && order.length > 1 ? { at, of: order.length, prev: at > 0 ? order[at - 1] : undefined, next: at < order.length - 1 ? order[at + 1] : undefined } : undefined}
+        />
+      )}
+      {shownPair && (
+        <PairView
+          p={shownPair}
+          act={act}
+          onClose={() => setOpenPair(null)}
+          onOpen={(id) => {
+            setOpenPair(null);
+            setOpenId(id);
+          }}
         />
       )}
       {adding && <AddFiles jobs={jobs} act={act} startJob={adding.jobId} onClose={() => setAdding(null)} send={send} sending={sending} />}
@@ -1211,6 +1273,99 @@ const AddTile: React.FC<{ label: string; photos?: boolean; onFiles: (files: File
  * A card's picture: the small copy where there is one, loaded only as it scrolls near, on a soft grey box that it
  * fades in over, so there is never a blank pause.
  */
+type Pair = { key: string; before: AdAsset; after: AdAsset; byPerson: boolean };
+
+/** The library's pairs: two photos sharing a key, one the before and one the after; newest first. */
+function pairsOf(photos: AdAsset[]): Pair[] {
+  const byKey = new Map<string, AdAsset[]>();
+  for (const a of photos) if (a.pairKey) byKey.set(a.pairKey, [...(byKey.get(a.pairKey) ?? []), a]);
+  const stage = (a: AdAsset, s: string) => a.tags.includes(s) && !a.tags.includes(s === 'before' ? 'after' : 'before');
+  const out: Pair[] = [];
+  for (const [key, list] of byKey) {
+    const before = list.find((a) => stage(a, 'before'));
+    const after = list.find((a) => stage(a, 'after'));
+    if (list.length === 2 && before && after) out.push({ key, before, after, byPerson: list.some((a) => a.pairSetBy === 'person') });
+  }
+  return out.sort((x, y) => (y.after.createdAt ?? '').localeCompare(x.after.createdAt ?? ''));
+}
+
+const srcOf = (a: AdAsset, big = false) => (big ? (a.posterUrl ?? a.url ?? a.thumbUrl) : (a.thumbUrl ?? a.posterUrl ?? a.url));
+
+/** A before and its after as one square, split down the middle; or one photo that holds both. */
+const PairTile: React.FC<{ p: { key: string; before: AdAsset; after?: AdAsset; byPerson?: boolean }; onOpen: () => void }> = ({ p, onOpen }) => {
+  const trade = useTrade();
+  const work = [...p.before.tags, ...(p.after?.tags ?? [])].find((t) => worksFor(trade).includes(t));
+  const tag = 'absolute bottom-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white';
+  return (
+    <li className="border border-[#2A2A2A] rounded bg-[#121212] overflow-hidden" data-testid="pair">
+      <button type="button" onClick={onOpen} aria-label={`Open the before and after: ${p.before.fileName}`} className="block w-full text-left">
+        <div className={`relative aspect-square bg-[#1d1d1d] ${p.after ? 'grid grid-cols-2' : ''}`}>
+          {(p.after ? [p.before, p.after] : [p.before]).map((a) => (
+            <img key={a.id} src={srcOf(a)} alt={a.fileName} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+          ))}
+          {p.after ? (
+            <>
+              <span aria-hidden="true" className="absolute inset-y-0 left-1/2 w-0.5 -ml-px bg-white/80" />
+              <span className={`${tag} left-1.5`}>Before</span>
+              <span className={`${tag} right-1.5`}>After</span>
+            </>
+          ) : (
+            <span className={`${tag} left-1.5`}>Before and after in one</span>
+          )}
+        </div>
+        <div className="p-2 text-[11px] text-gray-400 min-h-[2.25rem] flex items-center gap-1">
+          {work && <span className="text-amber-200">{workLabel(trade, work)}</span>}
+          {work && p.after && <span aria-hidden="true">·</span>}
+          {p.after && <span>{p.byPerson ? 'Paired by you' : 'Paired by Claude'}</span>}
+        </div>
+      </button>
+    </li>
+  );
+};
+
+/** A pair side by side: the before, its after, and the two fixes (swap them, or they're not a pair). */
+const PairView: React.FC<{ p: Pair; act: Act; onClose: () => void; onOpen: (id: string) => void }> = ({ p, act, onClose, onOpen }) => (
+  <Dialog title="Before and after" onClose={onClose} wide>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2">
+        {(
+          [
+            ['Before', p.before],
+            ['After', p.after],
+          ] as const
+        ).map(([label, a]) => (
+          <figure key={a.id} className="space-y-1">
+            <button type="button" onClick={() => onOpen(a.id)} aria-label={`Open the ${label.toLowerCase()}: ${a.fileName}`} className="block w-full">
+              <img src={srcOf(a, true)} alt={a.fileName} className="w-full h-[min(55dvh,420px)] object-contain bg-black rounded" />
+            </button>
+            <figcaption className="text-sm text-gray-300">{label}</figcaption>
+          </figure>
+        ))}
+      </div>
+      <p className="text-xs text-gray-500">
+        {p.byPerson ? 'You paired these.' : 'Claude paired these as the same spot, before and after.'} Ads show them together.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={secondary} onClick={() => act(() => adsAPI.swapPair(p.before.id), 'Swapped: the before is now the after.')}>
+          Swap before and after
+        </button>
+        <button
+          type="button"
+          className="px-3 min-h-[40px] rounded-lg text-sm text-red-300 border border-red-400/30 [@media(hover:hover)]:hover:bg-red-500/10"
+          onClick={() =>
+            act(async () => {
+              await adsAPI.splitPair(p.before.id);
+              onClose();
+            }, 'Split. Claude won’t pair these two again.')
+          }
+        >
+          Not a pair
+        </button>
+      </div>
+    </div>
+  </Dialog>
+);
+
 const Thumb: React.FC<{ a: AdAsset }> = ({ a }) => {
   const src = a.thumbUrl ?? a.posterUrl ?? (a.kind === 'photo' ? a.url : undefined);
   const [loaded, setLoaded] = useState(false);

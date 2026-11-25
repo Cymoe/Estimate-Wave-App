@@ -323,7 +323,8 @@ export async function insertAsset(
     });
     // Claude looks at it and says what it shows; the card offers its tags.
     if (process.env.ANTHROPIC_API_KEY) await ctx.scheduler.runAfter(0, internal.ads.describeAsset, { id });
-    if (jobId) await askPairing(ctx, jobId);
+    // Tagged before or after already: its match is looked for.
+    await askPairs(ctx, await ctx.db.get(id));
     return id;
 }
 
@@ -418,8 +419,8 @@ export const saveDescription = internalMutation({
       ...(takes ? { tags: suggestedTags } : {}),
       ...(addsWorks ? { tags: withWorkScopes([...a.tags, ...works], trade) } : {}),
     });
-    // Its before or after tag may have just arrived: its job's pairs are looked at again.
-    if (takes && a.jobId) await askPairing(ctx, a.jobId);
+    // Its before or after tag, or its type of work, may have just arrived: its match is looked for.
+    if (takes || addsWorks) await askPairs(ctx, await ctx.db.get(id));
   },
 });
 
@@ -505,6 +506,7 @@ export const listAssets = query({
         durationSec: a.durationSec,
         tags: a.tags,
         pairKey: a.pairKey,
+        pairSetBy: a.pairSetBy,
         note: a.note,
         posterUrl: a.posterStorageId ? ((await ctx.storage.getUrl(a.posterStorageId)) ?? undefined) : undefined,
         thumbUrl: a.thumbStorageId ? ((await ctx.storage.getUrl(a.thumbStorageId)) ?? undefined) : undefined,
@@ -571,9 +573,9 @@ export const removeJob = mutation({
   args: { id: v.id("adJobs") },
   handler: async (ctx, { id }) => {
     await requireStaff(ctx);
-    // Its photos stay, out of any job; the pairs were the job's, so they go.
+    // Its photos stay, out of any job, with their pairs.
     for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", id)).take(500))
-      await ctx.db.patch(a._id, { jobId: undefined, pairKey: undefined });
+      await ctx.db.patch(a._id, { jobId: undefined });
     await ctx.db.delete(id);
   },
 });
@@ -591,9 +593,9 @@ export const setAssetJob = mutation({
       if (tradeOf(job.trade).slug !== tradeOf(a.trade).slug) fail("INVALID", "That job is of another trade");
     }
     if (a.jobId === jobId) return;
-    // A pair is within one job: a photo that moves leaves its pair, and both jobs are looked at again.
-    await ctx.db.patch(id, { jobId, pairKey: undefined });
-    for (const j of [a.jobId, jobId]) if (j) await askPairing(ctx, j);
+    // Its pair stays (pairs aren't kept to a job); its match is looked for again among its new job's photos.
+    await ctx.db.patch(id, { jobId, pairLookedAt: undefined });
+    await askPairs(ctx, await ctx.db.get(id));
   },
 });
 
@@ -614,11 +616,10 @@ export const groupIntoJob = mutation({
     for (const assetId of ids) {
       const a = await ctx.db.get(assetId);
       if (a === null || tradeOf(a.trade).slug !== slug) continue;
-      if (a.jobId && a.jobId !== id) await askPairing(ctx, a.jobId);
-      await ctx.db.patch(assetId, { jobId: id, pairKey: undefined });
+      await ctx.db.patch(assetId, { jobId: id, pairLookedAt: undefined });
+      await askPairs(ctx, await ctx.db.get(assetId));
       moved += 1;
     }
-    if (moved) await askPairing(ctx, id);
     return { jobId: id, moved };
   },
 });
@@ -646,83 +647,255 @@ export const jobForProject = mutation({
 
 // ------------------------------------------------------------------ Pairs
 //
-// A before and the after of the same spot become a pair (pairKey): a wipe, a still of the two. Nobody types them:
-// within a job, Claude looks at its befores and afters and says which show the same spot. Asked whenever the job's
-// photos or their before/after tags change, a little later, so a run of changes is looked at once.
+// A before and the after of the same spot become a pair (pairKey): shown side by side, a wipe in an ad. Claude finds
+// them across the whole library, not only within a job: each before is compared with the afters of the same type of
+// work (cabinets with cabinets), those of its own job and nearest in time first (pairPoolOf). A person can pair two
+// photos themselves (pairSetBy "person"), which Claude never undoes, or split two (notPairs), which Claude never pairs
+// again. Each photo is looked at once (pairLookedAt) until its tags change, so a new upload costs one or two looks,
+// not the whole library. Asked a little after a change, so an upload of several photos is one look.
 
 /** How long after a change the pairs are looked at, so an upload of several photos is one look. */
 const PAIR_DELAY_MS = 20_000;
+/** One look: this many befores against this many afters. */
+const PAIR_BEFORES = 6;
+const PAIR_AFTERS = 8;
+/** The most looks one run takes; a run that has more to do asks for another. */
+const PAIR_LOOKS = 6;
 
-async function askPairing(ctx: MutationCtx, jobId: Id<"adJobs">) {
-  if (!process.env.ANTHROPIC_API_KEY) return;
-  const job = await ctx.db.get(jobId);
-  if (job === null) return;
-  const at = `${nowIso()}#${Math.random().toString(36).slice(2, 8)}`;
-  await ctx.db.patch(jobId, { pairAskedAt: at });
-  await ctx.scheduler.runAfter(PAIR_DELAY_MS, internal.ads.pairJob, { jobId, at });
+type Staged = { tags: string[] };
+const isBefore = (a: Staged) => a.tags.includes("before") && !a.tags.includes("after");
+const isAfter = (a: Staged) => a.tags.includes("after") && !a.tags.includes("before");
+
+/** The photos Claude compares with each other: one trade and first type of work; with no type of work, its job. */
+export function pairPoolOf(a: { trade?: string; tags: string[]; jobId?: string }): string {
+  const trade = tradeOf(a.trade);
+  const work = workTags(a.tags, trade)[0];
+  return `${trade.slug}|${work ? `work:${work}` : a.jobId ? `job:${a.jobId}` : "rest"}`;
 }
 
-export const jobForPairing = internalQuery({
-  args: { jobId: v.id("adJobs") },
-  handler: async (ctx, { jobId }) => {
-    const job = await ctx.db.get(jobId);
-    if (job === null) return null;
-    const photos = (await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", jobId)).take(200)).filter((a) => a.kind === "photo");
+/** Asks for a photo's pool to be looked at, a little later: only the latest ask for the pool runs. */
+async function askPairs(ctx: MutationCtx, a: Doc<"adAssets"> | null) {
+  if (!process.env.ANTHROPIC_API_KEY || a === null || a.kind !== "photo") return;
+  await askPool(ctx, pairPoolOf(a), PAIR_DELAY_MS);
+}
+
+async function askPool(ctx: MutationCtx, pool: string, delay: number) {
+  const askedAt = `${nowIso()}#${Math.random().toString(36).slice(2, 8)}`;
+  const row = await ctx.db.query("adPairing").withIndex("by_pool", (q) => q.eq("pool", pool)).first();
+  if (row) await ctx.db.patch(row._id, { askedAt });
+  else await ctx.db.insert("adPairing", { pool, askedAt });
+  await ctx.scheduler.runAfter(delay, internal.ads.pairPool, { pool, at: askedAt });
+}
+
+/** Takes a photo out of its pair, and has the other one looked at again. */
+async function unpair(ctx: MutationCtx, a: Doc<"adAssets">) {
+  if (!a.pairKey) return;
+  for (const b of await ctx.db.query("adAssets").withIndex("by_pair", (q) => q.eq("pairKey", a.pairKey)).take(10)) {
+    await ctx.db.patch(b._id, { pairKey: undefined, pairSetBy: undefined, pairLookedAt: undefined });
+    if (b._id !== a._id) await askPairs(ctx, await ctx.db.get(b._id));
+  }
+}
+
+/** The stage tags of a photo made just before or just after (no "process"). */
+const staged = (tags: string[], stage: "before" | "after") => cleanTags([...tags.filter((t) => t !== "before" && t !== "after" && t !== "process"), stage]);
+
+export const poolForPairing = internalQuery({
+  args: { pool: v.string() },
+  handler: async (ctx, { pool }) => {
+    const row = await ctx.db.query("adPairing").withIndex("by_pool", (q) => q.eq("pool", pool)).first();
+    if (row === null) return null;
+    const photos = (await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "photo")).take(1000)).filter((a) => pairPoolOf(a) === pool);
+    // A pair is two photos, one before and one after; any other is broken (a photo deleted, a tag changed).
+    const byKey = new Map<string, Doc<"adAssets">[]>();
+    for (const a of photos) if (a.pairKey) byKey.set(a.pairKey, [...(byKey.get(a.pairKey) ?? []), a]);
+    const paired = new Set<string>();
+    for (const list of byKey.values())
+      if (list.length === 2 && list.some(isBefore) && list.some(isAfter)) list.forEach((a) => paired.add(a._id));
+    const open = await Promise.all(
+      photos
+        .filter((a) => !a.pairKey && (isBefore(a) || isAfter(a)))
+        .map(async (a) => ({
+          id: a._id,
+          before: isBefore(a),
+          jobId: a.jobId,
+          createdAt: a.createdAt,
+          looked: !!a.pairLookedAt,
+          notPairs: a.notPairs ?? [],
+          url: await lookUrl(ctx, a),
+        })),
+    );
     return {
-      pairAskedAt: job.pairAskedAt,
-      photos: await Promise.all(photos.map(async (a) => ({ id: a._id, tags: a.tags, pairKey: a.pairKey, createdAt: a.createdAt, url: await lookUrl(ctx, a) }))),
+      askedAt: row.askedAt,
+      // Photos that may be in a broken pair (a photo deleted, a tag changed): savePairs checks each against the whole
+      // library, so a pair whose other half now sits in another pool is kept.
+      broken: photos.filter((a) => a.pairKey && !paired.has(a._id)).map((a) => a._id),
+      open: open.filter((a) => a.url).sort((x, y) => x.createdAt.localeCompare(y.createdAt)),
     };
   },
 });
 
-/** Writes a job's pairs: each pair one key, every other photo of the job none. */
-export const setJobPairs = internalMutation({
-  args: { jobId: v.id("adJobs"), pairs: v.array(v.array(v.id("adAssets"))) },
-  handler: async (ctx, { jobId, pairs }) => {
-    const keyOf = new Map<string, string>();
-    pairs.forEach((p, i) => p.forEach((id) => keyOf.set(id, `${shortId(jobId)}-${i + 1}`)));
-    for (const a of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", jobId)).take(200)) {
-      const key = keyOf.get(a._id);
-      if (a.pairKey !== key) await ctx.db.patch(a._id, { pairKey: key });
+type Open = { id: Id<"adAssets">; before: boolean; jobId?: Id<"adJobs">; createdAt: string; looked: boolean; notPairs: Id<"adAssets">[]; url?: string };
+
+/** Afters nearest a run of befores: of the same job first, then the closest in time. */
+function nearest(befores: Open[], afters: Open[]): Open[] {
+  const jobs = new Set(befores.map((b) => b.jobId).filter(Boolean));
+  const times = befores.map((b) => Date.parse(b.createdAt) || 0);
+  const gap = (a: Open) => Math.min(...times.map((t) => Math.abs((Date.parse(a.createdAt) || 0) - t)));
+  const away = (a: Open) => (a.jobId && jobs.has(a.jobId) ? 0 : 1);
+  return [...afters].sort((x, y) => away(x) - away(y) || gap(x) - gap(y));
+}
+
+/** Claude matches a pool's befores with its afters of the same spot. Only the latest ask for the pool runs. */
+export const pairPool = internalAction({
+  args: { pool: v.string(), at: v.string() },
+  handler: async (ctx, { pool, at }) => {
+    const got: { askedAt: string; broken: Id<"adAssets">[]; open: Open[] } | null = await ctx.runQuery(internal.ads.poolForPairing, { pool });
+    if (!got || got.askedAt !== at) return;
+    const befores = got.open.filter((a) => a.before);
+    const afters = got.open.filter((a) => !a.before);
+    // The looks: each new before against the afters nearest it, then the befores nearest each new after.
+    const looks: Array<{ befores: Open[]; afters: Open[] }> = [];
+    const fresh = befores.filter((b) => !b.looked);
+    for (let i = 0; i < fresh.length; i += PAIR_BEFORES) {
+      const run = fresh.slice(i, i + PAIR_BEFORES);
+      looks.push({ befores: run, afters: nearest(run, afters).slice(0, PAIR_AFTERS) });
     }
-    return { pairs: pairs.length };
+    const newAfters = afters.filter((a) => !a.looked);
+    const oldBefores = befores.filter((b) => b.looked);
+    if (newAfters.length && oldBefores.length) {
+      const run = nearest(newAfters, oldBefores).slice(0, PAIR_BEFORES * 2);
+      for (let i = 0; i < run.length; i += PAIR_BEFORES) looks.push({ befores: run.slice(i, i + PAIR_BEFORES), afters: newAfters.slice(0, PAIR_AFTERS) });
+    }
+    const now = looks.slice(0, PAIR_LOOKS);
+    const pairs: Array<[Id<"adAssets">, Id<"adAssets">]> = [];
+    const looked = new Set<Id<"adAssets">>();
+    for (const look of now) {
+      const open = look.afters.filter((a) => !pairs.some(([, x]) => x === a.id));
+      if (look.befores.length === 0 || open.length === 0) {
+        look.befores.forEach((b) => looked.add(b.id));
+        continue;
+      }
+      try {
+        const sameJob = !!look.befores[0].jobId && [...look.befores, ...open].every((p) => p.jobId === look.befores[0].jobId);
+        const content: unknown[] = [{ type: "text", text: pairingPrompt(look.befores.length, open.length, sameJob) }];
+        look.befores.forEach((p, i) => content.push({ type: "text", text: `Before ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
+        open.forEach((p, i) => content.push({ type: "text", text: `After ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
+        const found = readPairing(await claude(content, 400), look.befores.length, open.length);
+        if (found === null) continue;
+        for (const [b, a] of found) {
+          const before = look.befores[b];
+          const after = open[a];
+          // Two a person said aren't a pair stay apart.
+          if (before.notPairs.includes(after.id) || after.notPairs.includes(before.id)) continue;
+          pairs.push([before.id, after.id]);
+        }
+        [...look.befores, ...open].forEach((p) => looked.add(p.id));
+      } catch (e) {
+        console.error("pair photos", pool, errText(e));
+      }
+    }
+    await ctx.runMutation(internal.ads.savePairs, { pairs, looked: [...looked], broken: got.broken });
+    // More than one run's looks: the rest in a moment.
+    if (looks.length > PAIR_LOOKS && looked.size > 0) await ctx.runMutation(internal.ads.askPoolAgain, { pool });
   },
 });
 
-/** Asks for every job's pairs to be looked at, from the deployment: for jobs made before pairs were matched. */
-export const pairAllJobs = internalMutation({
+export const askPoolAgain = internalMutation({
+  args: { pool: v.string() },
+  handler: async (ctx, { pool }) => await askPool(ctx, pool, 1000),
+});
+
+/** Writes what a look found: new pairs, the photos looked at, and broken pairs undone. */
+export const savePairs = internalMutation({
+  args: {
+    pairs: v.array(v.array(v.id("adAssets"))),
+    looked: v.array(v.id("adAssets")),
+    broken: v.array(v.id("adAssets")),
+  },
+  handler: async (ctx, { pairs, looked, broken }) => {
+    for (const id of broken) {
+      const a = await ctx.db.get(id);
+      if (a === null || !a.pairKey) continue;
+      const mates = await ctx.db.query("adAssets").withIndex("by_pair", (q) => q.eq("pairKey", a.pairKey)).take(10);
+      if (mates.length === 2 && mates.some(isBefore) && mates.some(isAfter)) continue;
+      await ctx.db.patch(id, { pairKey: undefined, pairSetBy: undefined, pairLookedAt: undefined });
+    }
+    const at = nowIso();
+    for (const id of looked) if (await ctx.db.get(id)) await ctx.db.patch(id, { pairLookedAt: at });
+    let made = 0;
+    for (const [bId, aId] of pairs) {
+      const [b, a] = [await ctx.db.get(bId), await ctx.db.get(aId)];
+      // Changed while Claude looked: left for the next look.
+      if (!b || !a || b.pairKey || a.pairKey || !isBefore(b) || !isAfter(a)) continue;
+      const pairKey = `p-${shortId(b._id)}`;
+      await ctx.db.patch(b._id, { pairKey });
+      await ctx.db.patch(a._id, { pairKey });
+      made += 1;
+    }
+    return { made };
+  },
+});
+
+/** Has every pool of befores and afters looked at, from the deployment: once, for the photos already there. */
+export const pairLibrary = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const jobs = await ctx.db.query("adJobs").take(200);
-    for (const j of jobs) await askPairing(ctx, j._id);
-    return { jobs: jobs.length };
+    const pools = new Set<string>();
+    for (const a of await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "photo")).take(1000))
+      if (isBefore(a) || isAfter(a)) pools.add(pairPoolOf(a));
+    let i = 0;
+    for (const pool of pools) await askPool(ctx, pool, 2000 * i++);
+    return { pools: [...pools] };
   },
 });
 
-/** Claude matches a job's befores with its afters of the same spot. Only the latest ask for the job runs. */
-export const pairJob = internalAction({
-  args: { jobId: v.id("adJobs"), at: v.string() },
-  handler: async (ctx, { jobId, at }) => {
-    const job = await ctx.runQuery(internal.ads.jobForPairing, { jobId });
-    if (!job || job.pairAskedAt !== at) return;
-    // An image already holding a before and its after is its own pair.
-    const byAge = [...job.photos].filter((p) => p.url).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const befores = byAge.filter((p) => p.tags.includes("before") && !p.tags.includes("after")).slice(0, 8);
-    const afters = byAge.filter((p) => p.tags.includes("after") && !p.tags.includes("before")).slice(0, 8);
-    if (befores.length === 0 || afters.length === 0) {
-      await ctx.runMutation(internal.ads.setJobPairs, { jobId, pairs: [] });
-      return;
+/** A person pairs two photos as a before and its after: the older one the before, unless they're tagged already. */
+export const pairPhotos = mutation({
+  args: { ids: v.array(v.id("adAssets")) },
+  handler: async (ctx, { ids }) => {
+    await requireStaff(ctx);
+    if (ids.length !== 2 || ids[0] === ids[1]) fail("INVALID", "Pick two photos to pair");
+    const [x, y] = await Promise.all(ids.map((id) => ctx.db.get(id)));
+    if (x === null || y === null) fail("NOT_FOUND", "That photo isn't in the library");
+    if (x.kind !== "photo" || y.kind !== "photo") fail("INVALID", "Only photos make a before and after");
+    if (tradeOf(x.trade).slug !== tradeOf(y.trade).slug) fail("INVALID", "Those two are of different trades");
+    const [before, after] =
+      isBefore(x) && isAfter(y) ? [x, y] : isBefore(y) && isAfter(x) ? [y, x] : x._creationTime <= y._creationTime ? [x, y] : [y, x];
+    await unpair(ctx, x);
+    await unpair(ctx, y);
+    const pairKey = `p-${shortId(before._id)}`;
+    await ctx.db.patch(before._id, { tags: staged(before.tags, "before"), pairKey, pairSetBy: "person", notPairs: (before.notPairs ?? []).filter((id) => id !== after._id) });
+    await ctx.db.patch(after._id, { tags: staged(after.tags, "after"), pairKey, pairSetBy: "person", notPairs: (after.notPairs ?? []).filter((id) => id !== before._id) });
+    return { before: before._id, after: after._id };
+  },
+});
+
+/** "Not a pair": the two go apart, and Claude never pairs them again; each is looked at again for its real match. */
+export const splitPair = mutation({
+  args: { id: v.id("adAssets") },
+  handler: async (ctx, { id }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null || !a.pairKey) return;
+    const mates = await ctx.db.query("adAssets").withIndex("by_pair", (q) => q.eq("pairKey", a.pairKey)).take(10);
+    for (const m of mates) {
+      const others = mates.filter((o) => o._id !== m._id).map((o) => o._id);
+      await ctx.db.patch(m._id, { pairKey: undefined, pairSetBy: undefined, pairLookedAt: undefined, notPairs: [...new Set([...(m.notPairs ?? []), ...others])].slice(-50) });
     }
-    try {
-      const content: unknown[] = [{ type: "text", text: pairingPrompt(befores.length, afters.length) }];
-      befores.forEach((p, i) => content.push({ type: "text", text: `Before ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
-      afters.forEach((p, i) => content.push({ type: "text", text: `After ${i + 1}:` }, { type: "image", source: { type: "url", url: p.url } }));
-      const pairs = readPairing(await claude(content, 400), befores.length, afters.length);
-      if (pairs === null) return;
-      await ctx.runMutation(internal.ads.setJobPairs, { jobId, pairs: pairs.map(([b, a]) => [befores[b].id, afters[a].id]) });
-    } catch (e) {
-      console.error("pair job", jobId, errText(e));
-    }
+    for (const m of mates) await askPairs(ctx, await ctx.db.get(m._id));
+  },
+});
+
+/** "Swap": Claude had the two the wrong way round; the before becomes the after and the after the before. */
+export const swapPair = mutation({
+  args: { id: v.id("adAssets") },
+  handler: async (ctx, { id }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(id);
+    if (a === null || !a.pairKey) fail("NOT_FOUND", "That photo isn't in a pair");
+    const mates = await ctx.db.query("adAssets").withIndex("by_pair", (q) => q.eq("pairKey", a.pairKey)).take(10);
+    if (mates.length !== 2) fail("INVALID", "That pair is missing a photo");
+    for (const m of mates) await ctx.db.patch(m._id, { tags: staged(m.tags, isBefore(m) ? "after" : "before"), pairSetBy: "person" });
   },
 });
 
@@ -747,10 +920,10 @@ export const fileIntoJob = internalMutation({
     for (const id of ids) {
       const a = await ctx.db.get(id);
       if (a === null || tradeOf(a.trade).slug !== slug) continue;
-      await ctx.db.patch(id, { jobId, pairKey: undefined });
+      await ctx.db.patch(id, { jobId, pairLookedAt: undefined });
+      await askPairs(ctx, await ctx.db.get(id));
       filed.push(a.fileName);
     }
-    await askPairing(ctx, jobId);
     return { jobId, filed };
   },
 });
@@ -824,13 +997,18 @@ export const tagAsset = mutation({
     await requireStaff(ctx);
     const a = await ctx.db.get(id);
     if (a === null) fail("NOT_FOUND", "That file isn't in the library");
-    // Pairs are matched by Claude within a job; a pair key is only changed when one is given.
+    // Pairs are matched by Claude (pairPool) or by a person (pairPhotos); a pair key is only changed when one is given.
+    const next = cleanTags(tags);
+    const changed = next.join(",") !== a.tags.join(",");
+    // A photo that stops being the before (or the after) leaves its pair; any change of tags has its match looked for.
+    if (changed && pairKey === undefined && (isBefore(a) !== isBefore({ tags: next }) || isAfter(a) !== isAfter({ tags: next }))) await unpair(ctx, a);
     await ctx.db.patch(id, {
-      tags: cleanTags(tags),
+      tags: next,
       ...(pairKey !== undefined ? { pairKey: pairKey.trim() || undefined } : {}),
+      ...(changed ? { pairLookedAt: undefined } : {}),
       note: note?.trim().slice(0, 300) || undefined,
     });
-    if (a.jobId && cleanTags(tags).join(",") !== a.tags.join(",")) await askPairing(ctx, a.jobId);
+    if (changed) await askPairs(ctx, await ctx.db.get(id));
   },
 });
 
@@ -864,8 +1042,9 @@ export const removeAsset = mutation({
     await requireStaff(ctx);
     const a = await ctx.db.get(id);
     if (a === null) return;
+    // Its other half goes back to being looked at.
+    await unpair(ctx, a);
     await ctx.db.delete(id);
-    if (a.jobId) await askPairing(ctx, a.jobId);
     for (const sid of [a.storageId, a.posterStorageId, a.thumbStorageId, a.motion?.storageId])
       if (sid && (await ctx.db.system.get(sid)) !== null) await ctx.storage.delete(sid);
   },

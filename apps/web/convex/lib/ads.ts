@@ -2274,11 +2274,14 @@ export function requestStage(
   return ads.length ? "ready" : "writing";
 }
 
-/** The question that matches a job's befores with its afters: which show the same spot. */
-export function pairingPrompt(befores: number, afters: number): string {
+/** The question that matches befores with afters: which show the same spot. sameJob: all from one job. */
+export function pairingPrompt(befores: number, afters: number, sameJob = false): string {
   return [
-    `These photos are all from one painting or remodelling job. The first ${befores} are befores, the next ${afters} are afters, each labelled.`,
+    sameJob
+      ? `These photos are all from one painting or remodelling job. The first ${befores} are befores, the next ${afters} are afters, each labelled.`
+      : `These photos are of the same kind of painting or remodelling work, from one or more jobs at different houses. The first ${befores} are befores, the next ${afters} are afters, each labelled.`,
     "Which before and which after show the same spot (the same room, wall, door or cabinets, from a similar view), so they could be shown as a before and its after?",
+    ...(sameJob ? [] : ["Only pair two of the same house and the same spot: look at the windows, floor, walls, fixtures and what's around it. Two houses that merely look alike are not a pair."]),
     "Pair only the ones you are sure of; a photo is in one pair at most, and leave out any with no match.",
     'Answer with JSON only: {"pairs":[{"before":1,"after":2}]}, or {"pairs":[]} if none match.',
   ].join("\n");
