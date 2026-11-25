@@ -1287,8 +1287,30 @@ const Thumb: React.FC<{ a: AdAsset }> = ({ a }) => {
   );
 };
 
+/**
+ * A photo opened on its own: its small copy at once, softened, then the full picture in its place once it has
+ * loaded, so the window never opens on an empty box.
+ */
+const Progressive: React.FC<{ small?: string; full: string; alt: string; className: string }> = ({ small, full, alt, className }) => {
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(false), [full]);
+  return (
+    <div className="relative" data-testid="progressive" data-ready={ready ? 'yes' : 'no'}>
+      {small && !ready && <img src={small} alt="" aria-hidden="true" className={`${className} blur-sm`} />}
+      <img
+        src={full}
+        alt={alt}
+        onLoad={() => setReady(true)}
+        className={`${className} transition-opacity duration-300 ${ready || !small ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
+      />
+    </div>
+  );
+};
+
 const Picture: React.FC<{ a: AdAsset; className: string; play?: boolean }> = ({ a, className, play }) =>
-  a.kind === 'video' && play && a.url ? (
+  a.kind === 'photo' && play && a.url ? (
+    <Progressive key={a.id} small={a.thumbUrl} full={a.url} alt={a.fileName} className={className} />
+  ) : a.kind === 'video' && play && a.url ? (
     <video src={a.url} controls playsInline poster={a.posterUrl} className={`${className} bg-black`} />
   ) : a.posterUrl ? (
     <img src={a.posterUrl} alt={a.fileName} className={className} />
@@ -1475,16 +1497,14 @@ const AssetEditor: React.FC<{
   const trade = useTrade();
   const photo = a.kind === 'photo';
   const [tags, setTags] = useState(a.tags);
-  const [note, setNote] = useState(a.note ?? '');
   useEffect(() => {
     setTags(a.tags);
-    setNote(a.note ?? '');
-  }, [a.tags, a.note]);
-  const changed = tags.join(',') !== a.tags.join(',') || note !== (a.note ?? '');
+  }, [a.tags]);
+  const changed = tags.join(',') !== a.tags.join(',');
   // To the next or previous file: tags changed here are saved first, so flipping never loses them.
   const go = (id?: string) => {
     if (!id) return;
-    if (changed) void act(() => adsAPI.tagAsset(a.id, tags, undefined, note || undefined), 'Saved.');
+    if (changed) void act(() => adsAPI.tagAsset(a.id, tags, undefined, a.note), 'Saved.');
     onOpen(id);
   };
   const goRef = useRef(go);
@@ -1584,12 +1604,8 @@ const AssetEditor: React.FC<{
             </span>
           </button>
         )}
-        <details className="text-sm">
-          <summary className="cursor-pointer text-gray-400">More</summary>
-          <div className="mt-3">
-            <Field label="Note" hint="Where it was shot and whose permission you have. Never shown in an ad.">
-              <input value={note} onChange={(e) => setNote(e.target.value)} aria-label={`Note for ${a.fileName}`} className={input} />
-            </Field>
+        <div>
+          <div>
             {a.kind === 'video' && !a.posterUrl && a.url && (
               <button
                 type="button"
@@ -1608,7 +1624,7 @@ const AssetEditor: React.FC<{
               </button>
             )}
           </div>
-        </details>
+        </div>
         <div className="flex items-center gap-2 pt-2 border-t border-[#2A2A2A]">
           <button
             type="button"
@@ -1623,7 +1639,7 @@ const AssetEditor: React.FC<{
             type="button"
             className={`${primary} ml-auto`}
             disabled={!changed}
-            onClick={() => act(() => adsAPI.tagAsset(a.id, tags, undefined, note || undefined), 'Saved.')}
+            onClick={() => act(() => adsAPI.tagAsset(a.id, tags, undefined, a.note), 'Saved.')}
           >
             Save
           </button>
@@ -1666,7 +1682,6 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
   const [tags, setTags] = useState<string[]>([]);
   const [jobId, setJobId] = useState(startJob ?? '');
   const into = startJob ? jobs.find((j) => j.id === startJob) : undefined;
-  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -1675,7 +1690,7 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
       async () => {
         // A job is for photos: a clip goes up without one.
         for (const f of Array.from(files))
-          await uploadAsset(f, tags, trade, undefined, note || undefined, jobId && !isVideo(f) ? { jobId } : undefined);
+          await uploadAsset(f, tags, trade, undefined, undefined, jobId && !isVideo(f) ? { jobId } : undefined);
         onClose();
       },
       `${files.length} file${files.length === 1 ? '' : 's'} in the library.`,
@@ -1699,14 +1714,6 @@ const AddFiles: React.FC<{ jobs: AdJob[]; act: Act; onClose: () => void; startJo
             />
           </div>
         </div>
-        <details className="text-sm">
-          <summary className="cursor-pointer text-gray-400">More</summary>
-          <div className="mt-3">
-            <Field label="Note" hint="Where it was shot and whose permission you have">
-              <input value={note} onChange={(e) => setNote(e.target.value)} className={input} />
-            </Field>
-          </div>
-        </details>
         <label className={`${primary} w-full cursor-pointer`}>
           <Upload className="w-4 h-4" /> {busy ? 'Uploading…' : 'Choose files'}
           <input

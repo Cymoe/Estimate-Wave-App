@@ -512,6 +512,23 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[aria-label="Next"]')).toBeNull();
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })));
     expect(document.body.querySelector('[data-testid="flip-place"]')!.textContent).toBe('2 of 3');
+    // No note to fill in; the small copy shows at once, softened, until the full photo has loaded.
+    expect(dialog().querySelector('input[aria-label^="Note"]')).toBeNull();
+    expect(dialog().textContent).not.toContain('Note');
+  });
+
+  it('Library: an opened photo shows its small copy first, then the full one once loaded', async () => {
+    jobs = [];
+    assets = [{ id: 'p1', kind: 'photo' as const, fileName: 'p1.jpg', tags: ['interior'], url: 'https://cdn.example/p1.jpg', thumbUrl: 'https://cdn.example/p1-small.jpg', createdAt: new Date().toISOString() }];
+    await render();
+    await tab('Library');
+    await act(async () => (document.body.querySelector('[aria-label="Open p1.jpg"]') as HTMLButtonElement).click());
+    const box = dialog().querySelector('[data-testid="progressive"]')!;
+    expect(box.getAttribute('data-ready')).toBe('no');
+    expect(box.querySelector('img[aria-hidden="true"]')!.getAttribute('src')).toBe('https://cdn.example/p1-small.jpg');
+    await act(async () => box.querySelector('img[alt="p1.jpg"]')!.dispatchEvent(new Event('load')));
+    expect(box.getAttribute('data-ready')).toBe('yes');
+    expect(box.querySelector('img[aria-hidden="true"]')).toBeNull();
   });
 
   it('Library: photos in their job boxes, quiet cards; a job is a tag in a photo\'s window; + job names one; an upload can carry one; a job is taken away', async () => {
