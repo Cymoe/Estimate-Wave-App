@@ -214,10 +214,13 @@ const seconds = (since: number) => Math.round((performance.now() - since) / 100)
 export async function prepareAsset(file: File, onProgress?: (fraction: number) => void): Promise<PreparedAsset> {
   const picked = { name: file.name, size: file.size };
   // The iPad sometimes stops letting the page read a picked file (after leaving the page a while): said plainly.
-  try {
-    await file.slice(0, 1).arrayBuffer();
-  } catch {
-    throw new Error(`The iPad didn't let the page read ${file.name} any more. Pick it again.`);
+  const head = file.slice(0, 1);
+  if (typeof head.arrayBuffer === 'function') {
+    try {
+      await head.arrayBuffer();
+    } catch {
+      throw new Error(`The iPad didn't let the page read ${file.name} any more. Pick it again.`);
+    }
   }
   if (isVideo(file) && file.size > SHRINK_ABOVE_BYTES) {
     onProgress?.(0);

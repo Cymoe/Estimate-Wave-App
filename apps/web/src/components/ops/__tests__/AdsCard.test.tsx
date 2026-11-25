@@ -681,7 +681,7 @@ describe('Ops → Ads', () => {
     await pick(big);
     await flush();
     await act(async () => new Promise((r) => setTimeout(r, 5)));
-    expect(document.body.textContent).toContain('long.mov is 450 MB even made smaller. A clip must be 200 MB or less');
+    expect(document.body.textContent).toContain("long.mov is 450 MB and couldn't be made smaller on this device. A clip must be 200 MB or less");
     expect(addAsset).not.toHaveBeenCalled();
     // A drop is tried again by itself, and noted for the logs.
     failNext = 1;
