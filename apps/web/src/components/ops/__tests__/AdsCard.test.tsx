@@ -39,6 +39,7 @@ const seedHooks = jest.fn(async () => 6);
 const saveHook = jest.fn(async () => 'h9');
 const saveSettings = jest.fn(async () => undefined);
 const tagAsset = jest.fn(async () => undefined);
+const removeAsset = jest.fn(async (_id: string) => undefined);
 const addAsset = jest.fn(async () => 'a9');
 const uploadUrl = jest.fn(async () => 'https://upload.example/u1');
 const seedSwipes = jest.fn(async () => 30);
@@ -73,7 +74,7 @@ jest.mock('../../../lib/api', () => ({
     tagAsset: (...args: unknown[]) => tagAsset(...args),
     addAsset: (args: unknown) => addAsset(args),
     uploadUrl: () => uploadUrl(),
-    removeAsset: async () => undefined,
+    removeAsset: (id: string) => removeAsset(id),
     removeHook: async () => undefined,
     seedSwipes: () => seedSwipes(),
     importSwipes: (...args: unknown[]) => importSwipes(...args),
@@ -515,6 +516,28 @@ describe('Ops → Ads', () => {
     // No note to fill in; the small copy shows at once, softened, until the full photo has loaded.
     expect(dialog().querySelector('input[aria-label^="Note"]')).toBeNull();
     expect(dialog().textContent).not.toContain('Note');
+  });
+
+  it('Library: deleting a photo asks first; Keep it backs out, Delete removes it and opens the next', async () => {
+    const photo = (id: string, fileName: string) => ({ id, kind: 'photo' as const, fileName, tags: ['exterior', 'fence-stain'], createdAt: new Date().toISOString(), uses: 2 });
+    jobs = [];
+    assets = [photo('f1', 'fence1.jpg'), photo('f2', 'fence2.jpg')];
+    await render();
+    await tab('Library');
+    await act(async () => (document.body.querySelector('[aria-label="Open fence1.jpg"]') as HTMLButtonElement).click());
+    const trash = () => dialog().querySelector('[aria-label="Remove fence1.jpg"]') as HTMLButtonElement;
+    await act(async () => trash().click());
+    expect(removeAsset).not.toHaveBeenCalled();
+    const warning = () => dialog().querySelector('[role="alertdialog"]');
+    expect(warning()!.textContent).toContain('Delete this photo?');
+    expect(warning()!.textContent).toContain("It's been used in 2 ads.");
+    await act(async () => (Array.from(warning()!.querySelectorAll('button')).find((b) => b.textContent === 'Keep it') as HTMLButtonElement).click());
+    expect(warning()).toBeNull();
+    await act(async () => trash().click());
+    await act(async () => (Array.from(warning()!.querySelectorAll('button')).find((b) => b.textContent === 'Delete') as HTMLButtonElement).click());
+    await flush();
+    expect(removeAsset).toHaveBeenCalledWith('f1');
+    expect(dialog().getAttribute('aria-label')).toBe('fence2.jpg');
   });
 
   it('Library: an opened photo shows its small copy first, then the full one once loaded', async () => {

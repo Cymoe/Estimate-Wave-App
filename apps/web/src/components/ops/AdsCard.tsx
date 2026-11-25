@@ -1635,9 +1635,12 @@ const AssetEditor: React.FC<{
   const startTags = a.tags.length === 0 && claude.length ? claude : a.tags;
   const [tags, setTags] = useState(startTags);
   const [mode, setMode] = useState<'read' | 'work' | 'stage' | 'frame' | 'job'>('read');
+  // Deleting asks first: it can't be undone.
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     setTags(startTags);
     setMode('read');
+    setDeleting(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a.id, a.tags.join(','), claude.join(',')]);
   const changed = tags.join(',') !== a.tags.join(',');
@@ -1747,8 +1750,8 @@ const AssetEditor: React.FC<{
             <button
               type="button"
               aria-label={`Remove ${a.fileName}`}
-              className={`${tap} -m-2 text-gray-500 hover:text-red-300`}
-              onClick={() => act(() => adsAPI.removeAsset(a.id)).then(onClose)}
+              className={`${tap} -m-2 ${deleting ? 'text-red-300' : 'text-gray-500 hover:text-red-300'}`}
+              onClick={() => setDeleting(true)}
             >
               <Trash2 className="w-[18px] h-[18px]" />
             </button>
@@ -1756,6 +1759,31 @@ const AssetEditor: React.FC<{
               <X className="w-5 h-5" />
             </button>
           </div>
+          {deleting && (
+            <div className="mx-7 mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4 space-y-3" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
+              <p className="text-[15px] font-medium text-white">Delete this {photo ? 'photo' : 'clip'}?</p>
+              <p className="text-sm text-gray-300">
+                It&apos;s taken out of the library for good and can&apos;t be brought back.
+                {a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
+              </p>
+              <div className="flex gap-2">
+                <button type="button" className="flex-1 min-h-[44px] rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
+                  Keep it
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 min-h-[44px] rounded-lg bg-red-600 text-sm font-semibold text-white [@media(hover:hover)]:hover:bg-red-500"
+                  onClick={() => {
+                    // The next file opens in its place, so deleting a run of bad photos stays quick.
+                    const after = flip?.next ?? flip?.prev;
+                    void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex-1 min-h-0 overflow-y-auto px-7 pb-4">
             {mode === 'read' && (
               <>
