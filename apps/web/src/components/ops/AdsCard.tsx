@@ -1296,13 +1296,13 @@ const Progressive: React.FC<{ small?: string; full: string; alt: string; classNa
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(false), [full]);
   return (
-    <div className="relative" data-testid="progressive" data-ready={ready ? 'yes' : 'no'}>
+    <div className="relative w-full h-full flex items-center justify-center" data-testid="progressive" data-ready={ready ? 'yes' : 'no'}>
       {small && !ready && <img src={small} alt="" aria-hidden="true" className={`${className} blur-sm`} />}
       <img
         src={full}
         alt={alt}
         onLoad={() => setReady(true)}
-        className={`${className} transition-opacity duration-300 ${ready || !small ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
+        className={`${className} transition-opacity duration-300 ${ready || !small ? 'opacity-100' : 'opacity-0 absolute inset-0 m-auto'}`}
       />
     </div>
   );
@@ -1706,7 +1706,7 @@ const AssetEditor: React.FC<{
         {/* The picture: whole, centred; under it its place, a tick per file and the arrows. */}
         <div className="flex-none md:flex-1 h-[44dvh] md:h-auto min-w-0 flex flex-col bg-black">
           <div
-            className="flex-1 min-h-0 flex items-center justify-center p-4"
+            className="relative flex-1 min-h-0 overflow-hidden flex items-center justify-center p-4"
             onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
             onTouchEnd={(e) => {
               const start = touch.current;
