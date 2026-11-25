@@ -477,6 +477,20 @@ describe('Ops → Ads', () => {
     expect(loose.querySelector('[aria-label="Fence stain"] [data-testid="work"]')!.textContent).toBe('Fence stain');
   });
 
+  it('Library: "By type of work" groups every photo, jobs\' too, each keeping its job chip', async () => {
+    const photo = (id: string, fileName: string, tags: string[], jobId?: string) => ({ id, kind: 'photo' as const, fileName, tags, jobId, createdAt: new Date().toISOString() });
+    jobs = [{ id: 'j1', name: 'Smith fence', photos: 1, createdAt: new Date().toISOString() }];
+    assets = [photo('f1', 'fence1.jpg', ['exterior', 'fence-stain'], 'j1'), photo('f2', 'fence2.jpg', ['exterior', 'fence-stain'])];
+    await render();
+    await tab('Library');
+    expect(document.body.querySelector('[aria-label="Not in a job"] [aria-label="Fence stain"] h4')!.textContent).toBe('Fence stain 1');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By type of work') as HTMLButtonElement).click());
+    const all = document.body.querySelector('[aria-label="By type of work"]')!;
+    expect(all.querySelector('[aria-label="Fence stain"] h4')!.textContent).toBe('Fence stain 2');
+    expect(all.textContent).toContain('Smith fence');
+    expect(document.body.querySelector('[data-testid="job"]')).toBeNull();
+  });
+
   it('Library: photos in their job boxes, quiet cards; a job is a tag in a photo\'s window; + job names one; an upload can carry one; a job is taken away', async () => {
     const photo = (id: string, fileName: string, tags: string[], jobId?: string) => ({ id, kind: 'photo' as const, fileName, tags, jobId, createdAt: new Date().toISOString() });
     // The job about to be added is already listed, as it is once the add comes back.

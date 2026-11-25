@@ -1002,10 +1002,13 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const open = (assets ?? []).find((a) => a.id === openId);
   const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
   // Photos not in a job, by type of work (a photo of two shows under its first); the rest after.
+  // By job (each job's box, then the rest by type of work), or every photo by type of work, jobs' too.
+  const [groupBy, setGroupBy] = useState<'job' | 'work'>('job');
+  const sorting = groupBy === 'work' ? photos : loose;
   const byWork = worksFor(trade)
-    .map((w) => [w, loose.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w)] as const)
+    .map((w) => [w, sorting.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w)] as const)
     .filter(([, list]) => list.length > 0);
-  const unsorted = loose.filter((a) => !a.tags.some((t) => worksFor(trade).includes(t)));
+  const unsorted = sorting.filter((a) => !a.tags.some((t) => worksFor(trade).includes(t)));
   // The filter row: the labels in use on photos, most used first; one picked shows only its photos.
   const [only, setOnly] = useState<string | null>(null);
   const inUse = Object.entries(
@@ -1122,14 +1125,34 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         </section>
       ) : view === 'photos' ? (
         <div className="space-y-5" aria-label="Library">
-          {jobs.map((j) => (
+          {worksFor(trade).length > 0 && (
+            <div className="inline-flex rounded-full bg-[#1A1A1A] border border-[#2A2A2A] p-1" role="group" aria-label="Group photos">
+              {(
+                [
+                  ['job', 'By job'],
+                  ['work', 'By type of work'],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={groupBy === v}
+                  onClick={() => setGroupBy(v)}
+                  className={`px-4 min-h-[36px] rounded-full text-sm ${groupBy === v ? 'bg-[#336699] text-white' : 'text-gray-400'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {groupBy === 'job' && jobs.map((j) => (
             <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
               {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
               {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}
             </JobGroup>
           ))}
-          <section className="space-y-2" aria-label="Not in a job">
-            {jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
+          <section className="space-y-2" aria-label={groupBy === 'work' ? 'By type of work' : 'Not in a job'}>
+            {groupBy === 'job' && jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
             {byWork.map(([work, list]) => (
               <div key={work} className="space-y-2" aria-label={workLabel(trade, work)}>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-200/80">
