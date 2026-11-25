@@ -1003,7 +1003,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
   // Photos not in a job, by type of work (a photo of two shows under its first); the rest after.
   // By job (each job's box, then the rest by type of work), or every photo by type of work, jobs' too.
-  const [groupBy, setGroupBy] = useState<'job' | 'work'>('job');
+  const [groupBy, setGroupBy] = useState<'job' | 'work'>('work');
   const sorting = groupBy === 'work' ? photos : loose;
   const byWork = worksFor(trade)
     .map((w) => [w, sorting.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w)] as const)

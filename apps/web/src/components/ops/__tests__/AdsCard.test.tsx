@@ -471,6 +471,7 @@ describe('Ops → Ads', () => {
     ];
     await render();
     await tab('Library');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By job') as HTMLButtonElement).click());
     const loose = document.body.querySelector('[aria-label="Not in a job"]')!;
     expect(Array.from(loose.querySelectorAll('h4')).map((h) => h.textContent)).toEqual(['Cabinets stained 1', 'Fence stain 2', 'No type of work yet']);
     expect(loose.querySelectorAll('[aria-label="Fence stain"] [data-testid="asset"]')).toHaveLength(2);
@@ -483,12 +484,14 @@ describe('Ops → Ads', () => {
     assets = [photo('f1', 'fence1.jpg', ['exterior', 'fence-stain'], 'j1'), photo('f2', 'fence2.jpg', ['exterior', 'fence-stain'])];
     await render();
     await tab('Library');
-    expect(document.body.querySelector('[aria-label="Not in a job"] [aria-label="Fence stain"] h4')!.textContent).toBe('Fence stain 1');
-    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By type of work') as HTMLButtonElement).click());
+    // It opens by type of work.
     const all = document.body.querySelector('[aria-label="By type of work"]')!;
     expect(all.querySelector('[aria-label="Fence stain"] h4')!.textContent).toBe('Fence stain 2');
     expect(all.textContent).toContain('Smith fence');
     expect(document.body.querySelector('[data-testid="job"]')).toBeNull();
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By job') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[aria-label="Not in a job"] [aria-label="Fence stain"] h4')!.textContent).toBe('Fence stain 1');
+    expect(document.body.querySelector('[data-testid="job"]')).not.toBeNull();
   });
 
   it('Library: photos in their job boxes, quiet cards; a job is a tag in a photo\'s window; + job names one; an upload can carry one; a job is taken away', async () => {
@@ -507,6 +510,7 @@ describe('Ops → Ads', () => {
     (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
     await render();
     await tab('Library');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By job') as HTMLButtonElement).click());
     const group = document.body.querySelector('[data-testid="job"]')!;
     expect(group.textContent).toContain('Smith kitchen');
     expect(group.textContent).toContain('2 photos · 1 before/after pair');
