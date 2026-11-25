@@ -252,43 +252,12 @@ beforeEach(() => {
 });
 
 describe('Ops → Ads', () => {
-  it('"Make an ad for…" starts one from a line and lists the latest with their private links', async () => {
-    requests = [
-      { ask: 'cabinet painting in Odessa', createdAt: new Date().toISOString(), stage: 'drawing', link: 'https://app.example/ads/abc' },
-      { ask: 'roof repair', createdAt: new Date().toISOString(), stage: 'failed', link: 'https://app.example/ads/def' },
-    ];
+  it('the top of the page goes straight to the tabs: no readiness strip, no "Make an ad for" box', async () => {
+    readiness = [{ key: 'keys', label: 'Services', ok: true, hard: true, tab: 'settings', detail: 'set' }];
     await render();
-    const box = document.body.querySelector('section[aria-label="Make an ad for"]')!;
-    expect(box.textContent).toContain('"cabinet painting in Odessa"');
-    expect(box.textContent).toContain('Drawing');
-    expect(box.textContent).toContain("Couldn't be made");
-    expect(box.querySelector('a[href="https://app.example/ads/abc"]')).not.toBeNull();
-    const field = box.querySelector('#make-an-ad') as HTMLInputElement;
-    await act(async () => type(field, 'paver patio in Midland'));
-    await act(async () => (box.querySelector('form') as HTMLFormElement).requestSubmit());
-    await flush();
-    expect(makeFor).toHaveBeenCalledWith('paver patio in Midland');
-    expect(field.value).toBe('');
-  });
-
-  it('the readiness strip says whether Monday will draft, and each check opens the tab that fixes it', async () => {
-    readiness = [
-      { key: 'keys', label: 'Services', ok: true, hard: true, tab: 'settings', detail: 'Claude and ElevenLabs are set' },
-      { key: 'library', label: 'Library', ok: true, hard: true, tab: 'library', detail: '5 files, 3 tagged by room' },
-      { key: 'hooks', label: 'Hooks', ok: false, hard: true, tab: 'hooks', detail: '1 active, need 2' },
-      { key: 'playbook', label: 'What works', ok: false, hard: false, tab: 'swipes', detail: 'None yet: load or search competitor ads' },
-      { key: 'meta', label: 'Meta account', ok: false, hard: false, tab: 'settings', detail: 'Token, ad account, page and ad set needed' },
-    ];
-    await render();
-    const strip = document.body.querySelector('[aria-label="Ready for Monday"]')!;
-    expect(strip.textContent).toContain('Monday will skip: Hooks. 1 active, need 2.');
-    await act(async () => (Array.from(strip.querySelectorAll('button')).find((b) => b.textContent?.includes('Hooks')) as HTMLButtonElement).click());
-    expect(document.body.querySelector('form[aria-label="New hook"]')).not.toBeNull();
-
-    readiness = readiness.map((c) => ({ ...c, ok: true }));
-    document.body.innerHTML = '';
-    await render();
-    expect(document.body.querySelector('[aria-label="Ready for Monday"]')!.textContent).toContain('Monday will draft.');
+    expect(document.body.querySelector('[aria-label="Ready for Monday"]')).toBeNull();
+    expect(document.body.querySelector('section[aria-label="Make an ad for"]')).toBeNull();
+    expect(document.body.querySelector('[role="tablist"][aria-label="Ads"]')).not.toBeNull();
   });
 
   it("shows the week's batch grouped by hook, approves both sizes at once or one at a time, rejects", async () => {
