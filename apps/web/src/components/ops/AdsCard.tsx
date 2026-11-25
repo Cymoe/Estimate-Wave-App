@@ -871,10 +871,10 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const jobs = useAdJobs<AdJob[]>(trade) ?? [];
   // Photos and clips are kept apart: clips have no jobs and no before or after.
   // Back from connecting Google Drive (or asked for by link): the clips, where its imports show.
-  const [view, setView] = useState<'photos' | 'clips'>(() => {
+  const [view, setView] = useState<'photos' | 'pairs' | 'clips'>(() => {
     try {
       const p = new URLSearchParams(window.location.search);
-      return p.get('view') === 'clips' || p.has('drive') ? 'clips' : 'photos';
+      return p.get('view') === 'clips' || p.has('drive') ? 'clips' : p.get('view') === 'pairs' ? 'pairs' : 'photos';
     } catch {
       return 'photos';
     }
@@ -988,6 +988,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const joined = photos.filter((a) => a.tags.includes('before') && a.tags.includes('after'));
   const paired = new Set(pairs.flatMap((p) => [p.before.id, p.after.id]));
   const needsAfter = photos.filter((a) => a.tags.includes('before') && !a.tags.includes('after') && !paired.has(a.id));
+  const loneAfters = photos.filter((a) => a.tags.includes('after') && !a.tags.includes('before') && !paired.has(a.id));
   // Photos not in a job, by type of work (a photo of two shows under its first); the rest after.
   // By job (each job's box, then the rest by type of work), or every photo by type of work, jobs' too.
   const [groupBy, setGroupBy] = useState<'job' | 'work'>('work');
@@ -1001,6 +1002,8 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const order = (
     view === 'clips'
       ? clips
+      : view === 'pairs'
+      ? [...joined, ...needsAfter, ...(selecting ? loneAfters : [])]
       : groupBy === 'work'
       ? sortedWork
       : [...jobs.flatMap((j) => photos.filter((a) => a.jobId === j.id)), ...sortedWork]
@@ -1045,6 +1048,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           {(
             [
               ['photos', `Photos ${photos.length}`],
+              ['pairs', `Before & after ${pairs.length + joined.length}`],
               ['clips', `Clips ${clips.length}`],
             ] as const
           ).map(([v, label]) => (
@@ -1083,7 +1087,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           </div>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {view === 'photos' && photos.length > 0 && (
+          {view !== 'clips' && photos.length > 0 && (
             <button type="button" className="px-3 min-h-[36px] rounded-lg text-sm text-gray-300 [@media(hover:hover)]:hover:text-white" aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
               {selecting ? 'Cancel' : 'Select'}
             </button>
@@ -1099,17 +1103,20 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         </div>
       </div>
       {sending && <SendingBar s={sending} />}
-      {selecting && <p className="text-xs text-gray-500">Tap the photos from one job, then tap its job tag below. Or pick two to pair them as a before and after.</p>}
+      {selecting && (
+        <p className="text-xs text-gray-500">
+          {view === 'pairs' ? 'Pick a before and its after, then tap Pair these two.' : 'Tap the photos from one job, then tap its job tag below. Or pick two to pair them as a before and after.'}
+        </p>
+      )}
       {assets === undefined ? (
         <p className="text-sm text-gray-500">Loading…</p>
-      ) : view === 'photos' ? (
-        <div className="space-y-5" aria-label="Library">
-          {!selecting && pairs.length + joined.length > 0 && (
-            <section className="space-y-2" aria-label="Before & after">
-              <h3 className="text-sm font-semibold text-gray-300">
-                Before &amp; after <span className="text-gray-500 font-normal">{pairs.length + joined.length}</span>
-              </h3>
-              <ul className={grid}>
+      ) : view === 'pairs' ? (
+        <div className="space-y-5" aria-label="Before & after">
+          {pairs.length + joined.length === 0 ? (
+            <p className="text-sm text-gray-500">No befores and afters yet. Claude pairs them as photos come in. You can also pick two in Select.</p>
+          ) : (
+            !selecting && (
+              <ul className={grid} aria-label="Pairs">
                 {pairs.map((p) => (
                   <PairTile key={p.key} p={p} onOpen={() => setOpenPair(p.key)} />
                 ))}
@@ -1117,20 +1124,28 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
                   <PairTile key={a.id} p={{ key: a.id, before: a }} onOpen={() => setOpenId(a.id)} />
                 ))}
               </ul>
-            </section>
+            )
           )}
           {needsAfter.length > 0 && (
-            <details className="group rounded-lg border border-[#2A2A2A] bg-[#121212]">
-              <summary className="cursor-pointer list-none px-3 min-h-[44px] flex items-center gap-2 text-sm text-gray-300">
-                <ChevronRight className="w-4 h-4 text-gray-500 transition-transform group-open:rotate-90" />
-                Befores with no after yet <span className="text-gray-500">{needsAfter.length}</span>
-                <span className="ml-auto text-xs text-gray-500 hidden sm:inline">Shoot these spots when the job's done</span>
-              </summary>
-              <ul className={`${grid} p-3 pt-0`} aria-label="Befores with no after yet">
-                {needsAfter.map((a) => tile(a))}
-              </ul>
-            </details>
+            <section className="space-y-2" aria-label="Befores with no after yet">
+              <h3 className="text-sm font-semibold text-gray-300">
+                Befores with no after yet <span className="text-gray-500 font-normal">{needsAfter.length}</span>
+              </h3>
+              <p className="text-xs text-gray-500">Shoot these spots when the job's done, or pick one with its after in Select to pair them.</p>
+              <ul className={grid}>{needsAfter.map((a) => tile(a))}</ul>
+            </section>
           )}
+          {selecting && loneAfters.length > 0 && (
+            <section className="space-y-2" aria-label="Afters with no before">
+              <h3 className="text-sm font-semibold text-gray-300">
+                Afters with no before <span className="text-gray-500 font-normal">{loneAfters.length}</span>
+              </h3>
+              <ul className={grid}>{loneAfters.map((a) => tile(a))}</ul>
+            </section>
+          )}
+        </div>
+      ) : view === 'photos' ? (
+        <div className="space-y-5" aria-label="Library">
           {groupBy === 'job' && jobs.map((j) => (
             <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
               {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}

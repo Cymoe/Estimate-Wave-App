@@ -568,8 +568,12 @@ describe('Ops → Ads', () => {
     ];
     await render();
     await tab('Library');
-    const group = document.body.querySelector('[aria-label="Before & after"]')!;
-    expect(group.querySelector('h3')!.textContent).toContain('3');
+    // Its own place in the Show switch, with how many; the Photos view doesn't carry it.
+    expect(document.body.querySelector('[aria-label="Pairs"]')).toBeNull();
+    const show = Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith('Before & after')) as HTMLButtonElement;
+    expect(show.textContent).toBe('Before & after 3');
+    await act(async () => show.click());
+    const group = document.body.querySelector('[aria-label="Pairs"]')!;
     const tiles = Array.from(group.querySelectorAll('[data-testid="pair"]')).map((t) => t.textContent);
     expect(tiles.some((t) => t!.includes('Fence stain') && t!.includes('Paired by Claude'))).toBe(true);
     expect(tiles.some((t) => t!.includes('Paired by you'))).toBe(true);
@@ -577,6 +581,7 @@ describe('Ops → Ads', () => {
     // A before with no after yet is listed apart, so it can be shot.
     const lone = document.body.querySelector('[aria-label="Befores with no after yet"]')!;
     expect(lone.querySelectorAll('[data-testid="asset"]')).toHaveLength(1);
+    expect(document.body.querySelector('[aria-label="By type of work"]')).toBeNull();
     // A pair opens side by side, with its fixes.
     await act(async () => (group.querySelector('[aria-label="Open the before and after: fence-before.jpg"]') as HTMLButtonElement).click());
     expect(dialog().textContent).toContain('Claude paired these');
@@ -594,7 +599,9 @@ describe('Ops → Ads', () => {
     await closeDialog();
     // Select two: "Pair these two".
     await act(async () => byText('Select')!.click());
-    expect(document.body.querySelector('[aria-label="Before & after"]')).toBeNull();
+    expect(document.body.querySelector('[aria-label="Pairs"]')).toBeNull();
+    // While picking, the afters with no before show too.
+    expect(document.body.querySelector('[aria-label="Afters with no before"]')!.textContent).toContain('1');
     const pickIt = (f: string) => act(async () => (document.body.querySelector(`[aria-label="Pick ${f}"]`) as HTMLButtonElement).click());
     await pickIt('kitchen-before.jpg');
     expect(byText('Pair these two as a before and after')).toBeFalsy();
