@@ -46,6 +46,9 @@ const TradeContext = createContext<string>(DEFAULT_TRADE);
 const useTrade = () => useContext(TradeContext);
 /** What a photo or a hook of a trade can be about: its own subjects, then the crew and the work in progress. */
 const scopesFor = (trade: string) => [...tradeOf(trade).scopes, 'crew', 'process'];
+/** The trade's types of work (stained cabinets, fence stain...), as tags, in its own order. */
+const worksFor = (trade: string) => Object.keys(tradeOf(trade).works ?? {});
+const workLabel = (trade: string, w: string) => tradeOf(trade).works?.[w]?.label ?? w;
 const TRADE_KEY = 'ads.trade';
 function rememberedTrade(): string {
   try {
@@ -998,6 +1001,11 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const clips = (assets ?? []).filter((a) => a.kind === 'video');
   const open = (assets ?? []).find((a) => a.id === openId);
   const loose = photos.filter((a) => !a.jobId || !jobs.some((j) => j.id === a.jobId));
+  // Photos not in a job, by type of work (a photo of two shows under its first); the rest after.
+  const byWork = worksFor(trade)
+    .map((w) => [w, loose.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w)] as const)
+    .filter(([, list]) => list.length > 0);
+  const unsorted = loose.filter((a) => !a.tags.some((t) => worksFor(trade).includes(t)));
   // The filter row: the labels in use on photos, most used first; one picked shows only its photos.
   const [only, setOnly] = useState<string | null>(null);
   const inUse = Object.entries(
@@ -1122,8 +1130,17 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           ))}
           <section className="space-y-2" aria-label="Not in a job">
             {jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
+            {byWork.map(([work, list]) => (
+              <div key={work} className="space-y-2" aria-label={workLabel(trade, work)}>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-200/80">
+                  {workLabel(trade, work)} <span className="text-gray-500">{list.length}</span>
+                </h4>
+                <ul className={grid}>{list.map((a) => tile(a))}</ul>
+              </div>
+            ))}
+            {byWork.length > 0 && unsorted.length > 0 && <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">No type of work yet</h4>}
             <ul className={grid}>
-              {loose.map((a) => tile(a))}
+              {unsorted.map((a) => tile(a))}
               {!selecting && <AddTile label="Add photos" photos onFiles={(files) => addHere(files)} />}
             </ul>
           </section>
@@ -1263,6 +1280,7 @@ const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: 
   act,
   pick,
 }) => {
+  const trade = useTrade();
   const job = jobs.find((j) => j.id === a.jobId);
   return (
     <li
@@ -1299,11 +1317,20 @@ const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: 
         </div>
         <div className="p-2 flex flex-wrap gap-1 min-h-[2.25rem]">
           {job && <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-[#7c5cc4] text-white">{job.name}</span>}
-          {a.tags.map((t) => (
-            <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-[#336699]/30 text-sky-200">
-              {t}
-            </span>
-          ))}
+          {a.tags
+            .filter((t) => worksFor(trade).includes(t))
+            .map((t) => (
+              <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-amber-500/25 text-amber-200" data-testid="work">
+                {workLabel(trade, t)}
+              </span>
+            ))}
+          {a.tags
+            .filter((t) => !worksFor(trade).includes(t))
+            .map((t) => (
+              <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-[#336699]/30 text-sky-200">
+                {t}
+              </span>
+            ))}
           {a.tags.length === 0 && <span className="text-[10px] text-amber-300">No tags yet</span>}
           {a.tags.length > 0 && suggestsOther(a) && (
             <span className="text-[10px] text-sky-300" data-testid="suggested-mark">
@@ -1339,7 +1366,7 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
   const trade = useTrade();
   return (
     <div className="flex flex-wrap gap-2" aria-label={label}>
-      {[...scopesFor(trade), ...(photo ? ['before', 'after'] : [])].map((t) => (
+      {[...scopesFor(trade), ...(photo ? ['before', 'after'] : []), ...worksFor(trade)].map((t) => (
         <button
           key={t}
           type="button"
@@ -1347,7 +1374,7 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
           onClick={() => onChange(value.includes(t) ? value.filter((x) => x !== t) : [...value, t])}
           className={`px-3.5 min-h-[40px] text-sm rounded-lg border ${value.includes(t) ? 'bg-[#336699] border-[#336699] text-white' : 'border-[#333] text-gray-300'}`}
         >
-          {t}
+          {worksFor(trade).includes(t) ? workLabel(trade, t) : t}
         </button>
       ))}
     </div>

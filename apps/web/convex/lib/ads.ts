@@ -30,6 +30,24 @@ export interface AdTrade {
   items: readonly string[];
   /** Searches that find its competitors' ads. */
   keywords: readonly string[];
+  /**
+   * The types of work it does, finer than its scopes (stained cabinets, fence staining, LVP...): a photo is tagged
+   * with them, and an ad whose idea names one shows only photos of that work. Each belongs to one scope.
+   */
+  works?: Record<string, WorkType>;
+}
+
+/** One type of work a trade does (AdTrade.works). */
+export interface WorkType {
+  label: string;
+  /** The scope it is part of: a photo of it is also a photo of that scope. */
+  scope: string;
+  /** How Claude tells it apart in a photo. */
+  looks: string;
+  /** Words that name it in an idea ("stained fence", "LVP"). */
+  words: RegExp;
+  /** A work type whose words, when also named, mean this one isn't (stained cabinets aren't painted ones). */
+  not?: string;
 }
 
 export const AD_TRADES: Record<string, AdTrade> = {
@@ -46,8 +64,72 @@ export const AD_TRADES: Record<string, AdTrade> = {
       "shelves", "stairs and railing", "fireplace", "windows",
       "front door", "garage door", "siding", "brick", "stucco", "fascia and soffit", "shutters", "porch", "deck", "fence", "columns",
       "kitchen", "bathroom", "bedroom", "living room", "hallway", "entry", "garage",
+      "balusters", "floor",
     ],
     keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+    works: {
+      "interior-walls": {
+        label: "Interior walls",
+        scope: "interior",
+        looks: "painted walls and ceilings inside a room",
+        words: /\b(interior (paint|repaint)\w*|paint\w* (the |your |a )?(walls?|ceilings?|rooms?|interior)|(walls?|ceilings?|rooms?) (paint|repaint)\w*)\b/,
+      },
+      "cabinets-painted": {
+        label: "Cabinets painted",
+        scope: "cabinets",
+        looks: "cabinets or a vanity painted a solid colour (no wood grain showing)",
+        words: /\bcabinet|vanit(y|ies)\b/,
+        not: "cabinets-stained",
+      },
+      "cabinets-stained": {
+        label: "Cabinets stained",
+        scope: "cabinets",
+        looks: "cabinets with a wood stain, the grain showing through",
+        words: /\bstain\w* (the |your |kitchen )?cabinets?|cabinets? (stain|restain)\w*|wood cabinets?\b/,
+      },
+      doors: {
+        label: "Doors",
+        scope: "interior",
+        looks: "a door painted or stained, inside or the front door",
+        words: /\b(front |interior |entry )?doors?\b/,
+      },
+      "stairs-balusters": {
+        label: "Stairs and balusters",
+        scope: "interior",
+        looks: "a staircase, its railing, balusters or spindles",
+        words: /\b(balusters?|spindles?|banisters?|stair\w*|railings?|handrails?)\b/,
+      },
+      "flooring-lvp": {
+        label: "Flooring (LVP)",
+        scope: "interior",
+        looks: "new floor laid, luxury vinyl plank (LVP) or similar",
+        words: /\b(lvp|luxury vinyl|vinyl plank|flooring|new floors?|floors? (install|replace)\w*)\b/,
+      },
+      "exterior-repaint": {
+        label: "Exterior repaint",
+        scope: "exterior",
+        looks: "the outside of a house painted: siding, trim, fascia, garage door",
+        words: /\b(exterior (house )?(paint|repaint)\w*|house paint\w*|(paint|repaint)\w* (the |your |a )?(house|home|exterior|siding)|siding)\b/,
+      },
+      brick: {
+        label: "Brick painted or sealed",
+        scope: "exterior",
+        looks: "brick painted, limewashed or sealed",
+        words: /\b(brick|limewash\w*|masonry)\b/,
+      },
+      "fence-stain": {
+        label: "Fence stain",
+        scope: "exterior",
+        looks: "a wood fence with a fresh stain",
+        words: /\b(stain\w* (the |your |a )?fences?|fences? (stain|restain|seal)\w*)\b/,
+      },
+      "fence-build": {
+        label: "Fence built or repaired",
+        scope: "exterior",
+        looks: "a fence being built, new pickets or posts, or a repaired fence",
+        words: /\b(fence (build|install|repair|replace)\w*|(build|install|repair|replace)\w* (a |the |your )?fences?|new fences?)\b/,
+      },
+    },
   },
   "outdoor-construction": {
     slug: "outdoor-construction",
@@ -83,7 +165,28 @@ export const tradeOf = (slug?: string | null): AdTrade => AD_TRADES[slug ?? DEFA
 /** Whether something filed with no trade, or with this one, belongs to this trade. */
 export const inTrade = (row: { trade?: string }, slug?: string | null): boolean => (row.trade ?? DEFAULT_TRADE) === tradeOf(slug).slug;
 /** Every tag a photo of this trade may carry. */
-export const assetTagsOf = (trade: AdTrade): string[] => [...trade.scopes, "crew", "process", "before", "after"];
+export const assetTagsOf = (trade: AdTrade): string[] => [...trade.scopes, ...Object.keys(trade.works ?? {}), "crew", "process", "before", "after"];
+/** The trade's types of work, as tags a photo can carry. */
+export const worksOf = (trade: AdTrade): string[] => Object.keys(trade.works ?? {});
+/** A photo's types of work, from its tags. */
+export const workTags = (tags: readonly string[], trade: AdTrade): string[] => tags.filter((t) => trade.works?.[t]);
+/**
+ * A photo's tags with each type of work's scope added when the photo has no scope yet (a stained fence is exterior
+ * work), so an idea about the scope still finds it.
+ */
+export function withWorkScopes(tags: string[], trade: AdTrade): string[] {
+  if (tags.some((t) => trade.scopes.includes(t))) return tags;
+  const scopes = workTags(tags, trade).map((w) => trade.works![w].scope);
+  return [...new Set([...tags, ...scopes])];
+}
+/** The types of work an idea's words name ("a fence staining ad" names fence-stain), most specific kept. */
+export function worksIn(text: string, trade: AdTrade): string[] {
+  const words = text.toLowerCase();
+  const named = Object.entries(trade.works ?? {})
+    .filter(([, w]) => w.words.test(words))
+    .map(([k]) => k);
+  return named.filter((k) => !(trade.works![k].not && named.includes(trade.works![k].not!)));
+}
 /** What a hook or an idea of this trade may be about. */
 export const scopesOf = (trade: AdTrade): string[] => [...trade.scopes, "crew", "process"];
 
@@ -258,6 +361,7 @@ export function pickAssets<A extends AssetRow>(
   max = MAX_CANDIDATES,
   prefer: string[] = [],
   want: string[] = [],
+  works: string[] = [],
 ): { assets: A[]; inScope: boolean } {
   // What the idea names (front door, fence...) first; then the playbook's footage preferences: an asset carrying an
   // earlier preferred tag sorts first, then least used, then newest.
@@ -269,10 +373,23 @@ export function pickAssets<A extends AssetRow>(
   const fresh = assets
     .filter((a) => !used.has(a._id))
     .sort((a, b) => preference(a) - preference(b) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt));
+  // An idea that names a type of work (a stained fence, LVP) shows only photos of that work, when there are enough
+  // of them to choose from; with fewer, they go first.
+  const ofWork = works.length ? fresh.filter((a) => a.tags.some((t) => works.includes(t))) : [];
+  if (ofWork.length >= WORK_MIN) return pickFrom(ofWork, max, true);
+  if (ofWork.length) fresh.sort((a, b) => Number(ofWork.includes(b)) - Number(ofWork.includes(a)));
   // An idea about painting in general can be carried by any photo.
   const inScopeAssets = scope === ANY_SCOPE ? fresh : fresh.filter((a) => a.tags.includes(scope));
   const inScope = inScopeAssets.length > 0;
   const pool = inScope ? inScopeAssets : fresh.filter((a) => a.tags.includes("process") || a.tags.includes("crew"));
+  return pickFrom(pool, max, inScope);
+}
+
+/** The fewest photos of a type of work an idea names for its ad to show only that work. */
+export const WORK_MIN = 3;
+
+/** Before/after pairs first, then up to JOINED_FIRST images holding both, then the rest, in the pool's order. */
+function pickFrom<A extends AssetRow>(pool: A[], max: number, inScope: boolean): { assets: A[]; inScope: boolean } {
   const groups = new Map<string, A[]>();
   for (const a of pool) if (a.pairKey) groups.set(a.pairKey, [...(groups.get(a.pairKey) ?? []), a]);
   const pairs: Array<[A, A]> = [];
@@ -308,17 +425,20 @@ export function pickJob<A extends AssetRow>(
   used: Set<string>,
   max = REEL_CANDIDATES,
   want: string[] = [],
+  works: string[] = [],
 ): { jobId: string; assets: A[] } | null {
   const jobs = new Map<string, A[]>();
   for (const a of assets) if (a.jobId) jobs.set(a.jobId, [...(jobs.get(a.jobId) ?? []), a]);
   const hasBoth = (ps: A[]) => ps.some((p) => p.tags.includes("before")) && ps.some((p) => p.tags.includes("after"));
   // A job showing what the idea names (its front door, its fence) goes first.
   const shows = (ps: A[]) => want.length > 0 && ps.some((p) => (p.items ?? []).some((i) => want.includes(i)));
+  // A job of the type of work the idea names (fence staining) goes before all others.
+  const ofWork = (ps: A[]) => works.length > 0 && ps.some((p) => p.tags.some((t) => works.includes(t)));
   const uses = (ps: A[]) => ps.reduce((n, p) => n + (p.uses ?? 0), 0) / ps.length;
   const newest = (ps: A[]) => ps.reduce((d, p) => (p.createdAt > d ? p.createdAt : d), "");
   const fits = [...jobs]
     .filter(([, ps]) => ps.length >= JOB_MIN && !ps.some((p) => used.has(p._id)) && (scope === ANY_SCOPE || ps.some((p) => p.tags.includes(scope))))
-    .sort(([, x], [, y]) => Number(shows(y)) - Number(shows(x)) || Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
+    .sort(([, x], [, y]) => Number(ofWork(y)) - Number(ofWork(x)) || Number(shows(y)) - Number(shows(x)) || Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
   if (fits.length === 0) return null;
   const [jobId, photos] = fits[0];
   return { jobId, assets: jobInOrder(photos, max) };
@@ -540,6 +660,12 @@ export const describePrompt = (trade: AdTrade): string =>
     `This is a photo (or a still from a video) a ${trade.contractor} took on a job. It will be used in ads.`,
     `Describe what is visible in one plain sentence of at most 30 words: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
     `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
+    ...(trade.works
+      ? [
+          "Also tag the type of work it shows (one or more, only when clear):",
+          ...Object.entries(trade.works).map(([k, w]) => `- ${k}: ${w.looks}`),
+        ]
+      : []),
     `Then list what the photo shows, from this list only, every one that is clearly in it (the things worked on, and the room): ${trade.items.join(", ")}.`,
     'Return only JSON: {"description":"...","tags":["..."],"items":["..."]}',
   ].join("\n");

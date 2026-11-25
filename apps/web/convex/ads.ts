@@ -65,6 +65,9 @@ import {
   AD_TRADES,
   DEFAULT_TRADE,
   assetTagsOf,
+  withWorkScopes,
+  workTags,
+  worksIn,
   describePrompt,
   inTrade,
   scopesOf,
@@ -336,18 +339,30 @@ export const setPoster = mutation({
 });
 
 export const saveDescription = internalMutation({
-  args: { id: v.id("adAssets"), description: v.string(), suggestedTags: v.array(v.string()), items: v.optional(v.array(v.string())) },
-  handler: async (ctx, { id, description, suggestedTags, items }) => {
+  args: {
+    id: v.id("adAssets"),
+    description: v.string(),
+    suggestedTags: v.array(v.string()),
+    items: v.optional(v.array(v.string())),
+    // From labelWorks: a tagged photo with no type of work yet takes the ones Claude saw.
+    addWorks: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { id, description, suggestedTags, items, addWorks }) => {
     const a = await ctx.db.get(id);
     if (a === null) return;
     // Its labels (doors, trim...) are Claude's until a person fixes them; a fixed list stays.
     if (items && !a.itemsSetByPerson) await ctx.db.patch(id, { items });
     // An upload nobody tagged takes Claude's tags; tags a person chose stay, with the suggestion shown beside them.
     const takes = a.tags.length === 0 && suggestedTags.length > 0;
+    // Types of work were added after most photos were tagged: one tagged before gets them, its own tags kept.
+    const trade = tradeOf(a.trade);
+    const works = workTags(suggestedTags, trade);
+    const addsWorks = !takes && addWorks && works.length > 0 && workTags(a.tags, trade).length === 0;
     await ctx.db.patch(id, {
       description: description.slice(0, 300),
       suggestedTags,
       ...(takes ? { tags: suggestedTags } : {}),
+      ...(addsWorks ? { tags: withWorkScopes([...a.tags, ...works], trade) } : {}),
     });
     // Its before or after tag may have just arrived: its job's pairs are looked at again.
     if (takes && a.jobId) await askPairing(ctx, a.jobId);
@@ -357,9 +372,10 @@ export const saveDescription = internalMutation({
 /** Asks Claude what an uploaded photo or clip shows, and which tags it would give it. */
 export const describeAsset = internalAction({
   // tries: how many looks at this file Claude has already turned away.
-  args: { id: v.id("adAssets"), tries: v.optional(v.number()) },
+  // works: from labelWorks, so a photo tagged before types of work existed gets its own.
+  args: { id: v.id("adAssets"), tries: v.optional(v.number()), works: v.optional(v.boolean()) },
   // What came of it, in a few words: for lookOnce, to see why a file has no labels.
-  handler: async (ctx, { id, tries = 0 }): Promise<string> => {
+  handler: async (ctx, { id, tries = 0, works }): Promise<string> => {
     const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
     if (!a?.imageUrl || !process.env.ANTHROPIC_API_KEY) return "nothing to look at";
     try {
@@ -373,8 +389,18 @@ export const describeAsset = internalAction({
       );
       const out = parseJson<{ description?: string; tags?: string[]; items?: unknown }>(reply);
       if (!out?.description) return `reply not read: ${reply.slice(0, 300)}`;
-      const suggestedTags = [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(tradeOf(a.trade)).includes(t));
-      await ctx.runMutation(internal.ads.saveDescription, { id, description: out.description, suggestedTags, items: cleanItems(out.items, tradeOf(a.trade)) });
+      const trade = tradeOf(a.trade);
+      const suggestedTags = withWorkScopes(
+        [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(trade).includes(t)),
+        trade,
+      );
+      await ctx.runMutation(internal.ads.saveDescription, {
+        id,
+        description: out.description,
+        suggestedTags,
+        items: cleanItems(out.items, trade),
+        ...(works ? { addWorks: true } : {}),
+      });
       return "saved";
     } catch (e) {
       const why = errText(e);
@@ -382,7 +408,7 @@ export const describeAsset = internalAction({
       // Claude busy, or asked too fast (many files at once), or the picture didn't reach it: looked at again a
       // little later, three more times at most.
       if (tries < 3 && /^Claude: (429|5\d\d)\b|download|fetch failed|timed? ?out/i.test(why))
-        await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1 });
+        await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1, ...(works ? { works } : {}) });
       return `error: ${why}`;
     }
   },
@@ -713,6 +739,28 @@ export const labelLibrary = internalMutation({
       asked += 1;
     }
     return { asked };
+  },
+});
+
+/**
+ * Has Claude look again at every library photo of a trade with types of work that has none yet, from the
+ * deployment (once, after types of work were added): each gets the types Claude sees, its own tags kept
+ * (saveDescription). Three seconds apart, 200 a page, each page asking for the next.
+ */
+export const labelWorks = internalMutation({
+  args: { cursor: v.optional(v.string()), asked: v.optional(v.number()) },
+  handler: async (ctx, { cursor, asked = 0 }) => {
+    if (!process.env.ANTHROPIC_API_KEY) return { asked: 0, done: true };
+    const page = await ctx.db.query("adAssets").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let here = 0;
+    for (const a of page.page) {
+      const trade = tradeOf(a.trade);
+      if (!trade.works || workTags(a.tags, trade).length > 0) continue;
+      await ctx.scheduler.runAfter(here * 3000, internal.ads.describeAsset, { id: a._id, works: true });
+      here += 1;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(here * 3000, internal.ads.labelWorks, { cursor: page.continueCursor, asked: asked + here });
+    return { asked: asked + here, done: page.isDone };
   },
 });
 
@@ -3751,7 +3799,9 @@ export const weeklyRun = internalAction({
         // week's ads each keep to photos the others haven't used.
         // What the idea names (a front door, a fence) is offered first.
         const want = itemsIn(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`, trade);
-        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? [], want);
+        // The type of work it names (fence staining, stained cabinets): only photos of that work, when there are enough.
+        const works = worksIn(hook.textEn, trade);
+        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? [], want, works);
         // An ad made for one job's photo shows that job only: the photo, and its pair if it has one. Other jobs' work would pass for this one.
         const lead = hook.photoId ? photos.find((a: { _id: string }) => a._id === hook.photoId) : undefined;
         if (lead) {
@@ -3769,7 +3819,7 @@ export const weeklyRun = internalAction({
           : jobId
             ? { jobId: String(jobId), assets: jobInOrder(photos.filter((a: { jobId?: string }) => a.jobId === jobId)) }
             : shape !== "explainer"
-              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, want)
+              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, want, works)
               : null;
         if (job) {
           picked.assets.splice(0, picked.assets.length, ...job.assets);

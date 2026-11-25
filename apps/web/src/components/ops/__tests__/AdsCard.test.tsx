@@ -460,6 +460,23 @@ describe('Ops → Ads', () => {
     expect(rows[1].querySelector('button')).toBeNull();
   });
 
+  it('Library: photos not in a job are grouped by type of work, each named on its card', async () => {
+    const photo = (id: string, fileName: string, tags: string[]) => ({ id, kind: 'photo' as const, fileName, tags, createdAt: new Date().toISOString() });
+    jobs = [];
+    assets = [
+      photo('f1', 'fence1.jpg', ['exterior', 'fence-stain', 'after']),
+      photo('c1', 'cab1.jpg', ['cabinets', 'cabinets-stained']),
+      photo('f2', 'fence2.jpg', ['exterior', 'fence-stain']),
+      photo('x1', 'other.jpg', ['interior']),
+    ];
+    await render();
+    await tab('Library');
+    const loose = document.body.querySelector('[aria-label="Not in a job"]')!;
+    expect(Array.from(loose.querySelectorAll('h4')).map((h) => h.textContent)).toEqual(['Cabinets stained 1', 'Fence stain 2', 'No type of work yet']);
+    expect(loose.querySelectorAll('[aria-label="Fence stain"] [data-testid="asset"]')).toHaveLength(2);
+    expect(loose.querySelector('[aria-label="Fence stain"] [data-testid="work"]')!.textContent).toBe('Fence stain');
+  });
+
   it('Library: photos in their job boxes, quiet cards; a job is a tag in a photo\'s window; + job names one; an upload can carry one; a job is taken away', async () => {
     const photo = (id: string, fileName: string, tags: string[], jobId?: string) => ({ id, kind: 'photo' as const, fileName, tags, jobId, createdAt: new Date().toISOString() });
     // The job about to be added is already listed, as it is once the add comes back.

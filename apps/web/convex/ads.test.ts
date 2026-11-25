@@ -31,6 +31,9 @@ import {
   parseCsv,
   parseJson,
   pickAssets,
+  assetTagsOf,
+  withWorkScopes,
+  worksIn,
   pickJob,
   jobInOrder,
   pickExamples,
@@ -1165,6 +1168,51 @@ describe("the library, hooks and settings", () => {
     // Removing the file removes its small copy too.
     await staff.as.mutation(api.ads.removeAsset, { id: a });
     expect(await t.run(async (ctx) => await ctx.db.system.get(next))).toBeNull();
+  });
+
+  test("types of work: named in ideas, a photo's scope follows its work, an ad shows only that work, and the old library gets them", async () => {
+    const painting = AD_TRADES.painting;
+    expect(worksIn("Fence staining that lasts through a Texas summer", painting)).toEqual(["fence-stain"]);
+    expect(worksIn("We stain kitchen cabinets so the grain shows", painting)).toEqual(["cabinets-stained"]);
+    expect(worksIn("Dated oak cabinets? We paint them white", painting)).toEqual(["cabinets-painted"]);
+    expect(worksIn("New LVP flooring in a weekend", painting)).toEqual(["flooring-lvp"]);
+    expect(worksIn("Painted balusters and a fresh handrail", painting)).toEqual(["stairs-balusters"]);
+    expect(worksIn("Brick sealed and limewashed", painting)).toEqual(["brick"]);
+    expect(worksIn("Make your house look new again", painting)).toEqual([]);
+    // A photo of a type of work is also a photo of its scope, unless it already has one.
+    expect(withWorkScopes(["fence-stain", "after"], painting)).toEqual(["fence-stain", "after", "exterior"]);
+    expect(withWorkScopes(["doors", "exterior"], painting)).toEqual(["doors", "exterior"]);
+    expect(assetTagsOf(painting)).toEqual(expect.arrayContaining(["cabinets-stained", "fence-stain", "flooring-lvp"]));
+    // A fence-staining idea shows only stained fences when there are enough of them; with fewer, they go first.
+    const photo = (id: string, tags: string[], createdAt = "2026-10-01") => ({ _id: id, kind: "photo" as const, tags, createdAt });
+    const library = [
+      photo("house", ["exterior", "exterior-repaint"], "2026-10-09"),
+      photo("f1", ["exterior", "fence-stain"]),
+      photo("f2", ["exterior", "fence-stain"]),
+      photo("f3", ["exterior", "fence-stain"]),
+      photo("gate", ["exterior", "fence-build"], "2026-10-08"),
+    ];
+    expect(pickAssets(library, "exterior", new Set(), 6, [], [], ["fence-stain"]).assets.map((a) => a._id).sort()).toEqual(["f1", "f2", "f3"]);
+    expect(pickAssets(library, "exterior", new Set(["f2", "f3"]), 6, [], [], ["fence-stain"]).assets.map((a) => a._id)[0]).toBe("f1");
+    expect(pickAssets(library, "exterior", new Set()).assets).toHaveLength(5);
+
+    // The old library: a photo tagged before types of work keeps its tags and gains the one Claude sees.
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    stubServices([], { describe: { description: "A cedar fence with fresh stain.", tags: ["exterior", "after", "fence-stain"], items: ["fence"] } });
+    const insert = (tags: string[]) =>
+      t.run(async (ctx) =>
+        ctx.db.insert("adAssets", { storageId: await ctx.storage.store(new Blob(["x"], { type: "image/jpeg" })), kind: "photo", fileName: "fence.jpg", contentType: "image/jpeg", size: 1, tags, uploadedBy: staff.userId, createdAt: new Date().toISOString() }),
+      );
+    const old = await insert(["exterior", "after"]);
+    const sorted = await insert(["exterior", "fence-build"]);
+    vi.useFakeTimers();
+    expect(await t.mutation(internal.ads.labelWorks, {})).toEqual({ asked: 1, done: true });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect((await t.run(async (ctx) => await ctx.db.get(old)))!.tags).toEqual(["exterior", "after", "fence-stain"]);
+    expect((await t.run(async (ctx) => await ctx.db.get(sorted)))!.tags).toEqual(["exterior", "fence-build"]);
   });
 
   test("an upload is labelled by Claude with what it shows; a person's fix sticks; the old library is labelled once", async () => {
