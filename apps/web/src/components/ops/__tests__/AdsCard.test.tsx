@@ -189,7 +189,7 @@ function type(el: HTMLInputElement, value: string) {
 
 /** Opens a library file's window, or the upload window. */
 const openFile = (fileName: string) => act(async () => (document.body.querySelector(`[aria-label="Open ${fileName}"]`) as HTMLButtonElement).click());
-const openAdd = () => act(async () => byText('Add photos or clips')!.click());
+const openAdd = () => act(async () => (document.body.querySelector('[aria-label="Add photos or clips"]') as HTMLButtonElement).click());
 const dialog = () => document.body.querySelector('[role="dialog"]') as HTMLElement;
 const closeDialog = () => act(async () => (dialog().querySelector('[aria-label="Close"]') as HTMLButtonElement).click());
 
@@ -400,14 +400,16 @@ describe('Ops → Ads', () => {
     ideas = { round: null, ideas: [] };
     asked.length = 0;
     await render();
-    const pick = (label: string) =>
-      Array.from(document.body.querySelector('[aria-label="Trade"]')!.querySelectorAll('button')).find((b) => b.textContent === label) as HTMLButtonElement;
-    expect(pick('Painting').getAttribute('aria-pressed')).toBe('true');
+    const trade = () => document.body.querySelector('select[aria-label="Trade"]') as HTMLSelectElement;
+    expect(trade().value).toBe('painting');
     expect(asked).toContain('ideas:painting');
     expect(asked).toContain('batches:painting');
 
-    await act(async () => pick('Hardscaping').click());
-    expect(pick('Hardscaping').getAttribute('aria-pressed')).toBe('true');
+    await act(async () => {
+      trade().value = 'outdoor-construction';
+      trade().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(trade().value).toBe('outdoor-construction');
     expect(asked).toContain('ideas:outdoor-construction');
     expect(asked).toContain('batches:outdoor-construction');
     await act(async () => byText('Get ad ideas')!.click());
@@ -843,9 +845,10 @@ describe('Ops → Ads', () => {
     await flush();
     expect(addAsset).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'sink.jpg', jobId: 'j1', tags: [] }));
     expect(document.body.textContent).toContain('✓ Sent. You can leave this page: Claude tags it in the background.');
-    // The bar at the top adds with no job and no tags: Claude sorts them.
-    expect(document.body.querySelector('[data-testid="add-bar"]')!.textContent).toContain('Claude sorts each one by type of work');
-    const loose = document.body.querySelector('[data-testid="add-bar"] input[aria-label="Add photos"]') as HTMLInputElement;
+    // The Add window adds with no job and no tags: Claude sorts them.
+    await openAdd();
+    expect(dialog().textContent).toContain('Claude looks at each one and sorts it by type of work');
+    const loose = dialog().querySelector('input[aria-label="Upload photos or clips"]') as HTMLInputElement;
     Object.defineProperty(loose, 'files', { value: [new File(['x'], 'yard.jpg', { type: 'image/jpeg' })] });
     await act(async () => loose.dispatchEvent(new Event('change', { bubbles: true })));
     await flush();
@@ -1496,8 +1499,8 @@ describe('Ops → Ads', () => {
     await render();
     await tab('Library');
     const show = (label: string) => Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith(label)) as HTMLButtonElement;
-    expect(show('Photos').textContent).toBe('Photos (1)');
-    expect(show('Clips').textContent).toBe('Clips (1)');
+    expect(show('Photos').textContent).toBe('Photos 1');
+    expect(show('Clips').textContent).toBe('Clips 1');
     // A card shows the small copy, never the full photo.
     expect(document.body.querySelector('[aria-label="Open kitchen.jpg"] img')!.getAttribute('src')).toBe('https://cdn.example/p1-small.jpg');
     // Photos first: the clip isn't among them.

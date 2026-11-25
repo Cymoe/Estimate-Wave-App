@@ -310,35 +310,36 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
   return (
     <TradeContext.Provider value={trade}>
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Trade">
-        <span className="text-xs text-gray-500">Trade</span>
-        {Object.values(AD_TRADES).map((t) => (
-          <button
-            key={t.slug}
-            type="button"
-            aria-pressed={trade === t.slug}
-            onClick={() => pickTrade(t.slug)}
-            className={`px-3 py-1.5 text-sm rounded border ${trade === t.slug ? 'border-white text-white bg-[#222]' : 'border-[#333] text-gray-400 [@media(hover:hover)]:hover:text-white'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div role="tablist" aria-label="Ads" className="flex gap-1 flex-wrap">
-        {SECTIONS.map(([value, label]) => (
-          <button
-            key={value}
-            role="tab"
-            aria-selected={section === value}
-            onClick={() => {
-              setSection(value);
-              setHookStart(null);
-            }}
-            className={`px-3 py-1.5 text-sm rounded ${section === value ? 'bg-[#222] text-white' : 'text-gray-400 [@media(hover:hover)]:hover:text-white'}`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="tablist" aria-label="Ads" className="flex gap-1 flex-wrap">
+          {SECTIONS.map(([value, label]) => (
+            <button
+              key={value}
+              role="tab"
+              aria-selected={section === value}
+              onClick={() => {
+                setSection(value);
+                setHookStart(null);
+              }}
+              className={`px-3 py-1.5 text-sm rounded ${section === value ? 'bg-[#222] text-white' : 'text-gray-400 [@media(hover:hover)]:hover:text-white'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {/* The trade the page works in, as one small choice at the end of the tabs. */}
+        <select
+          aria-label="Trade"
+          value={trade}
+          onChange={(e) => pickTrade(e.target.value)}
+          className="ml-auto bg-[#151515] border border-[#2A2A2A] rounded-lg px-3 py-1.5 text-sm text-gray-200"
+        >
+          {Object.values(AD_TRADES).map((t) => (
+            <option key={t.slug} value={t.slug}>
+              {t.label}
+            </option>
+          ))}
+        </select>
       </div>
       <ErrorLine error={error} onDismiss={() => setError(null)} />
       {notice && (
@@ -1029,12 +1030,12 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   );
   return (
     <div className={`space-y-4 ${selecting ? 'pb-40' : ''}`}>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-full bg-[#1A1A1A] border border-[#2A2A2A] p-1" role="group" aria-label="Show">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg bg-[#151515] border border-[#2A2A2A] p-0.5" role="group" aria-label="Show">
           {(
             [
-              ['photos', `Photos (${photos.length})`],
-              ['clips', `Clips (${clips.length})`],
+              ['photos', `Photos ${photos.length}`],
+              ['clips', `Clips ${clips.length}`],
             ] as const
           ).map(([v, label]) => (
             <button
@@ -1045,59 +1046,54 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
                 setView(v);
                 stopSelecting();
               }}
-              className={`px-4 py-1.5 rounded-full text-sm ${view === v ? 'bg-[#336699] text-white' : 'text-gray-400'}`}
+              className={`px-3 min-h-[34px] rounded-md text-sm ${view === v ? 'bg-[#2a2a2a] text-white' : 'text-gray-400'}`}
             >
               {label}
             </button>
           ))}
         </div>
-        {view === 'photos' && photos.length > 0 && (
-          <button type="button" className={`${secondary} ml-auto`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
-            {selecting ? 'Cancel' : 'Select'}
-          </button>
+        {view === 'photos' && worksFor(trade).length > 0 && (
+          <div className="inline-flex rounded-lg bg-[#151515] border border-[#2A2A2A] p-0.5" role="group" aria-label="Group photos">
+            {(
+              [
+                ['job', 'By job'],
+                ['work', 'By type of work'],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={groupBy === v}
+                onClick={() => setGroupBy(v)}
+                className={`px-3 min-h-[34px] rounded-md text-sm ${groupBy === v ? 'bg-[#2a2a2a] text-white' : 'text-gray-400'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         )}
-        {view === 'photos' && !selecting && (
-          <button type="button" className={`${secondary} ${photos.length > 0 ? '' : 'ml-auto'}`} onClick={() => setNaming(true)}>
-            New job
+        <div className="ml-auto flex items-center gap-2">
+          {view === 'photos' && photos.length > 0 && (
+            <button type="button" className="px-3 min-h-[36px] rounded-lg text-sm text-gray-300 [@media(hover:hover)]:hover:text-white" aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+              {selecting ? 'Cancel' : 'Select'}
+            </button>
+          )}
+          {view === 'photos' && !selecting && (
+            <button type="button" className="px-3 min-h-[36px] rounded-lg text-sm text-gray-300 [@media(hover:hover)]:hover:text-white" onClick={() => setNaming(true)}>
+              New job
+            </button>
+          )}
+          <button type="button" aria-label="Add photos or clips" className={`${primary} min-h-[36px] py-1.5`} onClick={() => setAdding({})}>
+            <Upload className="w-4 h-4" /> Add
           </button>
-        )}
-        <button type="button" className={`${primary} ${view === 'photos' ? '' : 'ml-auto'}`} onClick={() => setAdding({})}>
-          <Upload className="w-4 h-4" /> Add photos or clips
-        </button>
+        </div>
       </div>
       {sending && <SendingBar s={sending} />}
-      <p className="text-xs text-gray-500">
-        {selecting
-          ? 'Tap the photos from one job, then tap its job tag below.'
-          : view === 'photos'
-          ? 'Tap a photo to tag it, or Select to tag several at once. Give one job’s photos the same purple job tag, and a story ad shows that job, before to finish.'
-          : 'Video clips from job sites. Tap one to tag it, or make a job site ad from it.'}
-      </p>
+      {selecting && <p className="text-xs text-gray-500">Tap the photos from one job, then tap its job tag below.</p>}
       {assets === undefined ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : view === 'photos' ? (
         <div className="space-y-5" aria-label="Library">
-          {worksFor(trade).length > 0 && (
-            <div className="inline-flex rounded-full bg-[#1A1A1A] border border-[#2A2A2A] p-1" role="group" aria-label="Group photos">
-              {(
-                [
-                  ['job', 'By job'],
-                  ['work', 'By type of work'],
-                ] as const
-              ).map(([v, label]) => (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={groupBy === v}
-                  onClick={() => setGroupBy(v)}
-                  className={`px-4 min-h-[36px] rounded-full text-sm ${groupBy === v ? 'bg-[#336699] text-white' : 'text-gray-400'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-          {!selecting && <AddBar onFiles={(files) => addHere(files)} />}
           {groupBy === 'job' && jobs.map((j) => (
             <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
               {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}
@@ -1179,43 +1175,6 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
 const grid = 'grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
 
 /** The last tile of a grid: a dotted box the size of the others. Tapping it picks files that go straight in. */
-/**
- * Adding photos with nothing to choose: they go in untagged and outside any job, and Claude sorts each one by type
- * of work. First on the page, before the groups, so it doesn't look like it adds to one of them.
- */
-const AddBar: React.FC<{ onFiles: (files: File[]) => Promise<unknown> }> = ({ onFiles }) => {
-  const [busy, setBusy] = useState(false);
-  return (
-    <label
-      data-testid="add-bar"
-      className={`flex items-center gap-4 w-full min-h-[72px] px-5 rounded-xl border-2 border-dashed border-[#3a3a3a] text-gray-300 cursor-pointer [@media(hover:hover)]:hover:border-[#336699] [@media(hover:hover)]:hover:text-white ${busy ? 'opacity-60' : ''}`}
-    >
-      <Upload className="w-6 h-6 flex-none" aria-hidden="true" />
-      <span className="flex-1">
-        <span className="block text-[15px] text-white">{busy ? 'Adding…' : '+ Add photos'}</span>
-        <span className="block text-xs text-gray-500">Just pick them: Claude sorts each one by type of work. No job or tags needed.</span>
-      </span>
-      <input
-        type="file"
-        accept="image/*"
-        multiple
-        className="sr-only"
-        aria-label="Add photos"
-        disabled={busy}
-        onChange={async (e) => {
-          const input = e.target;
-          const files = Array.from(input.files ?? []);
-          if (files.length === 0) return;
-          setBusy(true);
-          await onFiles(files);
-          setBusy(false);
-          input.value = '';
-        }}
-      />
-    </label>
-  );
-};
-
 const AddTile: React.FC<{ label: string; photos?: boolean; onFiles: (files: File[]) => Promise<unknown> }> = ({ label, photos, onFiles }) => {
   const [busy, setBusy] = useState(false);
   return (
