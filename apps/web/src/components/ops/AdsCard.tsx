@@ -1839,74 +1839,17 @@ const AssetEditor: React.FC<{
       aria-label={a.fileName}
       className="fixed inset-0 z-[10050] flex flex-col bg-black outline-none"
     >
-      <div className="flex-none flex items-center gap-3 px-3 h-12 border-b border-[#1c1c1c]">
+      {/* One strip at the top: close, its place, everything that can be changed, delete. Each change saves as it's made. */}
+      <div className="flex-none flex items-start gap-2 px-3 py-2 border-b border-[#1c1c1c] bg-[#0d0d0d]">
         <button type="button" onClick={onClose} aria-label="Close" className={`${tap} text-gray-300 hover:text-white`}>
           <X className="w-5 h-5" />
         </button>
         {flip && (
-          <span className="text-sm text-gray-300 tabular-nums" data-testid="flip-place">
+          <span className="flex-none self-center text-sm text-gray-400 tabular-nums pr-1" data-testid="flip-place">
             {flip.at + 1} / {flip.of}
           </span>
         )}
-        <span className="flex-1 min-w-0 truncate text-sm text-gray-500">{a.fileName}</span>
-        <button
-          type="button"
-          aria-label={`Remove ${a.fileName}`}
-          className={`${tap} ${deleting ? 'text-red-300' : 'text-gray-400 hover:text-red-300'}`}
-          onClick={() => setDeleting(true)}
-        >
-          <Trash2 className="w-[18px] h-[18px]" />
-        </button>
-      </div>
-      <div
-        className="relative flex-1 min-h-0 flex items-center justify-center"
-        onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
-        onTouchEnd={(e) => {
-          const start = touch.current;
-          touch.current = null;
-          const end = e.changedTouches[0]?.clientX;
-          if (start === null || end === undefined || Math.abs(end - start) < 50) return;
-          go(end < start ? flip?.next : flip?.prev);
-        }}
-      >
-        <Picture a={a} play className="max-w-full max-h-full w-auto h-auto object-contain" />
-        {flip && (
-          <>
-            <button type="button" aria-label="Previous" disabled={!flip.prev} className={`${edge} left-0 justify-start pl-2`} onClick={() => go(flip.prev)}>
-              <span className="rounded-full bg-black/50 p-2">
-                <ChevronLeft className="w-6 h-6" />
-              </span>
-            </button>
-            <button type="button" aria-label="Next" disabled={!flip.next} className={`${edge} right-0 justify-end pr-2`} onClick={() => go(flip.next)}>
-              <span className="rounded-full bg-black/50 p-2">
-                <ChevronRight className="w-6 h-6" />
-              </span>
-            </button>
-          </>
-        )}
-      </div>
-      {deleting ? (
-        <div className="flex-none flex flex-wrap items-center gap-2 px-3 py-2.5 border-t border-red-500/40 bg-red-500/10" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
-          <p className="flex-1 min-w-[12rem] text-sm text-white">
-            Delete this {photo ? 'photo' : 'clip'} for good?{a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
-          </p>
-          <button type="button" className="min-h-[40px] px-4 rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
-            Keep it
-          </button>
-          <button
-            type="button"
-            className="min-h-[40px] px-4 rounded-lg bg-red-600 text-sm font-semibold text-white"
-            onClick={() => {
-              // The next file opens in its place, so deleting a run of bad photos stays quick.
-              const after = flip?.next ?? flip?.prev;
-              void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
-            }}
-          >
-            Delete
-          </button>
-        </div>
-      ) : (
-        <div className="flex-none flex flex-wrap items-center gap-2 px-3 py-2.5 border-t border-[#1c1c1c] bg-[#0d0d0d]" aria-label={`Tags for ${a.fileName}`}>
+        <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2" aria-label={`Tags for ${a.fileName}`}>
           {works.length > 0 && (
             <select
               aria-label="Type of work"
@@ -2005,7 +1948,63 @@ const AssetEditor: React.FC<{
             </button>
           )}
         </div>
+        <button
+          type="button"
+          aria-label={`Remove ${a.fileName}`}
+          className={`${tap} ${deleting ? 'text-red-300' : 'text-gray-400 hover:text-red-300'}`}
+          onClick={() => setDeleting(true)}
+        >
+          <Trash2 className="w-[18px] h-[18px]" />
+        </button>
+      </div>
+      {deleting && (
+        <div className="flex-none flex flex-wrap items-center gap-2 px-3 py-2 border-b border-red-500/40 bg-red-500/10" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
+          <p className="flex-1 min-w-[12rem] text-sm text-white">
+            Delete this {photo ? 'photo' : 'clip'} for good?{a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
+          </p>
+          <button type="button" className="min-h-[40px] px-4 rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
+            Keep it
+          </button>
+          <button
+            type="button"
+            className="min-h-[40px] px-4 rounded-lg bg-red-600 text-sm font-semibold text-white"
+            onClick={() => {
+              // The next file opens in its place, so deleting a run of bad photos stays quick.
+              const after = flip?.next ?? flip?.prev;
+              void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
+            }}
+          >
+            Delete
+          </button>
+        </div>
       )}
+      <div
+        className="relative flex-1 min-h-0 flex items-center justify-center"
+        onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
+        onTouchEnd={(e) => {
+          const start = touch.current;
+          touch.current = null;
+          const end = e.changedTouches[0]?.clientX;
+          if (start === null || end === undefined || Math.abs(end - start) < 50) return;
+          go(end < start ? flip?.next : flip?.prev);
+        }}
+      >
+        <Picture a={a} play className="max-w-full max-h-full w-auto h-auto object-contain" />
+        {flip && (
+          <>
+            <button type="button" aria-label="Previous" disabled={!flip.prev} className={`${edge} left-0 justify-start pl-2`} onClick={() => go(flip.prev)}>
+              <span className="rounded-full bg-black/50 p-2">
+                <ChevronLeft className="w-6 h-6" />
+              </span>
+            </button>
+            <button type="button" aria-label="Next" disabled={!flip.next} className={`${edge} right-0 justify-end pr-2`} onClick={() => go(flip.next)}>
+              <span className="rounded-full bg-black/50 p-2">
+                <ChevronRight className="w-6 h-6" />
+              </span>
+            </button>
+          </>
+        )}
+      </div>
     </div>,
     document.body,
   );
