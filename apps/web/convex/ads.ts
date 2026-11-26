@@ -4461,6 +4461,44 @@ export const removeMetaToken = mutation({
   },
 });
 
+/**
+ * One search of Meta's Ad Library through its API (ads_archive) with the token, from the deployment: to see whether
+ * Meta returns ordinary ads for a search in a country, so competitor research could use it instead of reading the
+ * Ad Library pages. Returns what came back, or Meta's reason it said no.
+ */
+export const adLibraryProbe = internalAction({
+  args: { terms: v.string(), country: v.optional(v.string()), adType: v.optional(v.string()) },
+  handler: async (ctx, { terms, country = "US", adType = "ALL" }) => {
+    const token = await metaToken(ctx);
+    if (!token) return { ok: false, error: "No Meta token yet" };
+    const q = new URLSearchParams({
+      search_terms: terms,
+      ad_reached_countries: JSON.stringify([country]),
+      ad_type: adType,
+      ad_active_status: "ALL",
+      fields: "page_name,ad_delivery_start_time,ad_delivery_stop_time,ad_creative_bodies,ad_snapshot_url",
+      limit: "25",
+    });
+    try {
+      const out = await graphGet(`ads_archive?${q.toString()}`, token);
+      const ads: any[] = out?.data ?? [];
+      return {
+        ok: true,
+        count: ads.length,
+        more: Boolean(out?.paging?.next),
+        ads: ads.slice(0, 10).map((a) => ({
+          page: a.page_name,
+          started: a.ad_delivery_start_time,
+          stopped: a.ad_delivery_stop_time,
+          text: String(a.ad_creative_bodies?.[0] ?? "").slice(0, 140),
+        })),
+      };
+    } catch (e) {
+      return { ok: false, error: errText(e) };
+    }
+  },
+});
+
 type MetaPick = { id: string; name: string; status?: string };
 
 /**

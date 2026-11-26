@@ -1737,6 +1737,24 @@ describe("the library, hooks and settings", () => {
     });
     expect(seen.find((u) => u.includes("leadgen_forms"))).toContain("access_token=page-token");
     await expect(staff.as.action(api.ads.metaLookup, {})).rejects.toThrow();
+    // An Ad Library search with the token, from the deployment: what Meta returns, or why not.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input instanceof Request ? input.url : input);
+        seen.push(url);
+        if (url.includes("search_terms=house")) return new Response(JSON.stringify({ error: { message: "Application does not have permission for this action" } }), { status: 400 });
+        return new Response(JSON.stringify({ data: [{ page_name: "Rodgers Painting", ad_delivery_start_time: "2026-06-01", ad_creative_bodies: ["Cabinets painted"] }] }));
+      }),
+    );
+    expect(await t.action(internal.ads.adLibraryProbe, { terms: "cabinet painting" })).toEqual({
+      ok: true,
+      count: 1,
+      more: false,
+      ads: [{ page: "Rodgers Painting", started: "2026-06-01", stopped: undefined, text: "Cabinets painted" }],
+    });
+    expect(seen.at(-1)).toContain("ad_reached_countries=%5B%22US%22%5D");
+    expect(await t.action(internal.ads.adLibraryProbe, { terms: "house painting" })).toEqual({ ok: false, error: expect.stringContaining("does not have permission") });
     await owner.as.mutation(api.ads.removeMetaToken, {});
     expect((await staff.as.query(api.ads.settings, {})).metaToken).toBeNull();
   });
