@@ -1840,175 +1840,8 @@ const AssetEditor: React.FC<{
       aria-label={a.fileName}
       className="fixed inset-0 z-[10050] flex flex-col bg-black outline-none"
     >
-      {/* The top: close, its place, the file, delete. */}
-      <div className="flex-none flex items-center gap-2 px-3 h-12 border-b border-[#1c1c1c] bg-[#0d0d0d]">
-        <button type="button" onClick={onClose} aria-label="Close" className={`${tap} text-gray-300 hover:text-white`}>
-          <X className="w-5 h-5" />
-        </button>
-        {flip && (
-          <span className="flex-none text-sm text-gray-300 tabular-nums" data-testid="flip-place">
-            {flip.at + 1} / {flip.of}
-          </span>
-        )}
-        <span className="flex-1 min-w-0 truncate text-sm text-gray-500">{a.fileName}</span>
-        <button
-          type="button"
-          aria-label={`Remove ${a.fileName}`}
-          className={`${tap} ${deleting ? 'text-red-300' : 'text-gray-400 hover:text-red-300'}`}
-          onClick={() => setDeleting(true)}
-        >
-          <Trash2 className="w-[18px] h-[18px]" />
-        </button>
-      </div>
-      {deleting && (
-        <div className="flex-none flex flex-wrap items-center gap-2 px-3 py-2 border-b border-red-500/40 bg-red-500/10" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
-          <p className="flex-1 min-w-[12rem] text-sm text-white">
-            Delete this {photo ? 'photo' : 'clip'} for good?{a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
-          </p>
-          <button type="button" className="min-h-[40px] px-4 rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
-            Keep it
-          </button>
-          <button
-            type="button"
-            className="min-h-[40px] px-4 rounded-lg bg-red-600 text-sm font-semibold text-white"
-            onClick={() => {
-              // The next file opens in its place, so deleting a run of bad photos stays quick.
-              const after = flip?.next ?? flip?.prev;
-              void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
-            }}
-          >
-            Delete
-          </button>
-        </div>
-      )}
+      {/* The photo on the left, as big as it goes; the panel on the right (under it on a phone). */}
       <div className="flex-1 min-h-0 flex flex-col md:flex-row">
-        {/* What can be changed, one labelled row each, stacked (two across on a phone). Each change saves as it's made. */}
-        <div
-          className="flex-none md:w-80 grid grid-cols-2 md:grid-cols-1 content-start gap-x-3 gap-y-3 md:gap-y-4 px-4 py-3 md:py-4 border-b md:border-b-0 md:border-r border-[#1c1c1c] bg-[#0d0d0d] md:overflow-y-auto"
-          aria-label={`Tags for ${a.fileName}`}
-        >
-          {works.length > 0 && (
-            <div className="col-span-2 md:col-span-1">
-              <p className={label}>Type of work</p>
-                <select
-                  aria-label="Type of work"
-                  value={work}
-                  className={`${field} w-full`}
-                  onChange={(e) => saveTags(withWork(tags, e.target.value ? [e.target.value, ...works.filter((w) => w !== e.target.value && w !== work && tags.includes(w))] : [], trade))}
-                >
-                  <option value="">Type of work…</option>
-                  {works.map((w) => (
-                    <option key={w} value={w}>
-                      {workLabel(trade, w)}
-                    </option>
-                  ))}
-                </select>
-            </div>
-          )}
-          <div className="col-span-2 md:col-span-1">
-            <p className={label}>Stage</p>
-            <div className="grid grid-cols-3 gap-1" role="group" aria-label="Stage">
-              {stages.map(([t, name]) => (
-                <button
-                  key={t}
-                  type="button"
-                  aria-pressed={tags.includes(t)}
-                  className={chip(tags.includes(t))}
-                  onClick={() => saveTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])}
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
-          </div>
-          {photo && (
-            <div>
-              <p className={label}>Job</p>
-                <select
-                  aria-label="Job"
-                  value={job ? job.id : ''}
-                  className={`${field} w-full`}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === '+new') {
-                      const name = window.prompt('Name the new job (it never shows in an ad)')?.trim();
-                      if (name)
-                        void act(async () => {
-                          const jobId = await adsAPI.addJob(name, trade);
-                          await adsAPI.setAssetJob(a.id, jobId);
-                        }, `Job "${name}" added and this photo tagged with it.`);
-                      return;
-                    }
-                    void act(() => adsAPI.setAssetJob(a.id, v || undefined), v ? 'Tagged with the job.' : 'Job tag taken off.');
-                  }}
-                >
-                  <option value="">No job</option>
-                  {jobs.map((j) => (
-                    <option key={j.id} value={j.id}>
-                      {j.name}
-                    </option>
-                  ))}
-                  <option value="+new">New job…</option>
-                </select>
-            </div>
-          )}
-          <div>
-            <p className={label}>Crew</p>
-            <button
-              type="button"
-              aria-pressed={tags.includes('crew')}
-              aria-label="Crew in the shot"
-              className={`${chip(tags.includes('crew'))} w-full`}
-              onClick={() => saveTags(tags.includes('crew') ? tags.filter((x) => x !== 'crew') : [...tags, 'crew'])}
-            >
-              {tags.includes('crew') ? 'In the shot' : 'None'}
-            </button>
-          </div>
-          {photo && (partner || onFindPartner) && (
-            <div className="col-span-2 md:col-span-1">
-              <p className={label}>Before &amp; after</p>
-              {partner ? (
-      <button
-                    type="button"
-                    onClick={() => onOpen(partner.id)}
-                    className="w-full inline-flex items-center gap-2 min-h-[40px] pl-1 pr-3 rounded-lg bg-[#1b1b1b] border border-[#2e2e2e] text-sm text-gray-300"
-                    data-testid="pair"
-                  >
-                    <img src={partner.thumbUrl ?? partner.posterUrl ?? partner.url} alt="" className="w-8 h-8 rounded object-cover" />
-                    Its {partner.tags.includes('after') ? 'after' : 'before'}
-                  </button>
-              ) : (
-      <button type="button" onClick={onFindPartner} className="w-full min-h-[40px] px-3 rounded-lg border border-[#c9a24a]/70 text-sm text-[#e2c578]">
-                    + Add its {a.tags.includes('before') ? 'after' : 'before'}
-                  </button>
-              )}
-            </div>
-          )}
-          {claude.length > 0 && claude.join(',') !== tags.join(',') && (
-            <button type="button" className="col-span-2 md:col-span-1 min-h-[40px] text-left text-sm text-[#e2c578]" onClick={() => saveTags(claude)}>
-              Use Claude&apos;s tags
-            </button>
-          )}
-          {a.kind === 'video' && !a.posterUrl && a.url && (
-            <div className="col-span-2 md:col-span-1">
-              <button
-                type="button"
-                className={secondary}
-                onClick={() =>
-                  act(async () => {
-                    const { still, durationSec } = await stillOfClip(a.url!, true);
-                    if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
-                    await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
-                    const thumb = await thumbOf(still);
-                    if (thumb) await adsAPI.setThumb(a.id, await putFile(thumb, 'image/jpeg'));
-                  }, 'Still made. Claude is looking at the clip and will suggest its tags.')
-                }
-              >
-                Make its still
-              </button>
-            </div>
-          )}
-        </div>
         <div
           className="relative flex-1 min-h-0 flex items-center justify-center"
           onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
@@ -2035,6 +1868,172 @@ const AssetEditor: React.FC<{
               </button>
             </>
           )}
+        </div>
+        {/* The panel: its place, delete and close at the top, then what can be changed, one labelled row each. */}
+        <div className="flex-none md:w-80 flex flex-col min-h-0 bg-[#111] border-t md:border-t-0 md:border-l border-[#1f1f1f] md:overflow-y-auto">
+          <div className="flex items-center gap-1 pl-4 pr-1 h-12 border-b border-[#1f1f1f]">
+            {flip && (
+              <span className="text-sm text-gray-300 tabular-nums" data-testid="flip-place">
+                {flip.at + 1} / {flip.of}
+              </span>
+            )}
+            <span className="flex-1 min-w-0 truncate text-xs text-gray-500 px-2">{a.fileName}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${a.fileName}`}
+              className={`${tap} ${deleting ? 'text-red-300' : 'text-gray-400 hover:text-red-300'}`}
+              onClick={() => setDeleting(true)}
+            >
+              <Trash2 className="w-[18px] h-[18px]" />
+            </button>
+            <button type="button" onClick={onClose} aria-label="Close" className={`${tap} text-gray-300 hover:text-white`}>
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          {deleting && (
+            <div className="m-3 mb-0 flex flex-wrap items-center gap-2 rounded-lg p-3 border border-red-500/40 bg-red-500/10" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
+              <p className="flex-1 min-w-[12rem] text-sm text-white">
+                Delete this {photo ? 'photo' : 'clip'} for good?{a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
+              </p>
+              <button type="button" className="min-h-[40px] px-4 rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
+                Keep it
+              </button>
+              <button
+                type="button"
+                className="min-h-[40px] px-4 rounded-lg bg-red-600 text-sm font-semibold text-white"
+                onClick={() => {
+                  // The next file opens in its place, so deleting a run of bad photos stays quick.
+                  const after = flip?.next ?? flip?.prev;
+                  void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-1 content-start gap-x-3 gap-y-3 md:gap-y-4 px-4 py-3 md:py-4" aria-label={`Tags for ${a.fileName}`}>
+            {works.length > 0 && (
+              <div className="col-span-2 md:col-span-1">
+                <p className={label}>Type of work</p>
+                  <select
+                    aria-label="Type of work"
+                    value={work}
+                    className={`${field} w-full`}
+                    onChange={(e) => saveTags(withWork(tags, e.target.value ? [e.target.value, ...works.filter((w) => w !== e.target.value && w !== work && tags.includes(w))] : [], trade))}
+                  >
+                    <option value="">Type of work…</option>
+                    {works.map((w) => (
+                      <option key={w} value={w}>
+                        {workLabel(trade, w)}
+                      </option>
+                    ))}
+                  </select>
+              </div>
+            )}
+            <div className="col-span-2 md:col-span-1">
+              <p className={label}>Stage</p>
+              <div className="grid grid-cols-3 gap-1" role="group" aria-label="Stage">
+                {stages.map(([t, name]) => (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={tags.includes(t)}
+                    className={chip(tags.includes(t))}
+                    onClick={() => saveTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {photo && (
+              <div>
+                <p className={label}>Job</p>
+                  <select
+                    aria-label="Job"
+                    value={job ? job.id : ''}
+                    className={`${field} w-full`}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '+new') {
+                        const name = window.prompt('Name the new job (it never shows in an ad)')?.trim();
+                        if (name)
+                          void act(async () => {
+                            const jobId = await adsAPI.addJob(name, trade);
+                            await adsAPI.setAssetJob(a.id, jobId);
+                          }, `Job "${name}" added and this photo tagged with it.`);
+                        return;
+                      }
+                      void act(() => adsAPI.setAssetJob(a.id, v || undefined), v ? 'Tagged with the job.' : 'Job tag taken off.');
+                    }}
+                  >
+                    <option value="">No job</option>
+                    {jobs.map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.name}
+                      </option>
+                    ))}
+                    <option value="+new">New job…</option>
+                  </select>
+              </div>
+            )}
+            <div>
+              <p className={label}>Crew</p>
+              <button
+                type="button"
+                aria-pressed={tags.includes('crew')}
+                aria-label="Crew in the shot"
+                className={`${chip(tags.includes('crew'))} w-full`}
+                onClick={() => saveTags(tags.includes('crew') ? tags.filter((x) => x !== 'crew') : [...tags, 'crew'])}
+              >
+                {tags.includes('crew') ? 'In the shot' : 'None'}
+              </button>
+            </div>
+            {photo && (partner || onFindPartner) && (
+              <div className="col-span-2 md:col-span-1">
+                <p className={label}>Before &amp; after</p>
+                {partner ? (
+        <button
+                      type="button"
+                      onClick={() => onOpen(partner.id)}
+                      className="w-full inline-flex items-center gap-2 min-h-[40px] pl-1 pr-3 rounded-lg bg-[#1b1b1b] border border-[#2e2e2e] text-sm text-gray-300"
+                      data-testid="pair"
+                    >
+                      <img src={partner.thumbUrl ?? partner.posterUrl ?? partner.url} alt="" className="w-8 h-8 rounded object-cover" />
+                      Its {partner.tags.includes('after') ? 'after' : 'before'}
+                    </button>
+                ) : (
+        <button type="button" onClick={onFindPartner} className="w-full min-h-[40px] px-3 rounded-lg border border-[#c9a24a]/70 text-sm text-[#e2c578]">
+                      + Add its {a.tags.includes('before') ? 'after' : 'before'}
+                    </button>
+                )}
+              </div>
+            )}
+            {claude.length > 0 && claude.join(',') !== tags.join(',') && (
+              <button type="button" className="col-span-2 md:col-span-1 min-h-[40px] text-left text-sm text-[#e2c578]" onClick={() => saveTags(claude)}>
+                Use Claude&apos;s tags
+              </button>
+            )}
+            {a.kind === 'video' && !a.posterUrl && a.url && (
+              <div className="col-span-2 md:col-span-1">
+                <button
+                  type="button"
+                  className={secondary}
+                  onClick={() =>
+                    act(async () => {
+                      const { still, durationSec } = await stillOfClip(a.url!, true);
+                      if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
+                      await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
+                      const thumb = await thumbOf(still);
+                      if (thumb) await adsAPI.setThumb(a.id, await putFile(thumb, 'image/jpeg'));
+                    }, 'Still made. Claude is looking at the clip and will suggest its tags.')
+                  }
+                >
+                  Make its still
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>,
