@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload, X } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdDrive, useAdJobs } from '../../lib/live';
 import { backfillThumb, isVideo, prepareAsset, putFile, sendPreparedAsset, stillOfClip, thumbOf, tooBig, type PreparedAsset } from '../../lib/adUpload';
@@ -1778,82 +1778,12 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
   );
 };
 
-/** One file, opened: the big picture, what Claude saw, its tags and job, and the rest tucked under More. */
-/** A row of the photo window's panel: a small mono label, its value, and what's at the end (a chevron or a switch). */
-const ReadRow: React.FC<{ label: string; value: React.ReactNode; muted?: boolean; end?: React.ReactNode; onClick?: () => void; testId?: string }> = ({
-  label,
-  value,
-  muted,
-  end,
-  onClick,
-  testId,
-}) => {
-  const body = (
-    <>
-      <span className="w-20 flex-none text-sm text-gray-500">{label}</span>
-      <span className={`flex-1 min-w-0 truncate text-[15px] ${muted ? 'text-gray-500' : 'text-gray-100'}`}>{value}</span>
-      {end ?? (onClick ? <ChevronRight className="w-4 h-4 text-gray-500 flex-none" aria-hidden="true" /> : null)}
-    </>
-  );
-  const cls = 'w-full flex items-center gap-3 min-h-[52px] border-b border-[#1f1f1f] text-left';
-  return onClick ? (
-    <button type="button" className={cls} onClick={onClick} data-testid={testId} aria-label={`${label}: ${typeof value === 'string' ? value : ''}`}>
-      {body}
-    </button>
-  ) : (
-    <div className={cls} data-testid={testId}>
-      {body}
-    </div>
-  );
-};
-
-/** What can be in frame, as the panel lists it: the house's parts inside, outside, then the rooms. */
-const FRAME_OUTSIDE = new Set(['front door', 'garage door', 'siding', 'brick', 'stucco', 'fascia and soffit', 'shutters', 'porch', 'deck', 'fence', 'columns']);
-const FRAME_ROOMS = new Set(['kitchen', 'bathroom', 'bedroom', 'living room', 'hallway', 'entry', 'garage']);
-function frameGroups(items: readonly string[]): Array<[string, string[]]> {
-  const groups: Array<[string, string[]]> = [
-    ['Inside', items.filter((i) => !FRAME_OUTSIDE.has(i) && !FRAME_ROOMS.has(i))],
-    ['Outside', items.filter((i) => FRAME_OUTSIDE.has(i))],
-    ['Rooms', items.filter((i) => FRAME_ROOMS.has(i))],
-  ];
-  return groups.filter(([, list]) => list.length > 0);
-}
-
-/** One choice in the panel's lists (type of work, stage): its name, and CLAUDE when it was Claude's pick, a check when on. */
-const ListChoice: React.FC<{ name: string; on: boolean; claude: boolean; onClick: () => void }> = ({ name, on, claude, onClick }) => (
-  <button
-    type="button"
-    aria-pressed={on}
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 min-h-[48px] border-b border-[#1f1f1f] text-left text-[15px] ${on ? 'text-white' : 'text-gray-400'}`}
-  >
-    <span className="flex-1">{name}</span>
-    {claude && (
-      <span className="text-xs text-[#c9a24a]" aria-label="Claude's pick">
-        Claude
-      </span>
-    )}
-    {on ? (
-      <span className="flex-none w-5 h-5 rounded-full bg-[#c9a24a] flex items-center justify-center" data-testid="checked">
-        <Check className="w-3.5 h-3.5 text-black" strokeWidth={3} aria-hidden="true" />
-      </span>
-    ) : (
-      <span className="flex-none w-5 h-5 rounded-full border-2 border-[#333]" aria-hidden="true" />
-    )}
-  </button>
-);
-
-/**
- * One file, opened. On the left the picture, whole and centred, with its place among the page's files (09/68), a
- * tick for each and arrows below; a swipe or the arrow keys flip too. On the right, Claude's read of it, large:
- * the type of work and the stage, each tapped to change from a list; then what's in frame, the crew, the job, as
- * rows. Confirm saves it and opens the next. On a phone the panel sits under the picture.
- */
+/** One file, opened: the photo fills the screen; one bar under it changes its type of work, stage, crew, job and pair. */
 const AssetEditor: React.FC<{
   a: AdAsset;
   jobs: AdJob[];
   act: Act;
-  /** The before or after Claude matched with this one, in its job. */
+  /** The before or after this one is paired with. */
   partner?: AdAsset;
   /** A before (or an after) with no other half: opens "Add its after" (or its before). */
   onFindPartner?: () => void;
@@ -1862,42 +1792,30 @@ const AssetEditor: React.FC<{
   /** Its place among the files on the page, and the ones either side, to flip to. */
   flip?: { at: number; of: number; prev?: string; next?: string };
 }> = ({ a, jobs, act, partner, onFindPartner, onOpen, onClose, flip }) => {
+  // A plain viewer: the photo fills the screen; one bar under it holds what can be changed, each change saved as it's
+  // made (no Save button). Arrows, swipes and the arrow keys go to the next and previous file.
   const trade = useTrade();
   const photo = a.kind === 'photo';
   const works = worksFor(trade);
   const claude = a.suggestedTags ?? [];
-  // A file nobody tagged opens on Claude's picks, ready to confirm.
-  const startTags = a.tags.length === 0 && claude.length ? claude : a.tags;
-  const [tags, setTags] = useState(startTags);
-  const [mode, setMode] = useState<'read' | 'work' | 'stage' | 'frame' | 'job'>('read');
-  // Deleting asks first: it can't be undone.
+  const [tags, setTags] = useState(a.tags);
   const [deleting, setDeleting] = useState(false);
   useEffect(() => {
-    setTags(startTags);
-    setMode('read');
+    setTags(a.tags);
     setDeleting(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a.id, a.tags.join(','), claude.join(',')]);
-  const changed = tags.join(',') !== a.tags.join(',');
-  const save = () => (changed ? act(() => adsAPI.tagAsset(a.id, tags, undefined, a.note), 'Saved.') : Promise.resolve());
-  // To the next or previous file: tags changed here are saved first, so flipping never loses them.
-  const go = (id?: string) => {
-    if (!id) return;
-    void save();
-    onOpen(id);
+  }, [a.id, a.tags.join(',')]);
+  const saveTags = (next: string[]) => {
+    setTags(next);
+    void act(() => adsAPI.tagAsset(a.id, next, undefined, a.note));
   };
-  const skip = () => (flip?.next ? onOpen(flip.next) : onClose());
-  const confirm = () => {
-    void save();
-    if (flip?.next) onOpen(flip.next);
-    else onClose();
-  };
+  const go = (id?: string) => id && onOpen(id);
   const goRef = useRef(go);
   goRef.current = go;
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
       if (e.key === 'ArrowLeft') goRef.current(flip?.prev);
       if (e.key === 'ArrowRight') goRef.current(flip?.next);
     };
@@ -1906,304 +1824,188 @@ const AssetEditor: React.FC<{
   }, [flip?.prev, flip?.next]);
   const panel = usePanel<HTMLDivElement>(onClose);
   const touch = useRef<number | null>(null);
-  const toggle = (t: string) => setTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t]);
-  const picked = works.filter((w) => tags.includes(w));
-  const pickWork = (w: string) => setTags(withWork(tags, picked.includes(w) ? picked.filter((x) => x !== w) : [...picked, w], trade));
-  const stages = photo ? STAGES : STAGES.filter(([t]) => t === 'process');
-  const stageNames = stages.filter(([t]) => tags.includes(t)).map(([, n]) => n);
-  const items = a.items ?? [];
+  const work = works.find((w) => tags.includes(w)) ?? '';
   const job = jobs.find((j) => j.id === a.jobId);
-  const isClaudes = claude.length > 0 && tags.join(',') === claude.join(',');
-  const two = (n: number) => String(n).padStart(2, '0');
-  // A tick for each file on the page, at most 80 (more are drawn as fewer, each standing for several).
-  const ticks = flip ? Math.min(flip.of, 80) : 0;
-  const tickAt = flip ? Math.floor((flip.at / flip.of) * ticks) : 0;
-  const mono = 'text-sm';
-  // A list's header: Back to the tags on the left (what's picked is saved as it's tapped), then what the list is.
-  const back = (title: string) => (
-    <div className="flex items-center gap-2 pb-2">
-      <button type="button" aria-label="Back" className="inline-flex items-center gap-0.5 min-h-[40px] pr-2 -ml-1 text-[15px] text-[#c9a24a]" onClick={() => setMode('read')}>
-        <ChevronLeft className="w-5 h-5" aria-hidden="true" /> Back
-      </button>
-      <span className="text-[15px] font-medium text-white">{title}</span>
-    </div>
-  );
+  const stages = photo ? STAGES : STAGES.filter(([t]) => t === 'process');
+  const field = 'min-h-[40px] rounded-lg bg-[#1b1b1b] border border-[#2e2e2e] px-2.5 text-sm text-white max-w-[13rem]';
+  const chip = (on: boolean) => `min-h-[40px] px-3 rounded-lg text-sm border ${on ? 'bg-white text-black border-white' : 'bg-[#1b1b1b] text-gray-300 border-[#2e2e2e]'}`;
+  const edge = 'absolute inset-y-0 w-16 sm:w-24 flex items-center text-white/70 hover:text-white disabled:opacity-0';
   return createPortal(
-    <div className="fixed inset-0 z-[10050] flex items-stretch sm:items-center justify-center bg-black/70 backdrop-blur-sm sm:p-6" onClick={onClose}>
+    <div
+      ref={panel}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-label={a.fileName}
+      className="fixed inset-0 z-[10050] flex flex-col bg-black outline-none"
+    >
+      <div className="flex-none flex items-center gap-3 px-3 h-12 border-b border-[#1c1c1c]">
+        <button type="button" onClick={onClose} aria-label="Close" className={`${tap} text-gray-300 hover:text-white`}>
+          <X className="w-5 h-5" />
+        </button>
+        {flip && (
+          <span className="text-sm text-gray-300 tabular-nums" data-testid="flip-place">
+            {flip.at + 1} / {flip.of}
+          </span>
+        )}
+        <span className="flex-1 min-w-0 truncate text-sm text-gray-500">{a.fileName}</span>
+        <button
+          type="button"
+          aria-label={`Remove ${a.fileName}`}
+          className={`${tap} ${deleting ? 'text-red-300' : 'text-gray-400 hover:text-red-300'}`}
+          onClick={() => setDeleting(true)}
+        >
+          <Trash2 className="w-[18px] h-[18px]" />
+        </button>
+      </div>
       <div
-        ref={panel}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={a.fileName}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-6xl h-[100dvh] sm:h-[min(85dvh,780px)] flex flex-col md:flex-row overflow-hidden outline-none bg-black sm:rounded-2xl border border-[#1f1f1f] shadow-2xl"
+        className="relative flex-1 min-h-0 flex items-center justify-center"
+        onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
+        onTouchEnd={(e) => {
+          const start = touch.current;
+          touch.current = null;
+          const end = e.changedTouches[0]?.clientX;
+          if (start === null || end === undefined || Math.abs(end - start) < 50) return;
+          go(end < start ? flip?.next : flip?.prev);
+        }}
       >
-        {/* The picture: whole, centred; under it its place, a tick per file and the arrows. */}
-        <div className="flex-none md:flex-1 h-[44dvh] md:h-auto min-w-0 flex flex-col bg-black">
-          <div
-            className="relative flex-1 min-h-0 overflow-hidden flex items-center justify-center p-4"
-            onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
-            onTouchEnd={(e) => {
-              const start = touch.current;
-              touch.current = null;
-              const end = e.changedTouches[0]?.clientX;
-              if (start === null || end === undefined || Math.abs(end - start) < 50) return;
-              go(end < start ? flip?.next : flip?.prev);
+        <Picture a={a} play className="max-w-full max-h-full w-auto h-auto object-contain" />
+        {flip && (
+          <>
+            <button type="button" aria-label="Previous" disabled={!flip.prev} className={`${edge} left-0 justify-start pl-2`} onClick={() => go(flip.prev)}>
+              <span className="rounded-full bg-black/50 p-2">
+                <ChevronLeft className="w-6 h-6" />
+              </span>
+            </button>
+            <button type="button" aria-label="Next" disabled={!flip.next} className={`${edge} right-0 justify-end pr-2`} onClick={() => go(flip.next)}>
+              <span className="rounded-full bg-black/50 p-2">
+                <ChevronRight className="w-6 h-6" />
+              </span>
+            </button>
+          </>
+        )}
+      </div>
+      {deleting ? (
+        <div className="flex-none flex flex-wrap items-center gap-2 px-3 py-2.5 border-t border-red-500/40 bg-red-500/10" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
+          <p className="flex-1 min-w-[12rem] text-sm text-white">
+            Delete this {photo ? 'photo' : 'clip'} for good?{a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
+          </p>
+          <button type="button" className="min-h-[40px] px-4 rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
+            Keep it
+          </button>
+          <button
+            type="button"
+            className="min-h-[40px] px-4 rounded-lg bg-red-600 text-sm font-semibold text-white"
+            onClick={() => {
+              // The next file opens in its place, so deleting a run of bad photos stays quick.
+              const after = flip?.next ?? flip?.prev;
+              void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
             }}
           >
-            <Picture a={a} play className="max-w-full max-h-full w-auto h-auto object-contain rounded-sm" />
-          </div>
-          {flip && (
-            <div className="flex-none flex items-center gap-4 px-5 h-14">
-              <span className="text-sm text-gray-300 tabular-nums" data-testid="flip-place">
-                {two(flip.at + 1)}
-                <span className="text-gray-600">/{two(flip.of)}</span>
-              </span>
-              <div className="flex-1 min-w-0 flex items-center gap-[3px] h-5 overflow-hidden" aria-hidden="true">
-                {Array.from({ length: ticks }, (_, i) => (
-                  <span
-                    key={i}
-                    className={`flex-none w-[2px] rounded-full ${i === tickAt ? 'h-5 bg-white' : i < tickAt ? 'h-3 bg-[#c9a24a]' : 'h-3 bg-[#3a3a3a]'}`}
-                  />
-                ))}
-              </div>
-              <button type="button" aria-label="Previous" disabled={!flip.prev} className={`${tap} text-gray-300 disabled:opacity-25`} onClick={() => go(flip.prev)}>
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <button type="button" aria-label="Next" disabled={!flip.next} className={`${tap} text-gray-300 disabled:opacity-25`} onClick={() => go(flip.next)}>
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-          )}
+            Delete
+          </button>
         </div>
-        {/* Claude's read, and what to change. */}
-        <div className="flex-1 md:flex-none md:w-[400px] min-h-0 flex flex-col bg-[#0E0E10] md:border-l border-t md:border-t-0 border-[#1f1f1f]">
-          <div className="flex items-center gap-2 px-5 pt-4">
-            {/* On a list the list's own header leads; the label is for the tags. */}
-            <span className={`flex-1 ${mono} ${isClaudes ? 'text-[#c9a24a]' : 'text-gray-500'}`} data-testid="read-label">
-              {mode === 'read' ? (isClaudes ? "Claude's tags" : claude.length ? 'Your tags' : 'Claude is still looking') : ''}
-            </span>
+      ) : (
+        <div className="flex-none flex flex-wrap items-center gap-2 px-3 py-2.5 border-t border-[#1c1c1c] bg-[#0d0d0d]" aria-label={`Tags for ${a.fileName}`}>
+          {works.length > 0 && (
+            <select
+              aria-label="Type of work"
+              value={work}
+              className={field}
+              onChange={(e) => saveTags(withWork(tags, e.target.value ? [e.target.value, ...works.filter((w) => w !== e.target.value && w !== work && tags.includes(w))] : [], trade))}
+            >
+              <option value="">Type of work…</option>
+              {works.map((w) => (
+                <option key={w} value={w}>
+                  {workLabel(trade, w)}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="inline-flex gap-1" role="group" aria-label="Stage">
+            {stages.map(([t, name]) => (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={tags.includes(t)}
+                className={chip(tags.includes(t))}
+                onClick={() => saveTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <button type="button" aria-pressed={tags.includes('crew')} aria-label="Crew in the shot" className={chip(tags.includes('crew'))} onClick={() => saveTags(tags.includes('crew') ? tags.filter((x) => x !== 'crew') : [...tags, 'crew'])}>
+            Crew
+          </button>
+          {photo && (
+            <select
+              aria-label="Job"
+              value={job ? job.id : ''}
+              className={field}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '+new') {
+                  const name = window.prompt('Name the new job (it never shows in an ad)')?.trim();
+                  if (name)
+                    void act(async () => {
+                      const jobId = await adsAPI.addJob(name, trade);
+                      await adsAPI.setAssetJob(a.id, jobId);
+                    }, `Job "${name}" added and this photo tagged with it.`);
+                  return;
+                }
+                void act(() => adsAPI.setAssetJob(a.id, v || undefined), v ? 'Tagged with the job.' : 'Job tag taken off.');
+              }}
+            >
+              <option value="">No job</option>
+              {jobs.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.name}
+                </option>
+              ))}
+              <option value="+new">New job…</option>
+            </select>
+          )}
+          {photo && partner && (
             <button
               type="button"
-              aria-label={`Remove ${a.fileName}`}
-              className={`${tap} -m-2 ${deleting ? 'text-red-300' : 'text-gray-500 hover:text-red-300'}`}
-              onClick={() => setDeleting(true)}
+              onClick={() => onOpen(partner.id)}
+              className="inline-flex items-center gap-2 min-h-[40px] pl-1 pr-3 rounded-lg bg-[#1b1b1b] border border-[#2e2e2e] text-sm text-gray-300"
+              data-testid="pair"
             >
-              <Trash2 className="w-[18px] h-[18px]" />
+              <img src={partner.thumbUrl ?? partner.posterUrl ?? partner.url} alt="" className="w-8 h-8 rounded object-cover" />
+              Its {partner.tags.includes('after') ? 'after' : 'before'}
             </button>
-            <button type="button" onClick={onClose} aria-label="Close" className={`${tap} -m-2 text-gray-400 hover:text-white`}>
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          {deleting && (
-            <div className="mx-5 mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-4 space-y-3" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
-              <p className="text-[15px] font-medium text-white">Delete this {photo ? 'photo' : 'clip'}?</p>
-              <p className="text-sm text-gray-300">
-                It&apos;s taken out of the library for good and can&apos;t be brought back.
-                {a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
-              </p>
-              <div className="flex gap-2">
-                <button type="button" className="flex-1 min-h-[44px] rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
-                  Keep it
-                </button>
-                <button
-                  type="button"
-                  className="flex-1 min-h-[44px] rounded-lg bg-red-600 text-sm font-semibold text-white [@media(hover:hover)]:hover:bg-red-500"
-                  onClick={() => {
-                    // The next file opens in its place, so deleting a run of bad photos stays quick.
-                    const after = flip?.next ?? flip?.prev;
-                    void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
           )}
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-3">
-            {mode === 'read' && (
-              <>
-                <div className="py-4" data-testid="read">
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    {works.length > 0 && (
-                      <button type="button" onClick={() => setMode('work')} aria-label="Change the type of work" className="text-left text-xl font-semibold text-white">
-                        {picked.length ? picked.map((w) => workLabel(trade, w)).join(' + ') : <span className="text-gray-500">Type of work?</span>}
-                      </button>
-                    )}
-                    <span className="text-gray-600" aria-hidden="true">
-                      ·
-                    </span>
-                    <button type="button" onClick={() => setMode('stage')} aria-label="Change the stage" className="text-left text-base text-gray-400">
-                      {stageNames.length ? stageNames.join(' + ') : <span className="text-gray-600">Stage?</span>}
-                    </button>
-                  </div>
-                  {claude.length > 0 && !isClaudes && (
-                    <button type="button" className="mt-2 text-sm text-[#c9a24a]" onClick={() => setTags(claude)}>
-                      Use Claude&apos;s read
-                    </button>
-                  )}
-                </div>
-                <div className="border-t border-[#1f1f1f]">
-                  <ReadRow
-                    label="In frame"
-                    value={items.length ? items.map((i, n) => (n === 0 ? i.charAt(0).toUpperCase() + i.slice(1) : i)).join(', ') : 'Add what’s visible'}
-                    muted={!items.length}
-                    onClick={() => setMode('frame')}
-                    testId="row-frame"
-                  />
-                  <ReadRow
-                    label="Crew"
-                    value={tags.includes('crew') ? 'In the shot' : 'None'}
-                    end={
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={tags.includes('crew')}
-                        aria-label="Crew in the shot"
-                        onClick={() => toggle('crew')}
-                        className={`relative flex-none w-11 h-6 rounded-full transition-colors ${tags.includes('crew') ? 'bg-[#c9a24a]' : 'bg-[#2a2a2a]'}`}
-                      >
-                        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${tags.includes('crew') ? 'left-6' : 'left-1'}`} />
-                      </button>
-                    }
-                  />
-                  {photo && <ReadRow label="Job" value={job ? job.name : 'Unassigned'} muted={!job} onClick={() => setMode('job')} testId="row-job" />}
-                </div>
-                {photo && !partner && onFindPartner && (
-                  <button
-                    type="button"
-                    onClick={onFindPartner}
-                    className="mt-4 w-full min-h-[44px] rounded-lg border border-[#c9a24a]/70 text-[#e2c578] text-[15px] [@media(hover:hover)]:hover:bg-[#c9a24a]/10"
-                  >
-                    + Add its {a.tags.includes('before') ? 'after' : 'before'}
-                  </button>
-                )}
-                {photo && partner && (
-                  // Claude matched it within its job: nothing to type.
-                  <button
-                    type="button"
-                    onClick={() => onOpen(partner.id)}
-                    className="mt-4 w-full flex items-center gap-3 rounded-lg border border-[#1f1f1f] p-2 text-left [@media(hover:hover)]:hover:bg-[#161616]"
-                    data-testid="pair"
-                  >
-                    <img src={partner.thumbUrl ?? partner.posterUrl ?? partner.url} alt="" className="w-14 h-14 rounded object-cover bg-[#1d1d1d] flex-none" />
-                    <span className="text-sm text-gray-400">
-                      Same spot as this {partner.tags.includes('after') ? 'after' : 'before'} photo. Shown together as a before and after.
-                    </span>
-                  </button>
-                )}
-                {a.kind === 'video' && !a.posterUrl && a.url && (
-                  <button
-                    type="button"
-                    className={`${secondary} mt-4`}
-                    onClick={() =>
-                      act(async () => {
-                        const { still, durationSec } = await stillOfClip(a.url!, true);
-                        if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
-                        await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
-                        const thumb = await thumbOf(still);
-                        if (thumb) await adsAPI.setThumb(a.id, await putFile(thumb, 'image/jpeg'));
-                      }, 'Still made. Claude is looking at the clip and will suggest its tags.')
-                    }
-                  >
-                    Make its still
-                  </button>
-                )}
-              </>
-            )}
-            {mode === 'work' && (
-              <div className="pt-3" aria-label={`Tags for ${a.fileName}`}>
-                {back('Type of work')}
-                {(
-                  [
-                    ['Inside', works.filter((w) => tradeOf(trade).works![w].scope !== 'exterior')],
-                    ['Outside', works.filter((w) => tradeOf(trade).works![w].scope === 'exterior')],
-                  ] as Array<[string, string[]]>
-                ).map(([area, list]) => (
-                  <div key={area} className="pt-4">
-                    <p className={`${mono} text-gray-500 pb-2 border-b border-[#1f1f1f]`}>{area}</p>
-                    {list.map((w) => (
-                      <ListChoice key={w} name={workLabel(trade, w)} on={picked.includes(w)} claude={claude.includes(w)} onClick={() => pickWork(w)} />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-            {mode === 'stage' && (
-              <div className="pt-3" aria-label={`Stage of ${a.fileName}`}>
-                {back('Stage')}
-                <div className="border-t border-[#1f1f1f]">
-                  {stages.map(([t, name]) => (
-                    <ListChoice key={t} name={name} on={tags.includes(t)} claude={claude.includes(t)} onClick={() => toggle(t)} />
-                  ))}
-                </div>
-              </div>
-            )}
-            {mode === 'frame' && (
-              <div className="pt-3" aria-label={`What's in ${a.fileName}`}>
-                {back('In frame')}
-                {frameGroups(tradeOf(trade).items).map(([area, list]) => (
-                  <div key={area} className="pt-4">
-                    <p className={`${mono} text-gray-500 pb-2 border-b border-[#1f1f1f]`}>{area}</p>
-                    {list.map((i) => (
-                      <ListChoice
-                        key={i}
-                        name={i.charAt(0).toUpperCase() + i.slice(1)}
-                        on={items.includes(i)}
-                        claude={false}
-                        onClick={() => act(() => adsAPI.setItems(a.id, items.includes(i) ? items.filter((x) => x !== i) : [...items, i]), 'Saved.')}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-            {mode === 'job' && photo && (
-              <div className="pt-3">
-                {back('Job')}
-                <div aria-label={`Job of ${a.fileName}`}>
-                  <JobPicker
-                    jobs={jobs}
-                    value={a.jobId}
-                    where={a.fileName}
-                    open
-                    onPick={(jobId) => {
-                      void act(() => adsAPI.setAssetJob(a.id, jobId), jobId ? 'Tagged with the job.' : 'Job tag taken off.');
-                      setMode('read');
-                    }}
-                    onNew={(name) =>
-                      act(async () => {
-                        const jobId = await adsAPI.addJob(name, trade);
-                        await adsAPI.setAssetJob(a.id, jobId);
-                      }, `Job "${name}" added and this photo tagged with it.`).then(() => setMode('read'))
-                    }
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-3 px-5 py-3 border-t border-[#1f1f1f]">
-            <button type="button" onClick={skip} className="min-h-[44px] px-2 text-sm text-gray-500 hover:text-gray-300">
-              Skip
+          {photo && !partner && onFindPartner && (
+            <button type="button" onClick={onFindPartner} className="min-h-[40px] px-3 rounded-lg border border-[#c9a24a]/70 text-sm text-[#e2c578]">
+              + Add its {a.tags.includes('before') ? 'after' : 'before'}
             </button>
+          )}
+          {claude.length > 0 && claude.join(',') !== tags.join(',') && (
+            <button type="button" className="min-h-[40px] px-3 text-sm text-[#e2c578]" onClick={() => saveTags(claude)}>
+              Use Claude&apos;s tags
+            </button>
+          )}
+          {a.kind === 'video' && !a.posterUrl && a.url && (
             <button
               type="button"
-              onClick={confirm}
-              aria-label={flip?.next ? 'Save & next' : 'Save'}
-              className="ml-auto inline-flex items-center justify-center gap-2 rounded-lg border border-[#c9a24a]/60 bg-transparent px-5 min-h-[44px] text-[15px] font-medium text-[#e3c47a] [@media(hover:hover)]:hover:bg-[#c9a24a]/10 [@media(hover:hover)]:hover:border-[#c9a24a]"
+              className={secondary}
+              onClick={() =>
+                act(async () => {
+                  const { still, durationSec } = await stillOfClip(a.url!, true);
+                  if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
+                  await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
+                  const thumb = await thumbOf(still);
+                  if (thumb) await adsAPI.setThumb(a.id, await putFile(thumb, 'image/jpeg'));
+                }, 'Still made. Claude is looking at the clip and will suggest its tags.')
+              }
             >
-              {flip?.next ? (
-                <>
-                  Save &amp; next <ArrowRight className="w-4 h-4" />
-                </>
-              ) : (
-                'Save'
-              )}
+              Make its still
             </button>
-          </div>
+          )}
         </div>
-      </div>
+      )}
     </div>,
     document.body,
   );
