@@ -1678,6 +1678,25 @@ const STAGES: Array<[string, string]> = [
 ];
 
 /**
+ * A photo's stage is one choice: Before, In progress or After. "Both in one" is the one exception, an image that is a
+ * before and its after joined (a side-by-side), tagged before and after.
+ */
+const STAGE_CHOICES: Array<[string, string, string[]]> = [
+  ['before', 'Before', ['before']],
+  ['process', 'In progress', ['process']],
+  ['after', 'After', ['after']],
+  ['both', 'Both in one', ['before', 'after']],
+];
+const stageOf = (tags: string[]) =>
+  tags.includes('before') && tags.includes('after') ? 'both' : tags.includes('after') ? 'after' : tags.includes('process') ? 'process' : tags.includes('before') ? 'before' : '';
+/** The tags with this stage instead of any other (none when the stage is ''). */
+const withStage = (tags: string[], key: string) => [
+  ...tags.filter((t) => t !== 'before' && t !== 'process' && t !== 'after'),
+  ...(STAGE_CHOICES.find(([k]) => k === key)?.[2] ?? []),
+];
+const stageChoices = (photo: boolean) => (photo ? STAGE_CHOICES : STAGE_CHOICES.filter(([k]) => k === 'process'));
+
+/**
  * A photo's types of work changed: its scopes (interior, exterior, cabinets) follow from them, so they aren't picked
  * by hand. With no type of work left, the scopes it had stay.
  */
@@ -1729,7 +1748,6 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
     ['Inside', works.filter((w) => tradeOf(trade).works![w].scope !== 'exterior')],
     ['Outside', works.filter((w) => tradeOf(trade).works![w].scope === 'exterior')],
   ];
-  const stages = photo ? STAGES : STAGES.filter(([t]) => t === 'process');
   const heading = 'text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500';
   return (
     <div className="space-y-5" aria-label={label}>
@@ -1759,15 +1777,15 @@ const KindTags: React.FC<{ value: string[]; onChange: (tags: string[]) => void; 
       ))}
       <div className="space-y-2">
         <p className={heading}>Stage</p>
-        <div className="grid grid-flow-col auto-cols-fr rounded-lg bg-[#151515] border border-[#2E2E2E] p-1" role="group" aria-label="Stage">
-          {stages.map(([t, name]) => {
-            const on = value.includes(t);
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 rounded-lg bg-[#151515] border border-[#2E2E2E] p-1" role="group" aria-label="Stage">
+          {stageChoices(photo).map(([t, name]) => {
+            const on = stageOf(value) === t;
             return (
               <button
                 key={t}
                 type="button"
                 aria-pressed={on}
-                onClick={() => toggle(t)}
+                onClick={() => onChange(withStage(value, on ? '' : t))}
                 className={`inline-flex items-center justify-center gap-2 min-h-[44px] rounded-md text-[15px] ${on ? 'bg-white text-black font-medium' : 'text-gray-300'}`}
               >
                 {name}
@@ -2067,14 +2085,14 @@ const AssetEditor: React.FC<{
             {mode === 'read' && (
               <>
                 <p className={head}>Stage</p>
-                <div className="mx-4 grid gap-1 rounded-xl bg-[#1c1c1e] p-1" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }} role="group" aria-label="Stage">
-                  {stages.map(([t, name]) => (
+                <div className="mx-4 grid grid-cols-2 gap-1 rounded-xl bg-[#1c1c1e] p-1" role="group" aria-label="Stage">
+                  {stageChoices(photo).map(([t, name]) => (
                     <button
                       key={t}
                       type="button"
-                      aria-pressed={tags.includes(t)}
-                      className={`min-h-[48px] rounded-lg text-[16px] whitespace-nowrap ${tags.includes(t) ? 'bg-[#636366] text-white font-semibold' : 'text-gray-300'}`}
-                      onClick={() => saveTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])}
+                      aria-pressed={stageOf(tags) === t}
+                      className={`min-h-[48px] rounded-lg text-[16px] whitespace-nowrap ${stageOf(tags) === t ? 'bg-[#636366] text-white font-semibold' : 'text-gray-300'}`}
+                      onClick={() => saveTags(withStage(tags, stageOf(tags) === t ? '' : t))}
                     >
                       {name}
                     </button>

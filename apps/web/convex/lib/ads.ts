@@ -661,12 +661,24 @@ function balancedEnd(text: string, from: number): number {
   return -1;
 }
 
+/**
+ * A photo's stage, one only: before, process (in progress) or after; the furthest along wins. The exception is one image
+ * holding a before and its after (a side-by-side), tagged both before and after, with no process.
+ */
+export function oneStage(tags: string[]): string[] {
+  const has = (t: string) => tags.includes(t);
+  if (has("before") && has("after")) return tags.filter((t) => t !== "process");
+  const keep = has("after") ? "after" : has("process") ? "process" : has("before") ? "before" : null;
+  return tags.filter((t) => !["before", "process", "after"].includes(t) || t === keep);
+}
+
 /** What Claude is asked about one library image when it's uploaded. */
 export const describePrompt = (trade: AdTrade): string =>
   [
     `This is a photo (or a still from a video) a ${trade.contractor} took on a job. It will be used in ads.`,
     `Describe what is visible in one plain sentence of at most 30 words: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
     `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
+    "Give it at most one stage: before (unfinished), process (the work going on) or after (finished). Tag it both before and after only when the image is two pictures joined, a before and its after side by side or one above the other.",
     ...(trade.works
       ? [
           "Also tag the type of work it shows (one or more, only when clear):",

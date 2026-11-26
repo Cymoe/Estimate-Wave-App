@@ -994,7 +994,7 @@ describe('Ops → Ads', () => {
     await act(async () => (Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent === 'Fence stain') as HTMLButtonElement).click());
     await flush();
     expect(tagAsset).toHaveBeenLastCalledWith('d1', ['fence-stain', 'doors', 'exterior', 'interior'], undefined, undefined);
-    expect(Array.from(dialog().querySelectorAll('[aria-label="Stage"] button')).map((b) => b.textContent)).toEqual(['Before', 'In progress', 'After']);
+    expect(Array.from(dialog().querySelectorAll('[aria-label="Stage"] button')).map((b) => b.textContent)).toEqual(['Before', 'In progress', 'After', 'Both in one']);
     expect(dialog().querySelector('[aria-label="Save & next"]')).toBeNull();
   });
 
@@ -1064,10 +1064,18 @@ describe('Ops → Ads', () => {
     );
     await flush();
     expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
-    // A stage tapped is saved at once too.
-    await act(async () => (Array.from(dialog().querySelectorAll('[aria-label="Stage"] button')).find((b) => b.textContent === 'Before') as HTMLButtonElement).click());
+    // A stage is one choice, saved at once: Before takes After's place. "Both in one" is a side-by-side.
+    const stage = (name: string) => act(async () => (Array.from(dialog().querySelectorAll('[aria-label="Stage"] button')).find((b) => b.textContent === name) as HTMLButtonElement).click());
+    await stage('Before');
     await flush();
-    expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'after', 'before'], undefined, undefined);
+    expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'before'], undefined, undefined);
+    await stage('Both in one');
+    await flush();
+    expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'before', 'after'], undefined, undefined);
+    // Tapped again, it comes off.
+    await stage('Both in one');
+    await flush();
+    expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets'], undefined, undefined);
   });
 
   it('Hooks seeds the six, adds one, and switches one off', async () => {

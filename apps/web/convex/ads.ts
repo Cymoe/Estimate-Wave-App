@@ -67,6 +67,7 @@ import {
   assetTagsOf,
   withWorkScopes,
   workTags,
+  oneStage,
   worksIn,
   describePrompt,
   inTrade,
@@ -445,9 +446,11 @@ export const describeAsset = internalAction({
       const out = parseJson<{ description?: string; tags?: string[]; items?: unknown }>(reply);
       if (!out?.description) return `reply not read: ${reply.slice(0, 300)}`;
       const trade = tradeOf(a.trade);
-      const suggestedTags = withWorkScopes(
-        [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(trade).includes(t)),
-        trade,
+      const suggestedTags = oneStage(
+        withWorkScopes(
+          [...new Set((out.tags ?? []).map((t) => String(t).toLowerCase()))].filter((t) => assetTagsOf(trade).includes(t)),
+          trade,
+        ),
       );
       await ctx.runMutation(internal.ads.saveDescription, {
         id,
@@ -846,6 +849,34 @@ export const pairLibrary = internalMutation({
     let i = 0;
     for (const pool of pools) await askPool(ctx, pool, 2000 * i++);
     return { pools: [...pools] };
+  },
+});
+
+/** Photos tagged with more than one stage, from the deployment: to check before they're made one stage (fixStages). */
+export const multiStage = internalQuery({
+  args: {},
+  handler: async (ctx) =>
+    (await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "photo")).take(1000))
+      .filter((a) => a.tags.filter((t) => t === "before" || t === "process" || t === "after").length > 1)
+      .map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, becomes: oneStage(a.tags), description: a.description })),
+});
+
+/** Makes the photos listed one stage each (oneStage), from the deployment; a pair broken by it is undone. */
+export const fixStages = internalMutation({
+  args: { ids: v.array(v.id("adAssets")) },
+  handler: async (ctx, { ids }) => {
+    const fixed: string[] = [];
+    for (const id of ids) {
+      const a = await ctx.db.get(id);
+      if (a === null) continue;
+      const tags = oneStage(a.tags);
+      if (tags.join(",") === a.tags.join(",")) continue;
+      if (isBefore(a) !== isBefore({ tags }) || isAfter(a) !== isAfter({ tags })) await unpair(ctx, a);
+      await ctx.db.patch(id, { tags, pairLookedAt: undefined });
+      await askPairs(ctx, await ctx.db.get(id));
+      fixed.push(`${a.fileName}: ${a.tags.join(", ")} → ${tags.join(", ")}`);
+    }
+    return { fixed };
   },
 });
 

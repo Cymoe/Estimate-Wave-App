@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, cleanItems, describePrompt, itemsIn, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -147,6 +147,15 @@ describe("the pure parts", () => {
     expect(pickAssets([...assets, raw], "cabinets", new Set()).assets.map((a) => a._id)).toEqual(["p1", "p2", "v3", "v1"]);
     expect(pickAssets([...assets, raw], "cabinets", new Set(["p2"])).assets.map((a) => a._id)).toEqual(["v3", "v1"]);
     expect(pickAssets([raw, raw, raw].map((r, i) => ({ ...r, _id: `r${i}`, tags: ["cabinets-painted", "interior", "before"] })), "interior", new Set(), 8, [], [], ["cabinets-painted"]).assets).toEqual([]);
+  });
+
+  test("a photo has one stage, the furthest along; only a side-by-side is a before and an after at once", () => {
+    expect(oneStage(["doors", "before", "process"])).toEqual(["doors", "process"]);
+    expect(oneStage(["doors", "process", "after"])).toEqual(["doors", "after"]);
+    expect(oneStage(["doors", "before", "after"])).toEqual(["doors", "before", "after"]);
+    expect(oneStage(["doors", "before", "process", "after"])).toEqual(["doors", "before", "after"]);
+    expect(oneStage(["doors", "crew"])).toEqual(["doors", "crew"]);
+    expect(describePrompt(AD_TRADES.painting)).toContain("at most one stage");
   });
 
   test("shot timings come from ElevenLabs' character times, or an even estimate without them", () => {
