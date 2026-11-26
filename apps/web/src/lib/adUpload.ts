@@ -246,7 +246,7 @@ export async function sendPreparedAsset(
   p: PreparedAsset,
   meta: { tags: string[]; trade: string; pairKey?: string; note?: string; job?: { jobId?: string; jobPhotoId?: string } },
   onProgress?: (fraction: number) => void,
-) {
+): Promise<string> {
   const t = performance.now();
   const storageId = await sendWithRetries(p.file, onProgress);
   const took = seconds(t);
@@ -260,7 +260,8 @@ export async function sendPreparedAsset(
     });
   const posterStorageId = p.still ? await putFile(p.still, 'image/jpeg') : undefined;
   const thumbStorageId = p.thumb ? await putFile(p.thumb, 'image/jpeg') : undefined;
-  await adsAPI.addAsset({
+  // The new file's id, so the caller can do more with it (pair it with its before).
+  return (await adsAPI.addAsset({
     storageId,
     fileName: p.file.name,
     tags: meta.tags,
@@ -271,7 +272,7 @@ export async function sendPreparedAsset(
     thumbStorageId,
     trade: meta.trade,
     ...meta.job,
-  });
+  })) as string;
 }
 
 /**

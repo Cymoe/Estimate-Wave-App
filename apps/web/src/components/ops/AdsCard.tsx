@@ -883,6 +883,8 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const [openId, setOpenId] = useState<string | null>(null);
   // The before and after open side by side, by its pair key.
   const [openPair, setOpenPair] = useState<string | null>(null);
+  // "Add its after" (or its before): the photo whose other half is being found.
+  const [finding, setFinding] = useState<string | null>(null);
   // The upload window: for the library, or straight into one job's box.
   const [adding, setAdding] = useState<{ jobId?: string } | null>(null);
   // "New job": name it, then its photos go straight in.
@@ -1132,7 +1134,23 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
                 Befores with no after yet <span className="text-gray-500 font-normal">{needsAfter.length}</span>
               </h3>
               <p className="text-xs text-gray-500">Shoot these spots when the job's done, or pick one with its after in Select to pair them.</p>
-              <ul className={grid}>{needsAfter.map((a) => tile(a))}</ul>
+              <ul className={grid}>
+                {needsAfter.map((a) => (
+                  <li key={a.id} className="flex flex-col gap-1.5">
+                    <ul>{tile(a)}</ul>
+                    {!selecting && (
+                      <button
+                        type="button"
+                        aria-label={`Add the after for ${a.fileName}`}
+                        onClick={() => setFinding(a.id)}
+                        className="min-h-[40px] rounded-lg border border-[#c9a24a]/70 text-[#e2c578] text-sm [@media(hover:hover)]:hover:bg-[#c9a24a]/10"
+                      >
+                        + Add its after
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
           {selecting && loneAfters.length > 0 && (
@@ -1217,9 +1235,21 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           jobs={jobs}
           act={act}
           partner={open.pairKey ? (assets ?? []).find((x) => x.id !== open.id && x.pairKey === open.pairKey) : undefined}
+          onFindPartner={
+            open.kind === 'photo' && !paired.has(open.id) && open.tags.includes('before') !== open.tags.includes('after') ? () => setFinding(open.id) : undefined
+          }
           onOpen={setOpenId}
           onClose={() => setOpenId(null)}
           flip={at >= 0 && order.length > 1 ? { at, of: order.length, prev: at > 0 ? order[at - 1] : undefined, next: at < order.length - 1 ? order[at + 1] : undefined } : undefined}
+        />
+      )}
+      {finding && photos.some((a) => a.id === finding) && (
+        <FindPartner
+          a={photos.find((x) => x.id === finding)!}
+          photos={photos}
+          paired={paired}
+          act={act}
+          onClose={() => setFinding(null)}
         />
       )}
       {shownPair && (
@@ -1380,6 +1410,98 @@ const PairView: React.FC<{ p: Pair; act: Act; onClose: () => void; onOpen: (id: 
     </div>
   </Dialog>
 );
+
+/**
+ * "Add its after" (or "Add its before"): the other half of a photo, uploaded now or picked from the library, and
+ * paired with it at once. The likeliest first: the same job, then the same type of work, then the nearest in time.
+ */
+const FindPartner: React.FC<{ a: AdAsset; photos: AdAsset[]; paired: Set<string>; act: Act; onClose: () => void }> = ({ a, photos, paired, act, onClose }) => {
+  const trade = useTrade();
+  const want: 'before' | 'after' = a.tags.includes('before') ? 'after' : 'before';
+  const work = a.tags.find((t) => worksFor(trade).includes(t));
+  const [all, setAll] = useState(false);
+  const [sendingPct, setSendingPct] = useState<number | null>(null);
+  const when = (x: AdAsset) => Date.parse(x.createdAt ?? '') || 0;
+  const score = (x: AdAsset) => [a.jobId && x.jobId === a.jobId ? 0 : 1, work && x.tags.includes(work) ? 0 : 1, Math.abs(when(x) - when(a))];
+  const options = photos
+    .filter((x) => x.id !== a.id && !paired.has(x.id) && x.tags.includes(want) && !x.tags.includes(want === 'after' ? 'before' : 'after'))
+    .sort((x, y) => {
+      const [p, q] = [score(x), score(y)];
+      return p[0] - q[0] || p[1] - q[1] || p[2] - q[2];
+    });
+  const shown = all ? options : options.slice(0, 12);
+  const pairWith = (id: string) =>
+    act(async () => {
+      await adsAPI.pairPhotos(want === 'after' ? [a.id, id] : [id, a.id]);
+      onClose();
+    }, `Paired: shown together as a before and after.`);
+  const upload = (file: File) =>
+    act(async () => {
+      const big = tooBig(file);
+      if (big) throw new Error(big);
+      setSendingPct(0);
+      try {
+        const ready = await prepareAsset(file);
+        const id = await sendPreparedAsset(
+          ready,
+          { tags: [...(work ? [work] : []), want], trade, job: a.jobId ? { jobId: a.jobId } : undefined },
+          (x) => setSendingPct(Math.round(x * 100)),
+        );
+        await adsAPI.pairPhotos(want === 'after' ? [a.id, id] : [id, a.id]);
+      } finally {
+        setSendingPct(null);
+      }
+      onClose();
+    }, `Uploaded and paired: shown together as a before and after.`);
+  return (
+    <Dialog title={`Add its ${want}`} onClose={onClose} wide>
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <img src={a.thumbUrl ?? a.posterUrl ?? a.url} alt={a.fileName} className="w-20 h-20 rounded object-cover bg-[#1d1d1d] flex-none" />
+          <p className="text-sm text-gray-400">
+            The {want === 'after' ? 'before' : 'after'}
+            {work ? ` · ${workLabel(trade, work)}` : ''}. Upload its {want}, or pick it below.
+          </p>
+        </div>
+        <label className={`${primary} w-full justify-center cursor-pointer ${sendingPct !== null ? 'opacity-60 pointer-events-none' : ''}`}>
+          <Upload className="w-4 h-4" /> {sendingPct !== null ? `Sending… ${sendingPct}%` : `Upload the ${want}`}
+          <input
+            type="file"
+            accept="image/*"
+            aria-label={`Upload the ${want}`}
+            className="sr-only"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void upload(f);
+            }}
+          />
+        </label>
+        {options.length === 0 ? (
+          <p className="text-sm text-gray-500">No {want}s without a {want === 'after' ? 'before' : 'after'} in the library yet.</p>
+        ) : (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-gray-300">Or pick it from the library</h3>
+            <ul className="grid gap-2 grid-cols-3 sm:grid-cols-4" aria-label={`${want}s to pick`}>
+              {shown.map((x) => (
+                <li key={x.id}>
+                  <button type="button" aria-label={`Pair with ${x.fileName}`} onClick={() => pairWith(x.id)} className="block w-full rounded overflow-hidden border border-[#2A2A2A] [@media(hover:hover)]:hover:border-[#c9a24a]">
+                    <img src={x.thumbUrl ?? x.posterUrl ?? x.url} alt={x.fileName} loading="lazy" className="w-full aspect-square object-cover bg-[#1d1d1d]" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {!all && options.length > shown.length && (
+              <button type="button" className="text-sm text-[#e2c578] min-h-[40px]" onClick={() => setAll(true)}>
+                Show all {options.length}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </Dialog>
+  );
+};
 
 const Thumb: React.FC<{ a: AdAsset }> = ({ a }) => {
   const src = a.thumbUrl ?? a.posterUrl ?? (a.kind === 'photo' ? a.url : undefined);
@@ -1733,11 +1855,13 @@ const AssetEditor: React.FC<{
   act: Act;
   /** The before or after Claude matched with this one, in its job. */
   partner?: AdAsset;
+  /** A before (or an after) with no other half: opens "Add its after" (or its before). */
+  onFindPartner?: () => void;
   onOpen: (id: string) => void;
   onClose: () => void;
   /** Its place among the files on the page, and the ones either side, to flip to. */
   flip?: { at: number; of: number; prev?: string; next?: string };
-}> = ({ a, jobs, act, partner, onOpen, onClose, flip }) => {
+}> = ({ a, jobs, act, partner, onFindPartner, onOpen, onClose, flip }) => {
   const trade = useTrade();
   const photo = a.kind === 'photo';
   const works = worksFor(trade);
@@ -1946,6 +2070,15 @@ const AssetEditor: React.FC<{
                   />
                   {photo && <ReadRow label="Job" value={job ? job.name : 'Unassigned'} muted={!job} onClick={() => setMode('job')} testId="row-job" />}
                 </div>
+                {photo && !partner && onFindPartner && (
+                  <button
+                    type="button"
+                    onClick={onFindPartner}
+                    className="mt-4 w-full min-h-[44px] rounded-lg border border-[#c9a24a]/70 text-[#e2c578] text-[15px] [@media(hover:hover)]:hover:bg-[#c9a24a]/10"
+                  >
+                    + Add its {a.tags.includes('before') ? 'after' : 'before'}
+                  </button>
+                )}
                 {photo && partner && (
                   // Claude matched it within its job: nothing to type.
                   <button

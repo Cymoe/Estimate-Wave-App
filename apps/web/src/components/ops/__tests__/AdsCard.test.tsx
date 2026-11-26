@@ -612,6 +612,42 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[aria-label="Tag picked photos"]')).toBeNull();
   });
 
+  it('Before & after: a before with no after gets "Add its after": pick its after (same job first) or upload it, and it is paired', async () => {
+    const photo = (id: string, fileName: string, tags: string[], more: Partial<AdAsset> = {}) => ({ id, kind: 'photo' as const, fileName, tags, createdAt: '2026-11-01T00:00:00Z', ...more });
+    jobs = [{ id: 'j1', name: 'Elm hall', createdAt: '2026-11-01' } as never];
+    assets = [
+      photo('b', 'hall-before.jpg', ['interior-walls', 'before'], { jobId: 'j1' }),
+      photo('far', 'far-after.jpg', ['doors', 'after'], { createdAt: '2025-01-01T00:00:00Z' }),
+      photo('same', 'same-job-after.jpg', ['interior-walls', 'after'], { jobId: 'j1' }),
+      photo('work', 'walls-after.jpg', ['interior-walls', 'after']),
+    ];
+    pairPhotos.mockClear();
+    addAsset.mockClear();
+    await render();
+    await tab('Library');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith('Before & after')) as HTMLButtonElement).click());
+    await act(async () => (document.body.querySelector('[aria-label="Add the after for hall-before.jpg"]') as HTMLButtonElement).click());
+    expect(dialog().textContent).toContain('Add its after');
+    const picks = Array.from(dialog().querySelectorAll('[aria-label^="Pair with"]')).map((b) => b.getAttribute('aria-label'));
+    expect(picks).toEqual(['Pair with same-job-after.jpg', 'Pair with walls-after.jpg', 'Pair with far-after.jpg']);
+    await act(async () => (dialog().querySelector('[aria-label="Pair with same-job-after.jpg"]') as HTMLButtonElement).click());
+    await flush();
+    expect(pairPhotos).toHaveBeenLastCalledWith(['b', 'same']);
+    expect(dialog()).toBeNull();
+    // Upload it: sent as the after, with the before's work and job, then paired with the new photo.
+    await act(async () => (document.body.querySelector('[aria-label="Add the after for hall-before.jpg"]') as HTMLButtonElement).click());
+    const input = dialog().querySelector('input[aria-label="Upload the after"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'hall-after.jpg', { type: 'image/jpeg' })] });
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+    await flush();
+    expect(addAsset).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: 'hall-after.jpg', tags: ['interior-walls', 'after'], jobId: 'j1', trade: 'painting' }));
+    expect(pairPhotos).toHaveBeenLastCalledWith(['b', await addAsset.mock.results.at(-1)!.value]);
+    // The photo window of a lone before has the same.
+    await act(async () => (document.body.querySelector('[aria-label="Open hall-before.jpg"]') as HTMLButtonElement).click());
+    expect(dialog().textContent).toContain('+ Add its after');
+  });
+
   it('Library: in a batch, the next clip is made smaller while the one before is sent', async () => {
     jobs = [];
     assets = [];
