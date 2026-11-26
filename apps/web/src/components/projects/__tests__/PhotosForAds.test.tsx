@@ -35,7 +35,7 @@ const flush = () =>
     for (let i = 0; i < 20; i++) await Promise.resolve();
   });
 
-test("a project's photos go to the ad library as one job: each new photo once, PDFs left behind, in the trade chosen", async () => {
+test("a project's photos go to the ad library as one project: each new photo once, PDFs left behind, in the trade chosen", async () => {
   await act(async () => root.render(<PhotosForAds projectId="p1" />));
   const select = host.querySelector('select[aria-label="Trade for the ads"]') as HTMLSelectElement;
   expect(Array.from(select.options).map((o) => o.value)).toContain('outdoor-construction');
@@ -54,7 +54,7 @@ test("a project's photos go to the ad library as one job: each new photo once, P
     ['after.heic', 'outdoor-construction', undefined, { jobId: 'j1', jobPhotoId: 'ph3' }],
   ]);
   expect((uploadAsset.mock.calls[1][0] as File).type).toBe('image/heic');
-  expect(host.querySelector('[role="status"]')!.textContent).toContain('2 photos sent to Ops → Ads → Library as one job');
+  expect(host.querySelector('[role="status"]')!.textContent).toContain('2 photos sent to Ops → Ads → Library as one project');
 });
 
 test('a photo that cannot be read says so, and nothing claims it was sent', async () => {

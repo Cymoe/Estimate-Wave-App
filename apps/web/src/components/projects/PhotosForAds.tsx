@@ -40,7 +40,7 @@ export const PhotosForAds: React.FC<{ projectId: string }> = ({ projectId }) => 
           ? copied.length
             ? 'These photos are already in the ad library.'
             : 'No photos to send yet.'
-          : `${sent} photo${sent === 1 ? '' : 's'} sent to Ops → Ads → Library as one job. Claude is tagging them; check the before and after.`,
+          : `${sent} photo${sent === 1 ? '' : 's'} sent to Ops → Ads → Library as one project. Claude is tagging them; check the before and after.`,
       );
     } catch (e) {
       setError(errorText(e));
@@ -51,7 +51,7 @@ export const PhotosForAds: React.FC<{ projectId: string }> = ({ projectId }) => 
   return (
     <div className="mt-4 border border-[#2A2A2A] rounded p-3 flex flex-wrap items-center gap-3 text-sm" aria-label="Photos for ads">
       <Megaphone className="w-4 h-4 text-gray-400" aria-hidden="true" />
-      <span className="text-gray-300">Use these photos for ads, as one job</span>
+      <span className="text-gray-300">Use these photos for ads, as one project</span>
       <select
         value={trade}
         onChange={(e) => setTrade(e.target.value)}

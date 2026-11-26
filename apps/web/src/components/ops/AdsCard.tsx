@@ -1072,7 +1072,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           <div className="inline-flex rounded-lg bg-[#151515] border border-[#2A2A2A] p-0.5" role="group" aria-label="Group photos">
             {(
               [
-                ['job', 'By job'],
+                ['job', 'By project'],
                 ['work', 'By type of work'],
               ] as const
             ).map(([v, label]) => (
@@ -1096,7 +1096,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           )}
           {view === 'photos' && !selecting && (
             <button type="button" className="px-3 min-h-[36px] rounded-lg text-sm text-gray-300 [@media(hover:hover)]:hover:text-white" onClick={() => setNaming(true)}>
-              New job
+              New project
             </button>
           )}
           <button type="button" aria-label="Add photos or clips" className={`${primary} min-h-[36px] py-1.5`} onClick={() => setAdding({})}>
@@ -1107,7 +1107,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
       {sending && <SendingBar s={sending} />}
       {selecting && (
         <p className="text-xs text-gray-500">
-          {view === 'pairs' ? 'Pick a before and its after, then tap Pair these two.' : 'Tap the photos from one job, then tap its job tag below. Or pick two to pair them as a before and after.'}
+          {view === 'pairs' ? 'Pick a before and its after, then tap Pair these two.' : 'Tap the photos from one project, then tap the project below. Or pick two to pair them as a before and after.'}
         </p>
       )}
       {assets === undefined ? (
@@ -1133,7 +1133,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
               <h3 className="text-sm font-semibold text-gray-300">
                 Befores with no after yet <span className="text-gray-500 font-normal">{needsAfter.length}</span>
               </h3>
-              <p className="text-xs text-gray-500">Shoot these spots when the job's done, or pick one with its after in Select to pair them.</p>
+              <p className="text-xs text-gray-500">Shoot these spots when the project's done, or pick one with its after in Select to pair them.</p>
               <ul className={grid}>
                 {needsAfter.map((a) => (
                   <li key={a.id} className="flex flex-col gap-1.5">
@@ -1170,8 +1170,8 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
               {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
             </JobGroup>
           ))}
-          <section className="space-y-2" aria-label={groupBy === 'work' ? 'By type of work' : 'Not in a job'}>
-            {groupBy === 'job' && jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a job</h3>}
+          <section className="space-y-2" aria-label={groupBy === 'work' ? 'By type of work' : 'Not in a project'}>
+            {groupBy === 'job' && jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a project</h3>}
             {byWork.map(([work, list]) => (
               <div key={work} className="space-y-2" aria-label={workLabel(trade, work)}>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-200/80">
@@ -1202,7 +1202,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
         // Held at the bottom of the screen while photos are picked.
         <div className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-3xl rounded-lg border border-[#7c5cc4] bg-[#16121f]/95 p-3 shadow-2xl space-y-2" aria-label="Tag picked photos">
           <p className="text-sm text-white">
-            {picked.length === 0 ? 'Tap photos to pick them.' : `${picked.length} photo${picked.length === 1 ? '' : 's'} picked. Tap the job they belong to:`}
+            {picked.length === 0 ? 'Tap photos to pick them.' : `${picked.length} photo${picked.length === 1 ? '' : 's'} picked. Tap the project they belong to:`}
           </p>
           {picked.length === 2 && (
             <button
@@ -1223,7 +1223,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
               jobs={jobs}
               where="the picked photos"
               open
-              onPick={(jobId) => jobId && toJob({ jobId }, jobs.find((j) => j.id === jobId)?.name ?? 'with the job')}
+              onPick={(jobId) => jobId && toJob({ jobId }, jobs.find((j) => j.id === jobId)?.name ?? 'with the project')}
               onNew={(name) => toJob({ name }, name)}
             />
           )}
@@ -1948,32 +1948,32 @@ const AssetEditor: React.FC<{
             </div>
             {photo && (
               <div>
-                <p className={label}>Job</p>
+                <p className={label}>Project</p>
                   <select
-                    aria-label="Job"
+                    aria-label="Project"
                     value={job ? job.id : ''}
                     className={`${field} w-full`}
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === '+new') {
-                        const name = window.prompt('Name the new job (it never shows in an ad)')?.trim();
+                        const name = window.prompt('Name the new project (it never shows in an ad)')?.trim();
                         if (name)
                           void act(async () => {
                             const jobId = await adsAPI.addJob(name, trade);
                             await adsAPI.setAssetJob(a.id, jobId);
-                          }, `Job "${name}" added and this photo tagged with it.`);
+                          }, `Project "${name}" added and this photo tagged with it.`);
                         return;
                       }
-                      void act(() => adsAPI.setAssetJob(a.id, v || undefined), v ? 'Tagged with the job.' : 'Job tag taken off.');
+                      void act(() => adsAPI.setAssetJob(a.id, v || undefined), v ? 'Tagged with the project.' : 'Project tag taken off.');
                     }}
                   >
-                    <option value="">No job</option>
+                    <option value="">No project</option>
                     {jobs.map((j) => (
                       <option key={j.id} value={j.id}>
                         {j.name}
                       </option>
                     ))}
-                    <option value="+new">New job…</option>
+                    <option value="+new">New project…</option>
                   </select>
               </div>
             )}
@@ -2047,21 +2047,21 @@ const NewJob: React.FC<{ act: Act; onClose: () => void; onMade: (jobId: string) 
   const trade = useTrade();
   const [name, setName] = useState('');
   return (
-    <Dialog title="New job" onClose={onClose}>
+    <Dialog title="New project" onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           const clean = name.trim();
           if (!clean) return;
-          void act(async () => onMade(await adsAPI.addJob(clean, trade)), `Job "${clean}" added.`);
+          void act(async () => onMade(await adsAPI.addJob(clean, trade)), `Project "${clean}" added.`);
         }}
       >
-        <Field label="Job name" hint="Your own name for it, like Smith kitchen. It never shows in an ad.">
-          <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Job name" className={input} autoFocus />
+        <Field label="Project name" hint="Your own name for it, like Smith kitchen. It never shows in an ad.">
+          <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" className={input} autoFocus />
         </Field>
         <button type="submit" className={`${primary} w-full`} disabled={!name.trim()}>
-          Make the job
+          Make the project
         </button>
       </form>
     </Dialog>
@@ -2256,14 +2256,14 @@ const AddFiles: React.FC<{
             <p className="text-xs text-gray-500">Only if you want: what you pick here goes on every file in this upload, instead of Claude&apos;s.</p>
             <KindTags value={tags} onChange={setTags} photo label="Tags for the next upload" />
             <div className="space-y-2">
-              <p className="text-xs text-gray-400">Job (photos only)</p>
+              <p className="text-xs text-gray-400">Project (photos only)</p>
               <div>
                 <JobPicker
                   jobs={jobs}
                   value={jobId}
                   where="the next upload"
                   onPick={(id) => setJobId(id ?? '')}
-                  onNew={(name) => act(async () => setJobId(await adsAPI.addJob(name, trade)), `Job "${name}" added. The next upload is tagged with it.`)}
+                  onNew={(name) => act(async () => setJobId(await adsAPI.addJob(name, trade)), `Project "${name}" added. The next upload is tagged with it.`)}
                 />
               </div>
             </div>
@@ -2300,16 +2300,16 @@ const JobPicker: React.FC<{
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label={`Change the job for ${where}`}
+        aria-label={`Change the project for ${where}`}
         className={`${row} border ${current ? 'border-[#7c5cc4] bg-[#7c5cc4]/15 text-white' : 'border-[#333] text-gray-300'}`}
       >
         <span className={`w-3 h-3 rounded-full flex-none ${current ? 'bg-[#7c5cc4]' : 'border border-gray-500'}`} aria-hidden="true" />
-        <span className="flex-1 truncate">{current ? current.name : 'No job'}</span>
+        <span className="flex-1 truncate">{current ? current.name : 'No project'}</span>
         <span className="text-sm text-[#c9b8f0]">Change</span>
       </button>
     );
   return (
-    <div className="rounded-lg border border-[#333] bg-[#141414] overflow-hidden" aria-label={`Jobs for ${where}`}>
+    <div className="rounded-lg border border-[#333] bg-[#141414] overflow-hidden" aria-label={`Projects for ${where}`}>
       <form
         className="flex gap-2 p-2 border-b border-[#2A2A2A]"
         onSubmit={(e) => {
@@ -2325,8 +2325,8 @@ const JobPicker: React.FC<{
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="New job, e.g. Smith kitchen"
-          aria-label={`New job for ${where}`}
+          placeholder="New project, e.g. Smith kitchen"
+          aria-label={`New project for ${where}`}
           className={`${input} min-h-[44px] flex-1 min-w-0`}
         />
         <button type="submit" className={`${primary} min-h-[44px]`} disabled={!name.trim()}>
@@ -2339,7 +2339,7 @@ const JobPicker: React.FC<{
             <button
               type="button"
               aria-pressed={value === j.id}
-              aria-label={`Job ${j.name} for ${where}`}
+              aria-label={`Project ${j.name} for ${where}`}
               onClick={() => pick(value === j.id && startOpen ? undefined : j.id)}
               className={`${row} rounded-none ${value === j.id ? 'bg-[#7c5cc4]/20 text-white' : 'text-gray-200 [@media(hover:hover)]:hover:bg-[#1d1d1d]'}`}
             >
@@ -2356,7 +2356,7 @@ const JobPicker: React.FC<{
           <li>
             <button type="button" onClick={() => pick(undefined)} aria-pressed={!value} className={`${row} rounded-none text-gray-400`}>
               <span className="w-3 h-3 rounded-full flex-none border border-gray-500" aria-hidden="true" />
-              <span className="flex-1">No job</span>
+              <span className="flex-1">No project</span>
               {!value && <span>✓</span>}
             </button>
           </li>
@@ -2374,7 +2374,7 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: Re
   // Claude's matches of a before with the after of the same spot.
   const pairs = new Set(assets.flatMap((a) => (a.pairKey && assets.filter((b) => b.pairKey === a.pairKey).length === 2 ? [a.pairKey] : []))).size;
   return (
-    <section className="space-y-2 border border-[#2A2A2A] rounded p-3" aria-label={`Job ${job.name}`} data-testid="job">
+    <section className="space-y-2 border border-[#2A2A2A] rounded p-3" aria-label={`Project ${job.name}`} data-testid="job">
       <div className="flex flex-wrap items-center gap-2">
         {name === null ? (
           <h3 className="text-sm font-semibold text-white">{job.name}</h3>
@@ -2383,10 +2383,10 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: Re
             className="flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              void act(() => adsAPI.renameJob(job.id, name), 'Job renamed.').then(() => setName(null));
+              void act(() => adsAPI.renameJob(job.id, name), 'Project renamed.').then(() => setName(null));
             }}
           >
-            <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Job name" className={`${input} text-sm py-1`} />
+            <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" className={`${input} text-sm py-1`} />
             <button type="submit" className={`${primary} text-xs py-1`}>
               Save
             </button>
@@ -2414,14 +2414,14 @@ const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: Re
           <button
             type="button"
             className="text-gray-400 hover:text-red-300 underline"
-            onClick={() => act(() => adsAPI.removeJob(job.id), 'Job taken away. Its photos stay in the library.')}
+            onClick={() => act(() => adsAPI.removeJob(job.id), 'Project taken away. Its photos stay in the library.')}
           >
             Take away job
           </button>
         </span>
       </div>
       {assets.length < 3 && (
-        <p className="text-xs text-gray-500">A story is told from one job once it has 3 photos or more.</p>
+        <p className="text-xs text-gray-500">A story is told from one project once it has 3 photos or more.</p>
       )}
       <ul className={grid}>{children}</ul>
     </section>
