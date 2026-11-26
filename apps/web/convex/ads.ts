@@ -417,7 +417,7 @@ export const saveDescription = internalMutation({
     const works = workTags(suggestedTags, trade);
     const addsWorks = !takes && addWorks && works.length > 0 && workTags(a.tags, trade).length === 0;
     // Only types of work that were Claude's are replaced; ones a person picked stay.
-    const mine = workTags(a.tags, trade).join(",") === workTags(a.suggestedTags ?? [], trade).join(",");
+    const mine = workTags(a.tags, trade).length === 0 || workTags(a.tags, trade).join(",") === workTags(a.suggestedTags ?? [], trade).join(",");
     const reworks = !takes && rework && works.length > 0 && mine;
     await ctx.db.patch(id, {
       description: description.slice(0, 300),
@@ -427,6 +427,8 @@ export const saveDescription = internalMutation({
       // The new types first (the first is its group), then its other tags (stage, crew, scope) as they were.
       ...(reworks ? { tags: withWorkScopes([...works, ...a.tags.filter((t) => !trade.works?.[t])], trade) } : {}),
     });
+    // Still no type of work: a photo in a project takes its project's (a before is of the job it's for).
+    await inheritWork(ctx, id);
     // Its before or after tag, or its type of work, may have just arrived: its match is looked for.
     if (takes || addsWorks || reworks) await askPairs(ctx, await ctx.db.get(id));
   },
@@ -607,6 +609,7 @@ export const setAssetJob = mutation({
     if (a.jobId === jobId) return;
     // Its pair stays (pairs aren't kept to a job); its match is looked for again among its new job's photos.
     await ctx.db.patch(id, { jobId, pairLookedAt: undefined });
+    await inheritWork(ctx, id);
     await askPairs(ctx, await ctx.db.get(id));
   },
 });
@@ -629,6 +632,7 @@ export const groupIntoJob = mutation({
       const a = await ctx.db.get(assetId);
       if (a === null || tradeOf(a.trade).slug !== slug) continue;
       await ctx.db.patch(assetId, { jobId: id, pairLookedAt: undefined });
+      await inheritWork(ctx, assetId);
       await askPairs(ctx, await ctx.db.get(assetId));
       moved += 1;
     }
@@ -1048,19 +1052,56 @@ export const labelWorks = internalMutation({
  * first, unless a person picked its types (saveDescription). Three seconds apart, 200 a page.
  */
 export const reworkWorks = internalMutation({
-  args: { trade: v.optional(v.string()), works: v.optional(v.array(v.string())), cursor: v.optional(v.string()), asked: v.optional(v.number()) },
-  handler: async (ctx, { trade, works = ["interior-walls"], cursor, asked = 0 }) => {
+  // none: the photos with no type of work at all instead.
+  args: { trade: v.optional(v.string()), works: v.optional(v.array(v.string())), none: v.optional(v.boolean()), cursor: v.optional(v.string()), asked: v.optional(v.number()) },
+  handler: async (ctx, { trade, works = ["interior-walls"], none, cursor, asked = 0 }) => {
     if (!process.env.ANTHROPIC_API_KEY) return { asked: 0, done: true };
     const slug = tradeOf(trade).slug;
     const page = await ctx.db.query("adAssets").paginate({ cursor: cursor ?? null, numItems: 200 });
     let here = 0;
     for (const a of page.page) {
-      if (tradeOf(a.trade).slug !== slug || a.kind !== "photo" || !a.tags.some((t) => works.includes(t))) continue;
+      if (tradeOf(a.trade).slug !== slug || a.kind !== "photo") continue;
+      if (none ? workTags(a.tags, tradeOf(a.trade)).length > 0 : !a.tags.some((t) => works.includes(t))) continue;
       await ctx.scheduler.runAfter(here * 3000, internal.ads.describeAsset, { id: a._id, rework: true });
       here += 1;
     }
-    if (!page.isDone) await ctx.scheduler.runAfter(here * 3000, internal.ads.reworkWorks, { trade: slug, works, cursor: page.continueCursor, asked: asked + here });
+    if (!page.isDone) await ctx.scheduler.runAfter(here * 3000, internal.ads.reworkWorks, { trade: slug, works, ...(none ? { none } : {}), cursor: page.continueCursor, asked: asked + here });
     return { asked: asked + here, done: page.isDone };
+  },
+});
+
+/**
+ * A photo with no type of work takes its project's: the type most of the project's other photos have (a before of a
+ * kitchen whose afters are painted cabinets is cabinets painted). Nothing when it's in no project or the project has
+ * none.
+ */
+async function inheritWork(ctx: MutationCtx, id: Id<"adAssets">) {
+  const a = await ctx.db.get(id);
+  if (a === null || a.kind !== "photo" || !a.jobId) return false;
+  const trade = tradeOf(a.trade);
+  if (!trade.works || workTags(a.tags, trade).length > 0) return false;
+  const count = new Map<string, number>();
+  for (const b of await ctx.db.query("adAssets").withIndex("by_job", (q) => q.eq("jobId", a.jobId)).take(200)) {
+    const w = b._id !== id ? workTags(b.tags, trade)[0] : undefined;
+    if (w) count.set(w, (count.get(w) ?? 0) + 1);
+  }
+  const best = [...count].sort((x, y) => y[1] - x[1])[0]?.[0];
+  if (!best) return false;
+  await ctx.db.patch(id, { tags: withWorkScopes([best, ...a.tags], trade), pairLookedAt: undefined });
+  return true;
+}
+
+/** Gives each photo with no type of work its project's (inheritWork), from the deployment. */
+export const fillWorksFromProjects = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const filled: string[] = [];
+    for (const a of await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "photo")).take(1000))
+      if (a.jobId && (await inheritWork(ctx, a._id))) {
+        filled.push(`${a.fileName}: ${workTags((await ctx.db.get(a._id))!.tags, tradeOf(a.trade))[0]}`);
+        await askPairs(ctx, await ctx.db.get(a._id));
+      }
+    return { filled };
   },
 });
 

@@ -82,6 +82,12 @@ export const AD_TRADES: Record<string, AdTrade> = {
         looks: "cabinets with a wood stain, the grain showing through",
         words: /\bstain\w* (the |your |kitchen )?cabinets?|cabinets? (stain|restain)\w*|wood cabinets?\b/,
       },
+      "cabinets-built": {
+        label: "Cabinets & vanities built",
+        scope: "cabinets",
+        looks: "new cabinets or a vanity built or installed, often raw wood before finishing",
+        words: /\b((new|custom|built|install\w*) (kitchen |bath\w* )?(cabinets?|vanit(y|ies))|(cabinets?|vanit(y|ies)) (built|install\w*|carpentry))\b/,
+      },
       doors: {
         label: "Doors",
         scope: "interior",
@@ -106,6 +112,12 @@ export const AD_TRADES: Record<string, AdTrade> = {
         looks: "new floor laid, luxury vinyl plank (LVP) or similar",
         words: /\b(lvp|luxury vinyl|vinyl plank|flooring|new floors?|floors? (install|replace)\w*)\b/,
       },
+      "garage-floors": {
+        label: "Garage floors & coatings",
+        scope: "interior",
+        looks: "a garage or concrete floor coated: epoxy, floor paint or sealer",
+        words: /\b(epoxy|garage floors?|floor coatings?|concrete (floor )?(coat|seal|paint)\w*)\b/,
+      },
       commercial: {
         label: "Commercial & retail",
         scope: "interior",
@@ -127,7 +139,7 @@ export const AD_TRADES: Record<string, AdTrade> = {
       "exterior-repaint": {
         label: "Exterior repaint",
         scope: "exterior",
-        looks: "the outside of a house painted: siding, trim, fascia, garage door",
+        looks: "the outside of a house painted: siding, trim, fascia and soffits, a porch or patio ceiling, the garage door",
         words: /\b(exterior (house )?(paint|repaint)\w*|house paint\w*|(paint|repaint)\w* (the |your |a )?(house|home|exterior|siding)|siding)\b/,
       },
       brick: {
@@ -698,6 +710,7 @@ export const describePrompt = (trade: AdTrade): string =>
     `Describe what is visible in one plain sentence of at most 30 words: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
     `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
     "Name the type of work that is the subject of the photo first: what it was taken to show. Walls are in nearly every photo; use interior-walls (rooms painted) only when the room as a whole is the subject and none of the others fits. A business (restaurant, shop, office) is commercial; an empty rental readied for the next tenant is unit-turn; a closet or shelving is closets-built-ins; a brick fireplace is brick.",
+    "For a before or a photo of the work going on, tag the type of work the job is for, what is about to be or being done: dated wood kitchen cabinets are cabinets-painted unless the job looks like a stain; raw new cabinets going in are cabinets-built; a weathered house is exterior-repaint.",
     "Give it at most one stage: before (unfinished), process (the work going on) or after (finished). Tag it both before and after only when the image is two pictures joined, a before and its after side by side or one above the other.",
     ...(trade.works
       ? [

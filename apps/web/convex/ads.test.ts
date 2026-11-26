@@ -1196,6 +1196,9 @@ describe("the library, hooks and settings", () => {
     expect(worksIn("Commercial painting for your restaurant", painting)).toEqual(["commercial"]);
     expect(worksIn("Unit turns and make-readies for property managers", painting)).toEqual(["unit-turn"]);
     expect(worksIn("Closets and built-in shelving", painting)).toEqual(["closets-built-ins"]);
+    expect(worksIn("Epoxy garage floors that shine", painting)).toEqual(["garage-floors"]);
+    expect(worksIn("Custom vanities built and installed", painting)).toContain("cabinets-built");
+    expect(describePrompt(painting)).toContain("tag the type of work the job is for");
     expect(painting.works!["interior-walls"].label).toBe("Rooms painted");
     expect(describePrompt(painting)).toContain("only when the room as a whole is the subject");
     // A photo of a type of work is also a photo of its scope, unless it already has one.
@@ -1388,6 +1391,34 @@ describe("the library, hooks and settings", () => {
     expect((await row(primed)).pairKey).toEqual(expect.any(String));
     expect((await row(doors)).tags).toEqual(["doors", "after"]);
     expect(await t.query(internal.ads.multiStage, {})).toEqual([]);
+  });
+
+  test("a photo with no type of work takes its project's: when it's filed there, or all at once from the deployment", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    const job = await staff.as.mutation(api.ads.addJob, { name: "Oak kitchen" });
+    const add = async (fileName: string, tags: string[], jobId?: Id<"adJobs">) =>
+      await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", fileName), fileName, tags, ...(jobId ? { jobId } : {}) });
+    await add("after1.jpg", ["cabinets-painted", "after"], job);
+    await add("after2.jpg", ["cabinets-painted", "after"], job);
+    await add("door.jpg", ["doors", "after"], job);
+    const row = async (id: Id<"adAssets">) => (await t.run(async (ctx) => await ctx.db.get(id)))!;
+    // Filed into the project: it takes the type most of the project's photos have.
+    const before = await add("oak.jpg", ["interior", "before"]);
+    await staff.as.mutation(api.ads.setAssetJob, { id: before, jobId: job });
+    expect((await row(before)).tags).toEqual(["cabinets-painted", "interior", "before"]);
+    // One already in it with none: given its project's from the deployment.
+    const bare = await t.run(async (ctx) =>
+      ctx.db.insert("adAssets", { storageId: await ctx.storage.store(new Blob(["x"], { type: "image/jpeg" })), kind: "photo", fileName: "bare.jpg", contentType: "image/jpeg", size: 1, tags: ["before"], jobId: job, uploadedBy: staff.userId, createdAt: new Date().toISOString() }),
+    );
+    expect((await t.mutation(internal.ads.fillWorksFromProjects, {})).filled).toEqual(["bare.jpg: cabinets-painted"]);
+    // Out of a project, or with a type already, nothing changes.
+    const loose = await add("loose.jpg", ["before"]);
+    const typed = await add("typed.jpg", ["doors", "before"], job);
+    await t.mutation(internal.ads.fillWorksFromProjects, {});
+    expect((await row(loose)).tags).toEqual(["before"]);
+    expect((await row(typed)).tags).toEqual(["doors", "before"]);
+    expect((await row(bare)).tags).toEqual(["cabinets-painted", "before", "cabinets"]);
   });
 
   test("across the library: befores and afters of one type of work pair from different jobs, or none", async () => {
