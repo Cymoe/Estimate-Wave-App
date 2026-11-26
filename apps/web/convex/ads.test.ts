@@ -1193,6 +1193,11 @@ describe("the library, hooks and settings", () => {
     expect(worksIn("Painted balusters and a fresh handrail", painting)).toEqual(["stairs-balusters"]);
     expect(worksIn("Brick sealed and limewashed", painting)).toEqual(["brick"]);
     expect(worksIn("Make your house look new again", painting)).toEqual([]);
+    expect(worksIn("Commercial painting for your restaurant", painting)).toEqual(["commercial"]);
+    expect(worksIn("Unit turns and make-readies for property managers", painting)).toEqual(["unit-turn"]);
+    expect(worksIn("Closets and built-in shelving", painting)).toEqual(["closets-built-ins"]);
+    expect(painting.works!["interior-walls"].label).toBe("Rooms painted");
+    expect(describePrompt(painting)).toContain("only when the room as a whole is the subject");
     // A photo of a type of work is also a photo of its scope, unless it already has one.
     expect(withWorkScopes(["fence-stain", "after"], painting)).toEqual(["fence-stain", "after", "exterior"]);
     expect(withWorkScopes(["doors", "exterior"], painting)).toEqual(["doors", "exterior"]);
@@ -1227,6 +1232,22 @@ describe("the library, hooks and settings", () => {
     vi.useRealTimers();
     expect((await t.run(async (ctx) => await ctx.db.get(old)))!.tags).toEqual(["exterior", "after", "fence-stain"]);
     expect((await t.run(async (ctx) => await ctx.db.get(sorted)))!.tags).toEqual(["exterior", "fence-build"]);
+
+    // Rooms painted, once the everything category: each photo whose types were Claude's takes Claude's new ones, the
+    // subject first; one a person picked stays.
+    stubServices([], { describe: { description: "A cafe with red walls and black chairs.", tags: ["commercial", "interior-walls", "after"], items: [] } });
+    const insertWith = (tags: string[], suggestedTags: string[]) =>
+      t.run(async (ctx) =>
+        ctx.db.insert("adAssets", { storageId: await ctx.storage.store(new Blob(["x"], { type: "image/jpeg" })), kind: "photo", fileName: "cafe.jpg", contentType: "image/jpeg", size: 1, tags, suggestedTags, uploadedBy: staff.userId, createdAt: new Date().toISOString() }),
+      );
+    const claudes = await insertWith(["interior-walls", "interior", "after", "crew"], ["interior-walls", "interior", "after"]);
+    const persons = await insertWith(["interior-walls", "interior", "after"], ["doors", "interior", "after"]);
+    vi.useFakeTimers();
+    expect(await t.mutation(internal.ads.reworkWorks, {})).toEqual({ asked: 2, done: true });
+    await oneAtATime(t);
+    vi.useRealTimers();
+    expect((await t.run(async (ctx) => await ctx.db.get(claudes)))!.tags).toEqual(["commercial", "interior-walls", "interior", "after", "crew"]);
+    expect((await t.run(async (ctx) => await ctx.db.get(persons)))!.tags).toEqual(["interior-walls", "interior", "after"]);
   });
 
   test("an upload is labelled by Claude with what it shows; a person's fix sticks; the old library is labelled once", async () => {

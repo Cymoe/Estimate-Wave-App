@@ -1041,7 +1041,7 @@ describe('Ops → Ads', () => {
           .find((b) => b.textContent === t)!
           .click(),
       );
-    await upTag('Interior walls');
+    await upTag('Rooms painted');
     await upTag('Before');
     const fileInput = dialog().querySelector('input[type="file"]') as HTMLInputElement;
     Object.defineProperty(fileInput, 'files', { value: [new File(['x'], 'hall.jpg', { type: 'image/jpeg' })] });

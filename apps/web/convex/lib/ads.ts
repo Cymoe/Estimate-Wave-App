@@ -67,13 +67,8 @@ export const AD_TRADES: Record<string, AdTrade> = {
       "balusters", "floor",
     ],
     keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+    // In this order: the chips and groups of the library follow it, the most particular first, Rooms painted last.
     works: {
-      "interior-walls": {
-        label: "Interior walls",
-        scope: "interior",
-        looks: "painted walls and ceilings inside a room",
-        words: /\b(interior (paint|repaint)\w*|paint\w* (the |your |a )?(walls?|ceilings?|rooms?|interior)|(walls?|ceilings?|rooms?) (paint|repaint)\w*)\b/,
-      },
       "cabinets-painted": {
         label: "Cabinets painted",
         scope: "cabinets",
@@ -99,11 +94,35 @@ export const AD_TRADES: Record<string, AdTrade> = {
         looks: "a staircase, its railing, balusters or spindles",
         words: /\b(balusters?|spindles?|banisters?|stair\w*|railings?|handrails?)\b/,
       },
+      "closets-built-ins": {
+        label: "Closets & built-ins",
+        scope: "interior",
+        looks: "a closet, shelving, a built-in bookcase or storage (not kitchen or bath cabinets)",
+        words: /\b(closets?|built[- ]ins?|shelv(es|ing)|bookcases?)\b/,
+      },
       "flooring-lvp": {
         label: "Flooring (LVP)",
         scope: "interior",
         looks: "new floor laid, luxury vinyl plank (LVP) or similar",
         words: /\b(lvp|luxury vinyl|vinyl plank|flooring|new floors?|floors? (install|replace)\w*)\b/,
+      },
+      commercial: {
+        label: "Commercial & retail",
+        scope: "interior",
+        looks: "a business space painted: a restaurant, shop, office, church, clinic or warehouse",
+        words: /\b(commercial|retail|restaurants?|offices?|stores?|shops?|business(es)?|churche?s?|warehouses?)\b/,
+      },
+      "unit-turn": {
+        label: "Unit turns / make-readies",
+        scope: "interior",
+        looks: "an empty rental or apartment freshly painted for the next tenant: vacant, plain, often white or builder beige",
+        words: /\b(unit turns?|turnovers?|make[- ]?read(y|ies)|rentals?|apartments?|property manag\w*|landlords?|tenants?)\b/,
+      },
+      "interior-walls": {
+        label: "Rooms painted",
+        scope: "interior",
+        looks: "a lived-in room in a home repainted, the room itself the subject; only when nothing more particular is",
+        words: /\b(interior (paint|repaint)\w*|paint\w* (the |your |a )?(walls?|ceilings?|rooms?|interior)|(walls?|ceilings?|rooms?) (paint|repaint)\w*)\b/,
       },
       "exterior-repaint": {
         label: "Exterior repaint",
@@ -114,7 +133,7 @@ export const AD_TRADES: Record<string, AdTrade> = {
       brick: {
         label: "Brick painted or sealed",
         scope: "exterior",
-        looks: "brick painted, limewashed or sealed",
+        looks: "brick painted, limewashed or sealed, outside or inside (a fireplace or brick wall)",
         words: /\b(brick|limewash\w*|masonry)\b/,
       },
       "fence-stain": {
@@ -678,6 +697,7 @@ export const describePrompt = (trade: AdTrade): string =>
     `This is a photo (or a still from a video) a ${trade.contractor} took on a job. It will be used in ads.`,
     `Describe what is visible in one plain sentence of at most 30 words: the surface or room, colours, the state (${trade.states}), and any people or tools.`,
     `Then choose tags from this list only: ${assetTagsOf(trade).join(", ")}. Use before or after only when the image clearly shows an unfinished or a finished state.`,
+    "Name the type of work that is the subject of the photo first: what it was taken to show. Walls are in nearly every photo; use interior-walls (rooms painted) only when the room as a whole is the subject and none of the others fits. A business (restaurant, shop, office) is commercial; an empty rental readied for the next tenant is unit-turn; a closet or shelving is closets-built-ins; a brick fireplace is brick.",
     "Give it at most one stage: before (unfinished), process (the work going on) or after (finished). Tag it both before and after only when the image is two pictures joined, a before and its after side by side or one above the other.",
     ...(trade.works
       ? [

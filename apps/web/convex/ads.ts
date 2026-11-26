@@ -402,8 +402,10 @@ export const saveDescription = internalMutation({
     items: v.optional(v.array(v.string())),
     // From labelWorks: a tagged photo with no type of work yet takes the ones Claude saw.
     addWorks: v.optional(v.boolean()),
+    // From reworkWorks: a photo whose types of work were Claude's takes Claude's new ones, the subject first.
+    rework: v.optional(v.boolean()),
   },
-  handler: async (ctx, { id, description, suggestedTags, items, addWorks }) => {
+  handler: async (ctx, { id, description, suggestedTags, items, addWorks, rework }) => {
     const a = await ctx.db.get(id);
     if (a === null) return;
     // Its labels (doors, trim...) are Claude's until a person fixes them; a fixed list stays.
@@ -414,14 +416,19 @@ export const saveDescription = internalMutation({
     const trade = tradeOf(a.trade);
     const works = workTags(suggestedTags, trade);
     const addsWorks = !takes && addWorks && works.length > 0 && workTags(a.tags, trade).length === 0;
+    // Only types of work that were Claude's are replaced; ones a person picked stay.
+    const mine = workTags(a.tags, trade).join(",") === workTags(a.suggestedTags ?? [], trade).join(",");
+    const reworks = !takes && rework && works.length > 0 && mine;
     await ctx.db.patch(id, {
       description: description.slice(0, 300),
       suggestedTags,
       ...(takes ? { tags: suggestedTags } : {}),
       ...(addsWorks ? { tags: withWorkScopes([...a.tags, ...works], trade) } : {}),
+      // The new types first (the first is its group), then its other tags (stage, crew, scope) as they were.
+      ...(reworks ? { tags: withWorkScopes([...works, ...a.tags.filter((t) => !trade.works?.[t])], trade) } : {}),
     });
     // Its before or after tag, or its type of work, may have just arrived: its match is looked for.
-    if (takes || addsWorks) await askPairs(ctx, await ctx.db.get(id));
+    if (takes || addsWorks || reworks) await askPairs(ctx, await ctx.db.get(id));
   },
 });
 
@@ -429,9 +436,10 @@ export const saveDescription = internalMutation({
 export const describeAsset = internalAction({
   // tries: how many looks at this file Claude has already turned away.
   // works: from labelWorks, so a photo tagged before types of work existed gets its own.
-  args: { id: v.id("adAssets"), tries: v.optional(v.number()), works: v.optional(v.boolean()) },
+  // rework: from reworkWorks, so a photo gets the types of work as they are now, the subject first.
+  args: { id: v.id("adAssets"), tries: v.optional(v.number()), works: v.optional(v.boolean()), rework: v.optional(v.boolean()) },
   // What came of it, in a few words: for lookOnce, to see why a file has no labels.
-  handler: async (ctx, { id, tries = 0, works }): Promise<string> => {
+  handler: async (ctx, { id, tries = 0, works, rework }): Promise<string> => {
     const a = await ctx.runQuery(internal.ads.assetForDescribe, { id });
     if (!a?.imageUrl || !process.env.ANTHROPIC_API_KEY) return "nothing to look at";
     try {
@@ -458,6 +466,7 @@ export const describeAsset = internalAction({
         suggestedTags,
         items: cleanItems(out.items, trade),
         ...(works ? { addWorks: true } : {}),
+        ...(rework ? { rework: true } : {}),
       });
       return "saved";
     } catch (e) {
@@ -466,7 +475,7 @@ export const describeAsset = internalAction({
       // Claude busy, or asked too fast (many files at once), or the picture didn't reach it: looked at again a
       // little later, three more times at most.
       if (tries < 3 && /^Claude: (429|5\d\d)\b|download|fetch failed|timed? ?out/i.test(why))
-        await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1, ...(works ? { works } : {}) });
+        await ctx.scheduler.runAfter(DESCRIBE_RETRY_MS * 2 ** tries, internal.ads.describeAsset, { id, tries: tries + 1, ...(works ? { works } : {}), ...(rework ? { rework } : {}) });
       return `error: ${why}`;
     }
   },
@@ -1029,6 +1038,28 @@ export const labelWorks = internalMutation({
       here += 1;
     }
     if (!page.isDone) await ctx.scheduler.runAfter(here * 3000, internal.ads.labelWorks, { cursor: page.continueCursor, asked: asked + here });
+    return { asked: asked + here, done: page.isDone };
+  },
+});
+
+/**
+ * Has Claude look again at every photo of a trade tagged with one of the types of work given (by default Rooms
+ * painted, once the everything category), from the deployment: each takes the types as they are now, the subject
+ * first, unless a person picked its types (saveDescription). Three seconds apart, 200 a page.
+ */
+export const reworkWorks = internalMutation({
+  args: { trade: v.optional(v.string()), works: v.optional(v.array(v.string())), cursor: v.optional(v.string()), asked: v.optional(v.number()) },
+  handler: async (ctx, { trade, works = ["interior-walls"], cursor, asked = 0 }) => {
+    if (!process.env.ANTHROPIC_API_KEY) return { asked: 0, done: true };
+    const slug = tradeOf(trade).slug;
+    const page = await ctx.db.query("adAssets").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let here = 0;
+    for (const a of page.page) {
+      if (tradeOf(a.trade).slug !== slug || a.kind !== "photo" || !a.tags.some((t) => works.includes(t))) continue;
+      await ctx.scheduler.runAfter(here * 3000, internal.ads.describeAsset, { id: a._id, rework: true });
+      here += 1;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(here * 3000, internal.ads.reworkWorks, { trade: slug, works, cursor: page.continueCursor, asked: asked + here });
     return { asked: asked + here, done: page.isDone };
   },
 });
