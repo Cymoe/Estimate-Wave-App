@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { open as openSealed, seal } from "./lib/secretBox";
 import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
 import { adScript } from "./schema";
 import {
@@ -119,7 +120,8 @@ import { linesOf, useRead } from "./lib/adVoice";
 //   ADS_RENDER_TOKEN      optional: a GitHub token that may start the ads-render workflow, so a
 //                         batch is drawn without anyone starting it (ADS_RENDER_REPO and
 //                         ADS_RENDER_REF override the repository and branch)
-//   META_ACCESS_TOKEN     a system user token with ads_management on the ad account
+//   META_ACCESS_TOKEN     a system user token with ads_management on the ad account; or pasted in Settings instead
+//                         (sealed with MAILBOX_KEY, adSettings.metaTokenEnc)
 //   APIFY_TOKEN           niche research: searches Meta's Ad Library through an Apify actor
 //                         (APIFY_ACTOR overrides which one)
 //   CONSUMER_BRAND        the name homeowners see (lib/support.ts)
@@ -2149,7 +2151,9 @@ export const settings = query({
     const row = await settingsRow(ctx);
     return {
       brand: consumerBrand(),
-      keys: keys(),
+      keys: { ...keys(), meta: keys().meta || Boolean(row?.metaTokenEnc) },
+      // The token pasted here: only that one is set, its last four characters and when. Never the token.
+      metaToken: row?.metaTokenEnc ? { hint: row.metaTokenHint, setAt: row.metaTokenSetAt, fromServer: keys().meta } : null,
       adAccountId: row?.adAccountId,
       pageId: row?.pageId,
       leadFormId: row?.leadFormId,
@@ -2980,7 +2984,7 @@ async function readinessChecks(ctx: QueryCtx) {
       .collect()
   ).length;
   const playbooks = (await ctx.db.query("adPlaybooks").take(20)).length;
-  const meta = Boolean(k.meta && row?.adAccountId && row?.pageId && row?.adsetId);
+  const meta = Boolean((k.meta || row?.metaTokenEnc) && row?.adAccountId && row?.pageId && row?.adsetId);
   // A voice actor's read is still timed by ElevenLabs (speech-to-text), so its key is needed either way.
   const actor = row?.voiceSource === "actor";
   const missingKeys = [
@@ -4384,12 +4388,134 @@ export const voice = internalAction({
   },
 });
 
-const graph = async (path: string, params: Record<string, unknown>, what: string) => {
+const graph = async (path: string, params: Record<string, unknown>, what: string, token: string) => {
   const form = new URLSearchParams();
   for (const [k, val] of Object.entries(params)) form.set(k, typeof val === "string" ? val : JSON.stringify(val));
-  form.set("access_token", process.env.META_ACCESS_TOKEN!);
+  form.set("access_token", token);
   return await readJson(await fetch(`${GRAPH}/${path}`, { method: "POST", body: form }), what);
 };
+
+/** The Meta token: META_ACCESS_TOKEN on the deployment, else the one pasted in Settings (sealed). */
+async function metaToken(ctx: ActionCtx): Promise<string | undefined> {
+  if (process.env.META_ACCESS_TOKEN) return process.env.META_ACCESS_TOKEN;
+  const enc: string | null = await ctx.runQuery(internal.ads.metaTokenSealed, {});
+  return enc ? await openSealed(enc) : undefined;
+}
+
+export const metaTokenSealed = internalQuery({
+  args: {},
+  handler: async (ctx) => (await settingsRow(ctx))?.metaTokenEnc ?? null,
+});
+
+/** Only the owner (a super admin) pastes or reads Meta's key, from an action. */
+export const ownerOnly = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    await requireSuperAdmin(ctx);
+    return true;
+  },
+});
+
+/** A Graph API read with the token; Meta's own message when it says no. */
+async function graphGet(path: string, token: string): Promise<any> {
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(`${GRAPH}/${path}${sep}access_token=${encodeURIComponent(token)}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body?.error) throw new Error(body?.error?.message ? `Meta: ${body.error.message}` : `Meta answered ${res.status}`);
+  return body;
+}
+
+/**
+ * The owner pastes the Meta token in Settings: Meta is asked who it belongs to first (a wrong or expired token is
+ * turned away with Meta's reason), then it is sealed and stored. Only its last four characters are ever shown.
+ */
+export const saveMetaToken = action({
+  args: { token: v.string() },
+  handler: async (ctx, { token }): Promise<{ name: string }> => {
+    await ctx.runQuery(internal.ads.ownerOnly, {});
+    const clean = token.trim().replace(/^Bearer\s+/i, "");
+    if (clean.length < 20 || /\s/.test(clean)) fail("INVALID", "That doesn't look like a Meta token. Copy the whole token and paste it again.");
+    const me = await graphGet("me?fields=id,name", clean).catch((e) => fail("INVALID", `Meta didn't accept that token. ${errText(e)}`));
+    await ctx.runMutation(internal.ads.storeMetaToken, { enc: await seal(clean), hint: clean.slice(-4) });
+    return { name: String(me?.name ?? me?.id ?? "") };
+  },
+});
+
+export const storeMetaToken = internalMutation({
+  args: { enc: v.optional(v.string()), hint: v.optional(v.string()) },
+  handler: async (ctx, { enc, hint }) => {
+    const row = await settingsRow(ctx);
+    const fields = { metaTokenEnc: enc, metaTokenHint: enc ? hint : undefined, metaTokenSetAt: enc ? nowIso() : undefined, updatedAt: nowIso() };
+    if (row) await ctx.db.patch(row._id, fields);
+    else await ctx.db.insert("adSettings", { ...DEFAULTS, ...fields });
+  },
+});
+
+/** Takes the pasted Meta token away. */
+export const removeMetaToken = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireSuperAdmin(ctx);
+    const row = await settingsRow(ctx);
+    if (row) await ctx.db.patch(row._id, { metaTokenEnc: undefined, metaTokenHint: undefined, metaTokenSetAt: undefined, updatedAt: nowIso() });
+  },
+});
+
+type MetaPick = { id: string; name: string; status?: string };
+
+/**
+ * What the token can reach, for the owner to tap instead of typing numbers: the ad accounts with their ad sets
+ * (and each one's campaign), and the Pages with their instant forms. A part Meta won't show is left out, with why.
+ */
+export const metaLookup = action({
+  args: {},
+  handler: async (ctx): Promise<{
+    who: string;
+    accounts: Array<MetaPick & { adsets: Array<MetaPick & { campaign?: string }> }>;
+    pages: Array<MetaPick & { forms: MetaPick[] }>;
+    problems: string[];
+  }> => {
+    await ctx.runQuery(internal.ads.ownerOnly, {});
+    const token = await metaToken(ctx);
+    if (!token) fail("INVALID", "Paste the Meta token first");
+    const problems: string[] = [];
+    const me = await graphGet("me?fields=id,name", token);
+    const accounts: Array<MetaPick & { adsets: Array<MetaPick & { campaign?: string }> }> = [];
+    try {
+      const list = await graphGet("me/adaccounts?fields=account_id,name,account_status&limit=50", token);
+      for (const a of (list?.data ?? []).slice(0, 10)) {
+        const adsets: Array<MetaPick & { campaign?: string }> = [];
+        try {
+          const sets = await graphGet(`act_${a.account_id}/adsets?fields=id,name,status,campaign{name}&limit=50`, token);
+          for (const x of sets?.data ?? []) adsets.push({ id: String(x.id), name: String(x.name ?? x.id), status: x.status, campaign: x.campaign?.name });
+        } catch (e) {
+          problems.push(`Ad sets of ${a.name ?? a.account_id}: ${errText(e)}`);
+        }
+        accounts.push({ id: String(a.account_id), name: String(a.name ?? a.account_id), status: a.account_status === 1 ? "ACTIVE" : String(a.account_status ?? ""), adsets });
+      }
+    } catch (e) {
+      problems.push(`Ad accounts: ${errText(e)}`);
+    }
+    const pages: Array<MetaPick & { forms: MetaPick[] }> = [];
+    try {
+      const list = await graphGet("me/accounts?fields=id,name,access_token&limit=50", token);
+      for (const p of (list?.data ?? []).slice(0, 10)) {
+        const forms: MetaPick[] = [];
+        try {
+          // Instant forms are read with the Page's own token.
+          const fs = await graphGet(`${p.id}/leadgen_forms?fields=id,name,status&limit=50`, p.access_token ?? token);
+          for (const f of fs?.data ?? []) forms.push({ id: String(f.id), name: String(f.name ?? f.id), status: f.status });
+        } catch (e) {
+          problems.push(`Instant forms of ${p.name ?? p.id}: ${errText(e)}`);
+        }
+        pages.push({ id: String(p.id), name: String(p.name ?? p.id), forms });
+      }
+    } catch (e) {
+      problems.push(`Pages: ${errText(e)}`);
+    }
+    return { who: String(me?.name ?? me?.id ?? ""), accounts, pages, problems };
+  },
+});
 
 /** Puts a rendered creative into Meta as a PAUSED ad: the video, then the creative, then the ad. */
 export const publishPaused = internalAction({
@@ -4405,7 +4531,8 @@ export const publishPaused = internalAction({
       await ctx.runMutation(internal.ads.finishIfDone, { batchId: c.batchId });
       return;
     }
-    if (!process.env.META_ACCESS_TOKEN || !cfg.adAccountId || !cfg.pageId || !adsetId) {
+    const token = await metaToken(ctx);
+    if (!token || !cfg.adAccountId || !cfg.pageId || !adsetId) {
       // Rendered and watchable in Ops; it goes to Meta by hand until the account is set up.
       await ctx.runMutation(internal.ads.patchCreative, {
         id,
@@ -4426,7 +4553,7 @@ export const publishPaused = internalAction({
       };
       const video = c.meta?.videoId
         ? { id: c.meta.videoId }
-        : await graph(`${act}/advideos`, { file_url: c.videoUrl, name: c.name, title: c.name }, "Meta video upload");
+        : await graph(`${act}/advideos`, { file_url: c.videoUrl, name: c.name, title: c.name }, "Meta video upload", token);
       await ctx.runMutation(internal.ads.patchCreative, { id, meta: { videoId: video.id } });
       const first = c.assets[0];
       const poster = first?.posterUrl ?? (first?.kind === "photo" ? first.url : undefined) ?? `${siteUrl()}/og-image.png`;
@@ -4447,8 +4574,9 @@ export const publishPaused = internalAction({
           degrees_of_freedom_spec: { creative_features_spec: features },
         },
         "Meta creative",
+        token,
       );
-      const ad = await graph(`${act}/ads`, { name: c.name, adset_id: adsetId, creative: { creative_id: creative.id }, status: "PAUSED" }, "Meta ad");
+      const ad = await graph(`${act}/ads`, { name: c.name, adset_id: adsetId, creative: { creative_id: creative.id }, status: "PAUSED" }, "Meta ad", token);
       await ctx.runMutation(internal.ads.patchCreative, {
         id,
         status: "paused",
@@ -4467,9 +4595,10 @@ export const setAdStatus = internalAction({
   args: { id: v.id("adCreatives"), status: v.union(v.literal("ACTIVE"), v.literal("PAUSED")) },
   handler: async (ctx, { id, status }) => {
     const c: CreativeInput | null = await ctx.runQuery(internal.ads.creativeInput, { id });
-    if (!c?.meta?.adId || !process.env.META_ACCESS_TOKEN) return;
+    const token = await metaToken(ctx);
+    if (!c?.meta?.adId || !token) return;
     try {
-      await graph(c.meta.adId, { status }, "Meta ad status");
+      await graph(c.meta.adId, { status }, "Meta ad status", token);
     } catch (e) {
       await ctx.runMutation(internal.ads.patchCreative, { id, error: `Meta didn't take the change: ${errText(e)}` });
     }
@@ -4534,12 +4663,13 @@ const leadsIn = (actions: Array<{ action_type: string; value: string }> | undefi
 export const pullInsights = internalAction({
   args: {},
   handler: async (ctx) => {
-    if (!process.env.META_ACCESS_TOKEN) return;
+    const metaKey = await metaToken(ctx);
+    if (!metaKey) return;
     const ads = await ctx.runQuery(internal.ads.adsInMeta, {});
     const fields = "spend,impressions,reach,clicks,ctr,frequency,actions";
     for (const ad of ads) {
       try {
-        const token = `access_token=${encodeURIComponent(process.env.META_ACCESS_TOKEN)}`;
+        const token = `access_token=${encodeURIComponent(metaKey)}`;
         const daily = await readJson(
           await fetch(`${GRAPH}/${ad.adId}/insights?fields=${fields}&date_preset=last_7d&time_increment=1&${token}`),
           "Meta insights",

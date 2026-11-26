@@ -1694,6 +1694,53 @@ describe("the library, hooks and settings", () => {
     await expect(member.as.mutation(api.ads.seedSwipes, {})).rejects.toThrow();
   });
 
+  test("the Meta token pasted in Settings: checked with Meta, sealed, shown only by its last four; the accounts it reaches listed to pick", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    vi.stubEnv("MAILBOX_KEY", btoa(String.fromCharCode(...Array.from({ length: 32 }, (_, i) => i + 1))));
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input instanceof Request ? input.url : input);
+        seen.push(url);
+        const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+        if (url.includes("access_token=bad")) return json({ error: { message: "Invalid OAuth access token." } }, 400);
+        if (url.includes("/me?")) return json({ id: "77", name: "GoodFit ads" });
+        if (url.includes("/me/adaccounts")) return json({ data: [{ account_id: "123", name: "GoodFit Pros", account_status: 1 }] });
+        if (url.includes("/act_123/adsets")) return json({ data: [{ id: "900", name: "Midland homeowners", status: "PAUSED", campaign: { name: "Leads" } }] });
+        if (url.includes("/me/accounts")) return json({ data: [{ id: "55", name: "GoodFit Pros page", access_token: "page-token" }] });
+        if (url.includes("/55/leadgen_forms")) return json({ data: [{ id: "f1", name: "Free quote", status: "ACTIVE" }] });
+        return json({}, 404);
+      }),
+    );
+    const token = "EAAGgoodfit".padEnd(40, "x") + "3f9a";
+    await expect(staff.as.action(api.ads.saveMetaToken, { token })).rejects.toThrow();
+    await expect(owner.as.action(api.ads.saveMetaToken, { token: "bad".padEnd(30, "x") })).rejects.toThrow();
+    await expect(owner.as.action(api.ads.saveMetaToken, { token: "short" })).rejects.toThrow("doesn't look like a Meta token");
+    expect(await owner.as.action(api.ads.saveMetaToken, { token: ` ${token} ` })).toEqual({ name: "GoodFit ads" });
+    const s = await staff.as.query(api.ads.settings, {});
+    expect(s.keys.meta).toBe(true);
+    expect(s.metaToken).toMatchObject({ hint: "3f9a", fromServer: false });
+    expect(JSON.stringify(s)).not.toContain(token);
+    // Stored sealed, never as it was pasted.
+    const row = await t.run(async (ctx) => (await ctx.db.query("adSettings").take(1))[0]);
+    expect(row.metaTokenEnc).toBeDefined();
+    expect(row.metaTokenEnc).not.toContain(token);
+    // What it reaches, to tap.
+    expect(await owner.as.action(api.ads.metaLookup, {})).toEqual({
+      who: "GoodFit ads",
+      accounts: [{ id: "123", name: "GoodFit Pros", status: "ACTIVE", adsets: [{ id: "900", name: "Midland homeowners", status: "PAUSED", campaign: "Leads" }] }],
+      pages: [{ id: "55", name: "GoodFit Pros page", forms: [{ id: "f1", name: "Free quote", status: "ACTIVE" }] }],
+      problems: [],
+    });
+    expect(seen.find((u) => u.includes("leadgen_forms"))).toContain("access_token=page-token");
+    await expect(staff.as.action(api.ads.metaLookup, {})).rejects.toThrow();
+    await owner.as.mutation(api.ads.removeMetaToken, {});
+    expect((await staff.as.query(api.ads.settings, {})).metaToken).toBeNull();
+  });
+
   test("settings: the owner saves the Meta ids (act_ dropped) and the Monday switch; staff only read; keys show as set or missing", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });

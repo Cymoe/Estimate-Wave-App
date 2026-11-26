@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, Film, ListFilter, Play, Plus, Star, Trash2, Upload } from 'lucide-react';
-import { adsAPI } from '../../lib/api';
+import { adsAPI, type MetaLookup } from '../../lib/api';
 import { useAdDrive, useAdJobs } from '../../lib/live';
 import { backfillThumb, isVideo, prepareAsset, putFile, sendPreparedAsset, stillOfClip, thumbOf, tooBig, type PreparedAsset } from '../../lib/adUpload';
 import {
@@ -209,6 +209,8 @@ export interface AdSettings {
   brand: string;
   /** Which services are set up; renderer is whether the app can start the drawing of videos itself. */
   keys: { anthropic: boolean; elevenlabs: boolean; renderer: boolean; meta: boolean; apify: boolean; bunny: boolean };
+  /** The Meta token pasted in Settings, as far as it's ever shown: its last four characters and when. */
+  metaToken?: { hint?: string; setAt?: string; fromServer: boolean } | null;
   adAccountId?: string;
   pageId?: string;
   leadFormId?: string;
@@ -3183,6 +3185,146 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
   );
 };
 
+/**
+ * Meta, in two steps: paste the token (checked with Meta, then stored locked and never shown again), then "Find my
+ * accounts" lists what it reaches, so the ad account, Page, ad set and instant form are picked, not typed. Save
+ * settings keeps the picks.
+ */
+const MetaConnect: React.FC<{
+  owner: boolean;
+  act: Act;
+  form: AdSettings;
+  setForm: (f: AdSettings) => void;
+  text: (k: keyof AdSettings, label: string, hint?: string) => React.ReactNode;
+}> = ({ owner, act, form, setForm, text }) => {
+  const live = useAdsSettings<AdSettings>();
+  const saved = live?.metaToken ?? form.metaToken;
+  const [token, setToken] = useState('');
+  const [found, setFound] = useState<MetaLookup | null>(null);
+  const [busy, setBusy] = useState(false);
+  const hasToken = Boolean(saved) || form.keys.meta;
+  const account = found?.accounts.find((a) => a.id === form.adAccountId);
+  const page = found?.pages.find((p) => p.id === form.pageId);
+  const pick = (label: string, value: string | undefined, options: Array<{ id: string; name: string; note?: string }>, onPick: (id: string) => void, none?: string) => (
+    <Field label={label}>
+      <select value={value ?? ''} onChange={(e) => onPick(e.target.value)} className={input} disabled={!owner} aria-label={label}>
+        <option value="">{none ?? 'Choose…'}</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+            {o.note ? ` · ${o.note}` : ''}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+  return (
+    <section className="space-y-3 rounded-lg border border-[#2A2A2A] p-4" aria-label="Meta">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h3 className="text-sm font-semibold text-white">Meta (Facebook and Instagram)</h3>
+        <span className="text-xs text-gray-500">Ads go to Meta paused; nothing runs until you approve it here.</span>
+      </div>
+      {saved && !saved.fromServer ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-emerald-300">Token saved</span>
+          <span className="text-gray-500">
+            ends …{saved.hint}
+            {saved.setAt ? ` · ${ago(saved.setAt)}` : ''}
+          </span>
+          {owner && (
+            <button type="button" className="text-gray-400 underline text-xs" onClick={() => act(() => adsAPI.removeMetaToken(), 'Meta token removed.')}>
+              Remove
+            </button>
+          )}
+        </div>
+      ) : form.keys.meta ? (
+        <p className="text-sm text-emerald-300">A token is set on the server.</p>
+      ) : null}
+      {owner && !(saved && !saved.fromServer) && (
+        <div className="flex flex-wrap gap-2 items-end">
+          <Field label="Meta token" hint="Paste the whole token from Meta's system user. It's stored locked and never shown again.">
+            <input
+              type="password"
+              autoComplete="off"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              className={input}
+              aria-label="Meta token"
+            />
+          </Field>
+          <button
+            type="button"
+            className={secondary}
+            disabled={!token.trim() || busy}
+            onClick={() => {
+              setBusy(true);
+              void act(async () => {
+                const r = await adsAPI.saveMetaToken(token);
+                setToken('');
+                return r;
+              }, 'Meta took the token: it is saved.').finally(() => setBusy(false));
+            }}
+          >
+            Save token
+          </button>
+        </div>
+      )}
+      {hasToken && owner && (
+        <button
+          type="button"
+          className={secondary}
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void act(async () => setFound(await adsAPI.metaLookup())).finally(() => setBusy(false));
+          }}
+        >
+          {busy ? 'Asking Meta…' : found ? 'Look again' : 'Find my accounts'}
+        </button>
+      )}
+      {found ? (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">Signed in to Meta as {found.who}. Pick each one, then Save settings below.</p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {pick('Ad account', form.adAccountId, found.accounts.map((a) => ({ id: a.id, name: a.name, note: a.status === 'ACTIVE' ? undefined : 'not active' })), (id) =>
+              setForm({ ...form, adAccountId: id || undefined, adsetId: undefined }),
+            )}
+            {pick('Facebook Page', form.pageId, found.pages, (id) => setForm({ ...form, pageId: id || undefined, leadFormId: undefined }))}
+            {pick(
+              'Ad set the ads go into',
+              form.adsetId,
+              (account?.adsets ?? []).map((x) => ({ id: x.id, name: x.name, note: [x.campaign, x.status?.toLowerCase()].filter(Boolean).join(', ') })),
+              (id) => setForm({ ...form, adsetId: id || undefined }),
+              account ? (account.adsets.length ? 'Choose…' : 'No ad sets in this account yet') : 'Pick the ad account first',
+            )}
+            {pick(
+              'Instant form (optional)',
+              form.leadFormId,
+              (page?.forms ?? []).map((f) => ({ id: f.id, name: f.name, note: f.status === 'ACTIVE' ? undefined : f.status?.toLowerCase() })),
+              (id) => setForm({ ...form, leadFormId: id || undefined }),
+              'None: Get quote opens the website',
+            )}
+          </div>
+          {found.problems.length > 0 && (
+            <ul className="text-xs text-amber-300 space-y-1" aria-label="What Meta wouldn't show">
+              {found.problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 gap-3">
+          {text('adAccountId', 'Ad account id', 'Digits only; the act_ prefix is dropped')}
+          {text('pageId', 'Page id')}
+          {text('leadFormId', 'Instant form id')}
+          {text('adsetId', 'Ad set id')}
+        </div>
+      )}
+    </section>
+  );
+};
+
 const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
   const s = useAdsSettings<AdSettings>();
   const [form, setForm] = useState<AdSettings | null>(null);
@@ -3219,6 +3361,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         };
         delete rest.brand;
         delete rest.keys;
+        delete rest.metaToken;
         void act(() => adsAPI.saveSettings(rest), 'Settings saved.');
       }}
     >
@@ -3231,11 +3374,8 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {key(form.keys.apify, 'APIFY_TOKEN')}
         {form.voiceSource === 'actor' && key(form.keys.bunny, 'BUNNY_STUDIO_TOKEN')}
       </div>
+      <MetaConnect owner={owner} act={act} form={form} setForm={setForm} text={text} />
       <div className="grid sm:grid-cols-2 gap-3">
-        {text('adAccountId', 'Ad account id', 'Digits only; the act_ prefix is dropped')}
-        {text('pageId', 'Page id')}
-        {text('leadFormId', 'Instant form id')}
-        {text('adsetId', 'Ad set id')}
         {text('voiceId', 'ElevenLabs voice id')}
         {text('primaryColor', 'Brand colour')}
         {text('accentColor', 'Accent colour')}

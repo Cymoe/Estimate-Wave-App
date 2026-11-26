@@ -1127,6 +1127,11 @@ export const adsAPI = {
   rewritePlaybook: (scope?: string) => run('mutation', api.ads.rewritePlaybook, defined({ scope })),
   removeSwipe: (id: string) => run('mutation', api.ads.removeSwipe, { id }),
   saveSettings: (args: Record<string, unknown>) => run('mutation', api.ads.saveSettings, defined(args)),
+  /** The Meta token pasted in Settings: checked with Meta, then stored sealed. Returns whose token it is. */
+  saveMetaToken: (token: string): Promise<{ name: string }> => run('action', api.ads.saveMetaToken, { token }),
+  removeMetaToken: () => run('mutation', api.ads.removeMetaToken, {}),
+  /** The ad accounts (with their ad sets) and Pages (with their instant forms) the token reaches, to pick from. */
+  metaLookup: (): Promise<MetaLookup> => run('action', api.ads.metaLookup, {}),
   draftNow: () => run('mutation', api.ads.draftNow, {}),
   ideasNow: (trade?: string) => run('mutation', api.ads.ideasNow, defined({ trade })),
   decideIdea: (id: string, status: 'kept' | 'killed' | 'new') => run('mutation', api.ads.decideIdea, { id, status }),
@@ -1824,4 +1829,12 @@ export const recruitingPublicAPI = {
   apply: (details: { slug: string; ad?: string; name: string; phone: string; agreed: boolean }): Promise<{ existing: boolean }> => run('mutation', api.recruiting.public.apply, defined(details)),
   watchHires: (token: string, onUpdate: (h: RecruitHires | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.public.hires, { token }, onUpdate, onError),
   setHire: (token: string, applicantId: string, outcome: RecruitOutcome | null) => run('mutation', api.recruiting.public.setHire, { token, applicantId, outcome }),
+};
+
+export type MetaPick = { id: string; name: string; status?: string };
+export type MetaLookup = {
+  who: string;
+  accounts: Array<MetaPick & { adsets: Array<MetaPick & { campaign?: string }> }>;
+  pages: Array<MetaPick & { forms: MetaPick[] }>;
+  problems: string[];
 };

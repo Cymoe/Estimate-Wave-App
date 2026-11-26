@@ -2929,6 +2929,11 @@ export default defineSchema({
     pageId: v.optional(v.string()),
     leadFormId: v.optional(v.string()),
     adsetId: v.optional(v.string()),
+    // The Meta token pasted in Settings, sealed (lib/secretBox.ts); META_ACCESS_TOKEN on the deployment wins when set.
+    // Never sent back: only its last four characters and when it was saved.
+    metaTokenEnc: v.optional(v.string()),
+    metaTokenHint: v.optional(v.string()),
+    metaTokenSetAt: v.optional(v.string()),
     primaryColor: v.optional(v.string()),
     accentColor: v.optional(v.string()),
     voiceId: v.optional(v.string()),

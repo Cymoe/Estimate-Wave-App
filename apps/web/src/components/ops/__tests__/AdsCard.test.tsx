@@ -111,6 +111,16 @@ const setItems = jest.fn(async (..._args: unknown[]) => undefined);
 const groupIntoJob = jest.fn(async (..._args: unknown[]) => ({ jobId: 'j3', moved: 2 }));
 const setAssetJob = jest.fn(async (..._args: unknown[]) => undefined);
 const removeJob = jest.fn(async (..._args: unknown[]) => undefined);
+const saveMetaToken = jest.fn(async (..._args: unknown[]) => ({ name: 'GoodFit ads' }));
+const metaLookup = jest.fn(async () => ({
+  who: 'GoodFit ads',
+  accounts: [
+    { id: '123', name: 'GoodFit Pros', status: 'ACTIVE', adsets: [{ id: '900', name: 'Midland homeowners', status: 'PAUSED', campaign: 'Leads' }] },
+    { id: '456', name: 'Old account', status: '2', adsets: [] },
+  ],
+  pages: [{ id: '55', name: 'GoodFit Pros page', forms: [{ id: 'f1', name: 'Free quote', status: 'ACTIVE' }] }],
+  problems: ['Instant forms of Other page: no access'],
+}));
 const pairPhotos = jest.fn(async (..._args: unknown[]) => undefined);
 const splitPair = jest.fn(async (..._args: unknown[]) => undefined);
 const swapPair = jest.fn(async (..._args: unknown[]) => undefined);
@@ -155,6 +165,9 @@ jest.mock('../../../lib/api', () => ({
     setItems: (...args: unknown[]) => setItems(...args),
     removeJob: (...args: unknown[]) => removeJob(...args),
     pairPhotos: (...args: unknown[]) => pairPhotos(...args),
+    saveMetaToken: (...args: unknown[]) => saveMetaToken(...args),
+    removeMetaToken: async () => undefined,
+    metaLookup: () => metaLookup(),
     splitPair: (...args: unknown[]) => splitPair(...args),
     swapPair: (...args: unknown[]) => swapPair(...args),
     renameJob: async () => undefined,
@@ -1456,6 +1469,51 @@ describe('Ops → Ads', () => {
     // A line with no label says nothing in its place.
     expect(group.textContent!.match(/Label:/g)!.length).toBe(1);
     expect(group.textContent).not.toContain('On screen:');
+  });
+
+  it('Settings: the owner pastes the Meta token, then picks the ad account, Page, ad set and form from what Meta lists', async () => {
+    saveSettings.mockClear();
+    await render();
+    await tab('Settings');
+    const meta = () => document.body.querySelector('[aria-label="Meta"]')!;
+    // No token yet: no lookup, the ids can still be typed.
+    expect(byText('Find my accounts')).toBeUndefined();
+    const tokenBox = meta().querySelector('input[aria-label="Meta token"]') as HTMLInputElement;
+    expect(tokenBox.type).toBe('password');
+    await act(async () => type(tokenBox, 'EAAG-the-token'));
+    await act(async () => byText('Save token')!.click());
+    await flush();
+    expect(saveMetaToken).toHaveBeenCalledWith('EAAG-the-token');
+    expect(document.body.textContent).toContain('Meta took the token: it is saved.');
+    // Saved: the live settings now say so, and Meta lists what it reaches.
+    settings = { ...settings!, keys: { ...settings!.keys, meta: true }, metaToken: { hint: 'oken', setAt: new Date().toISOString(), fromServer: false } };
+    document.body.innerHTML = '';
+    await render();
+    await tab('Settings');
+    expect(meta().textContent).toContain('Token saved');
+    expect(meta().textContent).toContain('ends …oken');
+    expect(meta().querySelector('input[aria-label="Meta token"]')).toBeNull();
+    await act(async () => byText('Find my accounts')!.click());
+    await flush();
+    const select = (label: string) => meta().querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement;
+    const choose = (label: string, value: string) =>
+      act(async () => {
+        select(label).value = value;
+        select(label).dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    expect(Array.from(select('Ad account').options).map((o) => o.textContent)).toEqual(['Choose…', 'GoodFit Pros', 'Old account · not active']);
+    await choose('Ad account', '123');
+    expect(Array.from(select('Ad set the ads go into').options).map((o) => o.textContent)).toEqual(['Choose…', 'Midland homeowners · Leads, paused']);
+    await choose('Ad set the ads go into', '900');
+    await choose('Facebook Page', '55');
+    await choose('Instant form (optional)', 'f1');
+    expect(meta().textContent).toContain('Instant forms of Other page: no access');
+    await act(async () =>
+      document.body.querySelector('form[aria-label="Ad settings"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    await flush();
+    expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ adAccountId: '123', adsetId: '900', pageId: '55', leadFormId: 'f1' }));
+    expect(saveSettings.mock.calls.at(-1)![0]).not.toHaveProperty('metaToken');
   });
 
   it('Settings shows which keys are set, and the owner saves the ids and the Monday switch', async () => {
