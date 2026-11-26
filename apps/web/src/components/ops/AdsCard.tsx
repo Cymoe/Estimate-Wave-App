@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdDrive, useAdJobs } from '../../lib/live';
 import { backfillThumb, isVideo, prepareAsset, putFile, sendPreparedAsset, stillOfClip, thumbOf, tooBig, type PreparedAsset } from '../../lib/adUpload';
@@ -1241,6 +1241,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           onOpen={setOpenId}
           onClose={() => setOpenId(null)}
           flip={at >= 0 && order.length > 1 ? { at, of: order.length, prev: at > 0 ? order[at - 1] : undefined, next: at < order.length - 1 ? order[at + 1] : undefined } : undefined}
+          strip={at >= 0 ? order.slice(Math.max(0, at - 5), at + 6).flatMap((id) => (assets ?? []).filter((x) => x.id === id)) : undefined}
         />
       )}
       {finding && photos.some((a) => a.id === finding) && (
@@ -1525,11 +1526,17 @@ const Thumb: React.FC<{ a: AdAsset }> = ({ a }) => {
  * A photo opened on its own: its small copy at once, softened, then the full picture in its place once it has
  * loaded, so the window never opens on an empty box.
  */
-const Progressive: React.FC<{ small?: string; full: string; alt: string; className: string }> = ({ small, full, alt, className }) => {
+const Progressive: React.FC<{ small?: string; full: string; alt: string; className: string; box?: string }> = ({
+  small,
+  full,
+  alt,
+  className,
+  box = 'relative w-full h-full flex items-center justify-center',
+}) => {
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(false), [full]);
   return (
-    <div className="relative w-full h-full flex items-center justify-center" data-testid="progressive" data-ready={ready ? 'yes' : 'no'}>
+    <div className={box} data-testid="progressive" data-ready={ready ? 'yes' : 'no'}>
       {small && !ready && <img src={small} alt="" aria-hidden="true" className={`${className} blur-sm`} />}
       <img
         src={full}
@@ -1791,18 +1798,24 @@ const AssetEditor: React.FC<{
   onClose: () => void;
   /** Its place among the files on the page, and the ones either side, to flip to. */
   flip?: { at: number; of: number; prev?: string; next?: string };
-}> = ({ a, jobs, act, partner, onFindPartner, onOpen, onClose, flip }) => {
-  // A plain viewer: the photo fills the screen; one bar under it holds what can be changed, each change saved as it's
-  // made (no Save button). Arrows, swipes and the arrow keys go to the next and previous file.
+  /** The files around it on the page, for the strip of small pictures under the photo. */
+  strip?: AdAsset[];
+}> = ({ a, jobs, act, partner, onFindPartner, onOpen, onClose, flip, strip }) => {
+  // The photo on the left with its stage on it, arrows either side and a strip of the files around it; on the right
+  // a panel: Stage, Details (type of work, project, crew), Before & after, then the file and Delete. Every change
+  // saves as it's made. The ⓘ button hides the panel, for the photo alone.
   const trade = useTrade();
   const photo = a.kind === 'photo';
   const works = worksFor(trade);
   const claude = a.suggestedTags ?? [];
   const [tags, setTags] = useState(a.tags);
   const [deleting, setDeleting] = useState(false);
+  const [mode, setMode] = useState<'read' | 'work' | 'project'>('read');
+  const [info, setInfo] = useState(true);
   useEffect(() => {
     setTags(a.tags);
     setDeleting(false);
+    setMode('read');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a.id, a.tags.join(',')]);
   const saveTags = (next: string[]) => {
@@ -1824,13 +1837,70 @@ const AssetEditor: React.FC<{
   }, [flip?.prev, flip?.next]);
   const panel = usePanel<HTMLDivElement>(onClose);
   const touch = useRef<number | null>(null);
-  const work = works.find((w) => tags.includes(w)) ?? '';
+  const picked = works.filter((w) => tags.includes(w));
   const job = jobs.find((j) => j.id === a.jobId);
   const stages = photo ? STAGES : STAGES.filter(([t]) => t === 'process');
-  const field = 'min-h-[40px] rounded-lg bg-[#1b1b1b] border border-[#2e2e2e] px-2.5 text-sm text-white';
-  const label = 'text-xs text-gray-500 mb-1';
-  const chip = (on: boolean) => `min-h-[40px] px-2 rounded-lg text-sm whitespace-nowrap border ${on ? 'bg-white text-black border-white' : 'bg-[#1b1b1b] text-gray-300 border-[#2e2e2e]'}`;
-  const edge = 'absolute inset-y-0 w-16 sm:w-24 flex items-center text-white/70 hover:text-white disabled:opacity-0';
+  const stageNames = stages.filter(([t]) => tags.includes(t)).map(([, n]) => n);
+  const added = a.createdAt ? new Date(a.createdAt) : null;
+  const day = added ? added.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+  const time = added ? added.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+  // The most the photo may take: the screen less the bars (and the panel beside it, or under it on a phone).
+  const fit = info
+    ? 'max-h-[calc(45dvh-12.5rem)] max-w-[calc(100vw-2rem)] md:max-h-[calc(100dvh-13rem)] md:max-w-[calc(100vw-420px-12rem)]'
+    : 'max-h-[calc(100dvh-13rem)] max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-12rem)]';
+  const title = picked.length ? picked.map((w) => workLabel(trade, w)).join(' + ') : photo ? 'Photo' : 'Clip';
+  const head = 'px-6 pt-6 pb-2 text-[13px] tracking-wide uppercase text-gray-400';
+  const card = 'mx-4 rounded-xl bg-[#1c1c1e] overflow-hidden';
+  const row = 'w-full flex items-center gap-3 px-4 min-h-[52px] text-left text-[16px] text-white border-b border-[#2c2c2e] last:border-b-0';
+  const gold = 'text-[#e2b350]';
+  const share = async () => {
+    const url = a.url ?? a.posterUrl;
+    if (!url) return;
+    const nav = navigator as Navigator & { share?: (d: { title?: string; url?: string }) => Promise<void> };
+    if (nav.share) await nav.share({ title: a.fileName, url }).catch(() => undefined);
+    else await act(() => navigator.clipboard.writeText(url), 'Link copied.');
+  };
+  const listHeader = (name: string) => (
+    <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+      <button type="button" aria-label="Back" className={`inline-flex items-center gap-0.5 min-h-[40px] pr-2 text-[16px] ${gold}`} onClick={() => setMode('read')}>
+        <ChevronLeft className="w-5 h-5" aria-hidden="true" /> Back
+      </button>
+      <span className="text-[16px] font-medium text-white">{name}</span>
+    </div>
+  );
+  // The other half's slot: its picture (tap to open it), or a dashed "+ Pick before" that finds or uploads it.
+  const want: 'before' | 'after' = tags.includes('before') && !tags.includes('after') ? 'after' : 'before';
+  const slot = (side: 'before' | 'after') => {
+    const mine = side !== want || (!partner && !onFindPartner);
+    const pic = mine ? a : partner;
+    const label = mine && side === (want === 'after' ? 'before' : 'after') ? `${side === 'before' ? 'Before' : 'After'} · this photo` : side === 'before' ? 'Before' : 'After';
+    return (
+      <figure className="flex-1 min-w-0 space-y-2 text-center">
+        {pic ? (
+          <button
+            type="button"
+            disabled={pic === a}
+            onClick={() => onOpen(pic.id)}
+            data-testid={pic === a ? undefined : 'pair'}
+            aria-label={pic === a ? undefined : `Open its ${side}: ${pic.fileName}`}
+            className="block w-full aspect-square rounded-lg overflow-hidden bg-[#2c2c2e]"
+          >
+            <img src={pic.thumbUrl ?? pic.posterUrl ?? pic.url} alt="" className="w-full h-full object-cover" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onFindPartner}
+            className={`w-full aspect-square rounded-lg border-2 border-dashed border-[#48484a] flex flex-col items-center justify-center gap-1 ${gold}`}
+          >
+            <span className="text-3xl leading-none">+</span>
+            <span className="text-[15px] font-medium">Pick {side}</span>
+          </button>
+        )}
+        <figcaption className={`text-[14px] ${mine && pic === a ? 'text-white font-medium' : 'text-gray-400'}`}>{label}</figcaption>
+      </figure>
+    );
+  };
   return createPortal(
     <div
       ref={panel}
@@ -1840,201 +1910,272 @@ const AssetEditor: React.FC<{
       aria-label={a.fileName}
       className="fixed inset-0 z-[10050] flex flex-col bg-black outline-none"
     >
-      {/* The photo on the left, as big as it goes; the panel on the right (under it on a phone). */}
-      <div className="flex-1 min-h-0 flex flex-col md:flex-row">
-        <div
-          className="relative flex-1 min-h-0 flex items-center justify-center"
-          onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
-          onTouchEnd={(e) => {
-            const start = touch.current;
-            touch.current = null;
-            const end = e.changedTouches[0]?.clientX;
-            if (start === null || end === undefined || Math.abs(end - start) < 50) return;
-            go(end < start ? flip?.next : flip?.prev);
-          }}
-        >
-          <Picture a={a} play className="max-w-full max-h-full w-auto h-auto object-contain" />
-          {flip && (
-            <>
-              <button type="button" aria-label="Previous" disabled={!flip.prev} className={`${edge} left-0 justify-start pl-2`} onClick={() => go(flip.prev)}>
-                <span className="rounded-full bg-black/50 p-2">
-                  <ChevronLeft className="w-6 h-6" />
-                </span>
-              </button>
-              <button type="button" aria-label="Next" disabled={!flip.next} className={`${edge} right-0 justify-end pr-2`} onClick={() => go(flip.next)}>
-                <span className="rounded-full bg-black/50 p-2">
-                  <ChevronRight className="w-6 h-6" />
-                </span>
-              </button>
-            </>
-          )}
+      <div className="flex-none grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 h-16 bg-[#161618] border-b border-[#2c2c2e]">
+        <button type="button" onClick={onClose} aria-label="Close" className={`justify-self-start inline-flex items-center gap-1 min-h-[44px] pr-2 text-[17px] ${gold}`}>
+          <ChevronLeft className="w-6 h-6" aria-hidden="true" /> Photos
+        </button>
+        <div className="text-center min-w-0">
+          <p className="text-[17px] font-semibold text-white truncate">{title}</p>
+          <p className="text-[13px] text-gray-400" data-testid="flip-place">
+            {flip ? `${photo ? 'Photo' : 'Clip'} ${flip.at + 1} of ${flip.of}` : ''}
+            {flip && day ? ' · ' : ''}
+            {day}
+          </p>
         </div>
-        {/* The panel: its place, delete and close at the top, then what can be changed, one labelled row each. */}
-        <div className="flex-none md:w-80 flex flex-col min-h-0 bg-[#111] border-t md:border-t-0 md:border-l border-[#1f1f1f] md:overflow-y-auto">
-          <div className="flex items-center gap-1 pl-4 pr-1 h-12 border-b border-[#1f1f1f]">
-            {flip && (
-              <span className="text-sm text-gray-300 tabular-nums" data-testid="flip-place">
-                {flip.at + 1} / {flip.of}
-              </span>
-            )}
-            <span className="flex-1 min-w-0 truncate text-xs text-gray-500 px-2">{a.fileName}</span>
-            <button
-              type="button"
-              aria-label={`Remove ${a.fileName}`}
-              className={`${tap} ${deleting ? 'text-red-300' : 'text-gray-400 hover:text-red-300'}`}
-              onClick={() => setDeleting(true)}
-            >
-              <Trash2 className="w-[18px] h-[18px]" />
-            </button>
-            <button type="button" onClick={onClose} aria-label="Close" className={`${tap} text-gray-300 hover:text-white`}>
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          {deleting && (
-            <div className="m-3 mb-0 flex flex-wrap items-center gap-2 rounded-lg p-3 border border-red-500/40 bg-red-500/10" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
-              <p className="flex-1 min-w-[12rem] text-sm text-white">
-                Delete this {photo ? 'photo' : 'clip'} for good?{a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
-              </p>
-              <button type="button" className="min-h-[40px] px-4 rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
-                Keep it
-              </button>
-              <button
-                type="button"
-                className="min-h-[40px] px-4 rounded-lg bg-red-600 text-sm font-semibold text-white"
-                onClick={() => {
-                  // The next file opens in its place, so deleting a run of bad photos stays quick.
-                  const after = flip?.next ?? flip?.prev;
-                  void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
-                }}
-              >
-                Delete
-              </button>
+        <div className="justify-self-end flex items-center gap-1">
+          <button type="button" aria-label="Share" className={`${tap} ${gold}`} onClick={() => void share()}>
+            <Upload className="w-5 h-5" />
+          </button>
+          <button
+            type="button"
+            aria-label={info ? 'Hide the details' : 'Show the details'}
+            aria-pressed={info}
+            className={`${tap} rounded-xl ${info ? 'bg-[#3a3020]' : ''} ${gold}`}
+            onClick={() => setInfo(!info)}
+          >
+            <span className="w-6 h-6 rounded-full border-2 border-current flex items-center justify-center text-[13px] font-bold">i</span>
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+          <div
+            className="relative flex-1 min-h-0 flex items-center justify-center px-4 py-3 sm:py-6 sm:px-24"
+            onTouchStart={(e) => (touch.current = e.touches[0]?.clientX ?? null)}
+            onTouchEnd={(e) => {
+              const start = touch.current;
+              touch.current = null;
+              const end = e.changedTouches[0]?.clientX;
+              if (start === null || end === undefined || Math.abs(end - start) < 50) return;
+              go(end < start ? flip?.next : flip?.prev);
+            }}
+          >
+            {/* Sized to the screen (not the box, whose height a browser may not know), so a tall photo never pushes
+                the arrows off; the stage sits on the photo's own corner. */}
+            <div className="relative flex">
+              {photo && a.url ? (
+                <Progressive key={a.id} small={a.thumbUrl} full={a.url} alt={a.fileName} box="relative flex items-center justify-center" className={`${fit} w-auto h-auto object-contain rounded-xl`} />
+              ) : (
+                <Picture a={a} play className={`${fit} w-auto h-auto object-contain rounded-xl`} />
+              )}
+              {stageNames.length > 0 && (
+                <span className="absolute top-4 left-4 inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[13px] font-semibold tracking-wide uppercase text-white">
+                  <span className="w-2 h-2 rounded-full bg-[#e2b350]" aria-hidden="true" />
+                  {stageNames.join(' + ')}
+                </span>
+              )}
             </div>
-          )}
-          <div className="grid grid-cols-2 md:grid-cols-1 content-start gap-x-3 gap-y-3 md:gap-y-4 px-4 py-3 md:py-4" aria-label={`Tags for ${a.fileName}`}>
-            {works.length > 0 && (
-              <div className="col-span-2 md:col-span-1">
-                <p className={label}>Type of work</p>
-                  <select
-                    aria-label="Type of work"
-                    value={work}
-                    className={`${field} w-full`}
-                    onChange={(e) => saveTags(withWork(tags, e.target.value ? [e.target.value, ...works.filter((w) => w !== e.target.value && w !== work && tags.includes(w))] : [], trade))}
-                  >
-                    <option value="">Type of work…</option>
-                    {works.map((w) => (
-                      <option key={w} value={w}>
-                        {workLabel(trade, w)}
-                      </option>
-                    ))}
-                  </select>
-              </div>
+            {flip && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Previous"
+                  disabled={!flip.prev}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-[#2c2c2e]/90 text-white flex items-center justify-center disabled:opacity-0"
+                  onClick={() => go(flip.prev)}
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next"
+                  disabled={!flip.next}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-[#2c2c2e]/90 text-white flex items-center justify-center disabled:opacity-0"
+                  onClick={() => go(flip.next)}
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
             )}
-            <div className="col-span-2 md:col-span-1">
-              <p className={label}>Stage</p>
-              <div className="grid grid-cols-3 gap-1" role="group" aria-label="Stage">
-                {stages.map(([t, name]) => (
-                  <button
-                    key={t}
-                    type="button"
-                    aria-pressed={tags.includes(t)}
-                    className={chip(tags.includes(t))}
-                    onClick={() => saveTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])}
-                  >
-                    {name}
-                  </button>
+          </div>
+          {strip && strip.length > 1 && (
+            <div className="flex-none px-4 py-3 border-t border-[#2c2c2e] overflow-x-auto" aria-label="Photos around this one">
+              <div className="flex gap-1.5 w-max mx-auto">
+                {strip.map((x) => (
+                <button
+                  key={x.id}
+                  type="button"
+                  aria-label={`Open ${x.fileName}`}
+                  aria-current={x.id === a.id}
+                  onClick={() => onOpen(x.id)}
+                  className={`flex-none w-14 h-[72px] rounded-md overflow-hidden bg-[#2c2c2e] ${x.id === a.id ? 'ring-2 ring-white w-[72px]' : 'opacity-60 hover:opacity-100'}`}
+                >
+                  <img src={x.thumbUrl ?? x.posterUrl ?? (x.kind === 'photo' ? x.url : undefined)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                </button>
                 ))}
               </div>
             </div>
-            {photo && (
+          )}
+        </div>
+        {info && (
+          <div className="flex-none md:w-[420px] max-h-[55dvh] md:max-h-none flex flex-col min-h-0 bg-[#161618] border-t md:border-t-0 md:border-l border-[#2c2c2e] overflow-y-auto" aria-label={`Tags for ${a.fileName}`}>
+            {mode === 'work' && (
               <div>
-                <p className={label}>Project</p>
-                  <select
-                    aria-label="Project"
-                    value={job ? job.id : ''}
-                    className={`${field} w-full`}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === '+new') {
-                        const name = window.prompt('Name the new project (it never shows in an ad)')?.trim();
-                        if (name)
-                          void act(async () => {
-                            const jobId = await adsAPI.addJob(name, trade);
-                            await adsAPI.setAssetJob(a.id, jobId);
-                          }, `Project "${name}" added and this photo tagged with it.`);
-                        return;
-                      }
-                      void act(() => adsAPI.setAssetJob(a.id, v || undefined), v ? 'Tagged with the project.' : 'Project tag taken off.');
-                    }}
-                  >
-                    <option value="">No project</option>
-                    {jobs.map((j) => (
-                      <option key={j.id} value={j.id}>
-                        {j.name}
-                      </option>
-                    ))}
-                    <option value="+new">New project…</option>
-                  </select>
-              </div>
-            )}
-            <div>
-              <p className={label}>Crew</p>
-              <button
-                type="button"
-                aria-pressed={tags.includes('crew')}
-                aria-label="Crew in the shot"
-                className={`${chip(tags.includes('crew'))} w-full`}
-                onClick={() => saveTags(tags.includes('crew') ? tags.filter((x) => x !== 'crew') : [...tags, 'crew'])}
-              >
-                {tags.includes('crew') ? 'In the shot' : 'None'}
-              </button>
-            </div>
-            {photo && (partner || onFindPartner) && (
-              <div className="col-span-2 md:col-span-1">
-                <p className={label}>Before &amp; after</p>
-                {partner ? (
-        <button
+                {listHeader('Type of work')}
+                <div className={card}>
+                  {works.map((w) => (
+                    <button
+                      key={w}
                       type="button"
-                      onClick={() => onOpen(partner.id)}
-                      className="w-full inline-flex items-center gap-2 min-h-[40px] pl-1 pr-3 rounded-lg bg-[#1b1b1b] border border-[#2e2e2e] text-sm text-gray-300"
-                      data-testid="pair"
+                      aria-pressed={picked.includes(w)}
+                      className={row}
+                      onClick={() => {
+                        saveTags(withWork(tags, picked.includes(w) ? picked.filter((x) => x !== w) : [w, ...picked], trade));
+                        setMode('read');
+                      }}
                     >
-                      <img src={partner.thumbUrl ?? partner.posterUrl ?? partner.url} alt="" className="w-8 h-8 rounded object-cover" />
-                      Its {partner.tags.includes('after') ? 'after' : 'before'}
+                      <span className="flex-1">{workLabel(trade, w)}</span>
+                      {picked.includes(w) && <span className={gold}>✓</span>}
                     </button>
-                ) : (
-        <button type="button" onClick={onFindPartner} className="w-full min-h-[40px] px-3 rounded-lg border border-[#c9a24a]/70 text-sm text-[#e2c578]">
-                      + Add its {a.tags.includes('before') ? 'after' : 'before'}
+                  ))}
+                </div>
+              </div>
+            )}
+            {mode === 'project' && photo && (
+              <div>
+                {listHeader('Project')}
+                <div className="px-4" aria-label={`Project of ${a.fileName}`}>
+                  <JobPicker
+                    jobs={jobs}
+                    value={a.jobId}
+                    where={a.fileName}
+                    open
+                    onPick={(jobId) => {
+                      void act(() => adsAPI.setAssetJob(a.id, jobId), jobId ? 'Tagged with the project.' : 'Project tag taken off.');
+                      setMode('read');
+                    }}
+                    onNew={(name) =>
+                      act(async () => {
+                        const jobId = await adsAPI.addJob(name, trade);
+                        await adsAPI.setAssetJob(a.id, jobId);
+                      }, `Project "${name}" added and this photo tagged with it.`).then(() => setMode('read'))
+                    }
+                  />
+                </div>
+              </div>
+            )}
+            {mode === 'read' && (
+              <>
+                <p className={head}>Stage</p>
+                <div className="mx-4 grid gap-1 rounded-xl bg-[#1c1c1e] p-1" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }} role="group" aria-label="Stage">
+                  {stages.map(([t, name]) => (
+                    <button
+                      key={t}
+                      type="button"
+                      aria-pressed={tags.includes(t)}
+                      className={`min-h-[48px] rounded-lg text-[16px] whitespace-nowrap ${tags.includes(t) ? 'bg-[#636366] text-white font-semibold' : 'text-gray-300'}`}
+                      onClick={() => saveTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])}
+                    >
+                      {name}
                     </button>
+                  ))}
+                </div>
+                <p className={head}>Details</p>
+                <div className={card}>
+                  {works.length > 0 && (
+                    <button type="button" className={row} onClick={() => setMode('work')} aria-label="Change the type of work">
+                      <span className="flex-1">Type of work</span>
+                      <span className={picked.length ? 'text-gray-400' : gold}>{picked.length ? picked.map((w) => workLabel(trade, w)).join(', ') : 'Assign'}</span>
+                      <ChevronRight className="w-4 h-4 text-gray-500" aria-hidden="true" />
+                    </button>
+                  )}
+                  {photo && (
+                    <button type="button" className={row} onClick={() => setMode('project')} data-testid="row-job">
+                      <span className="flex-1">Project</span>
+                      <span className={job ? 'text-gray-400 truncate max-w-[60%]' : gold}>{job ? job.name : 'Assign'}</span>
+                      <ChevronRight className="w-4 h-4 text-gray-500" aria-hidden="true" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={row}
+                    aria-pressed={tags.includes('crew')}
+                    aria-label="Crew in the shot"
+                    onClick={() => saveTags(tags.includes('crew') ? tags.filter((x) => x !== 'crew') : [...tags, 'crew'])}
+                  >
+                    <span className="flex-1">Crew</span>
+                    <span className={tags.includes('crew') ? 'text-gray-400' : gold}>{tags.includes('crew') ? 'In the shot' : 'Assign'}</span>
+                    <ChevronRight className="w-4 h-4 text-gray-500" aria-hidden="true" />
+                  </button>
+                </div>
+                {claude.length > 0 && claude.join(',') !== tags.join(',') && (
+                  <button type="button" className={`mx-6 mt-2 min-h-[36px] text-left text-[14px] ${gold}`} onClick={() => saveTags(claude)}>
+                    Use Claude&apos;s tags
+                  </button>
                 )}
-              </div>
-            )}
-            {claude.length > 0 && claude.join(',') !== tags.join(',') && (
-              <button type="button" className="col-span-2 md:col-span-1 min-h-[40px] text-left text-sm text-[#e2c578]" onClick={() => saveTags(claude)}>
-                Use Claude&apos;s tags
-              </button>
-            )}
-            {a.kind === 'video' && !a.posterUrl && a.url && (
-              <div className="col-span-2 md:col-span-1">
-                <button
-                  type="button"
-                  className={secondary}
-                  onClick={() =>
-                    act(async () => {
-                      const { still, durationSec } = await stillOfClip(a.url!, true);
-                      if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
-                      await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
-                      const thumb = await thumbOf(still);
-                      if (thumb) await adsAPI.setThumb(a.id, await putFile(thumb, 'image/jpeg'));
-                    }, 'Still made. Claude is looking at the clip and will suggest its tags.')
-                  }
-                >
-                  Make its still
-                </button>
-              </div>
+                {photo && (partner || onFindPartner) && (
+                  <>
+                    <p className={head}>Before &amp; after</p>
+                    <div className={`${card} p-4 space-y-4`}>
+                      <div className="flex gap-4">
+                        {slot('before')}
+                        {slot('after')}
+                      </div>
+                      <p className="text-[14px] text-gray-400">
+                        {partner ? 'Shown together as a before and after in ads.' : `Link ${want === 'after' ? 'an after' : 'a before'} shot to use this pair in ads.`}
+                      </p>
+                    </div>
+                  </>
+                )}
+                {a.kind === 'video' && !a.posterUrl && a.url && (
+                  <button
+                    type="button"
+                    className={`${secondary} mx-4 mt-4`}
+                    onClick={() =>
+                      act(async () => {
+                        const { still, durationSec } = await stillOfClip(a.url!, true);
+                        if (!still) throw new Error("This device couldn't read a frame of the clip. Try it from a computer, or upload it again.");
+                        await adsAPI.setPoster(a.id, await putFile(still, 'image/jpeg'), durationSec);
+                        const thumb = await thumbOf(still);
+                        if (thumb) await adsAPI.setThumb(a.id, await putFile(thumb, 'image/jpeg'));
+                      }, 'Still made. Claude is looking at the clip and will suggest its tags.')
+                    }
+                  >
+                    Make its still
+                  </button>
+                )}
+                <div className="mt-auto pt-8 pb-4 space-y-3">
+                  <p className="px-6 text-center text-[14px] text-gray-500 truncate">
+                    {a.fileName}
+                    {added ? ` · Added ${day}, ${time}` : ''}
+                  </p>
+                  {deleting ? (
+                    <div className="mx-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4 space-y-3" role="alertdialog" aria-label={`Delete ${a.fileName}?`}>
+                      <p className="text-[15px] text-white">
+                        Delete this {photo ? 'photo' : 'clip'} for good?{a.uses ? ` It's been used in ${a.uses} ad${a.uses === 1 ? '' : 's'}.` : ''}
+                      </p>
+                      <div className="flex gap-2">
+                        <button type="button" className="flex-1 min-h-[44px] rounded-lg border border-[#3a3a3a] text-sm text-gray-200" onClick={() => setDeleting(false)}>
+                          Keep it
+                        </button>
+                        <button
+                          type="button"
+                          className="flex-1 min-h-[44px] rounded-lg bg-red-600 text-sm font-semibold text-white"
+                          onClick={() => {
+                            // The next file opens in its place, so deleting a run of bad photos stays quick.
+                            const after = flip?.next ?? flip?.prev;
+                            void act(() => adsAPI.removeAsset(a.id), 'Deleted.').then(() => (after ? onOpen(after) : onClose()));
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${a.fileName}`}
+                      className="mx-4 w-[calc(100%-2rem)] min-h-[52px] rounded-xl bg-[#1c1c1e] inline-flex items-center justify-center gap-2 text-[17px] text-[#ff6b5e]"
+                      onClick={() => setDeleting(true)}
+                    >
+                      <Trash2 className="w-5 h-5" /> Delete {photo ? 'photo' : 'clip'}
+                    </button>
+                  )}
+                </div>
+              </>
             )}
           </div>
-        </div>
+        )}
       </div>
     </div>,
     document.body,
