@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, Film, Play, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink, Film, ListFilter, Play, Plus, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
 import { useAdDrive, useAdJobs } from '../../lib/live';
 import { backfillThumb, isVideo, prepareAsset, putFile, sendPreparedAsset, stillOfClip, thumbOf, tooBig, type PreparedAsset } from '../../lib/adUpload';
@@ -312,8 +312,8 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
   return (
     <TradeContext.Provider value={trade}>
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label="Ads" className="flex gap-1 flex-wrap">
+      <div className="flex flex-wrap items-end gap-2 border-b border-[#2A2A2A]">
+        <div role="tablist" aria-label="Ads" className="flex gap-6 flex-wrap">
           {SECTIONS.map(([value, label]) => (
             <button
               key={value}
@@ -323,7 +323,7 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
                 setSection(value);
                 setHookStart(null);
               }}
-              className={`px-3 py-1.5 text-sm rounded ${section === value ? 'bg-[#222] text-white' : 'text-gray-400 [@media(hover:hover)]:hover:text-white'}`}
+              className={`-mb-px pb-3 pt-1 text-[16px] border-b-2 ${section === value ? 'border-[#e2b350] text-white font-medium' : 'border-transparent text-gray-400 [@media(hover:hover)]:hover:text-white'}`}
             >
               {label}
             </button>
@@ -334,7 +334,7 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
           aria-label="Trade"
           value={trade}
           onChange={(e) => pickTrade(e.target.value)}
-          className="ml-auto bg-[#151515] border border-[#2A2A2A] rounded-lg px-3 py-1.5 text-sm text-gray-200"
+          className="ml-auto mb-2 bg-[#1c1c1e] border border-[#2A2A2A] rounded-full px-4 min-h-[40px] text-[15px] text-white"
         >
           {Object.values(AD_TRADES).map((t) => (
             <option key={t.slug} value={t.slug}>
@@ -991,30 +991,29 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   const paired = new Set(pairs.flatMap((p) => [p.before.id, p.after.id]));
   const needsAfter = photos.filter((a) => a.tags.includes('before') && !a.tags.includes('after') && !paired.has(a.id));
   const loneAfters = photos.filter((a) => a.tags.includes('after') && !a.tags.includes('before') && !paired.has(a.id));
-  // Photos not in a job, by type of work (a photo of two shows under its first); the rest after.
-  // By job (each job's box, then the rest by type of work), or every photo by type of work, jobs' too.
+  // The photos in groups: by type of work (a photo of two shows under its first; those with none last), or by project
+  // (each project, then those in none). In each group the finished photos come first, its befores after them.
   const [groupBy, setGroupBy] = useState<'job' | 'work'>('work');
-  const sorting = groupBy === 'work' ? photos : loose;
-  // Within each type of work, its befores (the unfinished state) come after the finished photos, apart.
+  // One group alone ("See all", or its chip), or every group with its first rows.
+  const [only, setOnly] = useState<string | null>(null);
   const beforeOnly = (a: AdAsset) => a.tags.includes('before') && !a.tags.includes('after');
-  const byWork = worksFor(trade)
-    .map((w) => {
-      const list = sorting.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w);
-      return [w, [...list.filter((a) => !beforeOnly(a)), ...list.filter(beforeOnly)]] as const;
-    })
-    .filter(([, list]) => list.length > 0);
-  const unsorted = sorting.filter((a) => !a.tags.some((t) => worksFor(trade).includes(t)));
+  const settle = (list: AdAsset[]) => [...list.filter((a) => !beforeOnly(a)), ...list.filter(beforeOnly)];
+  const firstWork = (a: AdAsset) => a.tags.find((t) => worksFor(trade).includes(t));
+  type Group = { key: string; title: string; list: AdAsset[]; job?: AdJob };
+  const groups: Group[] = (
+    groupBy === 'work'
+      ? [
+          ...worksFor(trade).map((w) => ({ key: w, title: workLabel(trade, w), list: settle(photos.filter((a) => firstWork(a) === w)) })),
+          { key: 'none', title: 'No type of work yet', list: photos.filter((a) => !firstWork(a)) },
+        ]
+      : [
+          ...jobs.map((j) => ({ key: j.id, title: j.name, list: settle(photos.filter((a) => a.jobId === j.id)), job: j })),
+          { key: 'loose', title: 'Not in a project', list: settle(loose) },
+        ]
+  ).filter((g) => g.list.length > 0 || (g.job && !selecting));
+  const shown = only ? groups.filter((g) => g.key === only) : groups;
   // The files in the order the page shows them, so an open one can flip to the one beside it.
-  const sortedWork = [...byWork.flatMap(([, list]) => list), ...unsorted];
-  const order = (
-    view === 'clips'
-      ? clips
-      : view === 'pairs'
-      ? [...joined, ...needsAfter, ...(selecting ? loneAfters : [])]
-      : groupBy === 'work'
-      ? sortedWork
-      : [...jobs.flatMap((j) => photos.filter((a) => a.jobId === j.id)), ...sortedWork]
-  ).map((a) => a.id);
+  const order = (view === 'clips' ? clips : view === 'pairs' ? [...joined, ...needsAfter, ...(selecting ? loneAfters : [])] : shown.flatMap((g) => g.list)).map((a) => a.id);
   const at = openId ? order.indexOf(openId) : -1;
   // Files uploaded before thumbnails were made get one here, quietly, one at a time; each is tried once a visit.
   const tried = useRef(new Set<string>());
@@ -1051,7 +1050,7 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   return (
     <div className={`space-y-4 ${selecting ? 'pb-40' : ''}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg bg-[#151515] border border-[#2A2A2A] p-0.5" role="group" aria-label="Show">
+        <div className="inline-flex rounded-xl bg-[#151515] border border-[#2A2A2A] p-1" role="group" aria-label="Show">
           {(
             [
               ['photos', `Photos ${photos.length}`],
@@ -1067,45 +1066,48 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
                 setView(v);
                 stopSelecting();
               }}
-              className={`px-3 min-h-[34px] rounded-md text-sm ${view === v ? 'bg-[#2a2a2a] text-white' : 'text-gray-400'}`}
+              className={`px-3.5 min-h-[36px] rounded-lg text-sm ${view === v ? 'bg-[#2a2a2a] text-white font-medium' : 'text-gray-300'}`}
             >
-              {label}
+              {label.replace(/ \d+$/, '')} <span className="text-gray-500">{label.match(/\d+$/)?.[0]}</span>
             </button>
           ))}
         </div>
-        {view === 'photos' && worksFor(trade).length > 0 && (
-          <div className="inline-flex rounded-lg bg-[#151515] border border-[#2A2A2A] p-0.5" role="group" aria-label="Group photos">
-            {(
-              [
-                ['job', 'By project'],
-                ['work', 'By type of work'],
-              ] as const
-            ).map(([v, label]) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={groupBy === v}
-                onClick={() => setGroupBy(v)}
-                className={`px-3 min-h-[34px] rounded-md text-sm ${groupBy === v ? 'bg-[#2a2a2a] text-white' : 'text-gray-400'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        {view === 'photos' && (
+          <label className="inline-flex items-center gap-2 rounded-lg bg-[#151515] border border-[#2A2A2A] pl-3 pr-1 min-h-[40px] text-sm">
+            <ListFilter className="w-4 h-4 text-gray-400" aria-hidden="true" />
+            <span className="text-gray-400">Group by</span>
+            <select
+              aria-label="Group photos"
+              value={groupBy}
+              onChange={(e) => {
+                setGroupBy(e.target.value as 'job' | 'work');
+                setOnly(null);
+              }}
+              className="bg-transparent text-white pr-1 min-h-[36px] outline-none"
+            >
+              <option value="work">Type of work</option>
+              <option value="job">Project</option>
+            </select>
+          </label>
         )}
         <div className="ml-auto flex items-center gap-2">
           {view !== 'clips' && photos.length > 0 && (
-            <button type="button" className="px-3 min-h-[36px] rounded-lg text-sm text-gray-300 [@media(hover:hover)]:hover:text-white" aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+            <button type="button" className="px-3 min-h-[40px] rounded-lg text-[15px] text-[#e2b350] [@media(hover:hover)]:hover:text-[#f0c76a]" aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
               {selecting ? 'Cancel' : 'Select'}
             </button>
           )}
           {view === 'photos' && !selecting && (
-            <button type="button" className="px-3 min-h-[36px] rounded-lg text-sm text-gray-300 [@media(hover:hover)]:hover:text-white" onClick={() => setNaming(true)}>
+            <button type="button" className="px-3 min-h-[40px] rounded-lg text-[15px] text-[#e2b350] [@media(hover:hover)]:hover:text-[#f0c76a]" onClick={() => setNaming(true)}>
               New project
             </button>
           )}
-          <button type="button" aria-label="Add photos or clips" className={`${primary} min-h-[36px] py-1.5`} onClick={() => setAdding({})}>
-            <Upload className="w-4 h-4" /> Add
+          <button
+            type="button"
+            aria-label="Add photos or clips"
+            className="inline-flex items-center gap-1.5 rounded-full bg-[#e2b350] px-4 min-h-[40px] text-[15px] font-semibold text-black [@media(hover:hover)]:hover:bg-[#f0c76a]"
+            onClick={() => setAdding({})}
+          >
+            <Plus className="w-4 h-4" /> Add
           </button>
         </div>
       </div>
@@ -1168,36 +1170,77 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
           )}
         </div>
       ) : view === 'photos' ? (
-        <div className="space-y-5" aria-label="Library">
-          {groupBy === 'job' && jobs.map((j) => (
-            <JobGroup key={j.id} job={j} assets={photos.filter((a) => a.jobId === j.id)} act={act}>
-              {!selecting && <AddTile label={`Add photos to ${j.name}`} photos onFiles={(files) => addHere(files, j.id)} />}
-              {photos.filter((a) => a.jobId === j.id).map((a) => tile(a, true))}
-            </JobGroup>
-          ))}
-          <section className="space-y-2" aria-label={groupBy === 'work' ? 'By type of work' : 'Not in a project'}>
-            {groupBy === 'job' && jobs.length > 0 && <h3 className="text-sm font-semibold text-gray-300">Not in a project</h3>}
-            {byWork.map(([work, list]) => (
-              <div key={work} className="space-y-2" aria-label={workLabel(trade, work)}>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-200/80">
-                  {workLabel(trade, work)} <span className="text-gray-500">{list.filter((a) => !beforeOnly(a)).length}</span>
-                </h4>
-                {list.some((a) => !beforeOnly(a)) && <ul className={grid}>{list.filter((a) => !beforeOnly(a)).map((a) => tile(a))}</ul>}
-                {list.some(beforeOnly) && (
-                  <div className="space-y-2 pl-3 border-l-2 border-[#2A2A2A]" aria-label={`${workLabel(trade, work)} befores`}>
-                    <p className="text-xs text-gray-500">
-                      Befores <span className="text-gray-600">{list.filter(beforeOnly).length}</span> · used in ads only beside their after
+        <div className="space-y-8" aria-label="Library">
+          {/* A chip per group, wrapping (never a scrolling row): tap one to see that group alone. */}
+          {groups.length > 1 && (
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Groups">
+              {[{ key: '', title: 'All' }, ...groups].map((g) => {
+                const on = (only ?? '') === g.key;
+                return (
+                  <button
+                    key={g.key || 'all'}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setOnly(g.key || null)}
+                    className={`px-4 min-h-[40px] rounded-full text-[15px] border ${on ? 'bg-white text-black border-white font-medium' : 'border-[#3a3a3a] text-gray-200 [@media(hover:hover)]:hover:border-gray-500'}`}
+                  >
+                    {g.title}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {shown.map((g) => {
+            const finished = g.list.filter((a) => !beforeOnly(a));
+            const befores = g.list.filter(beforeOnly);
+            // Every group shows its first two rows; "See all" (or its chip) shows the rest, its befores apart.
+            const preview = only ? finished : g.list.slice(0, PREVIEW);
+            const body = (
+              <>
+                {(preview.length > 0 || (g.job && !selecting)) && (
+                  <ul className={grid}>
+                    {g.job && !selecting && <AddTile label={`Add photos to ${g.title}`} photos onFiles={(files) => addHere(files, g.job!.id)} />}
+                    {preview.map((a) => tile(a, !!g.job))}
+                  </ul>
+                )}
+                {only && befores.length > 0 && (
+                  <div className="space-y-2 pt-2" aria-label={`${g.title} befores`}>
+                    <p className="text-sm text-gray-400">
+                      Befores <span className="text-gray-600">{befores.length}</span> · used in ads only beside their after
                     </p>
-                    <ul className={grid}>{list.filter(beforeOnly).map((a) => tile(a))}</ul>
+                    <ul className={grid}>{befores.map((a) => tile(a, !!g.job))}</ul>
                   </div>
                 )}
+              </>
+            );
+            const head = (
+              <div className="flex items-baseline gap-3">
+                <h3 className="text-2xl font-semibold text-white">
+                  {g.title} <span className="text-lg font-normal text-gray-500">{finished.length}</span>
+                </h3>
+                {!only && g.list.length > PREVIEW && (
+                  <button type="button" aria-label={`See all ${g.title}`} className="ml-auto inline-flex items-center gap-0.5 text-[15px] text-[#e2b350]" onClick={() => setOnly(g.key)}>
+                    See all <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+                {only && (
+                  <button type="button" className="ml-auto inline-flex items-center gap-0.5 text-[15px] text-[#e2b350]" onClick={() => setOnly(null)}>
+                    <ChevronLeft className="w-4 h-4" /> All groups
+                  </button>
+                )}
               </div>
-            ))}
-            {byWork.length > 0 && unsorted.length > 0 && <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">No type of work yet</h4>}
-            <ul className={grid}>
-              {unsorted.map((a) => tile(a))}
-            </ul>
-          </section>
+            );
+            return g.job ? (
+              <JobGroup key={g.key} job={g.job} assets={g.list} act={act} head={head}>
+                {body}
+              </JobGroup>
+            ) : (
+              <section key={g.key} className="space-y-3" aria-label={g.title}>
+                {head}
+                {body}
+              </section>
+            );
+          })}
         </div>
       ) : (
         <div className="space-y-4">
@@ -1290,7 +1333,9 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   );
 };
 
-const grid = 'grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
+const grid = 'grid gap-1.5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
+/** How many photos a group shows before "See all": two rows of the widest grid. */
+const PREVIEW = 10;
 
 /** The last tile of a grid: a dotted box the size of the others. Tapping it picks files that go straight in. */
 const AddTile: React.FC<{ label: string; photos?: boolean; onFiles: (files: File[]) => Promise<unknown> }> = ({ label, photos, onFiles }) => {
@@ -1578,9 +1623,6 @@ const Picture: React.FC<{ a: AdAsset; className: string; play?: boolean }> = ({ 
     <div className={`${className} bg-black`} />
   );
 
-/** Whether Claude suggests other tags than the file has. */
-const suggestsOther = (a: AdAsset) => Boolean(a.suggestedTags?.length) && [...a.suggestedTags!].sort().join(',') !== [...a.tags].sort().join(',');
-
 /** A file in the grid: its picture and what it is tagged, nothing to fill in. Tapping it opens it. */
 const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: Act; pick?: { on: boolean; toggle: () => void } }> = ({
   a,
@@ -1591,64 +1633,49 @@ const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: 
 }) => {
   const trade = useTrade();
   const job = jobs.find((j) => j.id === a.jobId);
+  // The picture alone, edge to edge; on it only its stage (not "After": finished is the norm), its project, how many
+  // ads it's in, a clip's length, and "No tags yet" while Claude hasn't looked.
+  const stage = stageOf(a.tags);
+  const stageName = stage === 'both' ? 'Before + after' : stage === 'process' ? 'In progress' : stage === 'before' ? 'Before' : '';
+  const chip = 'rounded-full bg-black/70 backdrop-blur-sm px-2.5 py-1 text-[12px] font-medium text-white';
+  const pill = `absolute ${chip}`;
   return (
-    <li
-      className={`border rounded bg-[#121212] overflow-hidden ${pick?.on ? 'border-[#7c5cc4] ring-2 ring-[#7c5cc4]' : 'border-[#2A2A2A]'}`}
-      data-testid="asset"
-    >
+    <li className={`relative ${pick?.on ? 'ring-2 ring-[#e2b350] rounded-md' : ''}`} data-testid="asset">
       <button
         type="button"
         onClick={pick ? pick.toggle : onOpen}
         aria-label={pick ? `Pick ${a.fileName}` : `Open ${a.fileName}`}
         aria-pressed={pick ? pick.on : undefined}
-        className="block w-full text-left"
+        className="block w-full text-left rounded-md overflow-hidden"
+        title={[...a.tags.map((t) => (worksFor(trade).includes(t) ? workLabel(trade, t) : t)), ...(a.items ?? [])].join(' · ')}
       >
         <div className="relative">
           <Thumb a={a} />
           {pick && (
             <span
               aria-hidden="true"
-              className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold ${pick.on ? 'bg-[#7c5cc4] border-[#7c5cc4] text-white' : 'bg-black/50 border-white text-transparent'}`}
+              className={`absolute top-2 right-2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold ${pick.on ? 'bg-[#e2b350] border-[#e2b350] text-black' : 'bg-black/50 border-white text-transparent'}`}
             >
               ✓
             </span>
           )}
-          {a.kind === 'video' && (
-            <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white inline-flex items-center gap-1">
-              <Film className="w-3 h-3" /> {a.durationSec ? `${Math.round(a.durationSec)}s` : 'clip'}
+          {stageName ? (
+            <span className={`${pill} top-2 left-2 inline-flex items-center gap-1.5`} data-testid="stage">
+              <span className={`w-1.5 h-1.5 rounded-full ${stage === 'process' ? 'bg-sky-400' : 'bg-[#e2b350]'}`} aria-hidden="true" />
+              {stageName}
             </span>
-          )}
-          {a.uses ? (
-            <span className="absolute top-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-gray-200">
-              in {a.uses} ad{a.uses === 1 ? '' : 's'}
-            </span>
+          ) : a.tags.length === 0 ? (
+            <span className={`${pill} top-2 left-2 text-amber-200`}>No tags yet</span>
           ) : null}
-        </div>
-        <div className="p-2 flex flex-wrap gap-1 min-h-[2.25rem]">
-          {job && <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-[#7c5cc4] text-white">{job.name}</span>}
-          {a.tags
-            .filter((t) => worksFor(trade).includes(t))
-            .map((t) => (
-              <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-amber-500/25 text-amber-200" data-testid="work">
-                {workLabel(trade, t)}
-              </span>
-            ))}
-          {a.tags
-            .filter((t) => !worksFor(trade).includes(t))
-            .map((t) => (
-              <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-[#336699]/30 text-sky-200">
-                {t}
-              </span>
-            ))}
-          {a.tags.length === 0 && <span className="text-[10px] text-amber-300">No tags yet</span>}
-          {a.tags.length > 0 && suggestsOther(a) && (
-            <span className="text-[10px] text-sky-300" data-testid="suggested-mark">
-              · Claude suggests other tags
-            </span>
-          )}
-          {(a.items ?? []).length > 0 && (
-            <span className="w-full text-[11px] text-gray-400 truncate capitalize" data-testid="items">
-              {a.items!.join(' · ')}
+          {a.uses && !pick ? <span className={`${pill} top-2 right-2 text-gray-200`}>in {a.uses} ad{a.uses === 1 ? '' : 's'}</span> : null}
+          {(job || a.kind === 'video') && (
+            <span className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5">
+              {job && <span className={`${chip} min-w-0 truncate`}>{job.name}</span>}
+              {a.kind === 'video' && (
+                <span className={`${chip} flex-none inline-flex items-center gap-1 ml-auto`}>
+                  <Film className="w-3 h-3" /> {a.durationSec ? `${Math.round(a.durationSec)}s` : 'clip'}
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -2536,17 +2563,18 @@ const JobPicker: React.FC<{
 };
 
 /** One job's photos together, with its name to change and a way to take the job away (its photos stay). */
-const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: React.ReactNode }> = ({ job, assets, act, children }) => {
+const JobGroup: React.FC<{ job: AdJob; assets: AdAsset[]; act: Act; children: React.ReactNode; head?: React.ReactNode }> = ({ job, assets, act, children, head }) => {
   const [name, setName] = useState<string | null>(null);
   const hasBefore = assets.some((a) => a.tags.includes('before'));
   const hasAfter = assets.some((a) => a.tags.includes('after'));
   // Claude's matches of a before with the after of the same spot.
   const pairs = new Set(assets.flatMap((a) => (a.pairKey && assets.filter((b) => b.pairKey === a.pairKey).length === 2 ? [a.pairKey] : []))).size;
   return (
-    <section className="space-y-2 border border-[#2A2A2A] rounded p-3" aria-label={`Project ${job.name}`} data-testid="job">
+    <section className="space-y-3" aria-label={`Project ${job.name}`} data-testid="job">
+      {name === null && head}
       <div className="flex flex-wrap items-center gap-2">
         {name === null ? (
-          <h3 className="text-sm font-semibold text-white">{job.name}</h3>
+          !head && <h3 className="text-sm font-semibold text-white">{job.name}</h3>
         ) : (
           <form
             className="flex gap-2"

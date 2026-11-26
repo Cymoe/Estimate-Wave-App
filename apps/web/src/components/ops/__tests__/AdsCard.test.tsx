@@ -181,6 +181,13 @@ const flush = () =>
     for (let i = 0; i < 5; i++) await Promise.resolve();
   });
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
+const groupPhotosBy = (value: 'job' | 'work') =>
+  act(async () => {
+    const sel = document.body.querySelector('select[aria-label="Group photos"]') as HTMLSelectElement;
+    sel.value = value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+const heads = () => Array.from(document.body.querySelectorAll('[aria-label="Library"] h3')).map((h) => h.textContent);
 const byText = (text: string) => buttons().find((b) => b.textContent?.includes(text));
 const tab = (label: string) =>
   act(async () =>
@@ -508,11 +515,17 @@ describe('Ops → Ads', () => {
     ];
     await render();
     await tab('Library');
-    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By project') as HTMLButtonElement).click());
-    const loose = document.body.querySelector('[aria-label="Not in a project"]')!;
-    expect(Array.from(loose.querySelectorAll('h4')).map((h) => h.textContent)).toEqual(['Cabinets stained 1', 'Fence stain 2', 'No type of work yet']);
-    expect(loose.querySelectorAll('[aria-label="Fence stain"] [data-testid="asset"]')).toHaveLength(2);
-    expect(loose.querySelector('[aria-label="Fence stain"] [data-testid="work"]')!.textContent).toBe('Fence stain');
+    // By type of work: a big heading per type, counting its finished photos; those with none last.
+    expect(heads()).toEqual(['Cabinets stained 1', 'Fence stain 2', 'No type of work yet 1']);
+    expect(document.body.querySelectorAll('[aria-label="Fence stain"] [data-testid="asset"]')).toHaveLength(2);
+    // A chip per group (wrapping, not scrolling): tapping one shows that group alone.
+    expect(Array.from(document.body.querySelectorAll('[aria-label="Groups"] button')).map((b) => b.textContent)).toEqual(['All', 'Cabinets stained', 'Fence stain', 'No type of work yet']);
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Groups"] button')).find((b) => b.textContent === 'Fence stain') as HTMLButtonElement).click());
+    expect(heads()).toEqual(['Fence stain 2']);
+    await act(async () => byText('All groups')!.click());
+    // By project: those in none together.
+    await groupPhotosBy('job');
+    expect(heads()).toEqual(['Not in a project 4']);
   });
 
   it('Library: "By type of work" groups every photo, jobs\' too, each keeping its job chip', async () => {
@@ -521,13 +534,12 @@ describe('Ops → Ads', () => {
     assets = [photo('f1', 'fence1.jpg', ['exterior', 'fence-stain'], 'j1'), photo('f2', 'fence2.jpg', ['exterior', 'fence-stain'])];
     await render();
     await tab('Library');
-    // It opens by type of work.
-    const all = document.body.querySelector('[aria-label="By type of work"]')!;
-    expect(all.querySelector('[aria-label="Fence stain"] h4')!.textContent).toBe('Fence stain 2');
-    expect(all.textContent).toContain('Smith fence');
+    // It opens by type of work, a project's photo among them with its project on it.
+    expect(heads()).toEqual(['Fence stain 2']);
+    expect(document.body.querySelector('[aria-label="Fence stain"]')!.textContent).toContain('Smith fence');
     expect(document.body.querySelector('[data-testid="job"]')).toBeNull();
-    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By project') as HTMLButtonElement).click());
-    expect(document.body.querySelector('[aria-label="Not in a project"] [aria-label="Fence stain"] h4')!.textContent).toBe('Fence stain 1');
+    await groupPhotosBy('job');
+    expect(heads()).toEqual(['Smith fence 1', 'Not in a project 1']);
     expect(document.body.querySelector('[data-testid="job"]')).not.toBeNull();
   });
 
@@ -569,8 +581,11 @@ describe('Ops → Ads', () => {
     await render();
     await tab('Library');
     // In Photos, a type of work's befores sit apart, after its finished photos, and aren't counted with them.
-    const cabinets = document.body.querySelector('[aria-label="By type of work"] [aria-label="Cabinets painted"]')!;
-    expect(cabinets.querySelector('h4')!.textContent).toBe('Cabinets painted 1');
+    expect(document.body.querySelector('[aria-label="Cabinets painted"] h3')!.textContent).toBe('Cabinets painted 1');
+    // A before carries its stage on the photo.
+    expect(document.body.querySelector('[aria-label="Cabinets painted"]')!.textContent).toContain('Before');
+    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Groups"] button')).find((b) => b.textContent === 'Cabinets painted') as HTMLButtonElement).click());
+    const cabinets = document.body.querySelector('[aria-label="Cabinets painted"]')!;
     const apart = cabinets.querySelector('[aria-label="Cabinets painted befores"]')!;
     expect(apart.textContent).toContain('used in ads only beside their after');
     expect(Array.from(apart.querySelectorAll('[aria-label^="Open "]')).map((b) => b.getAttribute('aria-label'))).toEqual(['Open kitchen-before.jpg']);
@@ -587,7 +602,7 @@ describe('Ops → Ads', () => {
     // A before with no after yet is listed apart, so it can be shot.
     const lone = document.body.querySelector('[aria-label="Befores with no after yet"]')!;
     expect(lone.querySelectorAll('[data-testid="asset"]')).toHaveLength(1);
-    expect(document.body.querySelector('[aria-label="By type of work"]')).toBeNull();
+    expect(document.body.querySelector('[aria-label="Library"]')).toBeNull();
     // A pair opens side by side, with its fixes.
     await act(async () => (group.querySelector('[aria-label="Open the before and after: fence-before.jpg"]') as HTMLButtonElement).click());
     expect(dialog().textContent).toContain('Claude paired these');
@@ -853,7 +868,7 @@ describe('Ops → Ads', () => {
     (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
     await render();
     await tab('Library');
-    await act(async () => (Array.from(document.body.querySelectorAll('[aria-label="Group photos"] button')).find((b) => b.textContent === 'By project') as HTMLButtonElement).click());
+    await groupPhotosBy('job');
     const group = document.body.querySelector('[data-testid="job"]')!;
     expect(group.textContent).toContain('Smith kitchen');
     expect(group.textContent).toContain('2 photos · 1 before/after pair');
@@ -984,8 +999,10 @@ describe('Ops → Ads', () => {
     await tab('Library');
     expect(document.body.querySelector('[aria-label="Show work"]')).toBeNull();
     expect(document.body.querySelector('[aria-label="Show photos of"]')).toBeNull();
-    expect(Array.from(document.body.querySelectorAll('[aria-label="By type of work"] h4')).map((h) => h.textContent)).toEqual(['Doors 2', 'Fence stain 1', 'No type of work yet']);
-    expect(document.body.querySelector('[aria-label="Open door.jpg"] [data-testid="items"]')!.textContent).toBe('front door · brick');
+    expect(heads()).toEqual(['Doors 2', 'Fence stain 1', 'No type of work yet 1']);
+    // The square is the picture alone; what it shows is in its tooltip and the window.
+    expect(document.body.querySelector('[aria-label="Open door.jpg"]')!.getAttribute('title')).toContain('front door · brick');
+    expect(document.body.querySelector('[aria-label="Open door.jpg"]')!.textContent).toBe('');
     // The window is the photo first, with one plain bar: type of work, stage, crew, job. No lists of pills.
     await openFile('door.jpg');
     expect(dialog().querySelector('[aria-label="Change the type of work"]')!.textContent).toContain('Doors');
@@ -1041,17 +1058,14 @@ describe('Ops → Ads', () => {
     });
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('✓ Sent. You can leave this page: Claude tags it in the background.');
 
-    // The card is quiet: the picture, its tags, how many ads, and a mark when Claude suggests other tags.
+    // The square is quiet: the picture, and on it only how many ads it's in (its stage when not finished, its project).
     const card = document.body.querySelector('[data-testid="asset"]')!;
-    expect(card.textContent).toContain('in 2 ads');
-    expect(card.textContent).toContain('cabinets');
-    expect(card.textContent).not.toContain('White shaker cabinets');
+    expect(card.textContent).toBe('in 2 ads');
     // With no small copy yet, the card shows the still, loading only as it scrolls near; the page makes the small
     // copy from the still, quietly.
     expect(card.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/a1-still.jpg');
     expect(card.querySelector('img')!.getAttribute('loading')).toBe('lazy');
     expect((global as unknown as { fetch: jest.Mock }).fetch.mock.calls.map((c) => c[0])).toContain('https://cdn.example/a1-still.jpg');
-    expect(card.querySelector('[data-testid="suggested-mark"]')).not.toBeNull();
     // Opened, it says what Claude saw and offers its tags.
     await openFile('kitchen.jpg');
     // Its own tags differ from Claude's: "Use Claude's tags" puts them on, saved at once. No pair key to type.
