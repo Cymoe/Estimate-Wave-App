@@ -568,6 +568,12 @@ describe('Ops → Ads', () => {
     ];
     await render();
     await tab('Library');
+    // In Photos, a type of work's befores sit apart, after its finished photos, and aren't counted with them.
+    const cabinets = document.body.querySelector('[aria-label="By type of work"] [aria-label="Cabinets painted"]')!;
+    expect(cabinets.querySelector('h4')!.textContent).toBe('Cabinets painted 1');
+    const apart = cabinets.querySelector('[aria-label="Cabinets painted befores"]')!;
+    expect(apart.textContent).toContain('used in ads only beside their after');
+    expect(Array.from(apart.querySelectorAll('[aria-label^="Open "]')).map((b) => b.getAttribute('aria-label'))).toEqual(['Open kitchen-before.jpg']);
     // Its own place in the Show switch, with how many; the Photos view doesn't carry it.
     expect(document.body.querySelector('[aria-label="Pairs"]')).toBeNull();
     const show = Array.from(document.body.querySelectorAll('[aria-label="Show"] button')).find((b) => b.textContent?.startsWith('Before & after')) as HTMLButtonElement;

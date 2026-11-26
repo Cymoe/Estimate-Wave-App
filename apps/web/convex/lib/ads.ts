@@ -370,8 +370,11 @@ export function pickAssets<A extends AssetRow>(
     const ranks = a.tags.map((t) => prefer.indexOf(t)).filter((i) => i >= 0);
     return ranks.length ? Math.min(...ranks) : prefer.length;
   };
-  const fresh = assets
-    .filter((a) => !used.has(a._id))
+  const open = assets.filter((a) => !used.has(a._id));
+  // A before with no after to go beside it is left out from the start, so it never counts toward what an idea can use.
+  const afters = new Set(open.filter((a) => a.pairKey && a.tags.includes("after") && !a.tags.includes("before")).map((a) => a.pairKey));
+  const fresh = open
+    .filter((a) => !(a.tags.includes("before") && !a.tags.includes("after") && !(a.pairKey && afters.has(a.pairKey))))
     .sort((a, b) => preference(a) - preference(b) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt));
   // An idea that names a type of work (a stained fence, LVP) shows only photos of that work, when there are enough
   // of them to choose from; with fewer, they go first.
@@ -388,7 +391,7 @@ export function pickAssets<A extends AssetRow>(
 /** The fewest photos of a type of work an idea names for its ad to show only that work. */
 export const WORK_MIN = 3;
 
-/** Before/after pairs first, then up to JOINED_FIRST images holding both, then the rest, in the pool's order. */
+/** Before/after pairs first, then up to JOINED_FIRST images holding both, then the rest (no lone befores), in the pool's order. */
 function pickFrom<A extends AssetRow>(pool: A[], max: number, inScope: boolean): { assets: A[]; inScope: boolean } {
   const groups = new Map<string, A[]>();
   for (const a of pool) if (a.pairKey) groups.set(a.pairKey, [...(groups.get(a.pairKey) ?? []), a]);
@@ -401,6 +404,10 @@ function pickFrom<A extends AssetRow>(pool: A[], max: number, inScope: boolean):
   pairs.sort((x, y) => (x[0].uses ?? 0) + (x[1].uses ?? 0) - ((y[0].uses ?? 0) + (y[1].uses ?? 0)));
   const out: A[] = [];
   for (const [before, after] of pairs) if (out.length + 2 <= max) out.push(before, after);
+  // A before is shown only beside its own after: one whose after isn't offered with it never is, so an ad can't
+  // show unfinished work as if it were the job.
+  const lone = (a: A) => a.tags.includes("before") && !a.tags.includes("after") && !pairs.some(([b]) => b === a);
+  pool = pool.filter((a) => !lone(a));
   // One image that holds a before and its after counts as a pair too. Two of those at most go in ahead of the rest,
   // so there is a before/after to show and still mostly finished work; any others only fill what is left over.
   const joined = pool.filter((a) => !a.pairKey && a.tags.includes("before") && a.tags.includes("after"));

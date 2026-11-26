@@ -142,6 +142,11 @@ describe("the pure parts", () => {
     const yards = [yard("j1", "01", ["before"]), yard("j2", "02", ["before"]), yard("j3", "03", ["before"]), yard("f1", "10"), yard("f2", "11"), yard("f3", "12")];
     expect(pickAssets(yards, "patio", new Set(), 4).assets.map((a) => a._id)).toEqual(["j3", "j2", "f3", "f2"]);
     expect(pickAssets(yards, "patio", new Set(), 6).assets.map((a) => a._id)).toEqual(["j3", "j2", "f3", "f2", "f1", "j1"]);
+    // A before is only offered beside its own after: a lone one, or one whose after is used, never is.
+    const raw = { _id: "r1", kind: "photo" as const, tags: ["cabinets", "before"], createdAt: "2026-10-09", uses: 0 };
+    expect(pickAssets([...assets, raw], "cabinets", new Set()).assets.map((a) => a._id)).toEqual(["p1", "p2", "v3", "v1"]);
+    expect(pickAssets([...assets, raw], "cabinets", new Set(["p2"])).assets.map((a) => a._id)).toEqual(["v3", "v1"]);
+    expect(pickAssets([raw, raw, raw].map((r, i) => ({ ...r, _id: `r${i}`, tags: ["cabinets-painted", "interior", "before"] })), "interior", new Set(), 8, [], [], ["cabinets-painted"]).assets).toEqual([]);
   });
 
   test("shot timings come from ElevenLabs' character times, or an even estimate without them", () => {

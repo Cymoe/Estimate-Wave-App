@@ -995,8 +995,13 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
   // By job (each job's box, then the rest by type of work), or every photo by type of work, jobs' too.
   const [groupBy, setGroupBy] = useState<'job' | 'work'>('work');
   const sorting = groupBy === 'work' ? photos : loose;
+  // Within each type of work, its befores (the unfinished state) come after the finished photos, apart.
+  const beforeOnly = (a: AdAsset) => a.tags.includes('before') && !a.tags.includes('after');
   const byWork = worksFor(trade)
-    .map((w) => [w, sorting.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w)] as const)
+    .map((w) => {
+      const list = sorting.filter((a) => a.tags.find((t) => worksFor(trade).includes(t)) === w);
+      return [w, [...list.filter((a) => !beforeOnly(a)), ...list.filter(beforeOnly)]] as const;
+    })
     .filter(([, list]) => list.length > 0);
   const unsorted = sorting.filter((a) => !a.tags.some((t) => worksFor(trade).includes(t)));
   // The files in the order the page shows them, so an open one can flip to the one beside it.
@@ -1175,12 +1180,17 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
             {byWork.map(([work, list]) => (
               <div key={work} className="space-y-2" aria-label={workLabel(trade, work)}>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-200/80">
-                  {workLabel(trade, work)} <span className="text-gray-500">{list.length}</span>
+                  {workLabel(trade, work)} <span className="text-gray-500">{list.filter((a) => !beforeOnly(a)).length}</span>
                 </h4>
-                <ul className={grid}>
-                  {/* Adding is the first square on the page, not after every photo. */}
-                  {list.map((a) => tile(a))}
-                </ul>
+                {list.some((a) => !beforeOnly(a)) && <ul className={grid}>{list.filter((a) => !beforeOnly(a)).map((a) => tile(a))}</ul>}
+                {list.some(beforeOnly) && (
+                  <div className="space-y-2 pl-3 border-l-2 border-[#2A2A2A]" aria-label={`${workLabel(trade, work)} befores`}>
+                    <p className="text-xs text-gray-500">
+                      Befores <span className="text-gray-600">{list.filter(beforeOnly).length}</span> · used in ads only beside their after
+                    </p>
+                    <ul className={grid}>{list.filter(beforeOnly).map((a) => tile(a))}</ul>
+                  </div>
+                )}
               </div>
             ))}
             {byWork.length > 0 && unsorted.length > 0 && <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400">No type of work yet</h4>}
