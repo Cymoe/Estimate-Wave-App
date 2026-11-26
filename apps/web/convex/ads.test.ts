@@ -1348,6 +1348,27 @@ describe("the library, hooks and settings", () => {
     await expect(staff.as.mutation(api.ads.pairPhotos, { ids: [a1, a1] })).rejects.toThrow("Pick two photos");
   });
 
+  test("photos with mixed stages are made one stage: the one given, or the furthest along; a pair kept when its before stays a before", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });
+    const add = async (fileName: string, tags: string[]) => await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", fileName), fileName, tags });
+    const primed = await add("primed.jpg", ["cabinets-painted", "before", "process"]);
+    const done = await add("done.jpg", ["cabinets-painted", "after"]);
+    const doors = await add("doors.jpg", ["doors", "process", "after"]);
+    await staff.as.mutation(api.ads.pairPhotos, { ids: [primed, done] });
+    // Tagged before and in progress, as Claude once did.
+    await t.run(async (ctx) => ctx.db.patch(primed, { tags: ["cabinets-painted", "interior", "process", "before"] }));
+    expect((await t.query(internal.ads.multiStage, {})).map((x) => x.fileName).sort()).toEqual(["doors.jpg", "primed.jpg"]);
+    const out = await t.mutation(internal.ads.fixStages, { items: [{ id: primed, stage: "before" }, { id: doors }] });
+    expect(out.fixed).toHaveLength(2);
+    const row = async (id: Id<"adAssets">) => (await t.run(async (ctx) => await ctx.db.get(id)))!;
+    expect((await row(primed)).tags).toEqual(["cabinets-painted", "interior", "before"]);
+    expect((await row(primed)).pairKey).toBe((await row(done)).pairKey);
+    expect((await row(primed)).pairKey).toEqual(expect.any(String));
+    expect((await row(doors)).tags).toEqual(["doors", "after"]);
+    expect(await t.query(internal.ads.multiStage, {})).toEqual([]);
+  });
+
   test("across the library: befores and afters of one type of work pair from different jobs, or none", async () => {
     const t = setup();
     const staff = await signUp(t, "ops@tolliver.example", { role: "super_admin" });

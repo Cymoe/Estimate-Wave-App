@@ -861,15 +861,26 @@ export const multiStage = internalQuery({
       .map((a) => ({ id: a._id, fileName: a.fileName, tags: a.tags, becomes: oneStage(a.tags), description: a.description })),
 });
 
-/** Makes the photos listed one stage each (oneStage), from the deployment; a pair broken by it is undone. */
+/**
+ * Makes the photos listed one stage each, from the deployment: the stage given ("both" is a side-by-side, before and
+ * after), or else the furthest along (oneStage). A pair broken by it is undone.
+ */
 export const fixStages = internalMutation({
-  args: { ids: v.array(v.id("adAssets")) },
-  handler: async (ctx, { ids }) => {
+  args: {
+    items: v.array(
+      v.object({
+        id: v.id("adAssets"),
+        stage: v.optional(v.union(v.literal("before"), v.literal("process"), v.literal("after"), v.literal("both"))),
+      }),
+    ),
+  },
+  handler: async (ctx, { items }) => {
     const fixed: string[] = [];
-    for (const id of ids) {
+    for (const { id, stage } of items) {
       const a = await ctx.db.get(id);
       if (a === null) continue;
-      const tags = oneStage(a.tags);
+      const rest = a.tags.filter((t) => t !== "before" && t !== "process" && t !== "after");
+      const tags = stage ? [...rest, ...(stage === "both" ? ["before", "after"] : [stage])] : oneStage(a.tags);
       if (tags.join(",") === a.tags.join(",")) continue;
       if (isBefore(a) !== isBefore({ tags }) || isAfter(a) !== isAfter({ tags })) await unpair(ctx, a);
       await ctx.db.patch(id, { tags, pairLookedAt: undefined });
