@@ -4002,7 +4002,12 @@ async function readJson(res: Response, what: string): Promise<any> {
   } catch {
     /* not JSON */
   }
-  if (!res.ok) throw new Error(`${what}: ${res.status} ${body?.error?.message ?? body?.message ?? body?.response?.message ?? text.slice(0, 200)}`);
+  if (!res.ok) {
+    // Meta puts what is actually wrong in error_user_title and error_user_msg; its message is often just "Invalid parameter".
+    const e = body?.error;
+    const detail = [e?.error_user_title, e?.error_user_msg, e?.error_subcode ? `(subcode ${e.error_subcode})` : ""].filter(Boolean).join(" ");
+    throw new Error(`${what}: ${res.status} ${e?.message ?? body?.message ?? body?.response?.message ?? text.slice(0, 200)}${detail ? ` - ${detail}` : ""}`.slice(0, 900));
+  }
   return body;
 }
 
