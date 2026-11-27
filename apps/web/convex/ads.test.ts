@@ -2999,6 +2999,38 @@ describe("the weekly run", () => {
     expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(1);
   });
 
+  test("a story from one project keeps the photos that fit the idea: its white finishes don't crowd out the two-tone one", async () => {
+    const { t, calls, draft } = await ready();
+    stubServices(calls, { fits: "green lower" });
+    await t.run(async (ctx) => {
+      const user = (await ctx.db.query("users").take(1))[0]._id;
+      const jobId = await ctx.db.insert("adJobs", { trade: "painting", name: "Green kitchen", createdAt: "2026-11-01T00:00:00Z" });
+      const add = async (i: number, fileName: string, tags: string[], description: string, inJob: boolean) =>
+        await ctx.db.insert("adAssets", {
+          storageId: await ctx.storage.store(new Blob([`p${i}`], { type: "image/jpeg" })),
+          kind: "photo",
+          fileName,
+          contentType: "image/jpeg",
+          size: 10,
+          tags: ["interior", "cabinets", ...tags],
+          description,
+          uploadedBy: user,
+          createdAt: `2026-11-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+          ...(inJob ? { jobId } : {}),
+        });
+      // The project: a before, four white finishes (older), then the two-tone finish (newest).
+      await add(0, "job-before.jpg", ["before"], "A dated oak kitchen before painting.", true);
+      for (let i = 1; i <= 4; i++) await add(i, `job-white-${i}.jpg`, ["after"], "A finished kitchen with white upper and lower cabinets.", true);
+      await add(5, "job-two-tone.jpg", ["after"], "A finished kitchen with green lower cabinets and white uppers.", true);
+      for (let i = 6; i < 18; i++) await add(i, `other-white-${i}.jpg`, ["after"], "A finished kitchen with white upper and lower cabinets.", false);
+    });
+    await draft();
+    const asks = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>);
+    const plan = asks.find((a) => a.some((c) => /^Photo \d+:$/.test(c.text ?? "")))!;
+    // The project's before and its two-tone finish; none of its white finishes.
+    expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(2);
+  });
+
   test("with stills on, a reel that shows a before and its after from one job also gets a still of that pair, drawn as a picture", async () => {
     const { t, calls, draft, claim, handIn, latest } = await ready({ meta: true });
     stubServices(calls, { style: "reel" });

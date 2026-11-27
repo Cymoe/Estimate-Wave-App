@@ -4476,7 +4476,14 @@ export const weeklyRun = internalAction({
                 )
               : null;
         if (job) {
-          picked.assets.splice(0, picked.assets.length, ...job.assets);
+          // With photos that fit the idea, the project's finished photos are only those: its befores and work in
+          // progress still tell the story, but a finish that doesn't show the idea isn't offered (and can't crowd out
+          // the ones that do).
+          const fitIds = new Set((fitting ?? []).map((f: { _id: string }) => f._id));
+          const finish = (p: { tags: string[] }) => p.tags.includes("after") || !(p.tags.includes("before") || p.tags.includes("process"));
+          const jobPhotos = fitting ? photos.filter((a: { jobId?: string }) => a.jobId === job.jobId) : [];
+          const assets = fitting ? jobInOrder(jobPhotos.filter((p: { _id: string; tags: string[] }) => fitIds.has(p._id) || !finish(p))) : job.assets;
+          picked.assets.splice(0, picked.assets.length, ...assets);
           picked.inScope = true;
         }
         if (picked.assets.length === 0) {
