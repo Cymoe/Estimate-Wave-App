@@ -208,9 +208,10 @@ export interface AdHook {
 export interface AdSettings {
   brand: string;
   /** Which services are set up; renderer is whether the app can start the drawing of videos itself. */
-  keys: { anthropic: boolean; elevenlabs: boolean; renderer: boolean; meta: boolean; apify: boolean; bunny: boolean };
+  keys: { anthropic: boolean; elevenlabs: boolean; renderer: boolean; meta: boolean; apify: boolean; library?: boolean; bunny: boolean };
   /** The Meta token pasted in Settings, as far as it's ever shown: its last four characters and when. */
   metaToken?: { hint?: string; setAt?: string; fromServer: boolean } | null;
+  scrapeKey?: { hint?: string; setAt?: string; fromServer: boolean } | null;
   adAccountId?: string;
   pageId?: string;
   leadFormId?: string;
@@ -3273,6 +3274,56 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
 };
 
 /**
+ * The competitor search key (ScrapeCreators): pasted once, checked with one small search, stored locked. Only its last
+ * four characters show after.
+ */
+const ScrapeKey: React.FC<{ owner: boolean; act: Act; saved: AdSettings['scrapeKey'] }> = ({ owner, act, saved: fromForm }) => {
+  const live = useAdsSettings<AdSettings>();
+  const saved = live?.scrapeKey ?? fromForm;
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (saved && !saved.fromServer)
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Competitor search key">
+        <span className="text-emerald-300">Search key saved</span>
+        <span className="text-gray-500">
+          ends …{saved.hint}
+          {saved.setAt ? ` · ${ago(saved.setAt)}` : ''}
+        </span>
+        {owner && (
+          <button type="button" className="text-gray-400 underline text-xs" onClick={() => act(() => adsAPI.removeScrapeKey(), 'Search key removed.')}>
+            Remove
+          </button>
+        )}
+      </div>
+    );
+  if (saved?.fromServer) return <p className="text-sm text-emerald-300">A search key is set on the server.</p>;
+  if (!owner) return null;
+  return (
+    <div className="flex flex-wrap gap-2 items-end" aria-label="Competitor search key">
+      <Field label="Competitor search key (ScrapeCreators)" hint="From scrapecreators.com → API key. It's checked with one small search, stored locked and never shown again.">
+        <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} className={input} aria-label="ScrapeCreators key" />
+      </Field>
+      <button
+        type="button"
+        className={secondary}
+        disabled={!key.trim() || busy}
+        onClick={() => {
+          setBusy(true);
+          void act(async () => {
+            const r = await adsAPI.saveScrapeKey(key);
+            setKey('');
+            return r;
+          }, 'ScrapeCreators took the key: it is saved.').finally(() => setBusy(false));
+        }}
+      >
+        {busy ? 'Checking…' : 'Save key'}
+      </button>
+    </div>
+  );
+};
+
+/**
  * Meta, in two steps: paste the token (checked with Meta, then stored locked and never shown again), then "Find my
  * accounts" lists what it reaches, so the ad account, Page, ad set and instant form are picked, not typed. Save
  * settings keeps the picks.
@@ -3449,6 +3500,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         delete rest.brand;
         delete rest.keys;
         delete rest.metaToken;
+        delete rest.scrapeKey;
         void act(() => adsAPI.saveSettings(rest), 'Settings saved.');
       }}
     >
@@ -3458,7 +3510,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {key(form.keys.elevenlabs, 'ELEVENLABS_API_KEY')}
         {key(form.keys.renderer, 'ADS_RENDER_TOKEN')}
         {key(form.keys.meta, 'META_ACCESS_TOKEN')}
-        {key(form.keys.apify, 'APIFY_TOKEN')}
+        {key(Boolean(form.keys.library ?? form.keys.apify), 'Competitor search key')}
         {form.voiceSource === 'actor' && key(form.keys.bunny, 'BUNNY_STUDIO_TOKEN')}
       </div>
       <MetaConnect owner={owner} act={act} form={form} setForm={setForm} text={text} />
@@ -3570,9 +3622,10 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
       <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-3">
         <legend className="text-sm text-gray-300 px-1">Niche research</legend>
         <p className="text-xs text-gray-500">
-          "Search the niche" looks these words up in Meta's Ad Library (US) and keeps the ads still running past the bar. Ads that name one of your
-          markets are flagged Local.
+          "Search the niche" looks these words up in Meta's Ad Library (US), through ScrapeCreators, and keeps the ads still running past the bar. Ads
+          that name one of your markets are flagged Local.
         </p>
+        <ScrapeKey owner={owner} act={act} saved={form.scrapeKey ?? null} />
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Search words" hint="Comma-separated">
             <input

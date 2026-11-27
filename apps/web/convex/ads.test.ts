@@ -2063,7 +2063,16 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       const body = typeof init?.body === "string" ? init.body : init?.body instanceof URLSearchParams ? init.body.toString() : undefined;
-      calls.push({ url, body, auth: new Headers(init?.headers).get("authorization") });
+      calls.push({ url, body, auth: new Headers(init?.headers).get("authorization") ?? new Headers(init?.headers).get("x-api-key") });
+      if (url.includes("api.scrapecreators.com")) {
+        const q = new URL(url).searchParams;
+        if (q.get("status") === "INACTIVE") return new Response(JSON.stringify({ success: true, searchResults: STOPPED_ITEMS, credits_remaining: 90 }));
+        // Two pages: the first hands a cursor to the second.
+        const cabinets = (q.get("query") ?? "").includes("cabinet");
+        const items = cabinets ? APIFY_CABINETS : APIFY_HOUSE;
+        if (!q.get("cursor")) return new Response(JSON.stringify({ success: true, searchResults: items.slice(0, 2), cursor: "next", credits_remaining: 99 }));
+        return new Response(JSON.stringify({ success: true, searchResults: items.slice(2), credits_remaining: 98 }));
+      }
       if (url.includes("api.anthropic.com")) {
         const content = JSON.parse(body!).messages[0].content as Array<{ type: string; text?: string }>;
         const prompt = content.find((c) => c.type === "text")?.text ?? "";
@@ -3579,6 +3588,58 @@ describe("the weekly run", () => {
 });
 
 describe("niche research", () => {
+  test("with the ScrapeCreators key pasted in Settings (sealed, last four shown), the search reads US ads page by page through it", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    vi.stubEnv("MAILBOX_KEY", btoa(String.fromCharCode(...Array.from({ length: 32 }, (_, i) => i + 1))));
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    vi.stubEnv("ELEVENLABS_API_KEY", "e");
+    await owner.as.mutation(api.ads.saveSettings, {
+      weeklyEnabled: false,
+      hooksPerWeek: 2,
+      liveTarget: 6,
+      researchKeywords: ["cabinet painting"],
+      researchMarkets: ["Midland"],
+      researchMinDays: 90,
+    });
+    await expect(owner.as.mutation(api.ads.researchNow, {})).rejects.toThrow("competitor search key");
+    const calls: Array<{ url: string; body?: string; auth?: string | null }> = [];
+    stubServices(calls);
+    const key = "sc_live_" + "k".repeat(24) + "9z9z";
+    await expect(staff.as.action(api.ads.saveScrapeKey, { key })).rejects.toThrow();
+    await expect(owner.as.action(api.ads.saveScrapeKey, { key: "short" })).rejects.toThrow("doesn't look like");
+    expect(await owner.as.action(api.ads.saveScrapeKey, { key: ` ${key} ` })).toEqual({ credits: 99 });
+    const s = await staff.as.query(api.ads.settings, {});
+    expect(s.keys.library).toBe(true);
+    expect(s.scrapeKey).toMatchObject({ hint: "9z9z", fromServer: false });
+    expect(JSON.stringify(s)).not.toContain(key);
+    const row = await t.run(async (ctx) => (await ctx.db.query("adSettings").take(1))[0]);
+    expect(row.scrapeKeyEnc).not.toContain(key);
+
+    calls.length = 0;
+    vi.useFakeTimers();
+    await owner.as.mutation(api.ads.researchNow, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    const [run] = await staff.as.query(api.ads.listResearchRuns, {});
+    expect(run.error).toBeUndefined();
+    expect(run).toMatchObject({ kept: 2, added: 2 });
+    const searches = calls.filter((c) => c.url.includes("api.scrapecreators.com")).map((c) => new URL(c.url).searchParams);
+    // Active ads in two pages (the second by the cursor), then one page of stopped ones; all US, all with the key.
+    expect(searches.map((q) => [q.get("status"), q.get("cursor")])).toEqual([
+      ["ACTIVE", null],
+      ["ACTIVE", "next"],
+      ["INACTIVE", null],
+    ]);
+    expect(searches.every((q) => q.get("country") === "US" && q.get("query") === "cabinet painting")).toBe(true);
+    expect(calls.filter((c) => c.url.includes("api.scrapecreators.com")).every((c) => c.auth === key)).toBe(true);
+    expect(calls.some((c) => c.url.includes("api.apify.com"))).toBe(false);
+
+    await owner.as.mutation(api.ads.removeScrapeKey, {});
+    expect((await staff.as.query(api.ads.settings, {})).scrapeKey).toBeNull();
+  });
+
   test("a search marks kept ads that have stopped, with their last day and run length; stopped ads it doesn't have aren't added", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
@@ -3673,7 +3734,7 @@ describe("niche research", () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
-    await expect(owner.as.mutation(api.ads.researchNow, {})).rejects.toThrow("APIFY_TOKEN");
+    await expect(owner.as.mutation(api.ads.researchNow, {})).rejects.toThrow("competitor search key");
     vi.stubEnv("APIFY_TOKEN", "ap");
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
     vi.stubEnv("ELEVENLABS_API_KEY", "e");

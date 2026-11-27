@@ -1130,6 +1130,9 @@ export const adsAPI = {
   /** The Meta token pasted in Settings: checked with Meta, then stored sealed. Returns whose token it is. */
   saveMetaToken: (token: string): Promise<{ name: string }> => run('action', api.ads.saveMetaToken, { token }),
   removeMetaToken: () => run('mutation', api.ads.removeMetaToken, {}),
+  /** The competitor search key (ScrapeCreators): checked with one small search, then stored sealed. Returns credits left. */
+  saveScrapeKey: (key: string): Promise<{ credits?: number }> => run('action', api.ads.saveScrapeKey, { key }),
+  removeScrapeKey: () => run('mutation', api.ads.removeScrapeKey, {}),
   /** The ad accounts (with their ad sets) and Pages (with their instant forms) the token reaches, to pick from. */
   metaLookup: (): Promise<MetaLookup> => run('action', api.ads.metaLookup, {}),
   /** The campaign's on/off switch in Meta, with its daily budget and how many approved ads it holds. */

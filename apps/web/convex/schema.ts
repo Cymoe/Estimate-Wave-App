@@ -2936,6 +2936,10 @@ export default defineSchema({
     adsetId: v.optional(v.string()),
     // The Meta token pasted in Settings, sealed (lib/secretBox.ts); META_ACCESS_TOKEN on the deployment wins when set.
     // Never sent back: only its last four characters and when it was saved.
+    // The competitor search key (ScrapeCreators), pasted in Settings: sealed, only its last four shown.
+    scrapeKeyEnc: v.optional(v.string()),
+    scrapeKeyHint: v.optional(v.string()),
+    scrapeKeySetAt: v.optional(v.string()),
     metaTokenEnc: v.optional(v.string()),
     metaTokenHint: v.optional(v.string()),
     metaTokenSetAt: v.optional(v.string()),

@@ -145,6 +145,8 @@ const keys = () => ({
   renderer: Boolean(process.env.ADS_RENDER_TOKEN),
   meta: Boolean(process.env.META_ACCESS_TOKEN),
   apify: Boolean(process.env.APIFY_TOKEN),
+  // ScrapeCreators, the competitor search used when its key is set (here or pasted in Settings).
+  scrape: Boolean(process.env.SCRAPECREATORS_API_KEY),
   // A real voice actor through Bunny Studio (voiceActors.ts).
   bunny: Boolean(process.env.BUNNY_STUDIO_TOKEN || (process.env.BUNNY_STUDIO_EMAIL && process.env.BUNNY_STUDIO_PASSWORD)),
 });
@@ -1663,6 +1665,88 @@ const PLAYBOOK_MIN_ADS = 3;
 const PER_KEYWORD = 200;
 /** Stopped ads looked at per keyword: enough to catch the table's own, cheaper than the main search. */
 const STOPPED_PER_KEYWORD = 100;
+/** ScrapeCreators bills per page (a credit each), so it reads fewer: the most-seen ads first. */
+const SCRAPE_PER_KEYWORD = 150;
+const SCRAPE_STOPPED_PER_KEYWORD = 60;
+const SCRAPE_PAGES = 8;
+const SCRAPE_URL = "https://api.scrapecreators.com/v1/facebook/adLibrary/search/ads";
+
+/** The competitor search key: SCRAPECREATORS_API_KEY on the deployment, else the one pasted in Settings (sealed). */
+async function scrapeKey(ctx: ActionCtx): Promise<string | undefined> {
+  if (process.env.SCRAPECREATORS_API_KEY) return process.env.SCRAPECREATORS_API_KEY;
+  const enc: string | null = await ctx.runQuery(internal.ads.scrapeKeySealed, {});
+  return enc ? await openSealed(enc) : undefined;
+}
+
+export const scrapeKeySealed = internalQuery({
+  args: {},
+  handler: async (ctx) => (await settingsRow(ctx))?.scrapeKeyEnc ?? null,
+});
+
+/** One page of a US Ad Library search through ScrapeCreators. */
+async function scrapePage(key: string, keyword: string, status: "active" | "inactive", cursor?: string) {
+  const q = new URLSearchParams({
+    query: keyword,
+    country: "US",
+    status: status === "active" ? "ACTIVE" : "INACTIVE",
+    media_type: "ALL",
+    sort_by: "total_impressions",
+    ...(cursor ? { cursor } : {}),
+  });
+  const body = await readJson(await fetch(`${SCRAPE_URL}?${q}`, { headers: { "x-api-key": key } }), "ScrapeCreators");
+  if (body?.success === false) throw new Error(`ScrapeCreators: ${String(body?.message ?? body?.error ?? "said no")}`.slice(0, 300));
+  const ads: unknown[] = Array.isArray(body?.searchResults) ? body.searchResults : Array.isArray(body?.results) ? body.results : [];
+  return { ads, cursor: typeof body?.cursor === "string" && body.cursor ? body.cursor : undefined, credits: body?.credits_remaining };
+}
+
+/** Up to `max` ads for a keyword, a page at a time while there's a next page. */
+async function scrapeSearch(key: string, keyword: string, status: "active" | "inactive", max: number): Promise<unknown[]> {
+  const out: unknown[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < SCRAPE_PAGES && out.length < max; page++) {
+    const got = await scrapePage(key, keyword, status, cursor);
+    out.push(...got.ads);
+    cursor = got.cursor;
+    if (!cursor || got.ads.length === 0) break;
+  }
+  return out.slice(0, max);
+}
+
+/**
+ * The owner pastes the competitor search key in Settings: one small search checks it with ScrapeCreators first (a
+ * wrong key is turned away with their reason), then it's sealed and stored. Only its last four characters are shown.
+ */
+export const saveScrapeKey = action({
+  args: { key: v.string() },
+  handler: async (ctx, { key }): Promise<{ credits?: number }> => {
+    await ctx.runQuery(internal.ads.ownerOnly, {});
+    const clean = key.trim();
+    if (clean.length < 12 || /\s/.test(clean)) fail("INVALID", "That doesn't look like a ScrapeCreators key. Copy the whole key and paste it again.");
+    const got = await scrapePage(clean, "house painting", "active").catch((e) => fail("INVALID", `ScrapeCreators didn't accept that key. ${errText(e)}`));
+    await ctx.runMutation(internal.ads.storeScrapeKey, { enc: await seal(clean), hint: clean.slice(-4) });
+    return { credits: typeof got.credits === "number" ? got.credits : undefined };
+  },
+});
+
+export const storeScrapeKey = internalMutation({
+  args: { enc: v.optional(v.string()), hint: v.optional(v.string()) },
+  handler: async (ctx, { enc, hint }) => {
+    const row = await settingsRow(ctx);
+    const fields = { scrapeKeyEnc: enc, scrapeKeyHint: enc ? hint : undefined, scrapeKeySetAt: enc ? nowIso() : undefined, updatedAt: nowIso() };
+    if (row) await ctx.db.patch(row._id, fields);
+    else await ctx.db.insert("adSettings", { ...DEFAULTS, ...fields });
+  },
+});
+
+/** Takes the pasted competitor search key away. */
+export const removeScrapeKey = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireSuperAdmin(ctx);
+    const row = await settingsRow(ctx);
+    if (row) await ctx.db.patch(row._id, { scrapeKeyEnc: undefined, scrapeKeyHint: undefined, scrapeKeySetAt: undefined, updatedAt: nowIso() });
+  },
+});
 
 export const researchNow = mutation({
   // `trade`: search for that trade's competitor ads; painting when none is given.
@@ -1670,7 +1754,8 @@ export const researchNow = mutation({
   handler: async (ctx, { trade }) => {
     const me = await requireSuperAdmin(ctx);
     const k = keys();
-    if (!k.apify) fail("INVALID", "Set APIFY_TOKEN on the Convex deployment first (an Apify account comes with free credit)");
+    if (!k.apify && !k.scrape && !(await settingsRow(ctx))?.scrapeKeyEnc)
+      fail("INVALID", "Paste the competitor search key (ScrapeCreators) in Ads → Settings first");
     if (!k.anthropic) fail("INVALID", "Set ANTHROPIC_API_KEY on the Convex deployment first");
     const open = (await ctx.db.query("adResearchRuns").order("desc").take(1))[0];
     if (open && !open.finishedAt && Date.now() - new Date(open.startedAt).getTime() < 30 * 60_000) fail("INVALID", "A search is already running");
@@ -1838,8 +1923,12 @@ export const researchRun = internalAction({
     const keywords = [...new Set([...usual, ...(also ?? []).map((k) => k.trim().slice(0, 60)).filter(Boolean).slice(0, 6)])];
     const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords, startedBy });
     const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0, stopped: 0 };
-    if (!process.env.APIFY_TOKEN || !process.env.ANTHROPIC_API_KEY) {
-      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts, error: "Set APIFY_TOKEN and ANTHROPIC_API_KEY on the deployment" });
+    if (!(await scrapeKey(ctx)) && !process.env.APIFY_TOKEN) {
+      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts, error: "Paste the competitor search key (ScrapeCreators) in Ads → Settings" });
+      return;
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts, error: "Set ANTHROPIC_API_KEY on the deployment" });
       return;
     }
     // One keyword per step, each its own action, so a long list never runs into an action's time limit.
@@ -1877,17 +1966,25 @@ export const researchStep = internalAction({
     const cfg = await ctx.runQuery(internal.ads.config, {});
     const keyword = keywords[index];
     const seen = new Set(seenBefore);
-    const apify = async (input: unknown) =>
-      await readJson(
+    const scrape = await scrapeKey(ctx);
+    // ScrapeCreators when its key is set, else Apify. Both hand back Meta's own fields for each ad.
+    const search = async (status: "active" | "inactive", max: number): Promise<unknown> => {
+      if (scrape) return await scrapeSearch(scrape, keyword, status, max);
+      return await readJson(
         await fetch(
           `https://api.apify.com/v2/acts/${process.env.APIFY_ACTOR || DEFAULT_APIFY_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(process.env.APIFY_TOKEN ?? "")}`,
-          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) },
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(apifyInput(keyword, cfg.researchMinDays, new Date(), max, status)),
+          },
         ),
         "Apify",
       );
+    };
     try {
-      const items = await apify(apifyInput(keyword, cfg.researchMinDays, new Date(), PER_KEYWORD));
-      if (!Array.isArray(items)) throw new Error("Apify: the actor didn't return a list of ads");
+      const items = await search("active", scrape ? SCRAPE_PER_KEYWORD : PER_KEYWORD);
+      if (!Array.isArray(items)) throw new Error("The ad search didn't return a list of ads");
       counts.scanned += items.length;
       const fresh: ScrapedAd[] = [];
       for (const item of items) {
@@ -1909,7 +2006,7 @@ export const researchStep = internalAction({
       }
       // The ones that have stopped: only to mark ads already kept. A failure here doesn't stop the search.
       try {
-        const ended = await apify(apifyInput(keyword, cfg.researchMinDays, new Date(), STOPPED_PER_KEYWORD, "inactive"));
+        const ended = await search("inactive", scrape ? SCRAPE_STOPPED_PER_KEYWORD : STOPPED_PER_KEYWORD);
         const stoppedAds = (Array.isArray(ended) ? ended : []).map((item) => fromApifyItem(item)).filter((a): a is ScrapedAd => a !== null && !a.active);
         if (stoppedAds.length) counts.stopped += await ctx.runMutation(internal.ads.markStopped, { ads: stoppedAds });
       } catch (e) {
@@ -2218,6 +2315,7 @@ export const researchRuns = internalQuery({
   args: {},
   handler: async (ctx) => ({
     apify: keys().apify,
+    scrape: keys().scrape || Boolean((await settingsRow(ctx))?.scrapeKeyEnc),
     runs: (await ctx.db.query("adResearchRuns").order("desc").take(5)).map((r) => ({
       startedAt: r.startedAt,
       finishedAt: r.finishedAt,
@@ -2262,7 +2360,9 @@ export const settings = query({
     const row = await settingsRow(ctx);
     return {
       brand: consumerBrand(),
-      keys: { ...keys(), meta: keys().meta || Boolean(row?.metaTokenEnc) },
+      keys: { ...keys(), meta: keys().meta || Boolean(row?.metaTokenEnc), library: keys().apify || keys().scrape || Boolean(row?.scrapeKeyEnc) },
+      // The competitor search key pasted here: its last four characters and when. Never the key.
+      scrapeKey: row?.scrapeKeyEnc ? { hint: row.scrapeKeyHint, setAt: row.scrapeKeySetAt, fromServer: keys().scrape } : null,
       // The token pasted here: only that one is set, its last four characters and when. Never the token.
       metaToken: row?.metaTokenEnc ? { hint: row.metaTokenHint, setAt: row.metaTokenSetAt, fromServer: keys().meta } : null,
       adAccountId: row?.adAccountId,

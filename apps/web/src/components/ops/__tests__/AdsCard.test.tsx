@@ -130,6 +130,7 @@ const campaignOf = (on: boolean) => ({
 });
 const campaignState = jest.fn(async () => campaignOf(false));
 const setCampaign = jest.fn(async (on: boolean) => campaignOf(on));
+const saveScrapeKey = jest.fn(async (..._args: unknown[]) => ({ credits: 99 }));
 const pairPhotos = jest.fn(async (..._args: unknown[]) => undefined);
 const splitPair = jest.fn(async (..._args: unknown[]) => undefined);
 const swapPair = jest.fn(async (..._args: unknown[]) => undefined);
@@ -176,6 +177,8 @@ jest.mock('../../../lib/api', () => ({
     pairPhotos: (...args: unknown[]) => pairPhotos(...args),
     saveMetaToken: (...args: unknown[]) => saveMetaToken(...args),
     removeMetaToken: async () => undefined,
+    saveScrapeKey: (...args: unknown[]) => saveScrapeKey(...args),
+    removeScrapeKey: async () => undefined,
     metaLookup: () => metaLookup(),
     campaignState: () => campaignState(),
     setCampaign: (on: boolean) => setCampaign(on),
@@ -1573,7 +1576,15 @@ describe('Ops → Ads', () => {
     await flush();
     expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ adAccountId: 'act_123', weeklyEnabled: true, hooksPerWeek: 2 }));
     expect(saveSettings.mock.calls[0][0]).not.toHaveProperty('keys');
-    expect(document.body.textContent).toContain('APIFY_TOKEN: missing');
+    expect(document.body.textContent).toContain('Competitor search key: missing');
+    // The competitor search key is pasted, checked and saved; the box empties.
+    const scrapeInput = () => document.body.querySelector('input[aria-label="ScrapeCreators key"]') as HTMLInputElement;
+    await act(async () => type(scrapeInput(), 'sc_live_abcdefghijkl1234'));
+    await act(async () => byText('Save key')!.click());
+    await flush();
+    expect(saveScrapeKey).toHaveBeenCalledWith('sc_live_abcdefghijkl1234');
+    expect(document.body.textContent).toContain('ScrapeCreators took the key: it is saved.');
+    expect(scrapeInput().value).toBe('');
     await act(async () =>
       type(document.body.querySelector('input[aria-label="Search words"]') as HTMLInputElement, 'cabinet painting, deck staining,'),
     );
