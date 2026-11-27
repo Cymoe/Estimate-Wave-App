@@ -73,9 +73,6 @@ export const AD_TRADES: Record<string, AdTrade> = {
       "house painter",
       "cabinet refinishing",
       "kitchen cabinet painters",
-      "painters Midland TX",
-      "painters Odessa TX",
-      "exterior painting Midland",
     ],
     // In this order: the chips and groups of the library follow it, the most particular first, Rooms painted last.
     works: {

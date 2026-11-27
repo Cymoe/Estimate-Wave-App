@@ -4388,14 +4388,15 @@ export const setStills = internalMutation({
   },
 });
 
-/** From a cloud session: words added to the niche search (kept with the saved ones), and the weekly switch. */
+/** From a cloud session: words added to or taken out of the niche search (beside the saved ones), and the weekly switch. */
 export const setResearch = internalMutation({
-  args: { addWords: v.optional(v.array(v.string())), weekly: v.optional(v.boolean()) },
-  handler: async (ctx, { addWords, weekly }) => {
+  args: { addWords: v.optional(v.array(v.string())), removeWords: v.optional(v.array(v.string())), weekly: v.optional(v.boolean()) },
+  handler: async (ctx, { addWords, removeWords, weekly }) => {
     const row = await settingsRow(ctx);
     if (!row) fail("INVALID", "Save the ad settings once first");
     const now = research(row).researchKeywords;
-    const words = [...new Set([...now, ...(addWords ?? []).map((w) => w.trim()).filter(Boolean)])];
+    const out = new Set((removeWords ?? []).map((w) => w.trim().toLowerCase()));
+    const words = [...new Set([...now, ...(addWords ?? []).map((w) => w.trim()).filter(Boolean)])].filter((w) => !out.has(w.toLowerCase()));
     await ctx.db.patch(row!._id, { researchKeywords: words, ...(weekly === undefined ? {} : { researchMonthly: weekly }), updatedAt: nowIso() });
     return { researchKeywords: words, weekly: weekly ?? research(row).researchMonthly };
   },

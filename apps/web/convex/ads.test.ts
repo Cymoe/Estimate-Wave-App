@@ -1857,9 +1857,6 @@ describe("the library, hooks and settings", () => {
         "house painter",
         "cabinet refinishing",
         "kitchen cabinet painters",
-        "painters Midland TX",
-        "painters Odessa TX",
-        "exterior painting Midland",
       ],
       researchMarkets: ["Midland", "Odessa", "Permian Basin", "West Texas"],
       researchMinDays: 90,
@@ -3648,6 +3645,7 @@ describe("niche research", () => {
       researchKeywords: ["cabinet painting", "painters Odessa TX"],
       weekly: true,
     });
+    expect((await t.mutation(internal.ads.setResearch, { removeWords: ["Painters odessa TX"] })).researchKeywords).toEqual(["cabinet painting"]);
   });
 
   test("on Mondays, with the switch on, every trade with search words gets its own search, a quarter hour apart", async () => {
