@@ -3637,6 +3637,16 @@ describe("niche research", () => {
     expect(shown.endedAt).toBe("2026-11-20");
   });
 
+  test("from a cloud session: words are added beside the saved ones, and the weekly switch set", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    await owner.as.mutation(api.ads.saveSettings, { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 6, researchKeywords: ["cabinet painting"] });
+    expect(await t.mutation(internal.ads.setResearch, { addWords: ["cabinet painting", " painters Odessa TX "], weekly: true })).toEqual({
+      researchKeywords: ["cabinet painting", "painters Odessa TX"],
+      weekly: true,
+    });
+  });
+
   test("on Mondays, with the switch on, every trade with search words gets its own search, a quarter hour apart", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });

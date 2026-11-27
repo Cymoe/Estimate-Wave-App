@@ -4348,6 +4348,19 @@ export const setStills = internalMutation({
   },
 });
 
+/** From a cloud session: words added to the niche search (kept with the saved ones), and the weekly switch. */
+export const setResearch = internalMutation({
+  args: { addWords: v.optional(v.array(v.string())), weekly: v.optional(v.boolean()) },
+  handler: async (ctx, { addWords, weekly }) => {
+    const row = await settingsRow(ctx);
+    if (!row) fail("INVALID", "Save the ad settings once first");
+    const now = research(row).researchKeywords;
+    const words = [...new Set([...now, ...(addWords ?? []).map((w) => w.trim()).filter(Boolean)])];
+    await ctx.db.patch(row!._id, { researchKeywords: words, ...(weekly === undefined ? {} : { researchMonthly: weekly }), updatedAt: nowIso() });
+    return { researchKeywords: words, weekly: weekly ?? research(row).researchMonthly };
+  },
+});
+
 /** The narrator the owner picked from the samples. */
 export const setVoice = internalMutation({
   args: { voiceId: v.string() },
