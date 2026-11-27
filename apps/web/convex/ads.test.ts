@@ -1694,6 +1694,12 @@ describe("the library, hooks and settings", () => {
     await expect(member.as.mutation(api.ads.seedSwipes, {})).rejects.toThrow();
   });
 
+  test("drawn ads go into Meta by name, from the deployment; ones in Meta already or not drawn are left", async () => {
+    const t = setup();
+    const out = await t.mutation(internal.ads.sendToMeta, { names: ["nope"] });
+    expect(out).toEqual({ sent: [], skipped: ["nope: not found"] });
+  });
+
   test("the Meta token pasted in Settings: checked with Meta, sealed, shown only by its last four; the accounts it reaches listed to pick", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });

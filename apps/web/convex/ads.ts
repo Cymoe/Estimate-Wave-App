@@ -4555,6 +4555,29 @@ export const metaLookup = action({
   },
 });
 
+/**
+ * Sends drawn ads into Meta as paused ads, by name, from the deployment: for ads drawn before the Meta account was
+ * set up. Ads already in Meta, and ones not drawn yet, are left as they are. Five seconds apart.
+ */
+export const sendToMeta = internalMutation({
+  args: { names: v.array(v.string()) },
+  handler: async (ctx, { names }) => {
+    const sent: string[] = [];
+    const skipped: string[] = [];
+    for (const name of names) {
+      const c = await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first();
+      if (!c || c.meta?.adId || c.status !== "rendered") {
+        skipped.push(`${name}: ${!c ? "not found" : c.meta?.adId ? "already in Meta" : c.status}`);
+        continue;
+      }
+      await ctx.db.patch(c._id, { error: undefined });
+      await ctx.scheduler.runAfter(sent.length * 5000, internal.ads.publishPaused, { id: c._id });
+      sent.push(name);
+    }
+    return { sent, skipped };
+  },
+});
+
 /** Puts a rendered creative into Meta as a PAUSED ad: the video, then the creative, then the ad. */
 export const publishPaused = internalAction({
   args: { id: v.id("adCreatives") },
