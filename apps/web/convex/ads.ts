@@ -4604,13 +4604,12 @@ export const publishPaused = internalAction({
     }
     try {
       const act = `act_${cfg.adAccountId}`;
+      // Meta's own changes to an ad, each turned off: the ad runs as it was made (real photos, our words). Only the
+      // features Meta's API still takes for a video ad (it turned away the older names, Nov 2026).
       const features = {
-        text_optimizations: { enroll_status: "OPT_IN" },
-        enhance_cta: { enroll_status: "OPT_IN" },
-        adapt_to_placement: { enroll_status: "OPT_IN" },
-        image_background_gen: { enroll_status: "OPT_OUT" },
         image_animation: { enroll_status: "OPT_OUT" },
-        video_expansion: { enroll_status: "OPT_OUT" },
+        text_overlay_translation: { enroll_status: "OPT_OUT" },
+        profile_card: { enroll_status: "OPT_OUT" },
       };
       const video = c.meta?.videoId
         ? { id: c.meta.videoId }
