@@ -2041,6 +2041,19 @@ export const untaggedCount = internalQuery({
   handler: async (ctx) => (await ctx.db.query("adSwipes").take(1000)).filter((x) => !x.taggedAt).length,
 });
 
+/**
+ * Competitor ads Claude hasn't read yet (a read that never ran, say Claude was busy): each read again, a few seconds
+ * apart. The last one brings the playbooks up to date, as after a search.
+ */
+export const tagWaiting = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const waiting = (await ctx.db.query("adSwipes").take(1000)).filter((x) => !x.taggedAt);
+    for (const [i, x] of waiting.entries()) await ctx.scheduler.runAfter(i * 3000, internal.ads.tagSwipe, { id: x._id });
+    return { reading: waiting.length };
+  },
+});
+
 export const swipeForTag = internalQuery({
   args: { id: v.id("adSwipes") },
   handler: async (ctx, { id }) => {

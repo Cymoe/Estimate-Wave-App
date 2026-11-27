@@ -3704,6 +3704,34 @@ describe("niche research", () => {
     expect(shown.endedAt).toBe("2026-11-20");
   });
 
+  test("ads Claude never read are read again, a few seconds apart", async () => {
+    const t = setup();
+    await t.run(async (ctx) => {
+      for (const [n, taggedAt] of [["7101", undefined], ["7102", "2026-11-27T00:00:00Z"]] as const)
+        await ctx.db.insert("adSwipes", {
+          company: `Co ${n}`,
+          paintingType: "Cabinets",
+          hook: "h",
+          offer: "",
+          creative: "video",
+          area: "",
+          cta: "",
+          adaptation: "",
+          metaAdId: n,
+          starred: false,
+          source: "research 2026-11-27",
+          importedAt: "2026-11-27T00:00:00Z",
+          ...(taggedAt ? { taggedAt } : {}),
+        });
+    });
+    expect(await t.mutation(internal.ads.tagWaiting, {})).toEqual({ reading: 1 });
+    const queued = await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect());
+    expect(queued.map((q) => q.name)).toEqual(["ads:tagSwipe"]);
+    await t.run(async (ctx) => {
+      for (const q of queued) await ctx.scheduler.cancel(q._id);
+    });
+  });
+
   test("from a cloud session: words are added beside the saved ones, and the weekly switch set", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
