@@ -491,9 +491,10 @@ export function shortlistPrompt(
         `${p.n}. ${p.best ? "BEST · " : ""}${p.tags.join(", ")}${p.project ? ` · project ${p.project}` : ""} · uses ${p.uses}: ${p.description.replace(/\s+/g, " ").slice(0, 220)}`,
     ),
     "",
-    `Pick up to ${max} photos that show what this idea says and shows, best fit first. Only photos whose description really matches: if the idea is about two-tone cabinets, only photos with different colours above and below; if it names a room, a material or a colour, only photos that show it. Among photos that fit equally, prefer BEST ones and ones in fewer ads, and photos from the same project together when the idea tells one job's story. Leave out anything that doesn't fit, even if that leaves few or none.`,
+    `Pick up to ${max} photos that show what this idea says and shows, best fit first. Only photos whose description really matches: if the idea is about two-tone cabinets, only photos with different colours above and below; if it names a room, a material or a colour, only photos that show it. Among photos that fit equally, prefer BEST ones and ones in fewer ads. Leave out anything that doesn't fit, even if that leaves few or none.`,
+    `Also say whether the idea is one project's story. "oneProject": true only when the idea follows a single job from its problem to its finish (this kitchen before, the work, this kitchen after). false when it shows a kind of result across several homes (kitchens with coloured lowers, front doors we've painted): then pick photos from as many different projects as fit.`,
     "",
-    'Return only JSON: {"photos":[3,7,12]}',
+    'Return only JSON: {"photos":[3,7,12],"oneProject":false}',
   ].join("\n");
 }
 
@@ -508,6 +509,17 @@ export function readShortlist(reply: string, offered: number): number[] {
   }
   return [...seen].slice(0, SHORTLIST_MAX);
 }
+
+/** Whether Claude called the idea one project's story; undefined when it didn't say. */
+export function readOneProject(reply: string): boolean | undefined {
+  const out = parseJson<{ oneProject?: unknown }>(reply);
+  return typeof out?.oneProject === "boolean" ? out.oneProject : undefined;
+}
+
+/** The fewest photos a project needs, with a before and an after among them, for an ad to be told from it alone. */
+export const STORY_MIN = 5;
+/** In an ad that shows a range of projects, the most photos any one project gives. */
+export const RANGE_PER_PROJECT = 2;
 
 /** The fewest photos a job needs for a story to be told from it alone; a job with fewer leaves the photos picked as before. */
 export const JOB_MIN = 3;
@@ -643,6 +655,7 @@ const RULES = (brand: string, town: string) => [
   `- Never promise how fast, or whether, anyone answers: no "never wait", no "always calls back", no "same-day".`,
   `- Do not address the viewer by a personal attribute (no "is your home in...", no age, income or ethnicity). Say "${town} homeowners" style phrasing instead.`,
   "- Close the last shot with a plain ask: get a quote.",
+  "- No hype, even where the competitor's ad uses it: never nightmare, dream kitchen, stunning, amazing, flawless, jaw-dropping. Say plainly what is seen.",
 ];
 
 /** A competitor ad the writer is shown for tone and shape. */
@@ -718,6 +731,8 @@ const FORBIDDEN: Array<[RegExp, string]> = [
   [/is your home in|are you over/i, "a personal attribute"],
   // Nothing about how the pros are chosen is written down, so nothing is claimed about it.
   [/\bvetted\b|\bpre-?screened\b|\btop-rated\b/i, "a claim about how the pros are checked (vetted, screened, top-rated)"],
+  // Plain words about what is seen; a competitor's hype isn't carried over.
+  [/\bnightmare\b|\bdream (kitchen|home|bath|house)|\bstunning\b|\bamazing\b|\bjaw[- ]dropping\b|\bbreathtaking\b|\bflawless\b/i, "hype (nightmare, dream kitchen, stunning, amazing, flawless): say plainly what is seen"],
 ];
 
 /**
@@ -972,7 +987,8 @@ export function scriptLength(basedOn?: Pick<BasedOn, "transcript" | "adCopy">): 
 /** The text before the photos for one animated ad: the hook, the photos, the styles to choose from, the rules and the shape to answer in. */
 export function motionPrompt(
   // steps: the reel's title and headlines add to what is said, never repeat it (motionPlanProblems' noEcho).
-  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean; steps?: boolean },
+  // range: the photos are of several projects, shown as a range of our work, not one job's story.
+  hook: { textEn: string; family: Family; scope: string; opening?: string; style?: AdStyle; versus?: boolean; quick?: boolean; steps?: boolean; range?: boolean },
   brand: string,
   photos: Candidate[],
   inScope: boolean,
@@ -1077,7 +1093,15 @@ export function motionPrompt(
           `- Line 3: the ask (\"Get a free quote from ${brand}.\"), on finished work.`,
           "- One job only: use only the photos of one job, a before and its after or a single photo. Never mix jobs.",
         ]
-      : [
+      : hook.range
+        ? [
+    "Show a range of our work: these photos are of several different homes.",
+    "- Put each line on a different home's finished photo, so the picture keeps changing: use as many of the different homes as there are lines for, and never two lines running on the same home unless they are its before and its after.",
+    "- Speak in the plural (\"kitchens we've painted\", \"each of these\"): never say or suggest the photos are one home, one kitchen or one job.",
+    "- A before is shown only directly before its own after (the same pair), and the words say it is the same room. Never set one home's before against another home's finish.",
+    "- Open on finished work that shows the idea at a glance. The ad ends on finished work.",
+          ]
+        : [
     "Tell it as one small story: one job, one problem, one change.",
     "- Open on the problem. Where there is a before, the first line's picture is the before and the first words name the problem you can see in it (\"This back yard was bare dirt.\"). Never open on a statement about the trade (\"cabinet redos come in plenty of looks\").",
     "- Then the turn: one concrete thing the pro did that you can see in the photos (doors off and every pane taped, the base dug and packed). One detail, said plainly, beats a list.",

@@ -25,6 +25,9 @@ import {
   cleanItems,
   itemsIn,
   readShortlist,
+  readOneProject,
+  STORY_MIN,
+  RANGE_PER_PROJECT,
   shortlistPrompt,
   readPairing,
   fromApifyItem,
@@ -4268,7 +4271,7 @@ async function shortlistFor<P extends { _id: string; tags: string[]; description
   photos: P[],
   used: Set<string>,
   seen?: { reply?: string; error?: string },
-): Promise<P[] | null> {
+): Promise<{ photos: P[]; oneProject?: boolean } | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null;
   const candidates = photos
     .filter((p) => p.description && !used.has(p._id) && (scope === ANY_SCOPE || p.tags.includes(scope)))
@@ -4294,7 +4297,7 @@ async function shortlistFor<P extends { _id: string; tags: string[]; description
     if (picked.length === 0) return null;
     const keys = new Set(picked.map((p) => p.pairKey).filter(Boolean));
     const halves = photos.filter((p) => p.pairKey && keys.has(p.pairKey) && !picked.includes(p) && !used.has(p._id));
-    return [...picked, ...halves];
+    return { photos: [...picked, ...halves], oneProject: readOneProject(reply) };
   } catch (e) {
     console.error("shortlist", errText(e));
     if (seen) seen.error = errText(e);
@@ -4310,9 +4313,11 @@ export const shortlistProbe = internalAction({
     const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
     const inScope = photos.filter((p: { tags: string[]; description?: string }) => p.description && (scope === ANY_SCOPE || p.tags.includes(scope)));
     const seen: { reply?: string; error?: string } = {};
-    const picked = await shortlistFor(idea, scope, photos, new Set<string>(), seen);
+    const short = await shortlistFor(idea, scope, photos, new Set<string>(), seen);
+    const picked = short?.photos;
     return {
       ...seen,
+      oneProject: short?.oneProject,
       photos: photos.length,
       inScope: inScope.length,
       picked: picked?.map((p: { _id: string; jobId?: string; tags: string[] }) => ({ id: p._id, job: p.jobId?.slice(-6), tags: p.tags.join(",") })) ?? null,
@@ -4412,11 +4417,11 @@ export const weeklyRun = internalAction({
       // The photos of the job the story was told from, for the quick offer on it.
       let storyJob: typeof photos | undefined;
       // Writes, checks and saves one ad, then sends it to be voiced.
-      const makeAd = async (hook: (typeof hooks)[number], shape: AdStyle, quick: boolean, offered: typeof photos, inScope: boolean) => {
+      const makeAd = async (hook: (typeof hooks)[number], shape: AdStyle, quick: boolean, offered: typeof photos, inScope: boolean, range = false) => {
         const playbook = playbooks[hook.scope] ?? playbooks.general;
         const plan = await writePlan<MotionPlan>(
           motionPrompt(
-            { ...hook, style: shape, quick, steps, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
+            { ...hook, style: shape, quick, steps, range: range && !quick, versus: shape === "explainer" && PREP_ANGLE.test(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`) },
             cfg.brand.name,
             offered,
             inScope,
@@ -4467,7 +4472,8 @@ export const weeklyRun = internalAction({
         const works = worksIn(hook.textEn, trade);
         // The photos that show what the idea says, read from their descriptions (with their pairs), when Claude finds
         // some; the rest of the picking then works on those alone.
-        const fitting = hook.photoId || jobId ? null : await shortlistFor(`${hook.textEn}${hook.basedOn?.angle ? ` (angle: ${hook.basedOn.angle})` : ""}`, hook.scope, photos, requestId ? new Set<string>() : used);
+        const short = hook.photoId || jobId ? null : await shortlistFor(`${hook.textEn}${hook.basedOn?.angle ? ` (angle: ${hook.basedOn.angle})` : ""}`, hook.scope, photos, requestId ? new Set<string>() : used);
+        const fitting = short?.photos ?? null;
         const pool = fitting ?? photos;
         const picked = pickAssets(pool, fitting ? ANY_SCOPE : hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? [], want, works);
         // An ad made for one job's photo shows that job only: the photo, and its pair if it has one. Other jobs' work would pass for this one.
@@ -4480,21 +4486,33 @@ export const weeklyRun = internalAction({
         // How it is drawn: as asked for the ideas named, else by the idea's family.
         const shape = only && asked === "explainer" ? "explainer" : styleFor(hook.family);
         const quick = Boolean(only && asked === "quick");
-        // A story is told from one job, start to finish, where one fits; a job the request named carries every
-        // version. A lesson may still take photos from several jobs: it isn't one job's story.
+        // One project carries an ad only when the idea is that project's story (Claude says so of the idea; with no
+        // answer, a before/after or an owner's story is one) and the project has plenty to tell it with. Any other
+        // idea shows a range of projects. A job the request named carries every version; a lesson takes photos from
+        // several jobs.
+        const quickOne = quick;
+        const oneProject = quickOne || (short?.oneProject ?? (hook.family === "before_after" || hook.family === "owner_story"));
+        const storyJob_ = <J extends { jobId: string }>(j: J | null): J | null => {
+          if (!j || quickOne) return j;
+          const ps = photos.filter((a: { jobId?: string }) => a.jobId === j.jobId);
+          const has = (t: string) => ps.some((p: { tags: string[] }) => p.tags.includes(t));
+          return ps.length >= STORY_MIN && has("before") && has("after") ? j : null;
+        };
         const job = lead
           ? null
           : jobId
             ? { jobId: String(jobId), assets: jobInOrder(photos.filter((a: { jobId?: string }) => a.jobId === jobId)) }
-            : shape !== "explainer"
+            : shape !== "explainer" && oneProject
               ? // A story's job: one the fitting photos come from, when one has enough photos.
-                pickJob(
+                storyJob_(
+                  pickJob(
                   fitting ? photos.filter((a: { jobId?: string }) => a.jobId && fitting.some((f: { jobId?: string }) => f.jobId === a.jobId)) : photos,
                   hook.scope,
                   requestId ? new Set<string>() : used,
                   REEL_CANDIDATES,
                   want,
                   works,
+                  ),
                 )
               : null;
         if (job) {
@@ -4508,6 +4526,17 @@ export const weeklyRun = internalAction({
           picked.assets.splice(0, picked.assets.length, ...assets);
           picked.inScope = true;
         }
+        // A range: no one project gives more than a couple of photos, so several are seen.
+        const range = !job && !lead && shape !== "explainer" && !quickOne;
+        if (range) {
+          const per = new Map<string, number>();
+          const kept = picked.assets.filter((a: { jobId?: string }) => {
+            if (!a.jobId) return true;
+            per.set(a.jobId, (per.get(a.jobId) ?? 0) + 1);
+            return per.get(a.jobId)! <= RANGE_PER_PROJECT;
+          });
+          if (kept.length >= 3) picked.assets.splice(0, picked.assets.length, ...kept);
+        }
         if (picked.assets.length === 0) {
           const why = jobId ? "the job asked for has no photos to show yet" : `no photo tagged ${hook.scope}, and no process or crew photo left`;
           skipped.push(`${label}: ${why}`);
@@ -4517,7 +4546,7 @@ export const weeklyRun = internalAction({
         // A quick offer shows one job: a before and its after, or one finished photo.
         const offered = quick ? pickOfferPhotos(picked.assets) : picked.assets;
         try {
-          await makeAd(hook, quick ? NEW_AD_STYLE : shape, quick, offered, picked.inScope);
+          await makeAd(hook, quick ? NEW_AD_STYLE : shape, quick, offered, picked.inScope, range);
           made += 1;
           if (!quick && shape !== "explainer" && !storyHook) {
             storyHook = hook;

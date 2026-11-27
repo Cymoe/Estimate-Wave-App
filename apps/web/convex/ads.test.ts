@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -1926,6 +1926,8 @@ describe("the library, hooks and settings", () => {
 type StubOpts = {
   /** The shortlist picks the photos whose description has this word (none: Claude names none, the usual picking runs). */
   fits?: string;
+  /** What the shortlist says of the idea: one project's story, or a range of projects (unsaid when left out). */
+  oneProject?: boolean;
   /** Claude turns this many looks at an upload away for coming too fast (429), counting down. */
   busyLooks?: { n: number };
   /** Claude answers this scope's hook in words, with no plan; "cut off" stops mid-answer instead. */
@@ -2123,6 +2125,7 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
                   .filter((l) => /^\d+\. /.test(l) && l.includes(opts.fits!))
                   .map((l) => Number(l.split(".")[0]))
               : [],
+            ...(opts.oneProject === undefined ? {} : { oneProject: opts.oneProject }),
           };
         else if (prompt.includes("Which before and which after show the same spot")) reply = opts.pairs ?? { pairs: [{ before: 1, after: 2 }] };
         else if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
@@ -2755,7 +2758,14 @@ describe("the weekly run", () => {
       await settle(async () => {
         const jobId = await owner.as.mutation(api.ads.addJob, { name: "  Smith   kitchen on Elm " });
         const ids: string[] = [];
-        for (const [name, tags] of [["job-before.jpg", ["cabinets", "before"]], ["job-work.jpg", ["cabinets", "process"]], ["job-after.jpg", ["cabinets", "after"]]] as const)
+        // Plenty to tell one project's story with: a before, the work, the finish.
+        for (const [name, tags] of [
+          ["job-before.jpg", ["cabinets", "before"]],
+          ["job-work.jpg", ["cabinets", "process"]],
+          ["job-work-2.jpg", ["cabinets", "process"]],
+          ["job-after.jpg", ["cabinets", "after"]],
+          ["job-after-2.jpg", ["cabinets", "after"]],
+        ] as const)
           ids.push(await owner.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", name), fileName: name, tags: [...tags], jobId }));
         return { jobId, ids };
       });
@@ -2784,7 +2794,7 @@ describe("the weekly run", () => {
       // The writer was offered the job's photos in the story's order: the before first, the finish last.
       const storyAsk = to(calls, "anthropic").map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string; source?: { url: string } }>)
         .find((x) => x[0].text?.includes("Concept family") && !x[0].text.includes("On screen: a short checklist") && !x[0].text.includes("This one is a quick offer"))!;
-      expect(storyAsk.filter((c) => c.type === "image").length).toBe(3);
+      expect(storyAsk.filter((c) => c.type === "image").length).toBe(5);
       // The job's name says where it was: it never reaches the writer.
       expect(JSON.stringify(to(calls, "anthropic").map((c) => c.body).filter((b) => !b!.includes("typed this request")))).not.toContain("Smith");
     });
@@ -2999,9 +3009,47 @@ describe("the weekly run", () => {
     expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(1);
   });
 
+  test("an idea that isn't one project's story shows a range: a couple of photos a project, and the writer is told they're different homes", async () => {
+    const { t, calls, draft } = await ready();
+    stubServices(calls, { fits: "green lower", oneProject: false });
+    await t.run(async (ctx) => {
+      const user = (await ctx.db.query("users").take(1))[0]._id;
+      let i = 0;
+      for (const name of ["Elm", "Oak", "Pine"]) {
+        const jobId = await ctx.db.insert("adJobs", { trade: "painting", name, createdAt: "2026-11-01T00:00:00Z" });
+        for (let k = 0; k < 6; k++, i++)
+          await ctx.db.insert("adAssets", {
+            storageId: await ctx.storage.store(new Blob([`r${i}`], { type: "image/jpeg" })),
+            kind: "photo",
+            fileName: `${name}-${k}.jpg`,
+            contentType: "image/jpeg",
+            size: 10,
+            tags: ["interior", "cabinets", "after"],
+            description: k < 4 ? "A finished kitchen with green lower cabinets and white uppers." : "A finished kitchen with white upper and lower cabinets.",
+            uploadedBy: user,
+            createdAt: `2026-11-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+            jobId,
+          });
+      }
+    });
+    await draft();
+    const asks = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>);
+    const plan = asks.find((a) => a.some((c) => /^Photo \d+:$/.test(c.text ?? "")))!;
+    // Two from each of the three projects, not twelve from one.
+    expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(6);
+    expect(plan[0].text).toContain("Show a range of our work");
+    expect(plan[0].text).not.toContain("Tell it as one small story");
+  });
+
+  test("hype is turned back, even when it's the competitor's line", () => {
+    expect(forbiddenIn("We turn nightmare kitchens into dream kitchens.").join(" ")).toContain("hype");
+    expect(forbiddenIn("A stunning, flawless finish.").join(" ")).toContain("hype");
+    expect(forbiddenIn("We repaint the cabinets you already have.")).toEqual([]);
+  });
+
   test("a story from one project keeps the photos that fit the idea: its white finishes don't crowd out the two-tone one", async () => {
     const { t, calls, draft } = await ready();
-    stubServices(calls, { fits: "green lower" });
+    stubServices(calls, { fits: "green lower", oneProject: true });
     await t.run(async (ctx) => {
       const user = (await ctx.db.query("users").take(1))[0]._id;
       const jobId = await ctx.db.insert("adJobs", { trade: "painting", name: "Green kitchen", createdAt: "2026-11-01T00:00:00Z" });
