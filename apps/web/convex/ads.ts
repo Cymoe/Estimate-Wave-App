@@ -4664,7 +4664,20 @@ export const sendToMeta = internalMutation({
   },
 });
 
-/** Puts a rendered creative into Meta as a PAUSED ad: the video, then the creative, then the ad. */
+/** A file's bytes as base64, for Meta's image upload (no Buffer in Convex's default runtime). */
+async function base64Of(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Couldn't read the still (${res.status})`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/**
+ * Puts a rendered creative into Meta as a PAUSED ad. A video: the video, then the creative, then the ad. A still: the
+ * picture (as an ad image), then an image creative with the same words and the quote form, then the ad.
+ */
 export const publishPaused = internalAction({
   args: { id: v.id("adCreatives") },
   handler: async (ctx, { id }) => {
@@ -4672,12 +4685,6 @@ export const publishPaused = internalAction({
     if (!c || !(c.videoUrl || (c.kind === "image" && c.imageUrl))) return;
     const cfg = await ctx.runQuery(internal.ads.config, {});
     const adsetId = cfg.adsetId;
-    // A still is watched and approved here like the rest; it is put into Meta by hand for now.
-    if (!c.videoUrl) {
-      await ctx.runMutation(internal.ads.patchCreative, { id, error: "A still: download it and add it in Meta by hand" });
-      await ctx.runMutation(internal.ads.finishIfDone, { batchId: c.batchId });
-      return;
-    }
     const token = await metaToken(ctx);
     if (!token || !cfg.adAccountId || !cfg.pageId || !adsetId) {
       // Rendered and watchable in Ops; it goes to Meta by hand until the account is set up.
@@ -4697,13 +4704,34 @@ export const publishPaused = internalAction({
         text_overlay_translation: { enroll_status: "OPT_OUT" },
         profile_card: { enroll_status: "OPT_OUT" },
       };
+      const cta = { type: "GET_QUOTE", ...(cfg.leadFormId ? { value: { lead_gen_form_id: cfg.leadFormId } } : {}) };
+      let creative: { id: string };
+      if (!c.videoUrl && c.imageUrl) {
+        const up = await graph(`${act}/adimages`, { bytes: await base64Of(c.imageUrl), name: `${c.name}.png` }, "Meta image upload", token);
+        const hash: string | undefined = (Object.values(up?.images ?? {})[0] as { hash?: string } | undefined)?.hash;
+        if (!hash) throw new Error("Meta took the still but gave no image hash");
+        creative = await graph(
+          `${act}/adcreatives`,
+          {
+            name: c.name,
+            object_story_spec: {
+              page_id: cfg.pageId,
+              // A lead ad's link is Meta's placeholder: the button opens the quote form, not a page.
+              link_data: { image_hash: hash, link: "http://fb.me/", name: c.script.headline, message: c.script.primaryText, call_to_action: cta },
+            },
+            degrees_of_freedom_spec: { creative_features_spec: features },
+          },
+          "Meta creative",
+          token,
+        );
+      } else {
       const video = c.meta?.videoId
         ? { id: c.meta.videoId }
         : await graph(`${act}/advideos`, { file_url: c.videoUrl, name: c.name, title: c.name }, "Meta video upload", token);
       await ctx.runMutation(internal.ads.patchCreative, { id, meta: { videoId: video.id } });
       const first = c.assets[0];
       const poster = first?.posterUrl ?? (first?.kind === "photo" ? first.url : undefined) ?? `${siteUrl()}/og-image.png`;
-      const creative = await graph(
+      creative = await graph(
         `${act}/adcreatives`,
         {
           name: c.name,
@@ -4714,7 +4742,7 @@ export const publishPaused = internalAction({
               image_url: poster,
               title: c.script.headline,
               message: c.script.primaryText,
-              call_to_action: { type: "GET_QUOTE", ...(cfg.leadFormId ? { value: { lead_gen_form_id: cfg.leadFormId } } : {}) },
+              call_to_action: cta,
             },
           },
           degrees_of_freedom_spec: { creative_features_spec: features },
@@ -4722,6 +4750,7 @@ export const publishPaused = internalAction({
         "Meta creative",
         token,
       );
+      }
       const ad = await graph(`${act}/ads`, { name: c.name, adset_id: adsetId, creative: { creative_id: creative.id }, status: "PAUSED" }, "Meta ad", token);
       await ctx.runMutation(internal.ads.patchCreative, {
         id,

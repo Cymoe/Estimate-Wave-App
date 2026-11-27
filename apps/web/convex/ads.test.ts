@@ -2120,12 +2120,14 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
       if (url.includes("tracks.example"))
         return url.endsWith("missing.mp3") ? new Response("gone", { status: 404 }) : new Response(url.endsWith("tiny.mp3") ? "x" : "m".repeat(20_000), { status: 200 });
       if (url.includes("api.github.com")) return new Response(opts.github && opts.github >= 400 ? "Resource not accessible" : null, { status: opts.github ?? 204 });
+      if (url.includes("/api/storage/")) return new Response(new Uint8Array([137, 80, 78, 71]));
       if (url.includes("graph.facebook.com")) {
         const path = new URL(url).pathname;
         return new Response(
           JSON.stringify({
             id: path.endsWith("/advideos") ? "vid1" : path.endsWith("/adcreatives") ? "cr1" : path.endsWith("/ads") ? "ad1" : "ok",
             success: true,
+            ...(path.endsWith("/adimages") ? { images: { "still.png": { hash: "hash1" } } } : {}),
           }),
         );
       }
@@ -2902,7 +2904,7 @@ describe("the weekly run", () => {
   });
 
   test("with stills on, a reel that shows a before and its after from one job also gets a still of that pair, drawn as a picture", async () => {
-    const { t, calls, draft, claim, handIn, latest } = await ready();
+    const { t, calls, draft, claim, handIn, latest } = await ready({ meta: true });
     stubServices(calls, { style: "reel" });
     await t.mutation(internal.ads.setStills, { on: true });
     const batch = await draft();
@@ -2920,7 +2922,11 @@ describe("the weekly run", () => {
     expect(jobs.filter((j) => j.kind === "video").length).toBe(jobs.length - 1);
     await handIn(job);
     const after = (await latest()).creatives.find((c) => c.name === still!.name)!;
-    expect(after).toMatchObject({ status: "rendered", error: "A still: download it and add it in Meta by hand" });
+    // Into Meta like the reels: the picture uploaded, an image creative with the quote form, a paused ad.
+    expect(after).toMatchObject({ status: "paused", meta: { adId: "ad1" } });
+    expect(after.error).toBeUndefined();
+    const story = JSON.parse(new URLSearchParams(calls.filter((c) => c.url.endsWith("/adcreatives")).at(-1)!.body).get("object_story_spec")!);
+    expect(story.link_data).toMatchObject({ image_hash: "hash1", link: "http://fb.me/", call_to_action: { type: "GET_QUOTE", value: { lead_gen_form_id: "f1" } } });
   });
 
   test("a video that can't be drawn fails that ad with the reason and the batch still finishes; drawn again, it keeps its words and voice", async () => {
