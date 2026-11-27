@@ -4298,6 +4298,22 @@ async function shortlistFor<P extends { _id: string; tags: string[]; description
   }
 }
 
+/** From a cloud session: what the shortlist picks for an idea from the live library, to see why an ad got the photos it did. */
+export const shortlistProbe = internalAction({
+  args: { idea: v.string(), scope: v.string(), trade: v.optional(v.string()) },
+  handler: async (ctx, { idea, scope, trade }) => {
+    const { assets } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 1, trade: tradeOf(trade).slug });
+    const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
+    const inScope = photos.filter((p: { tags: string[]; description?: string }) => p.description && (scope === ANY_SCOPE || p.tags.includes(scope)));
+    const picked = await shortlistFor(idea, scope, photos, new Set<string>());
+    return {
+      photos: photos.length,
+      inScope: inScope.length,
+      picked: picked?.map((p: { _id: string; jobId?: string; tags: string[] }) => ({ id: p._id, job: p.jobId?.slice(-6), tags: p.tags.join(",") })) ?? null,
+    };
+  },
+});
+
 async function claudeReply(content: unknown[], maxTokens = 1500): Promise<{ text: string; cutOff: boolean }> {
   const ask = () =>
     fetch("https://api.anthropic.com/v1/messages", {
