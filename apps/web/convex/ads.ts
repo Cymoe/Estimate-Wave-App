@@ -1838,61 +1838,101 @@ export const researchRun = internalAction({
     const keywords = [...new Set([...usual, ...(also ?? []).map((k) => k.trim().slice(0, 60)).filter(Boolean).slice(0, 6)])];
     const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords, startedBy });
     const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0, stopped: 0 };
-    const source = `research ${nowIso().slice(0, 10)}`;
-    let delay = 0;
+    if (!process.env.APIFY_TOKEN || !process.env.ANTHROPIC_API_KEY) {
+      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts, error: "Set APIFY_TOKEN and ANTHROPIC_API_KEY on the deployment" });
+      return;
+    }
+    // One keyword per step, each its own action, so a long list never runs into an action's time limit.
+    await ctx.scheduler.runAfter(0, internal.ads.researchStep, {
+      runId,
+      trade: trade.slug,
+      keywords,
+      index: 0,
+      source: `research ${nowIso().slice(0, 10)}`,
+      seen: [],
+      counts,
+      delay: 0,
+    });
+  },
+});
+
+const researchCounts = v.object({ scanned: v.number(), kept: v.number(), added: v.number(), unreadable: v.number(), stopped: v.number() });
+
+/**
+ * One keyword of a search: the ads still running past the bar (new ones kept, known ones refreshed), then a smaller
+ * look at stopped ads to mark the kept ones that ended. Then the next keyword, or the end of the run.
+ */
+export const researchStep = internalAction({
+  args: {
+    runId: v.id("adResearchRuns"),
+    trade: v.string(),
+    keywords: v.array(v.string()),
+    index: v.number(),
+    source: v.string(),
+    seen: v.array(v.string()),
+    counts: researchCounts,
+    delay: v.number(),
+  },
+  handler: async (ctx, { runId, trade, keywords, index, source, seen: seenBefore, counts, delay }) => {
+    const cfg = await ctx.runQuery(internal.ads.config, {});
+    const keyword = keywords[index];
+    const seen = new Set(seenBefore);
+    const apify = async (input: unknown) =>
+      await readJson(
+        await fetch(
+          `https://api.apify.com/v2/acts/${process.env.APIFY_ACTOR || DEFAULT_APIFY_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(process.env.APIFY_TOKEN ?? "")}`,
+          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) },
+        ),
+        "Apify",
+      );
     try {
-      if (!process.env.APIFY_TOKEN || !process.env.ANTHROPIC_API_KEY) throw new Error("Set APIFY_TOKEN and ANTHROPIC_API_KEY on the deployment");
-      const actor = process.env.APIFY_ACTOR || DEFAULT_APIFY_ACTOR;
-      const seen = new Set<string>();
-      for (const keyword of keywords) {
-        const res = await fetch(
-          `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(process.env.APIFY_TOKEN)}`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(apifyInput(keyword, cfg.researchMinDays, new Date(), PER_KEYWORD)),
-          },
-        );
-        const items = await readJson(res, "Apify");
-        if (!Array.isArray(items)) throw new Error("Apify: the actor didn't return a list of ads");
-        counts.scanned += items.length;
-        const fresh: ScrapedAd[] = [];
-        for (const item of items) {
-          const ad = fromApifyItem(item);
-          if (!ad) {
-            counts.unreadable += 1;
-            continue;
-          }
-          if (!qualifies(ad, cfg.researchMinDays) || seen.has(ad.metaAdId)) continue;
-          seen.add(ad.metaAdId);
-          counts.kept += 1;
-          fresh.push(ad);
+      const items = await apify(apifyInput(keyword, cfg.researchMinDays, new Date(), PER_KEYWORD));
+      if (!Array.isArray(items)) throw new Error("Apify: the actor didn't return a list of ads");
+      counts.scanned += items.length;
+      const fresh: ScrapedAd[] = [];
+      for (const item of items) {
+        const ad = fromApifyItem(item);
+        if (!ad) {
+          counts.unreadable += 1;
+          continue;
         }
-        const ids: Id<"adSwipes">[] = await ctx.runMutation(internal.ads.addScraped, { ads: fresh, source, markets: cfg.researchMarkets, trade: trade.slug });
-        counts.added += ids.length;
-        for (const id of ids) {
-          await ctx.scheduler.runAfter(delay, internal.ads.tagSwipe, { id, runId });
-          delay += 1500;
-        }
-        // The ones that have stopped: only to mark ads already kept. A failure here doesn't stop the search.
-        try {
-          const ended = await readJson(
-            await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(process.env.APIFY_TOKEN)}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(apifyInput(keyword, cfg.researchMinDays, new Date(), STOPPED_PER_KEYWORD, "inactive")),
-            }),
-            "Apify",
-          );
-          const stoppedAds = (Array.isArray(ended) ? ended : []).map((item) => fromApifyItem(item)).filter((a): a is ScrapedAd => a !== null && !a.active);
-          if (stoppedAds.length) counts.stopped += await ctx.runMutation(internal.ads.markStopped, { ads: stoppedAds });
-        } catch (e) {
-          console.error("stopped ads", errText(e));
-        }
+        if (!qualifies(ad, cfg.researchMinDays) || seen.has(ad.metaAdId)) continue;
+        seen.add(ad.metaAdId);
+        counts.kept += 1;
+        fresh.push(ad);
       }
-      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts });
+      const ids: Id<"adSwipes">[] = await ctx.runMutation(internal.ads.addScraped, { ads: fresh, source, markets: cfg.researchMarkets, trade });
+      counts.added += ids.length;
+      for (const id of ids) {
+        await ctx.scheduler.runAfter(delay, internal.ads.tagSwipe, { id, runId });
+        delay += 1500;
+      }
+      // The ones that have stopped: only to mark ads already kept. A failure here doesn't stop the search.
+      try {
+        const ended = await apify(apifyInput(keyword, cfg.researchMinDays, new Date(), STOPPED_PER_KEYWORD, "inactive"));
+        const stoppedAds = (Array.isArray(ended) ? ended : []).map((item) => fromApifyItem(item)).filter((a): a is ScrapedAd => a !== null && !a.active);
+        if (stoppedAds.length) counts.stopped += await ctx.runMutation(internal.ads.markStopped, { ads: stoppedAds });
+      } catch (e) {
+        console.error("stopped ads", errText(e));
+      }
     } catch (e) {
       await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts, error: errText(e) });
+      return;
+    }
+    if (index + 1 < keywords.length) {
+      // Kept ids only matter within a run; capped so the arguments stay small.
+      await ctx.scheduler.runAfter(0, internal.ads.researchStep, {
+        runId,
+        trade,
+        keywords,
+        index: index + 1,
+        source,
+        seen: [...seen].slice(-2000),
+        counts,
+        delay: Math.max(0, delay - 60_000),
+      });
+    } else {
+      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts });
     }
   },
 });

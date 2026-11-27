@@ -3622,9 +3622,12 @@ describe("niche research", () => {
     ];
     const calls: Array<{ url: string; body?: string }> = [];
     stubServices(calls);
+    vi.useFakeTimers();
     try {
       await t.action(internal.ads.researchRun, { force: true });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
     } finally {
+      vi.useRealTimers();
       STOPPED_ITEMS = [];
     }
     const rows = await t.run(async (ctx) => await ctx.db.query("adSwipes").collect());
@@ -3662,6 +3665,10 @@ describe("niche research", () => {
     const times = queued.map((q) => q.scheduledTime).sort((a, b) => a - b);
     // A few milliseconds pass between the runs being queued.
     expect(Math.abs(times.at(-1)! - times[0] - (trades.length - 1) * 15 * 60_000)).toBeLessThan(1000);
+    // Not run here: cancelled so they don't fire into the next test.
+    await t.run(async (ctx) => {
+      for (const q of queued) await ctx.scheduler.cancel(q._id);
+    });
   });
 
   test("a search keeps the long-runners, drops junk after Claude reads it, flags local ads, transcribes video and writes the playbook", async () => {
