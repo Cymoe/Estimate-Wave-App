@@ -1301,6 +1301,7 @@ describe('Ops → Ads', () => {
         starred: false,
         source: 'research 2026-10-30',
         daysRunning: 40,
+        endedAt: '2026-11-20',
         local: false,
         score: 44,
       },
@@ -1329,13 +1330,17 @@ describe('Ops → Ads', () => {
         added: 31,
         junk: 9,
         unreadable: 2,
+        stopped: 3,
       },
     ];
     await render();
     await tab('Competitors');
     expect(document.body.querySelector('[data-testid="research-run"]')!.textContent).toBe(
-      'Oct 30 · scanned 760 · 48 past the bar · 31 new · 9 junk dropped · 2 unreadable',
+      'Oct 30 · scanned 760 · 48 past the bar · 31 new · 3 stopped · 9 junk dropped · 2 unreadable',
     );
+    // A kept ad that has stopped says so, with how long it ran, instead of "since".
+    const stoppedCard = [...document.body.querySelectorAll('[data-testid="swipe"]')].find((el) => el.textContent?.includes('Stopped'))!;
+    expect(stoppedCard.textContent).toContain('Stopped Nov 20 · ran 40 days');
     await act(async () => byText('Search the niche')!.click());
     expect(researchNow).toHaveBeenCalled();
 

@@ -256,6 +256,7 @@ export interface ResearchRun {
   kept: number;
   added: number;
   junk: number;
+  stopped?: number;
   unreadable: number;
   error?: string;
 }
@@ -2852,6 +2853,8 @@ export interface Swipe {
   source: string;
   pageLikes?: number;
   daysRunning?: number;
+  /** When it stopped running, if it has. */
+  endedAt?: string;
   variants?: number;
   title?: string;
   landing?: string;
@@ -2878,12 +2881,16 @@ const readText = (file: File) =>
         reader.readAsText(file);
       });
 
+/** "Stopped Nov 20 · ran 167 days", for a competitor ad that has stopped running. */
+export const stoppedLine = (endedAt: string, days?: number) =>
+  `Stopped ${new Date(`${endedAt}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}${days ? ` · ran ${days} days` : ''}`;
+
 /** Competitor ads kept for inspiration: browse, star, turn an angle into a hook, import more research. */
 const runLine = (r: ResearchRun) => {
   const when = new Date(r.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   if (r.error) return `${when} · stopped: ${r.error}`;
   if (!r.finishedAt) return `${when} · searching ${r.keywords.join(', ')}…`;
-  return `${when} · scanned ${r.scanned} · ${r.kept} past the bar · ${r.added} new${r.junk ? ` · ${r.junk} junk dropped` : ''}${
+  return `${when} · scanned ${r.scanned} · ${r.kept} past the bar · ${r.added} new${r.stopped ? ` · ${r.stopped} stopped` : ''}${r.junk ? ` · ${r.junk} junk dropped` : ''}${
     r.unreadable ? ` · ${r.unreadable} unreadable` : ''
   }`;
 };
@@ -3156,11 +3163,12 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
                 <p className="text-xs text-gray-500">
                   {x.company} · {x.paintingType}
                   {x.area ? ` · ${x.area}` : ''}
-                  {x.startedAt ? ` · since ${x.startedAt}` : ''}
-                  {x.daysRunning ? ` · ${x.daysRunning} days` : ''}
+                  {x.endedAt ? '' : x.startedAt ? ` · since ${x.startedAt}` : ''}
+                  {x.endedAt ? '' : x.daysRunning ? ` · ${x.daysRunning} days` : ''}
                   {x.variants && x.variants > 1 ? ` · ${x.variants} versions` : ''}
                   {x.pageLikes ? ` · ${x.pageLikes.toLocaleString('en-US')} page likes` : ''}
                 </p>
+                {x.endedAt && <p className={`${chip} text-amber-300 border-amber-900`}>{stoppedLine(x.endedAt, x.daysRunning)}</p>}
                 <p className="text-sm text-white font-medium">
                   {x.local && <span className={`${chip} text-emerald-300 border-emerald-900 mr-1`}>Local</span>}
                   {x.hook}
@@ -3604,7 +3612,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
             onChange={(e) => setForm({ ...form, researchMonthly: e.target.checked })}
             disabled={!owner}
           />{' '}
-          Search the niche on the 1st of every month
+          Search the niche every Monday, for every trade
         </label>
       </fieldset>
       {owner && (

@@ -66,7 +66,17 @@ export const AD_TRADES: Record<string, AdTrade> = {
       "kitchen", "bathroom", "bedroom", "living room", "hallway", "entry", "garage",
       "balusters", "floor",
     ],
-    keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+    keywords: [
+      "cabinet painting",
+      "interior painting",
+      "exterior house painting",
+      "house painter",
+      "cabinet refinishing",
+      "kitchen cabinet painters",
+      "painters Midland TX",
+      "painters Odessa TX",
+      "exterior painting Midland",
+    ],
     // In this order: the chips and groups of the library follow it, the most particular first, Rooms painted last.
     works: {
       "cabinets-painted": {
@@ -585,7 +595,7 @@ export interface Example {
 
 export const MAX_EXAMPLES = 4;
 
-export interface Scored {
+export interface Scored { endedAt?: string;
   starred: boolean;
   quality?: number;
   daysRunning?: number;
@@ -600,7 +610,8 @@ export interface Scored {
 export function swipeScore(s: Scored): number {
   const quality = Math.max(0, Math.min(60, s.quality ?? 30));
   const longevity = Math.min(25, Math.round(((s.daysRunning ?? 0) / 365) * 25));
-  return quality + longevity + (s.local ? 15 : 0);
+  // One that has stopped still proved itself, but a still-running one is what's working now.
+  return quality + longevity + (s.local ? 15 : 0) - (s.endedAt ? 10 : 0);
 }
 
 /** Which swipes to show the writer for a hook: its scope first (general ones fill in), starred, highest score, with a script, newest. */
@@ -1652,6 +1663,9 @@ export interface ScrapedAd {
   pageLikes?: number;
   /** ISO date the ad started running. */
   startedAt: string;
+  /** ISO date the ad stopped, when it has. */
+  endedAt?: string;
+  /** Days it has run: to today while running, to its last day once stopped. */
   daysRunning: number;
   active: boolean;
   variants: number;
@@ -1669,10 +1683,13 @@ export interface ScrapedAd {
 /** The Apify actor that searches the Ad Library (overridable with APIFY_ACTOR). */
 export const DEFAULT_APIFY_ACTOR = "igolaizola~facebook-ad-library-scraper";
 
-/** The actor's input for one keyword: active US ads that started at least minDays ago. */
-export function apifyInput(keyword: string, minDays: number, now = new Date(), maxItems = 200) {
+/**
+ * The actor's input for one keyword: US ads that started at least minDays ago. Active ones by default; "inactive" to
+ * find the ones that have stopped since (only used to mark ads already in the table).
+ */
+export function apifyInput(keyword: string, minDays: number, now = new Date(), maxItems = 200, status: "active" | "inactive" = "active") {
   const maxDate = new Date(now.getTime() - minDays * 86_400_000).toISOString().slice(0, 10);
-  return { query: keyword, country: "US", activeStatus: "active", mediaType: "all", sortBy: "mostRecent", maxDate, maxItems };
+  return { query: keyword, country: "US", activeStatus: status, mediaType: "all", sortBy: "mostRecent", maxDate, maxItems };
 }
 
 type Loose = Record<string, unknown>;
@@ -1714,6 +1731,9 @@ export function fromApifyItem(raw: unknown, now = new Date()): ScrapedAd | null 
   const adCopy = str(body.text) ?? str(snap.body) ?? str(first(obj(cards[0] ?? {}), "body")) ?? "";
   const end = first(o, "end_date", "endDate", "endDateFormatted");
   const active = first(o, "is_active", "isActive");
+  const stillOn = typeof active === "boolean" ? active : end === undefined || end === null;
+  const ended = stillOn ? null : startDate(end);
+  const lastDay = ended && ended.getTime() < now.getTime() ? ended : now;
   const variants = Number(first(o, "collation_count", "collationCount") ?? 1);
   const platforms = first(o, "publisher_platform", "publisherPlatform", "publisher_platforms", "publisherPlatforms");
   return {
@@ -1722,8 +1742,9 @@ export function fromApifyItem(raw: unknown, now = new Date()): ScrapedAd | null 
     pageName: str(first(o, "page_name", "pageName")) ?? str(first(snap, "page_name", "pageName")) ?? "Unknown page",
     pageLikes: Number(first(snap, "page_like_count", "pageLikeCount")) || undefined,
     startedAt: started.toISOString().slice(0, 10),
-    daysRunning: Math.max(0, Math.floor((now.getTime() - started.getTime()) / 86_400_000)),
-    active: typeof active === "boolean" ? active : end === undefined || end === null,
+    endedAt: ended ? ended.toISOString().slice(0, 10) : undefined,
+    daysRunning: Math.max(0, Math.floor((lastDay.getTime() - started.getTime()) / 86_400_000)),
+    active: stillOn,
     variants: Number.isFinite(variants) && variants > 0 ? variants : 1,
     platforms: Array.isArray(platforms) ? platforms.map(String) : [],
     adCopy,

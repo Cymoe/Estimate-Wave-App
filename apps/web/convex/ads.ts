@@ -151,7 +151,7 @@ const keys = () => ({
 
 const DEFAULTS = { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 6 };
 const RESEARCH = {
-  keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+  keywords: [...tradeOf(DEFAULT_TRADE).keywords],
   markets: ["Midland", "Odessa", "Permian Basin", "West Texas"],
   minDays: 90,
   monthly: false,
@@ -1611,6 +1611,7 @@ export const listSwipes = query({
         source: x.source,
         pageLikes: x.pageLikes,
         daysRunning: x.daysRunning,
+        endedAt: x.endedAt,
         variants: x.variants,
         title: x.title,
         landing: x.landing,
@@ -1660,6 +1661,8 @@ export const removeSwipe = mutation({
 const PLAYBOOK_SCOPES = ["cabinets", "interior", "exterior", "general"];
 const PLAYBOOK_MIN_ADS = 3;
 const PER_KEYWORD = 200;
+/** Stopped ads looked at per keyword: enough to catch the table's own, cheaper than the main search. */
+const STOPPED_PER_KEYWORD = 100;
 
 export const researchNow = mutation({
   // `trade`: search for that trade's competitor ads; painting when none is given.
@@ -1706,6 +1709,8 @@ export const addScraped = internalMutation({
         posterUrl: raw.posterUrl,
         mediaType: raw.mediaType,
         startedAt: raw.startedAt,
+        endedAt: raw.endedAt,
+        lastSeenAt: nowIso(),
         status: raw.active ? "Active" : "Inactive",
       };
       if (existing) {
@@ -1746,6 +1751,7 @@ export const finishResearch = internalMutation({
     kept: v.number(),
     added: v.number(),
     unreadable: v.number(),
+    stopped: v.optional(v.number()),
     error: v.optional(v.string()),
   },
   handler: async (ctx, { runId, error, ...counts }) => {
@@ -1755,6 +1761,7 @@ export const finishResearch = internalMutation({
       error ? `The niche search didn't finish: ${error.slice(0, 80)}` : `Niche search done: ${counts.added} new competitor ads`,
       [
         `Scanned ${counts.scanned} ads, ${counts.kept} still running past the longevity bar, ${counts.added} new to the swipe file.`,
+        counts.stopped ? `${counts.stopped} already kept have stopped running; they're marked Stopped.` : "",
         counts.unreadable ? `${counts.unreadable} came back without an id or start date and were skipped.` : "",
         error ? `Stopped on: ${error}` : "Claude is reading the new ones now; the playbooks follow in Ops → Ads → Swipe file.",
       ].filter(Boolean),
@@ -1771,19 +1778,66 @@ export const countJunk = internalMutation({
   },
 });
 
-/** The monthly search, or the button (force). One Apify call per keyword, each under the actor's five-minute cap. */
+/**
+ * Ads already in the table that a search found stopped: marked so, with their last day and final run length. Ads the
+ * table doesn't have are left out; a stopped ad is never added. Returns how many were marked.
+ */
+export const markStopped = internalMutation({
+  args: { ads: v.array(v.any()) },
+  handler: async (ctx, { ads }) => {
+    let stopped = 0;
+    for (const raw of ads as ScrapedAd[]) {
+      if (raw.active) continue;
+      const x = await ctx.db
+        .query("adSwipes")
+        .withIndex("by_meta_ad", (q) => q.eq("metaAdId", raw.metaAdId))
+        .first();
+      if (!x || x.endedAt) continue;
+      await ctx.db.patch(x._id, {
+        active: false,
+        status: "Inactive",
+        endedAt: raw.endedAt ?? nowIso().slice(0, 10),
+        daysRunning: raw.daysRunning,
+        lastSeenAt: nowIso(),
+      });
+      stopped += 1;
+    }
+    return stopped;
+  },
+});
+
+/** Trades searched on Mondays, a quarter hour apart so each run has its own time. */
+const TRADE_GAP_MS = 15 * 60_000;
+
+/**
+ * The weekly search (every trade, when the switch is on), or the button (force, one trade). Per keyword: one Apify
+ * call for the ads still running, then a smaller one for stopped ads, to mark the ones the table already has.
+ */
 export const researchRun = internalAction({
   // `trade`: search for that trade's ads with its own keywords; painting (and the keywords in Settings) when none is given.
   // `also`: more words to search this once, beside the usual ones (from a cloud session: a kind of job with few ads).
-  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()), trade: v.optional(v.string()), also: v.optional(v.array(v.string())) },
-  handler: async (ctx, { startedBy, force, trade: slug, also }) => {
+  args: {
+    startedBy: v.optional(v.id("users")),
+    force: v.optional(v.boolean()),
+    trade: v.optional(v.string()),
+    also: v.optional(v.array(v.string())),
+    everyTrade: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { startedBy, force, trade: slug, also, everyTrade }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.researchMonthly && !force) return;
+    if (everyTrade) {
+      const slugs = Object.values(AD_TRADES)
+        .filter((t) => t.keywords.length > 0)
+        .map((t) => t.slug);
+      for (const [i, s] of slugs.entries()) await ctx.scheduler.runAfter(i * TRADE_GAP_MS, internal.ads.researchRun, { force: true, trade: s });
+      return;
+    }
     const trade = tradeOf(slug);
     const usual = trade.slug === DEFAULT_TRADE ? cfg.researchKeywords : [...trade.keywords];
     const keywords = [...new Set([...usual, ...(also ?? []).map((k) => k.trim().slice(0, 60)).filter(Boolean).slice(0, 6)])];
     const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords, startedBy });
-    const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0 };
+    const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0, stopped: 0 };
     const source = `research ${nowIso().slice(0, 10)}`;
     let delay = 0;
     try {
@@ -1819,6 +1873,21 @@ export const researchRun = internalAction({
         for (const id of ids) {
           await ctx.scheduler.runAfter(delay, internal.ads.tagSwipe, { id, runId });
           delay += 1500;
+        }
+        // The ones that have stopped: only to mark ads already kept. A failure here doesn't stop the search.
+        try {
+          const ended = await readJson(
+            await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(process.env.APIFY_TOKEN)}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(apifyInput(keyword, cfg.researchMinDays, new Date(), STOPPED_PER_KEYWORD, "inactive")),
+            }),
+            "Apify",
+          );
+          const stoppedAds = (Array.isArray(ended) ? ended : []).map((item) => fromApifyItem(item)).filter((a): a is ScrapedAd => a !== null && !a.active);
+          if (stoppedAds.length) counts.stopped += await ctx.runMutation(internal.ads.markStopped, { ads: stoppedAds });
+        } catch (e) {
+          console.error("stopped ads", errText(e));
         }
       }
       await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts });
@@ -2118,6 +2187,7 @@ export const researchRuns = internalQuery({
       added: r.added,
       junk: r.junk,
       unreadable: r.unreadable,
+      stopped: r.stopped ?? 0,
       error: r.error,
     })),
   }),
@@ -2137,6 +2207,7 @@ export const listResearchRuns = query({
       added: r.added,
       junk: r.junk,
       unreadable: r.unreadable,
+      stopped: r.stopped ?? 0,
       error: r.error,
     }));
   },

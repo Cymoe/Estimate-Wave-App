@@ -1068,6 +1068,11 @@ describe("niche research's pure parts", () => {
     expect(fromApifyItem({ ad_archive_id: "x", page_name: "p", start_date: "2026-01-01T00:00:00.000Z", end_date: 1 }, now)).toMatchObject({
       active: false,
     });
+    expect(apifyInput("cabinet painting", 90, now, 100, "inactive")).toMatchObject({ activeStatus: "inactive", maxItems: 100 });
+    // A stopped ad: its last day, and the days it ran up to then, not to today.
+    expect(
+      fromApifyItem({ ad_archive_id: "y", page_name: "p", start_date: "2026-01-01T00:00:00.000Z", end_date: "2026-06-17T00:00:00.000Z", is_active: false }, now),
+    ).toMatchObject({ active: false, endedAt: "2026-06-17", daysRunning: 167 });
     expect(qualifies({ active: true, daysRunning: 90 }, 90)).toBe(true);
     expect(qualifies({ active: true, daysRunning: 89 }, 90)).toBe(false);
     expect(qualifies({ active: false, daysRunning: 400 }, 90)).toBe(false);
@@ -1845,7 +1850,17 @@ describe("the library, hooks and settings", () => {
       hooksPerWeek: 2,
       liveTarget: 6,
       keys: { renderer: true, anthropic: false, apify: false },
-      researchKeywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+      researchKeywords: [
+        "cabinet painting",
+        "interior painting",
+        "exterior house painting",
+        "house painter",
+        "cabinet refinishing",
+        "kitchen cabinet painters",
+        "painters Midland TX",
+        "painters Odessa TX",
+        "exterior painting Midland",
+      ],
       researchMarkets: ["Midland", "Odessa", "Permian Basin", "West Texas"],
       researchMinDays: 90,
       researchMonthly: false,
@@ -1941,6 +1956,9 @@ const DAY = 86_400;
 const unix = (daysAgo: number) => Math.floor(Date.now() / 1000) - daysAgo * DAY;
 
 /** The scrape as Meta's own JSON spells it (snake_case), for the cabinets keyword. */
+/** What an inactive search returns in tests: nothing unless a test puts stopped ads here. */
+let STOPPED_ITEMS: unknown[] = [];
+
 const APIFY_CABINETS = [
   {
     ad_archive_id: "9001",
@@ -2089,7 +2107,8 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         return new Response(JSON.stringify({ content: [{ type: "text", text: "Here it is: " + JSON.stringify(reply) }] }));
       }
       if (url.includes("api.apify.com")) {
-        const query = JSON.parse(body!).query as string;
+        const { query, activeStatus } = JSON.parse(body!) as { query: string; activeStatus: string };
+        if (activeStatus === "inactive") return new Response(JSON.stringify(query.includes("cabinet") ? STOPPED_ITEMS : []));
         return new Response(JSON.stringify(query.includes("cabinet") ? APIFY_CABINETS : APIFY_HOUSE));
       }
       if (url.includes("api.elevenlabs.io/v1/speech-to-text")) {
@@ -3563,6 +3582,77 @@ describe("the weekly run", () => {
 });
 
 describe("niche research", () => {
+  test("a search marks kept ads that have stopped, with their last day and run length; stopped ads it doesn't have aren't added", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    vi.stubEnv("APIFY_TOKEN", "ap");
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    await owner.as.mutation(api.ads.saveSettings, {
+      weeklyEnabled: false,
+      hooksPerWeek: 2,
+      liveTarget: 6,
+      researchKeywords: ["cabinet painting"],
+      researchMarkets: ["Midland"],
+      researchMinDays: 90,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adSwipes", {
+        company: "Rodgers Painting",
+        paintingType: "Cabinets",
+        hook: "Dark cabinets",
+        offer: "",
+        creative: "video",
+        area: "",
+        cta: "",
+        adaptation: "",
+        metaAdId: "7001",
+        daysRunning: 160,
+        active: true,
+        status: "Active",
+        starred: false,
+        source: "research 2026-10-10",
+        importedAt: "2026-10-10T00:00:00Z",
+        taggedAt: "2026-10-10T00:00:00Z",
+      });
+    });
+    STOPPED_ITEMS = [
+      { ad_archive_id: "7001", page_name: "Rodgers Painting", start_date: "2026-05-01T00:00:00.000Z", end_date: "2026-11-20T00:00:00.000Z", is_active: false },
+      { ad_archive_id: "7002", page_name: "Someone New", start_date: "2026-01-01T00:00:00.000Z", end_date: "2026-11-01T00:00:00.000Z", is_active: false },
+    ];
+    const calls: Array<{ url: string; body?: string }> = [];
+    stubServices(calls);
+    try {
+      await t.action(internal.ads.researchRun, { force: true });
+    } finally {
+      STOPPED_ITEMS = [];
+    }
+    const rows = await t.run(async (ctx) => await ctx.db.query("adSwipes").collect());
+    const rodgers = rows.find((x) => x.metaAdId === "7001")!;
+    expect(rodgers).toMatchObject({ active: false, status: "Inactive", endedAt: "2026-11-20", daysRunning: 203 });
+    expect(rows.some((x) => x.metaAdId === "7002")).toBe(false);
+    const [run] = await staff.as.query(api.ads.listResearchRuns, {});
+    expect(run.stopped).toBe(1);
+    const shown = (await staff.as.query(api.ads.listSwipes, {})).find((x) => x.metaAdId === "7001")!;
+    expect(shown.endedAt).toBe("2026-11-20");
+  });
+
+  test("on Mondays, with the switch on, every trade with search words gets its own search, a quarter hour apart", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    await owner.as.mutation(api.ads.saveSettings, { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 6, researchMonthly: false });
+    await t.action(internal.ads.researchRun, { everyTrade: true });
+    expect(await t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).length)).toBe(0);
+    await owner.as.mutation(api.ads.saveSettings, { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 6, researchMonthly: true });
+    await t.action(internal.ads.researchRun, { everyTrade: true });
+    const queued = await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect());
+    const trades = queued.map((q) => (q.args[0] as { trade: string }).trade);
+    expect(trades.length).toBe(Object.values(AD_TRADES).filter((x) => x.keywords.length > 0).length);
+    expect(new Set(trades).size).toBe(trades.length);
+    const times = queued.map((q) => q.scheduledTime).sort((a, b) => a - b);
+    expect(times.at(-1)! - times[0]).toBe((trades.length - 1) * 15 * 60_000);
+  });
+
   test("a search keeps the long-runners, drops junk after Claude reads it, flags local ads, transcribes video and writes the playbook", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
@@ -3593,9 +3683,15 @@ describe("niche research", () => {
     expect(run).toMatchObject({ scanned: 6, kept: 3, added: 3, junk: 1, unreadable: 1, keywords: ["cabinet painting", "house painter"] });
     expect(run.finishedAt).toBeTruthy();
     expect(run.error).toBeUndefined();
-    const apifyBodies = calls.filter((c) => c.url.includes("api.apify.com")).map((c) => JSON.parse(c.body!));
+    const allBodies = calls.filter((c) => c.url.includes("api.apify.com")).map((c) => JSON.parse(c.body!));
+    const apifyBodies = allBodies.filter((b) => b.activeStatus === "active");
     expect(apifyBodies.map((b) => b.query)).toEqual(["cabinet painting", "house painter"]);
     expect(apifyBodies[0]).toMatchObject({ country: "US", activeStatus: "active", maxItems: 200 });
+    // After each keyword, a smaller look at the stopped ones.
+    expect(allBodies.filter((b) => b.activeStatus === "inactive").map((b) => [b.query, b.maxItems])).toEqual([
+      ["cabinet painting", 100],
+      ["house painter", 100],
+    ]);
 
     const swipes = await staff.as.query(api.ads.listSwipes, {});
     expect(swipes.map((x) => x.company).sort()).toEqual(["Jesse McCandless Painting", "Lubbock Cabinet Co"]);

@@ -2863,6 +2863,9 @@ export default defineSchema({
     // From the Ad Library scrape (ads.researchRun).
     pageId: v.optional(v.string()),
     pageLikes: v.optional(v.number()),
+    // When the ad stopped running (from the Ad Library), and when a search last saw it.
+    endedAt: v.optional(v.string()),
+    lastSeenAt: v.optional(v.string()),
     daysRunning: v.optional(v.number()),
     active: v.optional(v.boolean()),
     variants: v.optional(v.number()),
@@ -2918,6 +2921,8 @@ export default defineSchema({
     added: v.number(),
     junk: v.number(),
     unreadable: v.number(),
+    // Ads already in the table that this search found stopped.
+    stopped: v.optional(v.number()),
     error: v.optional(v.string()),
     startedBy: v.optional(v.id("users")),
   }),
