@@ -10,6 +10,7 @@ import { addRecruitingRoutes } from "./recruiting/routes";
 import { addEmailRoutes } from "./lib/emailRoutes";
 import { WEBHOOK_EVENTS, webhookAuthOk } from "./lib/voiceActors";
 import { addAdRoutes } from "./lib/adRoutes";
+import { addPrivacyRoute } from "./lib/privacyRoute";
 
 const http = httpRouter();
 
@@ -191,6 +192,9 @@ addEmailRoutes(http);
 
 // "Make an ad for…": each request's private page, with no login (lib/adRoutes.ts).
 addAdRoutes(http);
+
+// The homeowner brand's privacy policy, on an address Meta can open (lib/privacyRoute.ts).
+addPrivacyRoute(http);
 
 // National Sales Registry's recruiting (recruiting/routes.ts): its own number's webhook, applications, Cal.com, ad spend.
 addRecruitingRoutes(http);

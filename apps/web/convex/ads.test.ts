@@ -1694,6 +1694,18 @@ describe("the library, hooks and settings", () => {
     await expect(member.as.mutation(api.ads.seedSwipes, {})).rejects.toThrow();
   });
 
+  test("the brand's privacy page is open to anyone: who gets a request, calls and texts, and how to have it deleted", async () => {
+    const t = setup();
+    vi.stubEnv("CONSUMER_BRAND", "GoodFit Pros");
+    const res = await t.fetch("/privacy");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("<title>GoodFit Pros Privacy Policy</title>");
+    expect(html).toContain("one local company from the GoodFit Pros network");
+    expect(html).toContain('id="delete"');
+    expect(html).toContain("Reply STOP");
+  });
+
   test("drawn ads go into Meta by name, from the deployment; ones in Meta already or not drawn are left", async () => {
     const t = setup();
     const out = await t.mutation(internal.ads.sendToMeta, { names: ["nope"] });

@@ -4504,6 +4504,87 @@ export const adLibraryProbe = internalAction({
   },
 });
 
+/** The homeowner brand's privacy page on this backend's own address (lib/privacyRoute.ts), for Meta's links. */
+const privacyUrl = () => `${(process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "")}/privacy`;
+
+/**
+ * The instant form for the brand's ads, made in Meta from here: the brand's words, the questions a painter needs, the
+ * brand's privacy page, and the call-and-text line the app's own forms read out (lib/calls.ts consentLine). It is
+ * saved as the form new ads use. From the deployment, once the Page is picked in Settings.
+ */
+export const createLeadForm = internalAction({
+  args: { name: v.optional(v.string()) },
+  handler: async (ctx, { name }) => {
+    const token = await metaToken(ctx);
+    const cfg = await ctx.runQuery(internal.ads.config, {});
+    if (!token || !cfg.pageId) return { ok: false, error: "Set the Meta token and the Page first" };
+    const brand = consumerBrand();
+    try {
+      // Forms are made with the Page's own token.
+      const pages = await graphGet("me/accounts?fields=id,access_token&limit=50", token);
+      const page = (pages?.data ?? []).find((p: { id: string }) => String(p.id) === cfg.pageId);
+      if (!page?.access_token) return { ok: false, error: "The token can't reach the Page" };
+      const form = await graph(
+        `${cfg.pageId}/leadgen_forms`,
+        {
+          name: name ?? `${brand} – Free painting quote`,
+          locale: "en_US",
+          block_display_for_non_targeted_viewer: true,
+          context_card: {
+            title: "Free painting quote",
+            style: "PARAGRAPH_STYLE",
+            content: [`Tell us what you'd like painted and a local painter from the ${brand} network will reach out about a free quote. Midland, Odessa and nearby.`],
+          },
+          questions: [
+            { type: "FULL_NAME" },
+            { type: "PHONE" },
+            { type: "EMAIL" },
+            { type: "ZIP" },
+            {
+              type: "CUSTOM",
+              key: "work",
+              label: "What would you like painted?",
+              options: [
+                { key: "interior", value: "Inside (rooms, walls)" },
+                { key: "exterior", value: "Outside of the house" },
+                { key: "cabinets", value: "Cabinets" },
+                { key: "other", value: "Something else" },
+              ],
+            },
+          ],
+          privacy_policy: { url: privacyUrl(), link_text: `${brand} Privacy Policy` },
+          custom_disclaimer: {
+            title: "Before you send",
+            body: {
+              text: `By tapping Submit, you agree that one local painting company from the ${brand} network may call or text you at this number about this job. Message and data rates may apply. Reply STOP to opt out.`,
+            },
+          },
+          thank_you_page: {
+            title: "Thanks! We got your request.",
+            body: `A local painter from the ${brand} network will call or text you soon.`,
+            button_type: "VIEW_ON_FACEBOOK",
+            button_text: "Done",
+          },
+        },
+        "Meta instant form",
+        page.access_token,
+      );
+      await ctx.runMutation(internal.ads.setLeadForm, { leadFormId: String(form.id) });
+      return { ok: true, id: String(form.id), privacy: privacyUrl() };
+    } catch (e) {
+      return { ok: false, error: errText(e) };
+    }
+  },
+});
+
+export const setLeadForm = internalMutation({
+  args: { leadFormId: v.string() },
+  handler: async (ctx, { leadFormId }) => {
+    const row = await settingsRow(ctx);
+    if (row) await ctx.db.patch(row._id, { leadFormId, updatedAt: nowIso() });
+  },
+});
+
 type MetaPick = { id: string; name: string; status?: string };
 
 /**
