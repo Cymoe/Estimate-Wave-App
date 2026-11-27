@@ -1261,7 +1261,7 @@ describe('Ops → Ads', () => {
     expect((selects[1] as HTMLSelectElement).value).toBe('cabinets');
   });
 
-  it('Competitors: the owner searches the niche, the last run shows, Local filters, the playbook is edited and rewritten', async () => {
+  it('Competitors: the owner searches the niche, the last run shows, no Local tag or filter, the playbook is edited and rewritten', async () => {
     swipes = [
       {
         id: 's1',
@@ -1352,7 +1352,7 @@ describe('Ops → Ads', () => {
     expect(card.textContent).toContain('Winners open on the owner, then a before/after.');
     expect(card.textContent).toContain('Footage the winners use: before, after');
     expect(card.textContent).toContain('A clip of the owner talking to camera');
-    expect(card.textContent).toContain('Advertising in your markets: Jesse McCandless Painting (owner story, 140 days)');
+    expect(card.textContent).not.toContain('Advertising in your markets');
     await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Rewrite') as HTMLButtonElement).click());
     expect(rewritePlaybook).toHaveBeenCalledWith('cabinets');
     await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Edit') as HTMLButtonElement).click());
@@ -1369,13 +1369,12 @@ describe('Ops → Ads', () => {
     const cards = () => Array.from(document.body.querySelectorAll('[data-testid="swipe"]'));
     expect(cards().length).toBe(2);
     expect(cards()[0].textContent).toContain('Jesse McCandless Painting · Cabinets · Midland, TX · 140 days · 3 versions · 1,200 page likes');
-    expect(cards()[0].textContent).toContain('Local');
+    // No Local tag and no Local filter.
+    expect(cards()[0].textContent).not.toContain('Local');
+    expect(byText('Local')).toBeUndefined();
     expect(cards()[0].textContent).toContain('Owner story · Opens with: the owner talking · owner to camera, before / after · fit 72/100');
     expect(cards()[0].textContent).toContain('Never copy$500 off this month');
     expect(cards()[0].querySelector('img')!.getAttribute('src')).toBe('https://img.example/9001.jpg');
-    await act(async () => byText('Local')!.click());
-    expect(cards().length).toBe(1);
-    await act(async () => byText('Local')!.click());
     await act(async () => byText('90+ days')!.click());
     expect(cards().length).toBe(1);
     expect(cards()[0].textContent).toContain('Jesse McCandless Painting');

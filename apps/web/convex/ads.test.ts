@@ -3845,7 +3845,9 @@ describe("niche research", () => {
       .map((c) => (JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>).find((x) => x.type === "text")?.text ?? "")
       .find((p) => p.includes(PLAYBOOK_MARK))!;
     expect(playbookPrompt).toContain("Jesse McCandless Painting · 1");
-    expect(playbookPrompt).toContain("LOCAL");
+    // No local marking: the ads are learned from wherever they run.
+    expect(playbookPrompt).not.toContain("LOCAL");
+    expect(playbookPrompt).not.toContain("localCompetitors");
     expect(playbookPrompt).toContain("The owner's library, by tag: before 1, cabinets 1.");
     expect(playbookPrompt).toContain("never a competitor's price");
 

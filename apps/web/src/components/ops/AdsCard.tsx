@@ -2917,7 +2917,7 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
           <div className="flex items-start gap-2">
             <h3 className="flex-1 text-white font-medium">What works: {scopeLabel(p.scope).toLowerCase()}</h3>
             <span className="text-xs text-gray-500">
-              {p.basis.ads} ads{p.basis.local ? ` · ${p.basis.local} local` : ''}
+              {p.basis.ads} ads
               {p.editedAt ? ' · edited' : ''}
             </span>
           </div>
@@ -2959,12 +2959,6 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
               ))}
             </ul>
           )}
-          {p.localCompetitors.length > 0 && (
-            <p className="text-xs text-gray-400">
-              <span className="text-gray-500">Advertising in your markets: </span>
-              {p.localCompetitors.map((c) => `${c.company} (${c.angle}${c.daysRunning ? `, ${c.daysRunning} days` : ''})`).join('; ')}
-            </p>
-          )}
           {editing?.scope !== p.scope && (
             <div className="flex gap-2 text-xs">
               <button type="button" className={secondary} onClick={() => setEditing({ scope: p.scope, text: p.text })}>
@@ -3000,7 +2994,6 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
   const settings = useAdsSettings<AdSettings>();
   const minDays = settings?.researchMinDays ?? 90;
   const [type, setType] = useState('All');
-  const [onlyLocal, setOnlyLocal] = useState(false);
   const [onlyLong, setOnlyLong] = useState(false);
   const [search, setSearch] = useState('');
   const [importing, setImporting] = useState(false);
@@ -3060,7 +3053,6 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
   const shown = swipes.filter(
     (x) =>
       (type === 'All' || x.paintingType === type) &&
-      (!onlyLocal || x.local) &&
       (!onlyLong || (x.daysRunning ?? 0) >= minDays) &&
       (!needle || [x.company, x.hook, x.offer, x.creative, x.adaptation, x.adCopy ?? '', x.area].join(' ').toLowerCase().includes(needle)),
   );
@@ -3126,14 +3118,6 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
           </div>
           <button
             type="button"
-            aria-pressed={onlyLocal}
-            onClick={() => setOnlyLocal((v) => !v)}
-            className={`px-2 py-1 text-xs rounded border ${onlyLocal ? 'border-emerald-400 text-emerald-300' : 'border-[#333] text-gray-400'}`}
-          >
-            Local
-          </button>
-          <button
-            type="button"
             aria-pressed={onlyLong}
             onClick={() => setOnlyLong((v) => !v)}
             className={`px-2 py-1 text-xs rounded border ${onlyLong ? 'border-white text-white' : 'border-[#333] text-gray-400'}`}
@@ -3171,7 +3155,6 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
                 </p>
                 {x.endedAt && <p className={`${chip} text-amber-300 border-amber-900`}>{stoppedLine(x.endedAt, x.daysRunning)}</p>}
                 <p className="text-sm text-white font-medium">
-                  {x.local && <span className={`${chip} text-emerald-300 border-emerald-900 mr-1`}>Local</span>}
                   {x.hook}
                 </p>
                 {(x.family || x.opening || x.footage?.length) && (
@@ -3622,8 +3605,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
       <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-3">
         <legend className="text-sm text-gray-300 px-1">Niche research</legend>
         <p className="text-xs text-gray-500">
-          "Search the niche" looks these words up in Meta's Ad Library (US), through ScrapeCreators, and keeps the ads still running past the bar. Ads
-          that name one of your markets are flagged Local.
+          "Search the niche" looks these words up in Meta's Ad Library (US), through ScrapeCreators, and keeps the ads still running past the bar.
         </p>
         <ScrapeKey owner={owner} act={act} saved={form.scrapeKey ?? null} />
         <div className="grid sm:grid-cols-2 gap-3">

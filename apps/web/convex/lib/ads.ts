@@ -1924,7 +1924,7 @@ export function playbookPrompt(scope: string, swipes: PlaybookInput[], markets: 
         ? `copy: ${x.adCopy.replace(/\s+/g, " ").trim().slice(0, 200)}`
         : "";
     return [
-      `${i + 1}. ${x.company}${x.daysRunning ? ` · ${x.daysRunning} days` : ""}${x.local ? " · LOCAL" : ""}`,
+      `${i + 1}. ${x.company}${x.daysRunning ? ` · ${x.daysRunning} days` : ""}`,
       `angle: ${x.hook}${x.family ? ` (${FAMILY_LABELS[x.family as Family] ?? x.family})` : ""}`,
       `offer: ${x.offer}`,
       x.opening ? `opens with: ${x.opening}` : "",
@@ -1939,7 +1939,7 @@ export function playbookPrompt(scope: string, swipes: PlaybookInput[], markets: 
     .join(", ");
   return [
     `You advise a painting contractor in ${markets[0] ?? "Midland"}, Texas. It runs short video ads on Facebook and Instagram, cut from its own photo and clip library, in the "${scope}" category.`,
-    `Below are competitor ads in this category that have been running for months (longevity is the only public signal; it hints that the ad pays for itself). The owner's markets are ${markets.join(", ")}; ads marked LOCAL name one of them.`,
+    `Below are competitor ads in this category from painting companies across the US that have been running for months (longevity is the only public signal; it hints that the ad pays for itself).`,
     "",
     ...lines,
     "",
@@ -1947,10 +1947,9 @@ export function playbookPrompt(scope: string, swipes: PlaybookInput[], markets: 
     "",
     `${PLAYBOOK_MARK}, in plain language a business owner reads in a minute. Describe offers generically (a free quote, a consultation), never a competitor's price, discount, warranty, deadline or named person. Answer only JSON:`,
     "{",
-    '  "text": "at most 1,200 characters: the dominant angles with counts, how the long-runners open, the offers they lean on (generic), the footage they rely on, typical length, and what nobody in the owner’s markets is doing",',
+    '  "text": "at most 1,200 characters: the dominant angles with counts, how the long-runners open, the offers they lean on (generic), the footage they rely on, typical length, and what few of them are doing",',
     `  "footagePrefs": [the library tags the winners rely on most, in order, from: ${ASSET_TAGS.join(", ")}],`,
     `  "angleFamilies": [the concept families that dominate, in order, from: ${Object.keys(FAMILY_LABELS).join(", ")}],`,
-    '  "localCompetitors": [{"company":"...","angle":"...","daysRunning":123} for each LOCAL ad],',
     '  "missingFootage": ["each kind of footage the winners rely on that the library lacks or has little of, as a plain request to the owner"]',
     "}",
   ].join("\n");
