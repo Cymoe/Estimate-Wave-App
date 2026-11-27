@@ -93,3 +93,33 @@ export const pull = internalAction({
     return { taken, repeats };
   },
 });
+
+/** What Meta shows for each of the Page's forms, from the deployment: to see why a lead didn't come in. */
+export const peek = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const token = await metaToken(ctx);
+    const { pageId, since: last } = await ctx.runQuery(internal.metaLeads.since, {});
+    if (!token || !pageId) return { error: "No token or Page" };
+    try {
+      const pages = await graphGet("me/accounts?fields=id,name,access_token&limit=50", token);
+      const page = (pages?.data ?? []).find((p: { id: string }) => String(p.id) === pageId);
+      if (!page?.access_token) return { error: "The token can't reach the Page", pages: (pages?.data ?? []).map((p: { id: string; name: string }) => `${p.id} ${p.name}`) };
+      const forms = await graphGet(`${pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time&limit=100`, page.access_token);
+      const out = [];
+      for (const f of forms?.data ?? []) {
+        let leads: unknown;
+        try {
+          const got = await graphGet(`${f.id}/leads?fields=id,created_time&limit=5`, page.access_token);
+          leads = (got?.data ?? []).map((l: { id: string; created_time: string }) => `${l.id} ${l.created_time}`);
+        } catch (e) {
+          leads = e instanceof Error ? e.message : String(e);
+        }
+        out.push({ id: f.id, name: f.name, status: f.status, count: f.leads_count, leads });
+      }
+      return { page: page.name ?? pageId, since: last, forms: out };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  },
+});
