@@ -1081,14 +1081,15 @@ describe("niche research's pure parts", () => {
     expect(qualifies({ active: false, daysRunning: 400 }, 90)).toBe(false);
   });
 
-  test("local means a market named as a whole word; the score weighs quality, longevity and local; the writer's examples follow it", () => {
+  test("local means a market named as a whole word; the score weighs quality and longevity only; the writer's examples follow it", () => {
     const markets = ["Midland", "Odessa", "Permian Basin"];
     expect(isLocal("Painting homes in midland, TX", markets)).toBe(true);
     expect(isLocal("Serving the Permian Basin since 2009", markets)).toBe(true);
     expect(isLocal("Midlands UK decorators", markets)).toBe(false);
     expect(isLocal("", markets)).toBe(false);
     expect(swipeScore({ starred: false })).toBe(30);
-    expect(swipeScore({ starred: false, quality: 48, daysRunning: 365, local: true })).toBe(88);
+    // Naming one of the owner's towns earns nothing: the ads are learned from wherever they run.
+    expect(swipeScore({ starred: false, quality: 48, daysRunning: 365, local: true })).toBe(73);
     expect(swipeScore({ starred: false, quality: 99, daysRunning: 9999 })).toBe(85);
     const sw = (
       id: string,
@@ -3798,7 +3799,8 @@ describe("niche research", () => {
     const lubbock = swipes.find((x) => x.company === "Lubbock Cabinet Co")!;
     expect(lubbock).toMatchObject({ local: false, mediaType: "image" });
     expect(lubbock.transcript).toBeUndefined();
-    expect(swipes[0].company).toBe("Jesse McCandless Painting");
+    // Listed best first by score (quality and longevity; a local ad gets nothing extra).
+    expect(swipes.map((x) => x.score)).toEqual([...swipes.map((x) => x.score)].sort((a, b) => b - a));
 
     // The cabinets playbook was written from the two cabinet ads plus nothing else (interior and exterior have too few).
     const playbooks = await staff.as.query(api.ads.listPlaybooks, {});
