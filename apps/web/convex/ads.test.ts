@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -1069,6 +1069,9 @@ describe("niche research's pure parts", () => {
       active: false,
     });
     expect(apifyInput("cabinet painting", 90, now, 100, "inactive")).toMatchObject({ activeStatus: "inactive", maxItems: 100 });
+    // Half an emoji (a cut surrogate) is dropped, so the row isn't turned away; a cut never splits one.
+    expect(fromApifyItem({ ad_archive_id: "z", page_name: "Paint \uD83C", start_date: "2026-01-01T00:00:00.000Z" }, now)!.pageName).toBe("Paint");
+    expect(cutText("ab🎨cd", 3)).toBe("ab🎨");
     // A stopped ad: its last day, and the days it ran up to then, not to today.
     expect(
       fromApifyItem({ ad_archive_id: "y", page_name: "p", start_date: "2026-01-01T00:00:00.000Z", end_date: "2026-06-17T00:00:00.000Z", is_active: false }, now),

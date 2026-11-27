@@ -8,6 +8,7 @@ import { adScript } from "./schema";
 import {
   ASSET_TAGS,
   DEFAULT_APIFY_ACTOR,
+  cutText,
   designLabel,
   pickOfferPhotos,
   type AdStyle,
@@ -1808,7 +1809,7 @@ export const addScraped = internalMutation({
         trade: trade.slug,
         company: raw.pageName,
         paintingType: `General ${trade.label.toLowerCase()}`,
-        hook: (raw.title || raw.adCopy || raw.pageName).replace(/\s+/g, " ").trim().slice(0, 80),
+        hook: cutText((raw.title || raw.adCopy || raw.pageName).replace(/\s+/g, " ").trim(), 80),
         offer: "",
         creative: raw.mediaType,
         area: "",

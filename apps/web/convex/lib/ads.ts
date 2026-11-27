@@ -1695,7 +1695,12 @@ const first = (o: Loose, ...keys: string[]): unknown => {
   for (const k of keys) if (o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k];
   return undefined;
 };
-const str = (x: unknown): string | undefined => (typeof x === "string" && x.trim() ? x.trim() : typeof x === "number" ? String(x) : undefined);
+/** Text without half an emoji: a surrogate left alone (from a cut) makes the database turn the whole row away. */
+export const wholeText = (s: string): string => s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+/** The first `n` characters, never cutting an emoji in two. */
+export const cutText = (s: string, n: number): string => wholeText(Array.from(s).slice(0, n).join(""));
+const str = (x: unknown): string | undefined =>
+  typeof x === "string" && wholeText(x).trim() ? wholeText(x).trim() : typeof x === "number" ? String(x) : undefined;
 
 /** A start date as the scrape gives it: unix seconds, unix milliseconds or a date string. */
 function startDate(raw: unknown): Date | null {
