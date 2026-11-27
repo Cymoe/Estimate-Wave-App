@@ -4267,6 +4267,7 @@ async function shortlistFor<P extends { _id: string; tags: string[]; description
   scope: string,
   photos: P[],
   used: Set<string>,
+  seen?: { reply?: string; error?: string },
 ): Promise<P[] | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null;
   const candidates = photos
@@ -4287,6 +4288,7 @@ async function shortlistFor<P extends { _id: string; tags: string[]; description
       ],
       400,
     );
+    if (seen) seen.reply = reply.slice(0, 1500);
     const picked = readShortlist(reply, candidates.length).map((n) => candidates[n - 1]);
     if (picked.length === 0) return null;
     const keys = new Set(picked.map((p) => p.pairKey).filter(Boolean));
@@ -4294,6 +4296,7 @@ async function shortlistFor<P extends { _id: string; tags: string[]; description
     return [...picked, ...halves];
   } catch (e) {
     console.error("shortlist", errText(e));
+    if (seen) seen.error = errText(e);
     return null;
   }
 }
@@ -4305,8 +4308,10 @@ export const shortlistProbe = internalAction({
     const { assets } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 1, trade: tradeOf(trade).slug });
     const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
     const inScope = photos.filter((p: { tags: string[]; description?: string }) => p.description && (scope === ANY_SCOPE || p.tags.includes(scope)));
-    const picked = await shortlistFor(idea, scope, photos, new Set<string>());
+    const seen: { reply?: string; error?: string } = {};
+    const picked = await shortlistFor(idea, scope, photos, new Set<string>(), seen);
     return {
+      ...seen,
       photos: photos.length,
       inScope: inScope.length,
       picked: picked?.map((p: { _id: string; jobId?: string; tags: string[] }) => ({ id: p._id, job: p.jobId?.slice(-6), tags: p.tags.join(",") })) ?? null,
