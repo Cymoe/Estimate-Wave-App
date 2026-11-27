@@ -2935,11 +2935,10 @@ const SwipeTable: React.FC<{ rows: Swipe[]; act: Act }> = ({ rows, act }) => {
   );
   return (
     <div className="overflow-x-auto rounded border border-[#2A2A2A]" data-testid="swipe-table">
-      <table className="w-full min-w-[60rem] text-sm text-left">
+      <table className="w-full min-w-[54rem] text-sm text-left">
         <thead className="bg-[#141414] border-b border-[#2A2A2A]">
           <tr>
             {head('', undefined, 'w-8')}
-            {head('Ad')}
             {head('Company', 'company')}
             {head('Type')}
             {head('Angle')}
@@ -2965,13 +2964,6 @@ const SwipeTable: React.FC<{ rows: Swipe[]; act: Act }> = ({ rows, act }) => {
                 >
                   <Star size={16} fill={x.starred ? 'currentColor' : 'none'} />
                 </button>
-              </td>
-              <td className="px-2 py-2">
-                {x.posterUrl || x.imageUrl ? (
-                  <img src={x.posterUrl ?? x.imageUrl} alt="" className="w-12 h-12 object-cover rounded bg-[#111]" loading="lazy" />
-                ) : (
-                  <span className="text-gray-600">—</span>
-                )}
               </td>
               <td className="px-2 py-2 text-white max-w-[12rem]">{x.company}</td>
               <td className="px-2 py-2 text-gray-300 whitespace-nowrap">{x.paintingType}</td>

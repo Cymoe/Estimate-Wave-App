@@ -1385,6 +1385,7 @@ describe('Ops → Ads', () => {
     expect(cards().length).toBe(0);
     const rows = () => Array.from(document.body.querySelectorAll('[data-testid="swipe-row"]'));
     expect(rows().length).toBe(2);
+    expect(document.body.querySelector('[data-testid="swipe-table"] img')).toBeNull();
     expect(rows()[0].textContent).toContain('Jesse McCandless Painting');
     expect(rows()[0].textContent).toContain('140');
     expect(rows()[1].textContent).toContain('Stopped Nov 20');
