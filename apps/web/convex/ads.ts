@@ -4286,7 +4286,8 @@ async function shortlistFor<P extends { _id: string; tags: string[]; description
           ),
         },
       ],
-      400,
+      // Room to read 75+ descriptions before answering: a small budget ends before any answer is written.
+      4000,
     );
     if (seen) seen.reply = reply.slice(0, 1500);
     const picked = readShortlist(reply, candidates.length).map((n) => candidates[n - 1]);
