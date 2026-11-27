@@ -130,6 +130,7 @@ const campaignOf = (on: boolean) => ({
 });
 const campaignState = jest.fn(async () => campaignOf(false));
 const setCampaign = jest.fn(async (on: boolean) => campaignOf(on));
+const setBest = jest.fn(async (..._args: unknown[]) => undefined);
 const saveScrapeKey = jest.fn(async (..._args: unknown[]) => ({ credits: 99 }));
 const pairPhotos = jest.fn(async (..._args: unknown[]) => undefined);
 const splitPair = jest.fn(async (..._args: unknown[]) => undefined);
@@ -179,6 +180,7 @@ jest.mock('../../../lib/api', () => ({
     removeMetaToken: async () => undefined,
     saveScrapeKey: (...args: unknown[]) => saveScrapeKey(...args),
     removeScrapeKey: async () => undefined,
+    setBest: (...args: unknown[]) => setBest(...args),
     metaLookup: () => metaLookup(),
     campaignState: () => campaignState(),
     setCampaign: (on: boolean) => setCampaign(on),
@@ -593,6 +595,21 @@ describe('Ops → Ads', () => {
     await groupPhotosBy('job');
     expect(heads()).toEqual(['Smith fence 1', 'Not in a project 1']);
     expect(document.body.querySelector('[data-testid="job"]')).not.toBeNull();
+  });
+
+  it('Library: a best shot shows a star on its tile, and the photo window marks or unmarks one', async () => {
+    const photo = (id: string, fileName: string, tags: string[], best?: boolean) => ({ id, kind: 'photo' as const, fileName, tags, best, createdAt: new Date().toISOString() });
+    jobs = [];
+    assets = [photo('c1', 'cab1.jpg', ['cabinets', 'cabinets-painted', 'after'], true), photo('c2', 'cab2.jpg', ['cabinets', 'cabinets-painted', 'after'])];
+    await render();
+    await tab('Library');
+    const tile = (name: string) => (document.body.querySelector(`[aria-label="Open ${name}"]`) as HTMLElement).closest('li')!;
+    expect(tile('cab1.jpg').querySelector('[data-testid="best"]')).not.toBeNull();
+    expect(tile('cab2.jpg').querySelector('[data-testid="best"]')).toBeNull();
+    await openFile('cab2.jpg');
+    await act(async () => (document.body.querySelector('[aria-label="Mark as a best shot"]') as HTMLButtonElement).click());
+    await flush();
+    expect(setBest).toHaveBeenCalledWith('c2', true);
   });
 
   it('Library: an open photo flips to the next and previous, in the order the page shows them', async () => {

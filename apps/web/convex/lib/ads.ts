@@ -375,6 +375,8 @@ export interface AssetRow {
   jobId?: string;
   /** What it shows in detail (AdTrade.items). */
   items?: string[];
+  /** One of the owner's best shots: led with, at equal use. */
+  best?: boolean;
 }
 
 export const MAX_CANDIDATES = 6;
@@ -413,7 +415,7 @@ export function pickAssets<A extends AssetRow>(
   const afters = new Set(open.filter((a) => a.pairKey && a.tags.includes("after") && !a.tags.includes("before")).map((a) => a.pairKey));
   const fresh = open
     .filter((a) => !(a.tags.includes("before") && !a.tags.includes("after") && !(a.pairKey && afters.has(a.pairKey))))
-    .sort((a, b) => preference(a) - preference(b) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => preference(a) - preference(b) || (a.uses ?? 0) - (b.uses ?? 0) || Number(!!b.best) - Number(!!a.best) || b.createdAt.localeCompare(a.createdAt));
   // An idea that names a type of work (a stained fence, LVP) shows only photos of that work, when there are enough
   // of them to choose from; with fewer, they go first.
   const ofWork = works.length ? fresh.filter((a) => a.tags.some((t) => works.includes(t))) : [];
@@ -439,9 +441,18 @@ function pickFrom<A extends AssetRow>(pool: A[], max: number, inScope: boolean):
     const after = halves.find((h) => h.tags.includes("after"));
     if (before && after) pairs.push([before, after]);
   }
-  pairs.sort((x, y) => (x[0].uses ?? 0) + (x[1].uses ?? 0) - ((y[0].uses ?? 0) + (y[1].uses ?? 0)));
+  const pairUses = ([b, a]: [A, A]) => Math.max(b.uses ?? 0, a.uses ?? 0);
+  const pairBest = ([b, a]: [A, A]) => Number(!!b.best || !!a.best);
+  pairs.sort((x, y) => pairUses(x) - pairUses(y) || pairBest(y) - pairBest(x));
+  // A pair leads only while it is as fresh as the freshest other photo: one already in more ads waits behind fresher
+  // finished work, so the same before/after doesn't open every ad.
+  const inPairs = new Set(pairs.flat());
+  const others = pool.filter((a) => !inPairs.has(a) && !a.tags.includes("before"));
+  const freshest = others.length ? Math.min(...others.map((a) => a.uses ?? 0)) : Infinity;
+  const leading = pairs.filter((p) => pairUses(p) <= freshest);
+  const trailing = pairs.filter((p) => pairUses(p) > freshest);
   const out: A[] = [];
-  for (const [before, after] of pairs) if (out.length + 2 <= max) out.push(before, after);
+  for (const [before, after] of leading) if (out.length + 2 <= max) out.push(before, after);
   // A before is shown only beside its own after: one whose after isn't offered with it never is, so an ad can't
   // show unfinished work as if it were the job.
   const lone = (a: A) => a.tags.includes("before") && !a.tags.includes("after") && !pairs.some(([b]) => b === a);
@@ -450,7 +461,9 @@ function pickFrom<A extends AssetRow>(pool: A[], max: number, inScope: boolean):
   // so there is a before/after to show and still mostly finished work; any others only fill what is left over.
   const joined = pool.filter((a) => !a.pairKey && a.tags.includes("before") && a.tags.includes("after"));
   for (const a of joined.slice(0, JOINED_FIRST)) if (out.length < max) out.push(a);
-  for (const a of pool) if (!out.includes(a) && !joined.includes(a) && out.length < max) out.push(a);
+  for (const a of pool) if (!out.includes(a) && !joined.includes(a) && !inPairs.has(a) && out.length < max) out.push(a);
+  // The more used pairs, after the fresher photos, while there's room for both halves.
+  for (const [before, after] of trailing) if (out.length + 2 <= max) out.push(before, after);
   for (const a of joined) if (!out.includes(a) && out.length < max) out.push(a);
   return { assets: out, inScope };
 }
@@ -480,10 +493,21 @@ export function pickJob<A extends AssetRow>(
   // A job of the type of work the idea names (fence staining) goes before all others.
   const ofWork = (ps: A[]) => works.length > 0 && ps.some((p) => p.tags.some((t) => works.includes(t)));
   const uses = (ps: A[]) => ps.reduce((n, p) => n + (p.uses ?? 0), 0) / ps.length;
+  const hasBest = (ps: A[]) => ps.some((p) => p.best);
   const newest = (ps: A[]) => ps.reduce((d, p) => (p.createdAt > d ? p.createdAt : d), "");
   const fits = [...jobs]
     .filter(([, ps]) => ps.length >= JOB_MIN && !ps.some((p) => used.has(p._id)) && (scope === ANY_SCOPE || ps.some((p) => p.tags.includes(scope))))
-    .sort(([, x], [, y]) => Number(ofWork(y)) - Number(ofWork(x)) || Number(shows(y)) - Number(shows(x)) || Number(hasBoth(y)) - Number(hasBoth(x)) || uses(x) - uses(y) || newest(y).localeCompare(newest(x)));
+    // The least used project next, so ads rotate through the projects; then one with the owner's best shots, then one
+    // with a before and an after.
+    .sort(
+      ([, x], [, y]) =>
+        Number(ofWork(y)) - Number(ofWork(x)) ||
+        Number(shows(y)) - Number(shows(x)) ||
+        uses(x) - uses(y) ||
+        Number(hasBest(y)) - Number(hasBest(x)) ||
+        Number(hasBoth(y)) - Number(hasBoth(x)) ||
+        newest(y).localeCompare(newest(x)),
+    );
   if (fits.length === 0) return null;
   const [jobId, photos] = fits[0];
   return { jobId, assets: jobInOrder(photos, max) };
@@ -2101,8 +2125,9 @@ export function ideaPrompt(
     "Competitor ads that have kept running, longest first. An ad that keeps running is the best sign an idea pays for itself. Every idea is built on one of them: keep what makes it work (its angle, its kind of opening, the order of its points) and make it honest for us:",
     ...(sources.length ? sources.map((s) => `${s.n}. ${s.company}${s.daysRunning ? `, running ${s.daysRunning} days` : ""}. Angle: ${s.angle}. Offer: ${s.offer}`) : ["(none on file)"]),
     "",
-    "The job photos on file to make ads from:",
+    "The job photos on file to make ads from (BEST marks the owner's favourite shots; the count is how many ads a photo is already in):",
     ...(library.length ? library.map((l) => `- ${l}`) : ["(none described yet)"]),
+    "Describe the kind of shot an idea needs (a finished white kitchen, a door being sprayed), not one particular photo or project: the app rotates through the projects and leads with the BEST shots, so an idea tied to one kitchen would put that kitchen in every ad. Never build ideas around a photo that is already in several ads.",
     "",
     ...(houseStyle ? ["What the owner has kept and killed before. Lean towards what they keep:", houseStyle.trim(), ""] : []),
     ...(recent.length ? ["Already offered. Do not offer these again or anything close to them:", ...recent.map((r) => `- ${r}`), ""] : []),

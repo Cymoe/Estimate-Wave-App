@@ -162,6 +162,8 @@ export interface AdAsset {
   description?: string;
   suggestedTags?: string[];
   uses?: number;
+  /** One of the owner's best shots (the star): ads lead with these. */
+  best?: boolean;
   /** A clip's length. */
   durationSec?: number;
   /** The job it was shot on, when it is filed under one. */
@@ -1750,7 +1752,16 @@ const AssetTile: React.FC<{ a: AdAsset; jobs: AdJob[]; onOpen: () => void; act: 
           ) : a.tags.length === 0 ? (
             <span className={`${pill} top-2 left-2 text-amber-200`}>No tags yet</span>
           ) : null}
-          {a.uses && !pick ? <span className={`${pill} top-2 right-2 text-gray-200`}>in {a.uses} ad{a.uses === 1 ? '' : 's'}</span> : null}
+          {!pick && (a.best || a.uses) ? (
+            <span className="absolute top-2 right-2 flex items-center gap-1">
+              {a.best && (
+                <span className={`${chip} text-[#e2b350] inline-flex items-center`} aria-label="Best shot" data-testid="best">
+                  <Star className="w-3.5 h-3.5" fill="currentColor" />
+                </span>
+              )}
+              {a.uses ? <span className={`${chip} text-gray-200`}>in {a.uses} ad{a.uses === 1 ? '' : 's'}</span> : null}
+            </span>
+          ) : null}
           {(job || a.kind === 'video') && (
             <span className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5">
               {job && <span className={`${chip} min-w-0 truncate`}>{job.name}</span>}
@@ -2061,6 +2072,18 @@ const AssetEditor: React.FC<{
           </p>
         </div>
         <div className="justify-self-end flex items-center gap-1">
+          {photo && (
+            <button
+              type="button"
+              aria-label={a.best ? 'Unmark best shot' : 'Mark as a best shot'}
+              aria-pressed={!!a.best}
+              title="Best shot: ads lead with these"
+              className={`${tap} ${gold}`}
+              onClick={() => act(() => adsAPI.setBest(a.id, !a.best), a.best ? 'No longer a best shot.' : 'Marked as a best shot: ads will lead with it.')}
+            >
+              <Star className="w-5 h-5" fill={a.best ? 'currentColor' : 'none'} />
+            </button>
+          )}
           <button type="button" aria-label="Share" className={`${tap} ${gold}`} onClick={() => void share()}>
             <Upload className="w-5 h-5" />
           </button>

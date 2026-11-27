@@ -274,6 +274,24 @@ describe("what a photo shows (labels)", () => {
     expect(pickAssets(lib, "exterior", new Set(), 6, [], ["front door"]).assets[0]._id).toBe("door");
     expect(pickAssets(lib, "exterior", new Set(), 6, [], []).assets.map((a) => a._id)).toEqual(["wall", "door", "fence"]);
   });
+  test("a before/after pair leads only while it's as fresh as the other photos; best shots lead at equal use", () => {
+    const q = (id: string, tags: string[], uses = 0, more: Record<string, unknown> = {}) => ({
+      _id: id,
+      kind: "photo" as const,
+      tags: ["cabinets", ...tags],
+      uses,
+      createdAt: "2026-11-01",
+      ...more,
+    });
+    const lib = [q("bef", ["before"], 0, { pairKey: "k" }), q("aft", ["after"], 0, { pairKey: "k" }), q("nice", ["after"]), q("plain", [])];
+    expect(pickAssets(lib, "cabinets", new Set()).assets.map((a) => a._id).slice(0, 2)).toEqual(["bef", "aft"]);
+    // The pair has been in 4 ads: the fresher photos go first, the pair after them.
+    const worn = lib.map((a) => (a.pairKey ? { ...a, uses: 4 } : a));
+    expect(pickAssets(worn, "cabinets", new Set()).assets.map((a) => a._id)).toEqual(["nice", "plain", "bef", "aft"]);
+    // A best shot leads the photos used as often as it.
+    const starred = worn.map((a) => (a._id === "plain" ? { ...a, best: true } : a));
+    expect(pickAssets(starred, "cabinets", new Set()).assets.map((a) => a._id)[0]).toBe("plain");
+  });
 });
 
 describe("one job's photos", () => {
@@ -288,15 +306,22 @@ describe("one job's photos", () => {
   });
 
   const p = (id: string, tags: string[], jobId?: string, day = 1, uses = 0) => ({ _id: id, kind: "photo" as const, tags, jobId, uses, createdAt: `2026-11-${String(day).padStart(2, "0")}` });
-  test("a story picks a job with enough photos of its kind, one with a before and an after first, then the least used; never one used this week", () => {
+  test("a story picks a job with enough photos of its kind: the least used first, so ads rotate; then best shots, then a before and an after; never one used this week", () => {
     const lib = [
       p("a1", ["cabinets", "after"], "A", 1), p("a2", ["cabinets"], "A", 2), p("a3", ["cabinets"], "A", 3),
       p("b1", ["cabinets", "before"], "B", 4, 3), p("b2", ["process"], "B", 5, 3), p("b3", ["cabinets", "after"], "B", 6, 3),
       p("c1", ["cabinets", "before"], "C", 7), p("c2", ["cabinets", "after"], "C", 8),
       p("x", ["cabinets", "before"]),
     ];
-    expect(pickJob(lib, "cabinets", new Set())).toEqual({ jobId: "B", assets: [lib[3], lib[4], lib[5]] });
-    expect(pickJob(lib, "cabinets", new Set(["b2"]))!.jobId).toBe("A");
+    // B has a before and an after but is already in 3 ads: the unused A goes first.
+    expect(pickJob(lib, "cabinets", new Set())!.jobId).toBe("A");
+    // At equal use, the one with a before and an after.
+    const fresh = lib.map((x) => ({ ...x, uses: 0 }));
+    expect(pickJob(fresh, "cabinets", new Set())).toEqual({ jobId: "B", assets: [fresh[3], fresh[4], fresh[5]] });
+    // At equal use, the owner's best shots before a before and an after.
+    const starred = fresh.map((x) => (x._id === "a2" ? { ...x, best: true } : x));
+    expect(pickJob(starred, "cabinets", new Set())!.jobId).toBe("A");
+    expect(pickJob(lib, "cabinets", new Set(["a1"]))!.jobId).toBe("B");
     expect(pickJob(lib, "exterior", new Set())).toBeNull();
     expect(pickJob(lib, "general", new Set(["b2", "a1"]))).toBeNull();
   });

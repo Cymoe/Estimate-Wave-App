@@ -506,6 +506,16 @@ export const lookOnce = internalAction({
   },
 });
 
+/** The star on a photo: one of the owner's best shots, which ads lead with. */
+export const setBest = mutation({
+  args: { id: v.id("adAssets"), best: v.boolean() },
+  handler: async (ctx, { id, best }) => {
+    await requireStaff(ctx);
+    if ((await ctx.db.get(id)) === null) fail("NOT_FOUND", "That photo is gone");
+    await ctx.db.patch(id, { best: best || undefined });
+  },
+});
+
 /** How long a look Claude turned away waits before it is asked again, doubled each time. */
 const DESCRIBE_RETRY_MS = 30_000;
 
@@ -533,6 +543,7 @@ export const listAssets = query({
         items: a.items ?? [],
         suggestedTags: a.suggestedTags,
         uses: a.uses ?? 0,
+        best: a.best ?? false,
         jobId: a.jobId,
         createdAt: a.createdAt,
       })),
@@ -2466,10 +2477,15 @@ export const ideaBrief = internalQuery({
     const library = photos.length
       ? [
           `${photos.length} photos in all: ${[...tagged].map(([t, n]) => `${n} tagged ${t}`).join(", ") || "none tagged"}.`,
+          // The owner's best shots first, then the least used, so ideas lean on fresh photos and not the one pair.
           ...photos
             .filter((p) => p.description)
+            .sort((a, b) => Number(!!b.best) - Number(!!a.best) || (a.uses ?? 0) - (b.uses ?? 0))
             .slice(0, 24)
-            .map((p) => `${p.tags.join(", ") || "untagged"}: ${p.description!.replace(/\s+/g, " ").slice(0, 160)}`),
+            .map(
+              (p) =>
+                `${p.best ? "BEST · " : ""}${p.tags.join(", ") || "untagged"}${p.uses ? ` · in ${p.uses} ads` : ""}: ${p.description!.replace(/\s+/g, " ").slice(0, 160)}`,
+            ),
         ]
       : [];
     const recent = (await ctx.db.query("adIdeas").order("desc").take(300))
@@ -3525,6 +3541,7 @@ export const plan = internalQuery({
           pairKey: a.pairKey,
           createdAt: a.createdAt,
           uses: a.uses ?? 0,
+          best: a.best ?? false,
           description: a.description,
           items: a.items,
           durationSec: a.durationSec,

@@ -2540,6 +2540,8 @@ export default defineSchema({
     // How many ads it has been cut into, so the library rotates.
     uses: v.optional(v.number()),
     lastUsedAt: v.optional(v.string()),
+    // One of the owner's best shots (the star in the Library): ads lead with these, rotated by use.
+    best: v.optional(v.boolean()),
     // A short clip an AI video model made from this photo: the same room, the camera moving. It can get a room wrong
     // (bent lines, a changed colour), so a person watches it; only an approved clip may go in an ad.
     motion: v.optional(

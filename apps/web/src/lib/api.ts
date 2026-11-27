@@ -1129,6 +1129,8 @@ export const adsAPI = {
   saveSettings: (args: Record<string, unknown>) => run('mutation', api.ads.saveSettings, defined(args)),
   /** The Meta token pasted in Settings: checked with Meta, then stored sealed. Returns whose token it is. */
   saveMetaToken: (token: string): Promise<{ name: string }> => run('action', api.ads.saveMetaToken, { token }),
+  /** The star on a photo: one of the owner's best shots, which ads lead with. */
+  setBest: (id: string, best: boolean) => run('mutation', api.ads.setBest, { id, best }),
   removeMetaToken: () => run('mutation', api.ads.removeMetaToken, {}),
   /** The competitor search key (ScrapeCreators): checked with one small search, then stored sealed. Returns credits left. */
   saveScrapeKey: (key: string): Promise<{ credits?: number }> => run('action', api.ads.saveScrapeKey, { key }),
