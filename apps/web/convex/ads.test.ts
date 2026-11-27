@@ -3650,7 +3650,8 @@ describe("niche research", () => {
     expect(trades.length).toBe(Object.values(AD_TRADES).filter((x) => x.keywords.length > 0).length);
     expect(new Set(trades).size).toBe(trades.length);
     const times = queued.map((q) => q.scheduledTime).sort((a, b) => a - b);
-    expect(times.at(-1)! - times[0]).toBe((trades.length - 1) * 15 * 60_000);
+    // A few milliseconds pass between the runs being queued.
+    expect(Math.abs(times.at(-1)! - times[0] - (trades.length - 1) * 15 * 60_000)).toBeLessThan(1000);
   });
 
   test("a search keeps the long-runners, drops junk after Claude reads it, flags local ads, transcribes video and writes the playbook", async () => {
