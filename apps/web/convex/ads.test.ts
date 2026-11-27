@@ -1777,6 +1777,61 @@ describe("the library, hooks and settings", () => {
     expect((await staff.as.query(api.ads.settings, {})).metaToken).toBeNull();
   });
 
+  test("the campaign switch: read from Meta, turned on (with its ad set) or off by the owner only", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    vi.stubEnv("META_ACCESS_TOKEN", "tok");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adSettings", { adsetId: "900", weeklyEnabled: false, hooksPerWeek: 3, liveTarget: 6, updatedAt: "2026-11-27T00:00:00Z" });
+    });
+    const meta = { campaign: "PAUSED", adset: "PAUSED" };
+    const posts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (init?.method === "POST") {
+          const body = new URLSearchParams(String(init.body));
+          posts.push(`${url.split("/").pop()} ${body.get("status")}`);
+          if (url.endsWith("/c7")) meta.campaign = body.get("status")!;
+          if (url.endsWith("/900")) meta.adset = body.get("status")!;
+          return new Response(JSON.stringify({ success: true }));
+        }
+        return new Response(
+          JSON.stringify({
+            id: "900",
+            name: "Midland / Odessa homeowners",
+            status: meta.adset,
+            effective_status: meta.adset,
+            daily_budget: "2000",
+            campaign: { id: "c7", name: "GoodFit Pros – Leads", status: meta.campaign },
+          }),
+        );
+      }),
+    );
+    expect(await owner.as.action(api.ads.campaignState, {})).toEqual({
+      campaign: { id: "c7", name: "GoodFit Pros – Leads", on: false },
+      adset: { id: "900", name: "Midland / Odessa homeowners", on: false },
+      dailyBudget: 20,
+      delivery: "PAUSED",
+      approved: 0,
+    });
+    await expect(staff.as.action(api.ads.campaignState, {})).rejects.toThrow();
+    await expect(staff.as.action(api.ads.setCampaign, { on: true })).rejects.toThrow();
+    expect(posts).toEqual([]);
+    // On: the campaign, and the ad set since it was off too.
+    const on = await owner.as.action(api.ads.setCampaign, { on: true });
+    expect(on.campaign.on).toBe(true);
+    expect(on.adset.on).toBe(true);
+    expect(posts).toEqual(["c7 ACTIVE", "900 ACTIVE"]);
+    // Off: the campaign only.
+    const off = await owner.as.action(api.ads.setCampaign, { on: false });
+    expect(off.campaign.on).toBe(false);
+    expect(off.adset.on).toBe(true);
+    expect(posts.slice(2)).toEqual(["c7 PAUSED"]);
+  });
+
   test("settings: the owner saves the Meta ids (act_ dropped) and the Monday switch; staff only read; keys show as set or missing", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });

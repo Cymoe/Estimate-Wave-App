@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, Film, ListFilter, Play, Plus, Star, Trash2, Upload } from 'lucide-react';
-import { adsAPI, type MetaLookup } from '../../lib/api';
+import { adsAPI, type CampaignState, type MetaLookup } from '../../lib/api';
 import { useAdDrive, useAdJobs } from '../../lib/live';
 import { backfillThumb, isVideo, prepareAsset, putFile, sendPreparedAsset, stillOfClip, thumbOf, tooBig, type PreparedAsset } from '../../lib/adUpload';
 import {
@@ -515,6 +515,7 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
   if (batches === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
   return (
     <div className="space-y-6">
+      {owner && <CampaignSwitch />}
       <Ideas owner={owner} act={act} />
       <p className="text-sm text-gray-400">
         Each ad made from an idea you kept shows below in two sizes, and is created paused in Meta once it is drawn. Approve the ones to run.
@@ -554,6 +555,84 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         ))
       )}
     </div>
+  );
+};
+
+/**
+ * The campaign's master switch in Meta. Approve turns single ads on; nothing spends until the campaign is on too.
+ * Read from Meta when the page opens, so it shows what Meta has, even if someone changed it in Ads Manager.
+ */
+const CampaignSwitch: React.FC = () => {
+  const [state, setState] = useState<CampaignState | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    let live = true;
+    adsAPI
+      .campaignState()
+      .then((s) => live && setState(s))
+      .catch((e) => live && setProblem(describeError(e, "Couldn't read the campaign from Meta")));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const flip = async (on: boolean) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      setState(await adsAPI.setCampaign(on));
+      setConfirming(false);
+    } catch (e) {
+      setProblem(describeError(e, "Meta didn't take the change"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!state && !problem) return <p className="text-sm text-gray-500">Checking the campaign in Meta…</p>;
+  const on = Boolean(state?.campaign.on);
+  const budget = state?.dailyBudget !== undefined ? `$${state.dailyBudget.toFixed(0)} a day` : null;
+  return (
+    <section
+      aria-label="Campaign"
+      className={`rounded border px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 ${on ? 'border-emerald-700/70 bg-emerald-950/30' : 'border-[#2A2A2A]'}`}
+    >
+      <div className="flex-1 min-w-[16rem]">
+        <h3 className="text-sm font-medium text-white flex items-center gap-2">
+          <span aria-hidden="true" className={`inline-block w-2 h-2 rounded-full ${on ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+          {state ? (on ? 'Ads are running' : 'Ads are off') : 'Campaign'}
+        </h3>
+        {state && (
+          <p className="text-xs text-gray-400">
+            {state.campaign.name}
+            {budget ? ` · ${budget}` : ''} · {state.approved} approved {state.approved === 1 ? 'ad' : 'ads'}
+            {on && state.approved === 0 ? '. Approve an ad below, or nothing shows.' : ''}
+            {!on ? '. Approved ads wait here until you turn this on.' : ''}
+          </p>
+        )}
+        {problem && <p className="text-xs text-red-300">{problem}</p>}
+      </div>
+      {state &&
+        (confirming ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-amber-200">Start spending{budget ? ` up to ${budget}` : ''}?</span>
+            <button type="button" disabled={busy} onClick={() => void flip(true)} className="min-h-[40px] px-4 rounded bg-[#e2b350] text-black text-sm font-medium disabled:opacity-50">
+              {busy ? 'Turning on…' : 'Yes, turn on'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setConfirming(false)} className="min-h-[40px] px-3 text-sm text-gray-300">
+              Cancel
+            </button>
+          </div>
+        ) : on ? (
+          <button type="button" disabled={busy} onClick={() => void flip(false)} className="min-h-[40px] px-4 rounded border border-[#444] text-sm text-white disabled:opacity-50">
+            {busy ? 'Turning off…' : 'Turn ads off'}
+          </button>
+        ) : (
+          <button type="button" onClick={() => setConfirming(true)} className="min-h-[40px] px-4 rounded bg-[#e2b350] text-black text-sm font-medium">
+            Turn ads on
+          </button>
+        ))}
+    </section>
   );
 };
 

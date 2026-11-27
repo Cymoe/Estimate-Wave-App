@@ -121,6 +121,15 @@ const metaLookup = jest.fn(async () => ({
   pages: [{ id: '55', name: 'GoodFit Pros page', forms: [{ id: 'f1', name: 'Free quote', status: 'ACTIVE' }] }],
   problems: ['Instant forms of Other page: no access'],
 }));
+const campaignOf = (on: boolean) => ({
+  campaign: { id: 'c7', name: 'GoodFit Pros – Leads', on },
+  adset: { id: '900', name: 'Midland / Odessa homeowners', on: true },
+  dailyBudget: 20,
+  delivery: on ? 'ACTIVE' : 'CAMPAIGN_PAUSED',
+  approved: 2,
+});
+const campaignState = jest.fn(async () => campaignOf(false));
+const setCampaign = jest.fn(async (on: boolean) => campaignOf(on));
 const pairPhotos = jest.fn(async (..._args: unknown[]) => undefined);
 const splitPair = jest.fn(async (..._args: unknown[]) => undefined);
 const swapPair = jest.fn(async (..._args: unknown[]) => undefined);
@@ -168,6 +177,8 @@ jest.mock('../../../lib/api', () => ({
     saveMetaToken: (...args: unknown[]) => saveMetaToken(...args),
     removeMetaToken: async () => undefined,
     metaLookup: () => metaLookup(),
+    campaignState: () => campaignState(),
+    setCampaign: (on: boolean) => setCampaign(on),
     splitPair: (...args: unknown[]) => splitPair(...args),
     swapPair: (...args: unknown[]) => swapPair(...args),
     renameJob: async () => undefined,
@@ -346,6 +357,31 @@ describe('Ops → Ads', () => {
         .click(),
     );
     expect(reject).toHaveBeenCalledWith('c2');
+  });
+
+  it('campaign switch: the owner turns the ads on after a confirm, and off in one tap; staff never see it', async () => {
+    await render();
+    const box = () => document.body.querySelector('[aria-label="Campaign"]')!;
+    expect(box().textContent).toContain('Ads are off');
+    expect(box().textContent).toContain('$20 a day');
+    expect(box().textContent).toContain('2 approved ads');
+    await act(async () => byText('Turn ads on')!.click());
+    expect(setCampaign).not.toHaveBeenCalled();
+    expect(box().textContent).toContain('Start spending up to $20 a day?');
+    await act(async () => byText('Yes, turn on')!.click());
+    await flush();
+    expect(setCampaign).toHaveBeenLastCalledWith(true);
+    expect(box().textContent).toContain('Ads are running');
+    await act(async () => byText('Turn ads off')!.click());
+    await flush();
+    expect(setCampaign).toHaveBeenLastCalledWith(false);
+    expect(box().textContent).toContain('Ads are off');
+
+    document.body.innerHTML = '';
+    campaignState.mockClear();
+    await render(false);
+    expect(document.body.querySelector('[aria-label="Campaign"]')).toBeNull();
+    expect(campaignState).not.toHaveBeenCalled();
   });
 
   it('idea cards: the owner asks for ideas, keeps or kills each, and makes only the kept ones; staff only read', async () => {

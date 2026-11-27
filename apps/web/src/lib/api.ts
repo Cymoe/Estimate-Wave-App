@@ -1132,6 +1132,9 @@ export const adsAPI = {
   removeMetaToken: () => run('mutation', api.ads.removeMetaToken, {}),
   /** The ad accounts (with their ad sets) and Pages (with their instant forms) the token reaches, to pick from. */
   metaLookup: (): Promise<MetaLookup> => run('action', api.ads.metaLookup, {}),
+  /** The campaign's on/off switch in Meta, with its daily budget and how many approved ads it holds. */
+  campaignState: (): Promise<CampaignState> => run('action', api.ads.campaignState, {}),
+  setCampaign: (on: boolean): Promise<CampaignState> => run('action', api.ads.setCampaign, { on }),
   draftNow: () => run('mutation', api.ads.draftNow, {}),
   ideasNow: (trade?: string) => run('mutation', api.ads.ideasNow, defined({ trade })),
   decideIdea: (id: string, status: 'kept' | 'killed' | 'new') => run('mutation', api.ads.decideIdea, { id, status }),
@@ -1832,6 +1835,14 @@ export const recruitingPublicAPI = {
 };
 
 export type MetaPick = { id: string; name: string; status?: string };
+export type CampaignState = {
+  campaign: { id: string; name: string; on: boolean };
+  adset: { id: string; name: string; on: boolean };
+  dailyBudget?: number;
+  delivery: string;
+  approved: number;
+};
+
 export type MetaLookup = {
   who: string;
   accounts: Array<MetaPick & { adsets: Array<MetaPick & { campaign?: string }> }>;

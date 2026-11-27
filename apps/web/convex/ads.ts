@@ -4751,6 +4751,88 @@ export const setAdStatus = internalAction({
   },
 });
 
+// ----------------------------------------------------- the campaign's on/off switch
+
+/** The ad set the ads go to, and how many approved ads sit in it (turned on in Meta by Approve). */
+export const campaignSwitchInput = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const row = await settingsRow(ctx);
+    const approved = (
+      await ctx.db
+        .query("adCreatives")
+        .withIndex("by_status", (q) => q.eq("status", "live"))
+        .take(500)
+    ).filter((c) => c.meta?.adId).length;
+    return { adsetId: row?.adsetId, approved };
+  },
+});
+
+export interface CampaignState {
+  campaign: { id: string; name: string; on: boolean };
+  adset: { id: string; name: string; on: boolean };
+  /** The daily budget in dollars, from the ad set or else the campaign; undefined when the budget is a lifetime one. */
+  dailyBudget?: number;
+  /** What Meta says is actually happening (ACTIVE, CAMPAIGN_PAUSED, IN_PROCESS...). */
+  delivery: string;
+  approved: number;
+}
+
+const budgetOf = (x: { daily_budget?: string }) => (x?.daily_budget ? Number(x.daily_budget) / 100 : undefined);
+
+async function readCampaign(adsetId: string, token: string, approved: number): Promise<CampaignState> {
+  const s = await graphGet(
+    `${adsetId}?fields=id,name,status,effective_status,daily_budget,campaign{id,name,status,effective_status,daily_budget}`,
+    token,
+  );
+  const c = s.campaign ?? {};
+  return {
+    campaign: { id: String(c.id), name: String(c.name ?? c.id), on: c.status === "ACTIVE" },
+    adset: { id: String(s.id), name: String(s.name ?? s.id), on: s.status === "ACTIVE" },
+    dailyBudget: budgetOf(s) ?? budgetOf(c),
+    delivery: String(s.effective_status ?? c.effective_status ?? ""),
+    approved,
+  };
+}
+
+/**
+ * The campaign's master switch, read from Meta: whether the ads the owner approved can spend. Approve turns single
+ * ads on; nothing spends until this is on too.
+ */
+export const campaignState = action({
+  args: {},
+  handler: async (ctx): Promise<CampaignState> => {
+    await ctx.runQuery(internal.ads.ownerOnly, {});
+    const token = await metaToken(ctx);
+    const { adsetId, approved } = await ctx.runQuery(internal.ads.campaignSwitchInput, {});
+    if (!token || !adsetId) fail("INVALID", "Connect Meta and pick the ad set in Settings first");
+    return await readCampaign(adsetId!, token!, approved);
+  },
+});
+
+/**
+ * The owner turns the campaign on or off from the app. On: the campaign, and its ad set if that's off too, so the
+ * approved ads start spending. Off: the campaign only, which stops every ad under it; the ad set and each ad keep
+ * their own setting for next time.
+ */
+export const setCampaign = action({
+  args: { on: v.boolean() },
+  handler: async (ctx, { on }): Promise<CampaignState> => {
+    await ctx.runQuery(internal.ads.ownerOnly, {});
+    const token = await metaToken(ctx);
+    const { adsetId, approved } = await ctx.runQuery(internal.ads.campaignSwitchInput, {});
+    if (!token || !adsetId) fail("INVALID", "Connect Meta and pick the ad set in Settings first");
+    const now = await readCampaign(adsetId!, token!, approved);
+    try {
+      await graph(now.campaign.id, { status: on ? "ACTIVE" : "PAUSED" }, "Meta campaign", token!);
+      if (on && !now.adset.on) await graph(now.adset.id, { status: "ACTIVE" }, "Meta ad set", token!);
+    } catch (e) {
+      fail("INVALID", `Meta didn't take it: ${errText(e)}`);
+    }
+    return await readCampaign(adsetId!, token!, approved);
+  },
+});
+
 // ----------------------------------------------------- Meta's numbers (daily)
 
 export const adsInMeta = internalQuery({
