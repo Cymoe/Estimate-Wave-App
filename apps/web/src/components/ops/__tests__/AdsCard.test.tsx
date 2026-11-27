@@ -1378,6 +1378,25 @@ describe('Ops → Ads', () => {
     await act(async () => byText('90+ days')!.click());
     expect(cards().length).toBe(1);
     expect(cards()[0].textContent).toContain('Jesse McCandless Painting');
+    await act(async () => byText('90+ days')!.click());
+
+    // The table: a row per ad, sortable; the choice is remembered.
+    await act(async () => byText('Table')!.click());
+    expect(cards().length).toBe(0);
+    const rows = () => Array.from(document.body.querySelectorAll('[data-testid="swipe-row"]'));
+    expect(rows().length).toBe(2);
+    expect(rows()[0].textContent).toContain('Jesse McCandless Painting');
+    expect(rows()[0].textContent).toContain('140');
+    expect(rows()[1].textContent).toContain('Stopped Nov 20');
+    const headButton = (label: string) =>
+      Array.from(document.body.querySelectorAll('[data-testid="swipe-table"] th button')).find((b) => b.textContent?.startsWith(label)) as HTMLButtonElement;
+    await act(async () => headButton('Company').click());
+    expect(rows()[0].textContent).toContain('Jesse McCandless Painting');
+    await act(async () => headButton('Company').click());
+    expect(rows()[0].textContent).toContain('Lubbock Cabinet Co');
+    expect(window.localStorage.getItem('ads.swipeView')).toBe('table');
+    await act(async () => byText('Cards')!.click());
+    expect(cards().length).toBe(2);
 
     document.body.innerHTML = '';
     await render(false);

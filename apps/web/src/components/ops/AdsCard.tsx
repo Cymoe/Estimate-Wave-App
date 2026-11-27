@@ -2886,6 +2886,128 @@ const readText = (file: File) =>
 export const stoppedLine = (endedAt: string, days?: number) =>
   `Stopped ${new Date(`${endedAt}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}${days ? ` · ran ${days} days` : ''}`;
 
+const SWIPE_VIEW_KEY = 'ads.swipeView';
+
+type SwipeSort = 'score' | 'days' | 'company' | 'started';
+const SWIPE_SORTS: Array<[SwipeSort, string]> = [
+  ['score', 'Fit'],
+  ['days', 'Days'],
+  ['company', 'Company'],
+  ['started', 'Started'],
+];
+
+/**
+ * Every competitor ad on one screen: a row each, the columns that matter at a glance, sortable by fit, days running,
+ * company or start date. Scrolls sideways inside its box on a phone.
+ */
+const SwipeTable: React.FC<{ rows: Swipe[]; act: Act }> = ({ rows, act }) => {
+  const [sort, setSort] = useState<SwipeSort>('score');
+  const [desc, setDesc] = useState(true);
+  const value = (x: Swipe): string | number =>
+    sort === 'score' ? x.score ?? 0 : sort === 'days' ? x.daysRunning ?? 0 : sort === 'company' ? x.company.toLowerCase() : x.startedAt ?? '';
+  const sorted = [...rows].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+    return desc ? -c : c;
+  });
+  const head = (label: string, key?: SwipeSort, className = '') => (
+    <th scope="col" className={`px-2 py-2 font-medium text-gray-400 whitespace-nowrap ${className}`} aria-sort={key && sort === key ? (desc ? 'descending' : 'ascending') : undefined}>
+      {key ? (
+        <button
+          type="button"
+          className={sort === key ? 'text-white' : ''}
+          onClick={() => {
+            if (sort === key) setDesc((d) => !d);
+            else {
+              setSort(key);
+              setDesc(key !== 'company');
+            }
+          }}
+        >
+          {label}
+          {sort === key ? (desc ? ' ↓' : ' ↑') : ''}
+        </button>
+      ) : (
+        label
+      )}
+    </th>
+  );
+  return (
+    <div className="overflow-x-auto rounded border border-[#2A2A2A]" data-testid="swipe-table">
+      <table className="w-full min-w-[60rem] text-sm text-left">
+        <thead className="bg-[#141414] border-b border-[#2A2A2A]">
+          <tr>
+            {head('', undefined, 'w-8')}
+            {head('Ad')}
+            {head('Company', 'company')}
+            {head('Type')}
+            {head('Angle')}
+            {head('Approach')}
+            {head('Offer')}
+            {head('Format')}
+            {head('Days', 'days', 'text-right')}
+            {head('Started', 'started')}
+            {head('Fit', 'score', 'text-right')}
+            {head('')}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((x) => (
+            <tr key={x.id} className="border-b border-[#1f1f1f] align-top" data-testid="swipe-row">
+              <td className="px-2 py-2">
+                <button
+                  type="button"
+                  className={x.starred ? 'text-amber-300' : 'text-gray-600'}
+                  aria-label={x.starred ? `Unstar ${x.company}` : `Star ${x.company}`}
+                  aria-pressed={x.starred}
+                  onClick={() => act(() => adsAPI.starSwipe(x.id, !x.starred))}
+                >
+                  <Star size={16} fill={x.starred ? 'currentColor' : 'none'} />
+                </button>
+              </td>
+              <td className="px-2 py-2">
+                {x.posterUrl || x.imageUrl ? (
+                  <img src={x.posterUrl ?? x.imageUrl} alt="" className="w-12 h-12 object-cover rounded bg-[#111]" loading="lazy" />
+                ) : (
+                  <span className="text-gray-600">—</span>
+                )}
+              </td>
+              <td className="px-2 py-2 text-white max-w-[12rem]">{x.company}</td>
+              <td className="px-2 py-2 text-gray-300 whitespace-nowrap">{x.paintingType}</td>
+              <td className="px-2 py-2 text-gray-200 max-w-[16rem]">{x.hook}</td>
+              <td className="px-2 py-2 text-gray-400 whitespace-nowrap">{x.family ? FAMILIES.find(([v]) => v === x.family)?.[1] ?? x.family : '—'}</td>
+              <td className="px-2 py-2 text-gray-400 max-w-[12rem]">{x.offer || '—'}</td>
+              <td className="px-2 py-2 text-gray-400 whitespace-nowrap">
+                {x.mediaType ?? x.creative ?? '—'}
+                {x.variants && x.variants > 1 ? ` · ${x.variants} versions` : ''}
+              </td>
+              <td className="px-2 py-2 text-right whitespace-nowrap">
+                <span className="text-white">{x.daysRunning ?? '—'}</span>
+                {x.endedAt && <span className="block text-xs text-amber-300">{stoppedLine(x.endedAt)}</span>}
+              </td>
+              <td className="px-2 py-2 text-gray-400 whitespace-nowrap">{x.startedAt ?? '—'}</td>
+              <td className="px-2 py-2 text-right text-white">{x.score ?? '—'}</td>
+              <td className="px-2 py-2 whitespace-nowrap">
+                {x.metaAdId && (
+                  <a
+                    href={`https://www.facebook.com/ads/library/?id=${encodeURIComponent(x.metaAdId)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-gray-300 underline text-xs"
+                  >
+                    View <ExternalLink size={12} />
+                  </a>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 /** Competitor ads kept for inspiration: browse, star, turn an angle into a hook, import more research. */
 const runLine = (r: ResearchRun) => {
   const when = new Date(r.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -2996,6 +3118,22 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
   const [type, setType] = useState('All');
   const [onlyLong, setOnlyLong] = useState(false);
   const [search, setSearch] = useState('');
+  // Cards or a table, remembered on this device.
+  const [view, setViewState] = useState<'cards' | 'table'>(() => {
+    try {
+      return window.localStorage.getItem(SWIPE_VIEW_KEY) === 'table' ? 'table' : 'cards';
+    } catch {
+      return 'cards';
+    }
+  });
+  const setView = (v: 'cards' | 'table') => {
+    setViewState(v);
+    try {
+      window.localStorage.setItem(SWIPE_VIEW_KEY, v);
+    } catch {
+      /* private browsing: the choice lasts for this visit */
+    }
+  };
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -3135,8 +3273,23 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
           <span className="text-xs text-gray-500">
             {shown.length} of {swipes.length}
           </span>
+          <div role="group" aria-label="View" className="ml-auto flex rounded border border-[#333] overflow-hidden text-xs">
+            {(['cards', 'table'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => setView(v)}
+                className={`px-3 py-1 ${view === v ? 'bg-[#e2b350] text-black font-medium' : 'text-gray-400'}`}
+              >
+                {v === 'cards' ? 'Cards' : 'Table'}
+              </button>
+            ))}
+          </div>
         </div>
       )}
+      {view === 'table' && shown.length > 0 && <SwipeTable rows={shown} act={act} />}
+      {view === 'cards' && (
       <ul className="space-y-3" aria-label="Swipe file">
         {shown.map((x) => (
           <li key={x.id} className="border border-[#2A2A2A] rounded p-4 space-y-2" data-testid="swipe">
@@ -3252,6 +3405,7 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
           </li>
         ))}
       </ul>
+      )}
     </div>
   );
 };
