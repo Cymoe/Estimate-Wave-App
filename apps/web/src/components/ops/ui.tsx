@@ -36,7 +36,7 @@ export function usePanel<T extends HTMLElement>(onClose: () => void) {
 }
 
 /** A centred dialog over a dimmed page. */
-export function Dialog({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+export function Dialog({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean | 'xl' }) {
   const panel = usePanel<HTMLDivElement>(onClose);
   return createPortal(
     <div className="fixed inset-0 z-[10050] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -47,7 +47,7 @@ export function Dialog({ title, onClose, children, wide = false }: { title: stri
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[90dvh] overflow-y-auto outline-none bg-[#121212] border border-[#2A2A2A] rounded-t-lg sm:rounded-lg shadow-2xl`}
+        className={`w-full ${wide === 'xl' ? 'sm:max-w-5xl' : wide ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[90dvh] overflow-y-auto outline-none bg-[#121212] border border-[#2A2A2A] rounded-t-lg sm:rounded-lg shadow-2xl`}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A2A]">
           <h2 className="text-base font-semibold text-white">{title}</h2>

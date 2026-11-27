@@ -549,9 +549,9 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
             {b.creatives.length === 0 ? (
               <p className="px-4 py-3 text-xs text-gray-500">Nothing drafted for this week.</p>
             ) : (
-              <ul className="grid gap-3 p-4 lg:grid-cols-2">
+              <ul className="grid gap-4 p-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4" aria-label="Ads to review">
                 {groupByHook(b.creatives).map((g) => (
-                  <HookGroup key={g.key} group={g} act={act} />
+                  <AdTile key={g.key} group={g} act={act} />
                 ))}
               </ul>
             )}
@@ -653,7 +653,88 @@ function groupByHook(creatives: AdCreative[]): Array<{ key: string; hook: AdCrea
 }
 
 /** One hook's drafts: the hook, both sizes side by side, the shot list once, and approve or reject for the pair. */
-const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; items: AdCreative[] }; act: Act }> = ({ group, act }) => {
+type HookGroupData = { key: string; hook: AdCreative['hook']; items: AdCreative[] };
+
+/**
+ * One ad in the grid: its picture, its title, what kind it is, and Approve / Reject for all its sizes. Tapping it opens
+ * everything else (both sizes, the script, the competitor ad it's built on) in a window.
+ */
+const AdTile: React.FC<{ group: HookGroupData; act: Act }> = ({ group, act }) => {
+  const [open, setOpen] = useState(false);
+  // The tall size leads; a still shows its picture.
+  const lead = group.items.find((c) => c.ratio === '9x16' && (c.videoUrl || c.imageUrl)) ?? group.items.find((c) => c.videoUrl || c.imageUrl) ?? group.items[0];
+  const reviewable = group.items.filter((c) => (c.status === 'paused' || c.status === 'rendered') && c.meta?.adId);
+  const rejectable = group.items.filter((c) => c.status === 'paused' || c.status === 'rendered');
+  const title = lead.script.onScreen[0] || lead.script.headline || group.hook?.textEn || lead.name;
+  const kind = lead.kind === 'image' ? 'Still' : lead.style ? lead.style.label : KIND_LABELS[lead.kind ?? 'video'];
+  const statuses = [...new Set(group.items.map((c) => STATUS_LABELS[c.status]))];
+  const live = group.items.some((c) => c.status === 'live');
+  const sizes = group.items.length;
+  return (
+    <li className="flex flex-col min-w-0" data-testid="ad-tile">
+      <button type="button" onClick={() => setOpen(true)} aria-label={`Open ${title}`} className="block w-full text-left">
+        <div className="relative rounded-lg overflow-hidden bg-black aspect-[4/5]">
+          {lead.imageUrl ? (
+            <img src={lead.imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+          ) : lead.videoUrl ? (
+            <video src={`${lead.videoUrl}#t=1`} muted playsInline preload="metadata" className="w-full h-full object-cover pointer-events-none" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-600">
+              <Play className="w-8 h-8" />
+            </div>
+          )}
+          {lead.videoUrl && (
+            <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+              <span className="w-11 h-11 rounded-full bg-black/60 flex items-center justify-center">
+                <Play className="w-5 h-5 text-white" fill="currentColor" />
+              </span>
+            </span>
+          )}
+          <span className={`absolute top-2 left-2 rounded-full px-2.5 py-1 text-[11px] font-medium ${live ? 'bg-emerald-500 text-black' : 'bg-black/70 text-white'}`}>
+            {statuses.join(' · ')}
+          </span>
+        </div>
+        <p className="mt-2 text-sm font-medium text-white line-clamp-2">{title}</p>
+        <p className="text-xs text-gray-400">
+          {kind}
+          {group.hook ? ` · ${scopeLabel(group.hook.scope)}` : ''}
+          {sizes > 1 ? ` · ${sizes} sizes` : ''}
+        </p>
+      </button>
+      {rejectable.length > 0 && (
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            className={`${primary} flex-1 py-1.5 text-sm`}
+            disabled={reviewable.length === 0 || reviewable.length !== rejectable.length}
+            onClick={() =>
+              act(() => Promise.all(reviewable.map((c) => adsAPI.activate(c.id))), sizes > 1 ? 'Both sizes are live.' : 'Approved: on in Meta.')
+            }
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            aria-label={`Reject ${title}`}
+            className={`${secondary} px-3 py-1.5 text-sm`}
+            onClick={() => act(() => Promise.all(rejectable.map((c) => adsAPI.reject(c.id))))}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {open && (
+        <Dialog title={title} onClose={() => setOpen(false)} wide="xl">
+          <ul>
+            <HookGroup group={group} act={act} />
+          </ul>
+        </Dialog>
+      )}
+    </li>
+  );
+};
+
+const HookGroup: React.FC<{ group: HookGroupData; act: Act }> = ({ group, act }) => {
   const reviewable = group.items.filter((c) => (c.status === 'paused' || c.status === 'rendered') && c.meta?.adId);
   const rejectable = group.items.filter((c) => c.status === 'paused' || c.status === 'rendered');
   const first = group.items[0];

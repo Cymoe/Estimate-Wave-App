@@ -235,12 +235,20 @@ const openAdd = () => act(async () => (document.body.querySelector('[aria-label=
 const dialog = () => document.body.querySelector('[role="dialog"]') as HTMLElement;
 const closeDialog = () => act(async () => (dialog().querySelector('[aria-label="Close"]') as HTMLButtonElement).click());
 
-async function render(owner = true) {
+async function render(owner = true, { openAds = true } = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () => createRoot(container).render(<AdsCard owner={owner} />));
   await flush();
+  // This week shows each ad as a tile; its sizes, script and the competitor ad open in a window. Most tests read
+  // those, so every tile is opened unless a test is about the grid itself.
+  if (openAds) await openAllAds();
   return container;
+}
+
+async function openAllAds() {
+  for (const b of Array.from(document.body.querySelectorAll('[data-testid="ad-tile"] > button'))) await act(async () => (b as HTMLButtonElement).click());
+  await flush();
 }
 
 const creative = (over: Partial<AdBatch['creatives'][number]>): AdBatch['creatives'][number] => ({
@@ -307,6 +315,35 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[aria-label="Ready for Monday"]')).toBeNull();
     expect(document.body.querySelector('section[aria-label="Make an ad for"]')).toBeNull();
     expect(document.body.querySelector('[role="tablist"][aria-label="Ads"]')).not.toBeNull();
+  });
+
+  it('This week shows each ad as a tile: picture, title, kind; Approve takes all its sizes; tapping opens the rest', async () => {
+    batches = [
+      {
+        id: 'b1',
+        weekOf: '2026-11-02',
+        status: 'ready',
+        createdAt: new Date().toISOString(),
+        creatives: [
+          creative({}),
+          creative({ id: 'c2', ratio: '4x5', name: 'WL_abc123_45_20261102' }),
+        ],
+      },
+    ];
+    await render(true, { openAds: false });
+    const tiles = Array.from(document.body.querySelectorAll('[data-testid="ad-tile"]'));
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0].textContent).toContain('2 sizes');
+    // Nothing else until it's opened: no script, no competitor ad, no shot list.
+    expect(document.body.querySelector('[data-testid="hook-group"]')).toBeNull();
+    expect(document.body.querySelector('[aria-label="Shot list"]')).toBeNull();
+    activate.mockClear();
+    await act(async () => (Array.from(tiles[0].querySelectorAll('button')).find((b) => b.textContent === 'Approve') as HTMLButtonElement).click());
+    await flush();
+    expect(activate.mock.calls.map((c) => c[0]).sort()).toEqual(['c1', 'c2']);
+    await act(async () => (tiles[0].querySelector('button') as HTMLButtonElement).click());
+    expect(dialog().querySelector('[data-testid="hook-group"]')).not.toBeNull();
+    expect(dialog().querySelectorAll('[data-testid="creative"]')).toHaveLength(2);
   });
 
   it("shows the week's batch grouped by hook, approves both sizes at once or one at a time, rejects", async () => {
