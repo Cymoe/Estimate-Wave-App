@@ -1087,10 +1087,12 @@ describe("niche research's pure parts", () => {
     expect(isLocal("Serving the Permian Basin since 2009", markets)).toBe(true);
     expect(isLocal("Midlands UK decorators", markets)).toBe(false);
     expect(isLocal("", markets)).toBe(false);
-    expect(swipeScore({ starred: false })).toBe(30);
+    // Scaled so the best possible ad (60 quality, a year running) is 100.
+    expect(swipeScore({ starred: false })).toBe(35);
     // Naming one of the owner's towns earns nothing: the ads are learned from wherever they run.
-    expect(swipeScore({ starred: false, quality: 48, daysRunning: 365, local: true })).toBe(73);
-    expect(swipeScore({ starred: false, quality: 99, daysRunning: 9999 })).toBe(85);
+    expect(swipeScore({ starred: false, quality: 48, daysRunning: 365, local: true })).toBe(86);
+    expect(swipeScore({ starred: false, quality: 99, daysRunning: 9999 })).toBe(100);
+    expect(swipeScore({ starred: false, quality: 60, daysRunning: 365, endedAt: "2026-11-20" })).toBe(88);
     const sw = (
       id: string,
       over: Partial<{ scope?: string; starred: boolean; transcript?: string; quality?: number; daysRunning?: number; local?: boolean }>,

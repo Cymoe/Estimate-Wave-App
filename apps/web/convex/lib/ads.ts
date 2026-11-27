@@ -600,15 +600,17 @@ export interface Scored { endedAt?: string;
 }
 
 /**
- * How much a swipe is worth learning from, 0–85: Claude's quality (0–60) and
- * how long it has run (up to 25 for a year); naming one of the owner's towns
- * earns nothing. Untagged rows count as middling quality.
+ * How much a swipe is worth learning from, 0–100: Claude's quality (0–60) and
+ * how long it has run (up to 25 for a year), less 10 once it has stopped, scaled
+ * so the best possible ad is 100. Naming one of the owner's towns earns nothing.
+ * Untagged rows count as middling quality.
  */
 export function swipeScore(s: Scored): number {
   const quality = Math.max(0, Math.min(60, s.quality ?? 30));
   const longevity = Math.min(25, Math.round(((s.daysRunning ?? 0) / 365) * 25));
   // One that has stopped still proved itself, but a still-running one is what's working now.
-  return quality + longevity - (s.endedAt ? 10 : 0);
+  const points = quality + longevity - (s.endedAt ? 10 : 0);
+  return Math.max(0, Math.min(100, Math.round((points / 85) * 100)));
 }
 
 /** Which swipes to show the writer for a hook: its scope first (general ones fill in), starred, highest score, with a script, newest. */

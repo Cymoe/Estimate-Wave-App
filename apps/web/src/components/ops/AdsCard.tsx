@@ -2905,7 +2905,9 @@ const SwipeTable: React.FC<{ rows: Swipe[]; act: Act }> = ({ rows, act }) => {
   const [desc, setDesc] = useState(true);
   const value = (x: Swipe): string | number =>
     sort === 'score' ? x.score ?? 0 : sort === 'days' ? x.daysRunning ?? 0 : sort === 'company' ? x.company.toLowerCase() : x.startedAt ?? '';
+  // Starred ads stay on top, as on the cards; the chosen column orders the rest.
   const sorted = [...rows].sort((a, b) => {
+    if (a.starred !== b.starred) return a.starred ? -1 : 1;
     const va = value(a);
     const vb = value(b);
     const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
