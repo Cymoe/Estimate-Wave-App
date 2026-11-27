@@ -468,6 +468,47 @@ function pickFrom<A extends AssetRow>(pool: A[], max: number, inScope: boolean):
   return { assets: out, inScope };
 }
 
+/** How many photos the shortlist keeps for an idea: enough to choose shots from. */
+export const SHORTLIST_MAX = 12;
+
+/**
+ * Before an ad is made, Claude reads the idea against what every photo of its kind shows (the descriptions it wrote
+ * when each photo came in) and names the ones that fit: two-tone cabinets for a two-tone idea, a brick house for a
+ * brick idea. Without this the photos offered are only the right category, and often none shows what the idea says.
+ */
+export function shortlistPrompt(
+  idea: string,
+  photos: Array<{ n: number; tags: string[]; description: string; uses: number; best?: boolean; project?: string }>,
+  max = SHORTLIST_MAX,
+): string {
+  return [
+    "An ad is about to be made from the owner's own job photos. The idea:",
+    idea,
+    "",
+    "The photos on file, each with what it shows (BEST marks the owner's favourite shots; uses is how many ads it is already in):",
+    ...photos.map(
+      (p) =>
+        `${p.n}. ${p.best ? "BEST · " : ""}${p.tags.join(", ")}${p.project ? ` · project ${p.project}` : ""} · uses ${p.uses}: ${p.description.replace(/\s+/g, " ").slice(0, 220)}`,
+    ),
+    "",
+    `Pick up to ${max} photos that show what this idea says and shows, best fit first. Only photos whose description really matches: if the idea is about two-tone cabinets, only photos with different colours above and below; if it names a room, a material or a colour, only photos that show it. Among photos that fit equally, prefer BEST ones and ones in fewer ads, and photos from the same project together when the idea tells one job's story. Leave out anything that doesn't fit, even if that leaves few or none.`,
+    "",
+    'Return only JSON: {"photos":[3,7,12]}',
+  ].join("\n");
+}
+
+/** The photo numbers Claude picked, in its order, only ones that were offered. */
+export function readShortlist(reply: string, offered: number): number[] {
+  const out = parseJson<{ photos?: unknown }>(reply);
+  if (!out || !Array.isArray(out.photos)) return [];
+  const seen = new Set<number>();
+  for (const x of out.photos) {
+    const n = Number(x);
+    if (Number.isInteger(n) && n >= 1 && n <= offered) seen.add(n);
+  }
+  return [...seen].slice(0, SHORTLIST_MAX);
+}
+
 /** The fewest photos a job needs for a story to be told from it alone; a job with fewer leaves the photos picked as before. */
 export const JOB_MIN = 3;
 

@@ -24,6 +24,8 @@ import {
   pairingPrompt,
   cleanItems,
   itemsIn,
+  readShortlist,
+  shortlistPrompt,
   readPairing,
   fromApifyItem,
   isFatigued,
@@ -38,6 +40,7 @@ import {
   REEL_CANDIDATES,
   pickExamples,
   ANY_SCOPE,
+  SHORTLIST_MAX,
   hookFromSwipe,
   pickHooks,
   type BasedOn,
@@ -4254,6 +4257,47 @@ async function readJson(res: Response, what: string): Promise<any> {
 }
 
 /** One Claude call: content blocks in; the reply's text out, and whether it ran out of room before finishing. */
+/**
+ * The photos that fit an idea, from what each one shows: in the idea's kind of job (any kind for a general idea), not
+ * used by another ad this week, with a description. Each picked photo brings its before or after along. Null when
+ * Claude can't be asked or names none, so the usual picking runs on the whole library.
+ */
+async function shortlistFor<P extends { _id: string; tags: string[]; description?: string; uses?: number; best?: boolean; jobId?: string; pairKey?: string }>(
+  idea: string,
+  scope: string,
+  photos: P[],
+  used: Set<string>,
+): Promise<P[] | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  const candidates = photos
+    .filter((p) => p.description && !used.has(p._id) && (scope === ANY_SCOPE || p.tags.includes(scope)))
+    .sort((a, b) => Number(!!b.best) - Number(!!a.best) || (a.uses ?? 0) - (b.uses ?? 0))
+    .slice(0, 220);
+  if (candidates.length <= SHORTLIST_MAX) return null;
+  try {
+    const reply = await claude(
+      [
+        {
+          type: "text",
+          text: shortlistPrompt(
+            idea,
+            candidates.map((p, i) => ({ n: i + 1, tags: p.tags, description: p.description!, uses: p.uses ?? 0, best: p.best, project: p.jobId ? p.jobId.slice(-4) : undefined })),
+          ),
+        },
+      ],
+      400,
+    );
+    const picked = readShortlist(reply, candidates.length).map((n) => candidates[n - 1]);
+    if (picked.length === 0) return null;
+    const keys = new Set(picked.map((p) => p.pairKey).filter(Boolean));
+    const halves = photos.filter((p) => p.pairKey && keys.has(p.pairKey) && !picked.includes(p) && !used.has(p._id));
+    return [...picked, ...halves];
+  } catch (e) {
+    console.error("shortlist", errText(e));
+    return null;
+  }
+}
+
 async function claudeReply(content: unknown[], maxTokens = 1500): Promise<{ text: string; cutOff: boolean }> {
   const ask = () =>
     fetch("https://api.anthropic.com/v1/messages", {
@@ -4399,7 +4443,11 @@ export const weeklyRun = internalAction({
         const want = itemsIn(`${hook.textEn} ${hook.basedOn?.angle ?? ""}`, trade);
         // The type of work it names (fence staining, stained cabinets): only photos of that work, when there are enough.
         const works = worksIn(hook.textEn, trade);
-        const picked = pickAssets(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? [], want, works);
+        // The photos that show what the idea says, read from their descriptions (with their pairs), when Claude finds
+        // some; the rest of the picking then works on those alone.
+        const fitting = hook.photoId || jobId ? null : await shortlistFor(`${hook.textEn}${hook.basedOn?.angle ? ` (angle: ${hook.basedOn.angle})` : ""}`, hook.scope, photos, requestId ? new Set<string>() : used);
+        const pool = fitting ?? photos;
+        const picked = pickAssets(pool, fitting ? ANY_SCOPE : hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, playbook?.footagePrefs ?? [], want, works);
         // An ad made for one job's photo shows that job only: the photo, and its pair if it has one. Other jobs' work would pass for this one.
         const lead = hook.photoId ? photos.find((a: { _id: string }) => a._id === hook.photoId) : undefined;
         if (lead) {
@@ -4417,7 +4465,15 @@ export const weeklyRun = internalAction({
           : jobId
             ? { jobId: String(jobId), assets: jobInOrder(photos.filter((a: { jobId?: string }) => a.jobId === jobId)) }
             : shape !== "explainer"
-              ? pickJob(photos, hook.scope, requestId ? new Set<string>() : used, REEL_CANDIDATES, want, works)
+              ? // A story's job: one the fitting photos come from, when one has enough photos.
+                pickJob(
+                  fitting ? photos.filter((a: { jobId?: string }) => a.jobId && fitting.some((f: { jobId?: string }) => f.jobId === a.jobId)) : photos,
+                  hook.scope,
+                  requestId ? new Set<string>() : used,
+                  REEL_CANDIDATES,
+                  want,
+                  works,
+                )
               : null;
         if (job) {
           picked.assets.splice(0, picked.assets.length, ...job.assets);

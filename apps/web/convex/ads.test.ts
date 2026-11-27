@@ -1924,6 +1924,8 @@ describe("the library, hooks and settings", () => {
 });
 
 type StubOpts = {
+  /** The shortlist picks the photos whose description has this word (none: Claude names none, the usual picking runs). */
+  fits?: string;
   /** Claude turns this many looks at an upload away for coming too fast (429), counting down. */
   busyLooks?: { n: number };
   /** Claude answers this scope's hook in words, with no plan; "cut off" stops mid-answer instead. */
@@ -2113,6 +2115,15 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         if (opts.busyLooks && prompt.includes("It will be used in ads.") && opts.busyLooks.n-- > 0)
           return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } }), { status: 429 });
         if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
+        else if (prompt.includes("An ad is about to be made from the owner's own job photos"))
+          reply = {
+            photos: opts.fits
+              ? prompt
+                  .split("\n")
+                  .filter((l) => /^\d+\. /.test(l) && l.includes(opts.fits!))
+                  .map((l) => Number(l.split(".")[0]))
+              : [],
+          };
         else if (prompt.includes("Which before and which after show the same spot")) reply = opts.pairs ?? { pairs: [{ before: 1, after: 2 }] };
         else if (prompt.includes("typed this request for a Facebook ad")) reply = opts.request ?? { trade: "painting", scope: null, town: "Odessa", idea: "We paint homes inside and out" };
         else if (prompt.includes(IDEA_MARK)) reply = { ideas: ideasOf(prompt) };
@@ -2957,6 +2968,35 @@ describe("the weekly run", () => {
     const jobs = await claim();
     const looks = jobs.map((j: { props: { style: { look?: string } } }) => j.props.style.look);
     expect(looks).toEqual(expect.arrayContaining(["markup", "versus"]));
+  });
+
+  test("the photos offered are the ones whose description shows what the idea says (two-tone cabinets), not just any of its kind", async () => {
+    const { t, calls, draft } = await ready();
+    stubServices(calls, { fits: "green lower" });
+    await t.run(async (ctx) => {
+      const user = (await ctx.db.query("users").take(1))[0]._id;
+      for (let i = 0; i < 16; i++) {
+        const twoTone = i === 9;
+        await ctx.db.insert("adAssets", {
+          storageId: await ctx.storage.store(new Blob([`p${i}`], { type: "image/jpeg" })),
+          kind: "photo",
+          fileName: twoTone ? "two-tone.jpg" : `white-${i}.jpg`,
+          contentType: "image/jpeg",
+          size: 10,
+          tags: ["interior", "cabinets", "after"],
+          description: twoTone ? "A finished kitchen with green lower cabinets and white uppers." : "A finished kitchen with white upper and lower cabinets.",
+          uploadedBy: user,
+          createdAt: `2026-11-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+        });
+      }
+    });
+    await draft();
+    const asks = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>);
+    const shortlist = asks.find((a) => a.some((c) => c.text?.includes("An ad is about to be made")));
+    expect(shortlist).toBeDefined();
+    // The ad was then offered the one photo that fits, not a dozen white kitchens.
+    const plan = asks.find((a) => a.some((c) => /^Photo \d+:$/.test(c.text ?? "")))!;
+    expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(1);
   });
 
   test("with stills on, a reel that shows a before and its after from one job also gets a still of that pair, drawn as a picture", async () => {
