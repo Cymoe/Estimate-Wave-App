@@ -21,6 +21,9 @@ crons.interval("chase Got it", { minutes: 5 }, internal.delivery.escalateOverdue
 // Clips shared to the Ads library's Google Drive folder, brought in by the runner (adDrive.ts).
 crons.interval("watch the ad clips folder", { minutes: 10 }, internal.adDrive.poll, {});
 
+// New leads from the Meta instant forms into intake, every few minutes (metaLeads.ts): a lead is called fast.
+crons.interval("take in Meta form leads", { minutes: 3 }, internal.metaLeads.pull, {});
+
 // Midland's permit feed, once a day (lib/permits.ts).
 crons.daily(
   "sync Midland permits",

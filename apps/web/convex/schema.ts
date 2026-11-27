@@ -2934,6 +2934,8 @@ export default defineSchema({
     metaTokenEnc: v.optional(v.string()),
     metaTokenHint: v.optional(v.string()),
     metaTokenSetAt: v.optional(v.string()),
+    // The newest Meta form lead taken into intake (metaLeads.pull), so each look asks only for newer ones.
+    metaLeadsSince: v.optional(v.string()),
     primaryColor: v.optional(v.string()),
     accentColor: v.optional(v.string()),
     voiceId: v.optional(v.string()),

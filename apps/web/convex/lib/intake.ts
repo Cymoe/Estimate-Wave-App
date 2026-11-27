@@ -48,7 +48,7 @@ const KEYS: Record<keyof Omit<IntakeFields, "consent" | "isOwner">, string[]> = 
   zip: ["zipcode", "zip", "postcode", "postalcode"],
   county: ["county"],
   jobType: ["jobtype", "trade", "service", "servicetype", "whatdoyouneed"],
-  scope: ["scope", "projecttype", "whatkindofwork"],
+  scope: ["scope", "projecttype", "whatkindofwork", "work", "whatwouldyoulikepainted"],
   timeline: ["timeline", "whendoyouwantthisdone", "whendoyouneedit", "timing"],
   notes: ["notes", "description", "details", "message", "comments"],
   language: ["language", "preferredlanguage", "idioma", "lenguaje", "whatlanguage"],

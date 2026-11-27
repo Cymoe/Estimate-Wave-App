@@ -4401,7 +4401,7 @@ const graph = async (path: string, params: Record<string, unknown>, what: string
 };
 
 /** The Meta token: META_ACCESS_TOKEN on the deployment, else the one pasted in Settings (sealed). */
-async function metaToken(ctx: ActionCtx): Promise<string | undefined> {
+export async function metaToken(ctx: ActionCtx): Promise<string | undefined> {
   if (process.env.META_ACCESS_TOKEN) return process.env.META_ACCESS_TOKEN;
   const enc: string | null = await ctx.runQuery(internal.ads.metaTokenSealed, {});
   return enc ? await openSealed(enc) : undefined;
@@ -4422,7 +4422,7 @@ export const ownerOnly = internalQuery({
 });
 
 /** A Graph API read with the token; Meta's own message when it says no. */
-async function graphGet(path: string, token: string): Promise<any> {
+export async function graphGet(path: string, token: string): Promise<any> {
   const sep = path.includes("?") ? "&" : "?";
   const res = await fetch(`${GRAPH}/${path}${sep}access_token=${encodeURIComponent(token)}`);
   const body = await res.json().catch(() => ({}));
