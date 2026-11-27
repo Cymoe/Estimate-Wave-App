@@ -49,6 +49,8 @@ describe("Meta form leads into intake", () => {
     // A second look: the same lead is a repeat, not a second lead, and it asks only from about the last one on.
     expect(await t.action(internal.metaLeads.pull, {})).toEqual({ taken: 0, repeats: 1 });
     expect(await t.run(async (ctx) => (await ctx.db.query("intakeLeads").collect()).length)).toBe(1);
+    // The re-read isn't logged as a hit: only the first look's "accepted" is.
+    expect(await t.run(async (ctx) => (await ctx.db.query("intakeLog").collect()).map((l) => l.outcome))).toEqual(["accepted"]);
     const filter = decodeURIComponent(seen.filter((u) => u.includes("/f9/leads")).at(-1)!);
     expect(filter).toContain(String(Math.floor(Date.parse("2026-11-27T01:00:00Z") / 1000) - 60));
   });

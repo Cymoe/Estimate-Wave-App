@@ -64,16 +64,20 @@ export const pull = internalAction({
           for (const lead of (got?.data ?? []) as MetaLead[]) {
             const payload = { ...lead, leadgen_id: lead.id, form_id: lead.form_id ?? form.id, form_name: form.name };
             const r = await ctx.runMutation(internal.intake.receive, { payload, source: "meta" });
+            // A repeat here is this look's own minute of overlap seeing the last lead again: counted, not logged, so the
+            // webhook hits don't fill with the same lead every few minutes.
             if (r.repeat) repeats++;
-            else taken++;
-            await ctx.runMutation(internal.intake.log, {
-              outcome: r.repeat ? "repeat" : "accepted",
-              reason: r.repeat ? "Same Meta lead as one already in" : r.duplicate ? "Same phone as another lead: flagged" : undefined,
-              source: "meta",
-              externalId: r.externalId,
-              intakeLeadId: r.id,
-              summary: r.summary,
-            });
+            else {
+              taken++;
+              await ctx.runMutation(internal.intake.log, {
+                outcome: "accepted",
+                reason: r.duplicate ? "Same phone as another lead: flagged" : undefined,
+                source: "meta",
+                externalId: r.externalId,
+                intakeLeadId: r.id,
+                summary: r.summary,
+              });
+            }
             if (lead.created_time) {
               const at = new Date(lead.created_time).toISOString();
               if (!newest || at > newest) newest = at;
