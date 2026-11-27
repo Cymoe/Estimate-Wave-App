@@ -690,12 +690,11 @@ const AdTile: React.FC<{ group: HookGroupData; act: Act }> = ({ group, act }) =>
               </span>
             </span>
           )}
-          <span className={`absolute top-2 left-2 rounded-full px-2.5 py-1 text-[11px] font-medium ${live ? 'bg-emerald-500 text-black' : 'bg-black/70 text-white'}`}>
-            {statuses.join(' · ')}
-          </span>
         </div>
         <p className="mt-2 text-sm font-medium text-white line-clamp-2">{title}</p>
         <p className="text-xs text-gray-400">
+          <span className={live ? 'text-emerald-300' : 'text-gray-300'}>{statuses.join(' · ')}</span>
+          {' · '}
           {kind}
           {group.hook ? ` · ${scopeLabel(group.hook.scope)}` : ''}
           {sizes > 1 ? ` · ${sizes} sizes` : ''}
