@@ -5207,8 +5207,10 @@ export const imageAdInput = internalQuery({
     fresh: v.optional(v.boolean()),
     // Competitor ads this set has already been built on, so each ad in it takes another.
     skipSwipes: v.optional(v.array(v.id("adSwipes"))),
+    // Photos the ads made just before this one in the same set show: this one shows others.
+    skipAssets: v.optional(v.array(v.id("adAssets"))),
   },
-  handler: async (ctx, { service: serviceKey, type: key, swipeId, trade: slug, fresh, skipSwipes }) => {
+  handler: async (ctx, { service: serviceKey, type: key, swipeId, trade: slug, fresh, skipSwipes, skipAssets }) => {
     const type = imageAdType(key);
     if (!type) fail("INVALID", "That isn't a type of image ad");
     const trade = tradeOf(slug);
@@ -5266,12 +5268,17 @@ export const imageAdInput = internalQuery({
     const onFile = fresh ? [] : (await ctx.db.query("adSwipes").take(1000)).filter((s) => inTrade(s, trade.slug));
     const auto = pickImageModels(onFile, service!.scope, skipSwipes ?? []);
     const x = fresh ? null : swipeId ? await ctx.db.get(swipeId) : (auto.model ?? null);
+    // Ads in one set don't share photos: what the earlier ones show is left out, while enough is left to make this one.
+    const taken = new Set<string>(skipAssets ?? []);
+    const open = picks.filter((p) => !p.ids.some((id) => taken.has(id)));
+    const enough = type!.layout === "grid" ? 3 : 1;
+    const offered = (open.length >= enough ? open : picks).map((p, i) => ({ ...p, n: i + 1 }));
     const playbook = fresh ? undefined : (await ctx.db.query("adPlaybooks").take(20)).find((p) => p.scope === service!.scope)?.text;
     return {
       trade: trade.slug,
       brand: consumerBrand(),
       town: research(row).researchMarkets[0] ?? "your town",
-      picks,
+      picks: offered,
       basedOn: x ? { company: x.company, angle: x.hook, offer: x.offer, daysRunning: runDays(x), words: swipeWords(x.transcript) ?? swipeWords(x.adCopy) } : undefined,
       swipeId: x?._id,
       field: auto.field.filter((f) => f._id !== x?._id).map((f) => ({ company: f.company, angle: f.hook, offer: f.offer, daysRunning: runDays(f), image: isImageSwipe(f) })),
@@ -5309,10 +5316,12 @@ async function makeImageAds(ctx: ActionCtx, args: { service: string; type: strin
   const made: Array<{ name: string; headline: string; builtOn?: string }> = [];
   const missed: string[] = [];
   const usedSwipes: Id<"adSwipes">[] = [];
+  const usedAssets: Id<"adAssets">[] = [];
   for (let i = 0; i < count; i++) {
     try {
-      const one = await makeImageAd(ctx, args, me, made.map((m) => m.headline), usedSwipes);
+      const one = await makeImageAd(ctx, args, me, made.map((m) => m.headline), usedSwipes, usedAssets);
       if (one.swipeId) usedSwipes.push(one.swipeId);
+      usedAssets.push(...one.assetIds);
       made.push({ name: one.name, headline: one.headline, builtOn: one.builtOn });
     } catch (e) {
       // The first failing stops nothing made before it; with none made, the reason is the owner's to see.
@@ -5329,13 +5338,13 @@ export const createImageAdOutside = internalAction({
   handler: async (ctx, { count, ...args }) => await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1)))),
 });
 
-async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, me?: Id<"users">, avoid: string[] = [], skipSwipes: Id<"adSwipes">[] = []): Promise<{ name: string; headline: string; builtOn?: string; swipeId?: Id<"adSwipes"> }> {
+async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, me?: Id<"users">, avoid: string[] = [], skipSwipes: Id<"adSwipes">[] = [], skipAssets: Id<"adAssets">[] = []): Promise<{ name: string; headline: string; builtOn?: string; swipeId?: Id<"adSwipes">; assetIds: Id<"adAssets">[] }> {
   {
     if (!process.env.ANTHROPIC_API_KEY) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
     const type = imageAdType(args.type);
     if (!type) fail("INVALID", "That isn't a type of image ad");
     // The owner's pick is used for every ad in the set; the app's own choice takes a different one each time.
-    const input = await ctx.runQuery(internal.ads.imageAdInput, { ...args, skipSwipes: args.swipeId ? [] : skipSwipes });
+    const input = await ctx.runQuery(internal.ads.imageAdInput, { ...args, skipSwipes: args.swipeId ? [] : skipSwipes, skipAssets });
     const need = type!.layout === "grid" ? 3 : 1;
     const about = input.service.label.toLowerCase();
     if (input.picks.length < need)
@@ -5386,7 +5395,7 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
       startedBy: me,
     });
     const days = input.basedOn?.daysRunning;
-    return { name, headline: plan!.headline, swipeId: input.swipeId, builtOn: input.basedOn ? `${input.basedOn.company}${days ? `, ${days} days` : ""}` : undefined };
+    return { name, headline: plan!.headline, assetIds, swipeId: input.swipeId, builtOn: input.basedOn ? `${input.basedOn.company}${days ? `, ${days} days` : ""}` : undefined };
   }
 }
 
