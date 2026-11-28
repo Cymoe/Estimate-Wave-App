@@ -1,9 +1,13 @@
-import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { body, display, INK, ZONES } from "../theme";
+import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { INK, kicker, poster, ZONES } from "../theme";
 import type { Brand, Ratio } from "../types";
 import { jolt } from "./motion";
 
-/** The ask. The brand's colour opens out from the middle, the button lands, and a ring keeps pulsing from it. */
+/**
+ * The ask. The brand's colour opens out from the middle, the button lands, and a ring keeps pulsing from it.
+ * It matches the still ads (the owner, Nov 2026): the spray gun mark, the name in heavy condensed capitals with its
+ * first word in the accent colour, the area in italic serif, and the gold squared button that says GET A FREE QUOTE.
+ */
 export const EndCard: React.FC<{ brand: Brand; ratio: Ratio; from: number; punch?: boolean }> = ({ brand, ratio, from, punch = false }) => {
   const frame = useCurrentFrame();
   const { fps, height } = useVideoConfig();
@@ -27,36 +31,57 @@ export const EndCard: React.FC<{ brand: Brand; ratio: Ratio; from: number; punch
       }}
     >
       <div style={{ position: "absolute", left: 0, right: 0, top: `${middle * 100}%`, transform: "translateY(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 76, color: "#fff", opacity: words, transform: `translateY(${interpolate(words, [0, 1], [24, 0])}px)` }}>
-          {brand.name}
+        <div
+          style={{
+            width: 190,
+            height: 190,
+            borderRadius: 95,
+            overflow: "hidden",
+            border: "6px solid #fff",
+            boxSizing: "border-box",
+            backgroundColor: brand.primaryColor,
+            boxShadow: "0 14px 40px rgba(0,0,0,0.4)",
+            marginBottom: 34,
+            opacity: words,
+            transform: `scale(${interpolate(words, [0, 1], [0.8, 1])})`,
+          }}
+        >
+          <Img src={staticFile("brand/mark-navy.png")} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </div>
+        <div style={{ fontFamily: poster, fontWeight: 400, fontSize: 104, letterSpacing: 1.5, textTransform: "uppercase", whiteSpace: "nowrap", opacity: words, transform: `translateY(${interpolate(words, [0, 1], [24, 0])}px)` }}>
+          <span style={{ color: brand.accentColor }}>{brand.name.split(" ")[0]}</span>
+          <span style={{ color: "#fff" }}> {brand.name.split(" ").slice(1).join(" ")}</span>
         </div>
         {markets ? (
-          <div style={{ fontFamily: body, fontWeight: 600, fontSize: 40, color: brand.accentColor, marginTop: 10, opacity: words }}>{markets}</div>
+          <div style={{ fontFamily: kicker, fontStyle: "italic", fontWeight: 600, fontSize: 46, color: brand.accentColor, marginTop: 12, opacity: words }}>{markets}</div>
         ) : null}
         <div style={{ position: "relative", marginTop: 70, transform: `translate(${hit.x}px, ${hit.y}px) scale(${land})` }}>
           <div
             style={{
               position: "absolute",
               inset: 0,
-              borderRadius: 80,
-              border: "6px solid #fff",
+              borderRadius: 14,
+              border: `6px solid ${brand.accentColor}`,
               opacity: (1 - ring) * 0.6,
-              transform: `scale(${1 + ring * 0.35})`,
+              transform: `scale(${1 + ring * 0.25})`,
             }}
           />
           <div
             style={{
-              fontFamily: display,
-              fontWeight: 800,
-              fontSize: 68,
+              fontFamily: poster,
+              fontWeight: 400,
+              fontSize: 76,
+              letterSpacing: 2,
+              textTransform: "uppercase",
+              whiteSpace: "nowrap",
               color: brand.primaryColor,
-              backgroundColor: "#fff",
-              padding: "34px 84px",
-              borderRadius: 80,
+              backgroundColor: brand.accentColor,
+              padding: "30px 70px",
+              borderRadius: 14,
               boxShadow: "0 24px 60px rgba(0,0,0,0.35)",
             }}
           >
-            Get a quote
+            Get a free quote
           </div>
         </div>
       </div>

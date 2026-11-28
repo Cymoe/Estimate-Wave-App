@@ -70,7 +70,9 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   count ≤ 3}`: a switched-off hook per ad, then `weeklyRun` with `service` so only that service's photos are offered).
   On camera writes the script and waits (`awaitsTake`, status recording, "Waiting for the take") with no voice made,
   until a take is added. Kept ideas have the same choice ("Make as": `makeKeptImages`, or `makeKept {kind}`).
-  The video looks are unchanged; the saved brand colours default to the navy and gold.
+  The video looks are unchanged except the end card, which matches the stills (spray gun mark, name in Anton with
+  its first word gold, area in italic serif, gold squared GET A FREE QUOTE button: `parts/EndCard.tsx`). The saved
+  brand colours default to the navy and gold.
 - The sub line must open with a sentence of at most 44 characters (it is the italic line) and say "free quote".
 - Collages and screenshots are never offered (`isCollage`), however they are tagged.
 
