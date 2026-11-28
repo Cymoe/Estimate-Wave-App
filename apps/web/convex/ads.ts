@@ -3080,10 +3080,22 @@ export const VIDEO_ADS_AT_ONCE = 3;
  * for a person to speak on camera. Each gets a switched-off hook of its own, built on one of the best long-running
  * competitor ads for the service (a different one each), and goes down the usual path: written, voiced, drawn.
  */
+const videoAdArgs = { service: v.string(), kind: videoKind, swipeId: v.optional(v.id("adSwipes")), fresh: v.optional(v.boolean()), trade: v.optional(v.string()), count: v.optional(v.number()) };
+type VideoAdArgs = { service: string; kind: "story" | "lesson" | "quick" | "oncamera"; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string; count?: number };
+
 export const createVideoAd = mutation({
-  args: { service: v.string(), kind: videoKind, swipeId: v.optional(v.id("adSwipes")), fresh: v.optional(v.boolean()), trade: v.optional(v.string()), count: v.optional(v.number()) },
-  handler: async (ctx, { service: key, kind, swipeId, fresh, trade: slug, count }) => {
-    const user = await requireSuperAdmin(ctx);
+  args: videoAdArgs,
+  handler: async (ctx, args) => await startVideoAds(ctx, args, (await requireSuperAdmin(ctx))._id),
+});
+
+/** The same from a cloud session (the deploy workflow), to make one or to check the live library. */
+export const createVideoAdOutside = internalMutation({
+  args: videoAdArgs,
+  handler: async (ctx, args) => await startVideoAds(ctx, args),
+});
+
+async function startVideoAds(ctx: MutationCtx, { service: key, kind, swipeId, fresh, trade: slug, count }: VideoAdArgs, startedBy?: Id<"users">) {
+  {
     const k = keys();
     if (!k.anthropic || (!k.elevenlabs && kind !== "oncamera")) fail("INVALID", "Set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY on the deployment first");
     const trade = tradeOf(slug);
@@ -3121,10 +3133,10 @@ export const createVideoAd = mutation({
         }),
       );
     }
-    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only, trade: trade.slug, service: service!.key, ...videoRun(kind) });
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy, force: true, only, trade: trade.slug, service: service!.key, ...videoRun(kind) });
     return { made: n, kind: what.label };
-  },
-});
+  }
+}
 
 /** The Library's video clips of a service, newest first: what a job site clip ad can be made from. */
 export const serviceClips = query({
