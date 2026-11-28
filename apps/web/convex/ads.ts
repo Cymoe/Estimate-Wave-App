@@ -5338,7 +5338,7 @@ export const imageAdTypes = query({
   },
 });
 
-type ImagePick = ImageCandidate & { ids: Id<"adAssets">[]; urls: string[] };
+type ImagePick = ImageCandidate & { ids: Id<"adAssets">[]; urls: string[]; job?: string };
 
 /** What one image ad is written from: the photos (or pairs) to choose from, and the competitor ad to model. */
 export const imageAdInput = internalQuery({
@@ -5393,7 +5393,7 @@ export const imageAdInput = internalQuery({
       }
       pairs.sort(([, x], [, y]) => order(x, y));
       for (const [b, a] of pairs.slice(0, 60))
-        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id], urls: [urlOf.get(b._id)!, urlOf.get(a._id)!] });
+        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id], urls: [urlOf.get(b._id)!, urlOf.get(a._id)!], job: a.jobId ?? b.jobId });
     } else {
       // Finished work only: never a before, never work in progress, never two pictures in one.
       const whole = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
@@ -5416,7 +5416,7 @@ export const imageAdInput = internalQuery({
         return names.get(key)!;
       };
       for (const a of finished.slice(0, 120))
-        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best && !resting(a), project: projectOf(a), ids: [a._id], urls: [urlOf.get(a._id)!] });
+        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best && !resting(a), project: projectOf(a), ids: [a._id], urls: [urlOf.get(a._id)!], job: a.jobId });
     }
     // The competitor ads for this service: the one to build on (the owner's pick, else the best long-running image
     // ad taking its turn), the rest of the best as what's working, and the category's playbook.
@@ -5427,7 +5427,14 @@ export const imageAdInput = internalQuery({
     const taken = new Set<string>(skipAssets ?? []);
     const open = picks.filter((p) => !p.ids.some((id) => taken.has(id)));
     const enough = type!.layout === "grid" ? 3 : 1;
-    const offered = (open.length >= enough ? open : picks).map((p, i) => ({ ...p, n: i + 1 }));
+    // Nor the same job twice: two before and afters of one kitchen from different angles are one ad too many.
+    const takenJobs = new Set<string>();
+    for (const id of skipAssets ?? []) {
+      const job = (await ctx.db.get(id))?.jobId;
+      if (job) takenJobs.add(job);
+    }
+    const otherJobs = open.filter((p) => !p.job || !takenJobs.has(p.job));
+    const offered = (otherJobs.length >= enough ? otherJobs : open.length >= enough ? open : picks).map(({ job: _job, ...p }, i) => ({ ...p, n: i + 1 }));
     const playbook = fresh ? undefined : (await ctx.db.query("adPlaybooks").take(20)).find((p) => p.scope === service!.scope)?.text;
     // The headlines image ads already carry (rejected ones too): none is written again.
     const usedHeadlines = [...new Set((await ctx.db.query("adCreatives").order("desc").take(400)).filter((c) => c.still && c.script.onScreen[0]).map((c) => c.script.onScreen[0]))].slice(0, HEADLINES_REMEMBERED);

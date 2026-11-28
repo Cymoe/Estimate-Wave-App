@@ -3305,6 +3305,42 @@ describe("the weekly run", () => {
     expect(prompt).toContain("NEVER a caption");
   });
 
+  test("ads made in one set never show the same job twice: a second before and after of one kitchen is left out", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    void owner;
+    const ids = await t.run(async (ctx) => {
+      const user = (await ctx.db.query("users").take(1))[0]._id;
+      const add = async (fileName: string, stage: string, description: string, pairKey: string, jobId: Id<"adJobs">) =>
+        await ctx.db.insert("adAssets", {
+          storageId: await ctx.storage.store(new Blob([fileName], { type: "image/jpeg" })),
+          kind: "photo",
+          fileName,
+          contentType: "image/jpeg",
+          size: 10,
+          tags: ["interior", "cabinets", "cabinets-painted", stage],
+          description,
+          pairKey,
+          jobId,
+          uploadedBy: user,
+          createdAt: "2026-11-01T00:00:00Z",
+        });
+      const elm = await ctx.db.insert("adJobs", { trade: "painting", name: "Elm", createdAt: "2026-11-01T00:00:00Z" });
+      const oak = await ctx.db.insert("adJobs", { trade: "painting", name: "Oak", createdAt: "2026-11-01T00:00:00Z" });
+      const first = [await add("e1b.jpg", "before", "Elm kitchen, brown, from the door.", "e1", elm), await add("e1a.jpg", "after", "Elm kitchen, grey, from the door.", "e1", elm)];
+      await add("e2b.jpg", "before", "Elm kitchen, brown, from the window.", "e2", elm);
+      await add("e2a.jpg", "after", "Elm kitchen, grey, from the window.", "e2", elm);
+      await add("o1b.jpg", "before", "Oak kitchen, brown.", "o1", oak);
+      await add("o1a.jpg", "after", "Oak kitchen, white.", "o1", oak);
+      return first;
+    });
+    const all = await t.query(internal.ads.imageAdInput, { service: "cabinets", type: "plain_pair", fresh: true });
+    expect(all.picks).toHaveLength(3);
+    // With the first Elm pair already in the set, the other Elm pair is left out too: only Oak is offered.
+    const next = await t.query(internal.ads.imageAdInput, { service: "cabinets", type: "plain_pair", fresh: true, skipAssets: ids });
+    expect(next.picks.map((p) => p.description)).toEqual(["Oak kitchen, white."]);
+  });
+
   test("the brand guide: a draft that breaks a rule is reported by the rule, and the brief carries the guide", () => {
     const type = IMAGE_AD_TYPES[0];
     const cands = [
