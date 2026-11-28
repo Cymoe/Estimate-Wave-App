@@ -167,4 +167,6 @@ export type StillProps = {
   pair?: [Photo, Photo];
   /** Three or four finished jobs, each from a different home, shown together under the headline. */
   grid?: Photo[];
+  /** Where the words sit, so ads don't all look alike: 0 top, 1 a band across the middle, 2 low, 3 a card in the middle. */
+  variant?: number;
 };

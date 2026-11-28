@@ -4,59 +4,25 @@ import { body, display, INK } from "../theme";
 import type { Photo, StillProps } from "../types";
 
 /**
- * A still image ad. The photo fills the frame and darkens toward the bottom,
- * where the line, what backs it up and the button sit. With no photo the
- * brand's colours fill the frame instead.
+ * A still image ad: the job's photos edge to edge, never boxed in bars (the owner: it mustn't look like a web page,
+ * Nov 2026), in the brand's navy and gold with its house mark. Where the words sit changes from ad to ad (`variant`),
+ * so a set doesn't look stamped from one mould:
+ *   0 top     the headline on the top of the picture, the ask along the bottom
+ *   1 band    a navy band across the middle carries the words, photos above and below it
+ *   2 bottom  the picture is clean on top; the headline sits low, above the ask
+ *   3 card    a navy card in the middle carries the words, the photos showing all round it
  */
-export const Still: React.FC<StillProps> = (props) =>
-  props.grid?.length ? <Grid {...props} grid={props.grid} /> : props.pair ? <Pair {...props} pair={props.pair} marks={["Before", "After"]} /> : <Single {...props} />;
-
-/**
- * A before and its after, edge to edge like a showcase: side by side when both stand upright, else one above the
- * other. No Before or After tags (the owner: the photos already say it, Nov 2026); the brand's mark sits on the
- * line between them and the headline is on the photos, no bars.
- */
-const Pair: React.FC<StillProps & { pair: [Photo, Photo]; marks: string[] }> = ({ ratio, brand, headline, sub, pair, marks }) => {
-  const tall = ratio === "9x16";
-  const W = 1080;
-  const H = tall ? 1920 : 1350;
-  const gap = 8;
-  const side = pair[0].height > pair[0].width && pair[1].height > pair[1].width;
-  const half = Math.floor(((side ? W : H) - gap) / 2);
-  const cells = pair.map((ph, i) => (side ? { ph, left: i * (half + gap), top: 0, width: half, height: H } : { ph, left: 0, top: i * (half + gap), width: W, height: half }));
-  const size = headline.length <= 22 ? 104 : headline.length <= 34 ? 88 : 74;
-  const safeTop = tall ? 170 : 0;
-  const safeBottom = tall ? 300 : 0;
-  // The words sit low, over the after, so both photos' tops (and their marks) stay clear.
-  return (
-    <AbsoluteFill style={{ backgroundColor: "#fff" }}>
-      {cells.map((c, i) => (
-        <div key={i} style={{ position: "absolute", left: c.left, top: c.top, width: c.width, height: c.height, overflow: "hidden", backgroundColor: INK }}>
-          <Img src={source(c.ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${c.ph.focus?.[0]?.x ?? 50}% ${c.ph.focus?.[0]?.y ?? 50}%` }} />
-        </div>
-      ))}
-      <div style={{ position: "absolute", left: 0, bottom: 0, width: W, height: safeBottom + 560, background: "linear-gradient(to top, rgba(6,20,46,0.94) 0%, rgba(6,20,46,0.7) 50%, rgba(6,20,46,0) 100%)" }} />
-      <Mark size={180} left={side ? half + gap / 2 : W / 2} top={side ? H * 0.42 : half + gap / 2} />
-      <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 150 }}>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, lineHeight: 1.03, letterSpacing: -2.5, color: "#fff", textShadow: "0 4px 22px rgba(0,0,0,0.55)" }}>{headline}</div>
-        <div style={{ width: 132, height: 12, borderRadius: 6, backgroundColor: TEAL, marginTop: 20 }} />
-        {sub ? <div style={{ fontFamily: body, fontWeight: 600, fontSize: 38, lineHeight: 1.22, color: "#fff", marginTop: 16, textShadow: "0 2px 12px rgba(0,0,0,0.6)" }}>{sub}</div> : null}
-      </div>
-      <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 40, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 44, color: "#fff", textShadow: "0 2px 14px rgba(0,0,0,0.6)" }}>{brand.name}</div>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 40, color: "#fff", backgroundColor: TEAL, padding: "20px 44px", borderRadius: 60, boxShadow: "0 8px 26px rgba(0,0,0,0.35)" }}>Get a free quote</div>
-      </div>
-    </AbsoluteFill>
-  );
+export const Still: React.FC<StillProps> = (props) => {
+  const photos = props.grid?.length ? props.grid.slice(0, 4) : props.pair ? [props.pair[0], props.pair[1]] : props.photo ? [props.photo] : [];
+  return <Layout {...props} photos={photos} isPair={Boolean(props.pair && !props.grid?.length)} />;
 };
 
-/** The brand's mark (the house and tick), a file the renderer carries. */
-const MARK = "brand/mark.png";
-/** The logo's own colours: the words and button are set in these, whatever the settings say. */
-const NAVY = "#0a2757";
-const TEAL = "#17a2a4";
+/** The logo's own colours (the owner moved the brand to navy and gold, Nov 2026). */
+const NAVY = "#0f1c42";
+const GOLD = "#f2c043";
+const SHADE = "15,28,66";
 
-/** The mark on a white disc, to sit where photos meet. */
+/** The mark (the gold house and tick on navy) as a disc with a white rim, to sit where photos meet or beside the name. */
 const Mark: React.FC<{ size: number; left: number; top: number }> = ({ size, left, top }) => (
   <div
     style={{
@@ -66,188 +32,162 @@ const Mark: React.FC<{ size: number; left: number; top: number }> = ({ size, lef
       width: size,
       height: size,
       borderRadius: size / 2,
-      backgroundColor: "#fff",
-      boxShadow: "0 10px 34px rgba(0,0,0,0.38)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
+      overflow: "hidden",
+      border: "6px solid #fff",
+      boxSizing: "border-box",
+      backgroundColor: NAVY,
+      boxShadow: "0 10px 34px rgba(0,0,0,0.4)",
     }}
   >
-    <Img src={staticFile(MARK)} style={{ width: size * 0.74, height: size * 0.74, objectFit: "contain" }} />
+    <Img src={staticFile("brand/mark-navy.png")} style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scale(1.08)" }} />
   </div>
 );
 
-/**
- * A showcase: three or four finished jobs from different homes, edge to edge, with nothing boxed around them. Four
- * make a two-by-two; three put the first across the top and two beneath it. Thin white lines keep them apart, the
- * brand's mark sits where they meet, the headline is set on the top photo and the ask on the bottom ones, each over
- * a soft shade of the photo itself. No bars, so it reads as photos, not a web page.
- */
-const Grid: React.FC<StillProps & { grid: Photo[]; marks?: string[] }> = ({ ratio, brand, headline, sub, grid, marks }) => {
+/** The brand's name as its logo sets it: the first word gold, the rest white. */
+const Name: React.FC<{ name: string; size: number }> = ({ name, size }) => {
+  const [first, ...rest] = name.split(" ");
+  return (
+    <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, textShadow: "0 2px 14px rgba(0,0,0,0.6)", whiteSpace: "nowrap" }}>
+      <span style={{ color: GOLD }}>{first}</span>
+      {rest.length ? <span style={{ color: "#fff" }}> {rest.join(" ")}</span> : null}
+    </div>
+  );
+};
+
+const Button: React.FC<{ size?: number }> = ({ size = 40 }) => (
+  <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, color: NAVY, backgroundColor: GOLD, padding: `${Math.round(size * 0.52)}px ${Math.round(size * 1.1)}px`, borderRadius: 60, boxShadow: "0 8px 26px rgba(0,0,0,0.38)", whiteSpace: "nowrap" }}>
+    Get a free quote
+  </div>
+);
+
+/** The headline, a gold rule under it and the offer line. */
+const Words: React.FC<{ headline: string; sub: string; center?: boolean; max?: number }> = ({ headline, sub, center = false, max = 104 }) => {
+  const size = Math.min(max, headline.length <= 22 ? 104 : headline.length <= 34 ? 88 : 74);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: center ? "center" : "flex-start", textAlign: center ? "center" : "left" }}>
+      <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, lineHeight: 1.03, letterSpacing: -2.5, color: "#fff", textShadow: "0 4px 22px rgba(0,0,0,0.55)" }}>{headline}</div>
+      <div style={{ width: 132, height: 12, borderRadius: 6, backgroundColor: GOLD, marginTop: 22 }} />
+      {sub ? <div style={{ fontFamily: body, fontWeight: 600, fontSize: 38, lineHeight: 1.22, color: "#fff", marginTop: 18, textShadow: "0 2px 12px rgba(0,0,0,0.6)" }}>{sub}</div> : null}
+    </div>
+  );
+};
+
+type Cell = { ph: Photo; left: number; top: number; width: number; height: number };
+
+/** Where each photo goes in a frame `H` tall starting at `top`: one fills it; two share it; three put one across and two beneath; four make a two-by-two. */
+function cellsOf(photos: Photo[], pair: boolean, W: number, top: number, H: number, gap: number, split?: number): { cells: Cell[]; joinX: number; joinY: number } {
+  const half = Math.floor((W - gap) / 2);
+  if (photos.length <= 1) return { cells: photos.map((ph) => ({ ph, left: 0, top, width: W, height: H })), joinX: W / 2, joinY: top + H / 2 };
+  if (photos.length === 2) {
+    // A before and its after stand side by side when both are upright; otherwise one above the other.
+    const side = pair && photos[0].height > photos[0].width && photos[1].height > photos[1].width;
+    if (side) return { cells: photos.map((ph, i) => ({ ph, left: i * (half + gap), top, width: half, height: H })), joinX: half + gap / 2, joinY: top + H * 0.42 };
+    const h = split ?? Math.floor((H - gap) / 2);
+    return {
+      cells: [
+        { ph: photos[0], left: 0, top, width: W, height: h },
+        { ph: photos[1], left: 0, top: top + h + gap, width: W, height: H - h - gap },
+      ],
+      joinX: W / 2,
+      joinY: top + h + gap / 2,
+    };
+  }
+  const four = photos.length >= 4;
+  const topH = split ?? (four ? Math.floor((H - gap) / 2) : Math.round(H * 0.54));
+  const lowH = H - topH - gap;
+  const cells: Cell[] = four
+    ? photos.map((ph, i) => ({ ph, left: (i % 2) * (half + gap), top: top + (i < 2 ? 0 : topH + gap), width: half, height: i < 2 ? topH : lowH }))
+    : [{ ph: photos[0], left: 0, top, width: W, height: topH }, ...photos.slice(1, 3).map((ph, i) => ({ ph, left: i * (half + gap), top: top + topH + gap, width: half, height: lowH }))];
+  return { cells, joinX: W / 2, joinY: top + topH + gap / 2 };
+}
+
+const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ ratio, brand, headline, sub, photos, isPair, variant = 0 }) => {
   const tall = ratio === "9x16";
   const W = 1080;
   const H = tall ? 1920 : 1350;
   const gap = 8;
-  const photos = grid.slice(0, 4);
-  // A before and its after: side by side when both stand upright, else one above the other, sharing the frame evenly.
-  if (marks && photos.length === 2) return <Pair ratio={ratio} brand={brand} headline={headline} sub={sub} pair={[photos[0], photos[1]]} marks={marks} />;
-  const four = photos.length >= 4;
-  // Three: the top photo is a little taller, since the headline sits on it.
-  const topH = four ? Math.floor((H - gap) / 2) : Math.round(H * 0.54);
-  const lowH = H - topH - gap;
-  const half = Math.floor((W - gap) / 2);
-  const cells = four
-    ? photos.map((ph, i) => ({ ph, left: (i % 2) * (half + gap), top: i < 2 ? 0 : topH + gap, width: half, height: i < 2 ? topH : lowH }))
-    : [
-        { ph: photos[0], left: 0, top: 0, width: W, height: topH },
-        ...photos.slice(1, 3).map((ph, i) => ({ ph, left: i * (half + gap), top: topH + gap, width: photos.length === 2 ? W : half, height: lowH })),
-      ];
-  const size = headline.length <= 22 ? 104 : headline.length <= 34 ? 88 : 74;
   const safeTop = tall ? 170 : 0;
   const safeBottom = tall ? 300 : 0;
+  // A lone photo has no join for a band to sit on, so it keeps to the looks that suit it.
+  const look = photos.length <= 1 && variant % 4 === 1 ? 2 : variant % 4;
+  const bandH = 330;
+  const bandTop = Math.round(H * 0.5 - bandH / 2);
+  // The band look splits the photos round the band; every other look fills the frame.
+  const frames =
+    look === 1 && photos.length > 1
+      ? (() => {
+          const upper = photos.length === 2 ? [photos[0]] : photos.length === 3 ? [photos[0]] : photos.slice(0, 2);
+          const lower = photos.slice(upper.length);
+          const a = cellsOf(upper, false, W, 0, bandTop - gap, gap);
+          const b = cellsOf(lower, false, W, bandTop + bandH + gap, H - bandTop - bandH - gap, gap);
+          const row = (ps: Photo[], top: number, h: number): Cell[] => {
+            const w = Math.floor((W - gap * (ps.length - 1)) / ps.length);
+            return ps.map((ph, i) => ({ ph, left: i * (w + gap), top, width: w, height: h }));
+          };
+          return { cells: [...row(upper, 0, bandTop - gap), ...row(lower, bandTop + bandH + gap, H - bandTop - bandH - gap)], joinX: a.joinX, joinY: b.joinY };
+        })()
+      : cellsOf(photos, isPair, W, 0, H, gap);
+  const { cells, joinX, joinY } = frames;
+  const foot = (
+    <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 44, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <Name name={brand.name} size={44} />
+      <Button />
+    </div>
+  );
+  const shadeUp = (h: number, strong = 0.9) => (
+    <div style={{ position: "absolute", left: 0, bottom: 0, width: W, height: h, background: `linear-gradient(to top, rgba(${SHADE},${strong}) 0%, rgba(${SHADE},${strong * 0.7}) 50%, rgba(${SHADE},0) 100%)` }} />
+  );
   return (
-    <AbsoluteFill style={{ backgroundColor: "#fff" }}>
+    <AbsoluteFill style={{ backgroundColor: photos.length ? "#fff" : NAVY }}>
       {cells.map((c, i) => (
         <div key={i} style={{ position: "absolute", left: c.left, top: c.top, width: c.width, height: c.height, overflow: "hidden", backgroundColor: INK }}>
           <Img src={source(c.ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${c.ph.focus?.[0]?.x ?? 50}% ${c.ph.focus?.[0]?.y ?? 50}%` }} />
         </div>
       ))}
-      {/* The shade under the headline, and the one under the ask: part of the photos, not a bar. */}
-      <div style={{ position: "absolute", left: 0, top: 0, width: W, height: safeTop + 430, background: "linear-gradient(to bottom, rgba(6,20,46,0.9) 0%, rgba(6,20,46,0.62) 55%, rgba(6,20,46,0) 100%)" }} />
-      <div style={{ position: "absolute", left: 0, bottom: 0, width: W, height: safeBottom + 250, background: "linear-gradient(to top, rgba(6,20,46,0.88) 0%, rgba(6,20,46,0) 100%)" }} />
-      <div style={{ position: "absolute", left: 56, right: 56, top: safeTop + 44 }}>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, lineHeight: 1.03, letterSpacing: -2.5, color: "#fff", textShadow: "0 4px 22px rgba(0,0,0,0.55)" }}>{headline}</div>
-        <div style={{ width: 132, height: 12, borderRadius: 6, backgroundColor: TEAL, marginTop: 22 }} />
-        {sub ? <div style={{ fontFamily: body, fontWeight: 600, fontSize: 38, lineHeight: 1.22, color: "#fff", marginTop: 18, textShadow: "0 2px 12px rgba(0,0,0,0.6)" }}>{sub}</div> : null}
-      </div>
-      <Mark size={196} left={W / 2} top={topH + gap / 2} />
-      <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 44, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 44, color: "#fff", textShadow: "0 2px 14px rgba(0,0,0,0.6)" }}>{brand.name}</div>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 40, color: "#fff", backgroundColor: TEAL, padding: "22px 44px", borderRadius: 60, boxShadow: "0 8px 26px rgba(0,0,0,0.35)" }}>Get a free quote</div>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-/** A small marker on a photo saying which state of the job it shows. */
-const Chip: React.FC<{ text: string; color: string; ink: string }> = ({ text, color, ink }) => (
-  <div
-    style={{
-      position: "absolute",
-      left: 28,
-      top: 24,
-      fontFamily: display,
-      fontWeight: 800,
-      fontSize: 40,
-      letterSpacing: 1,
-      textTransform: "uppercase",
-      color: ink,
-      backgroundColor: color,
-      padding: "10px 24px",
-      borderRadius: 12,
-      boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-    }}
-  >
-    {text}
-  </div>
-);
-
-/**
- * A before and its after, under a headline that names the job: one above the other, or side by side when the
- * photos stand upright, so each is cut as little as possible. Nothing moves and nothing
- * needs sound: it reads at a glance in a muted feed. The tall size keeps its words clear of the app's own buttons.
- */
-const Split: React.FC<StillProps & { pair: [Photo, Photo] }> = ({ ratio, brand, headline, sub, pair }) => {
-  const tall = ratio === "9x16";
-  const W = 1080;
-  const H = tall ? 1920 : 1350;
-  const head = tall ? { top: 180, height: 290 } : { top: 0, height: 250 };
-  // The tall size leaves its last fifth to the app's own buttons and caption.
-  const foot = tall ? 440 : 150;
-  const gap = 10;
-  const side = pair[0].height > pair[0].width && pair[1].height > pair[1].width;
-  const area = H - head.top - head.height - foot;
-  const each = side ? area : Math.floor((area - gap) / 2);
-  const wide = side ? Math.floor((W - gap) / 2) : W;
-  const size = headline.length <= 24 ? (tall ? 96 : 84) : headline.length <= 36 ? (tall ? 80 : 70) : tall ? 68 : 60;
-  const photoAt = (top: number, left: number, ph: Photo, label: string, color: string, ink: string) => (
-    <div style={{ position: "absolute", left, top, width: wide, height: each, overflow: "hidden" }}>
-      <Img src={source(ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${ph.focus?.[0]?.x ?? 50}% ${ph.focus?.[0]?.y ?? 50}%` }} />
-      <Chip text={label} color={color} ink={ink} />
-    </div>
-  );
-  const top = head.top + head.height;
-  return (
-    <AbsoluteFill style={{ backgroundColor: INK }}>
-      <div style={{ position: "absolute", left: 56, right: 56, top: head.top, height: head.height, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, lineHeight: 1.05, letterSpacing: -2, color: "#fff" }}>{headline}</div>
-        {sub ? <div style={{ fontFamily: body, fontWeight: 600, fontSize: tall ? 40 : 34, lineHeight: 1.25, color: "rgba(255,255,255,0.82)", marginTop: 16 }}>{sub}</div> : null}
-      </div>
-      {photoAt(top, 0, pair[0], "Before", "#ffffff", INK)}
-      {side ? (
-        <div style={{ position: "absolute", left: wide, top, width: gap, height: each, backgroundColor: brand.accentColor }} />
+      {look === 0 ? (
+        <>
+          <div style={{ position: "absolute", left: 0, top: 0, width: W, height: safeTop + 430, background: `linear-gradient(to bottom, rgba(${SHADE},0.92) 0%, rgba(${SHADE},0.64) 55%, rgba(${SHADE},0) 100%)` }} />
+          {shadeUp(safeBottom + 250, 0.88)}
+          <div style={{ position: "absolute", left: 56, right: 56, top: safeTop + 44 }}>
+            <Words headline={headline} sub={sub} />
+          </div>
+          {photos.length > 1 ? <Mark size={196} left={joinX} top={joinY} /> : null}
+          {foot}
+        </>
+      ) : look === 1 ? (
+        <>
+          <div style={{ position: "absolute", left: 0, top: bandTop, width: W, height: bandH, backgroundColor: NAVY, display: "flex", alignItems: "center", padding: "0 56px", boxSizing: "border-box", gap: 36 }}>
+            <div style={{ flex: 1 }}>
+              <Words headline={headline} sub={sub} max={78} />
+            </div>
+            <div style={{ position: "relative", width: 170, height: 170, flex: "none" }}>
+              <Mark size={170} left={85} top={85} />
+            </div>
+          </div>
+          {shadeUp(safeBottom + 230, 0.85)}
+          {foot}
+        </>
+      ) : look === 2 ? (
+        <>
+          {shadeUp(safeBottom + 640, 0.95)}
+          {photos.length > 1 ? <Mark size={180} left={joinX} top={joinY} /> : <Mark size={150} left={56 + 75} top={safeTop + 56 + 75} />}
+          <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 160 }}>
+            <Words headline={headline} sub={sub} />
+          </div>
+          {foot}
+        </>
       ) : (
-        <div style={{ position: "absolute", left: 0, top: top + each, width: W, height: gap, backgroundColor: brand.accentColor }} />
+        <>
+          {shadeUp(safeBottom + 230, 0.85)}
+          <div style={{ position: "absolute", left: 70, right: 70, top: H * 0.47, transform: "translateY(-50%)", backgroundColor: NAVY, borderRadius: 36, padding: "96px 48px 48px", boxShadow: "0 18px 50px rgba(0,0,0,0.45)", border: `4px solid ${GOLD}` }}>
+            <div style={{ position: "absolute", left: "50%", top: 0 }}>
+              <Mark size={150} left={0} top={0} />
+            </div>
+            <Words headline={headline} sub={sub} center max={84} />
+          </div>
+          {foot}
+        </>
       )}
-      {side ? photoAt(top, wide + gap, pair[1], "After", brand.accentColor, INK) : photoAt(top + each + gap, 0, pair[1], "After", brand.accentColor, INK)}
-      <div
-        style={{
-          position: "absolute",
-          left: 56,
-          right: 56,
-          top: side ? top + each : top + 2 * each + gap,
-          height: tall ? 150 : foot,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: brand.accentColor }} />
-          <div style={{ fontFamily: display, fontWeight: 800, fontSize: 40, color: "#fff" }}>{brand.name}</div>
-        </div>
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 40, color: brand.primaryColor, backgroundColor: "#fff", padding: "22px 44px", borderRadius: 60 }}>Get a free quote</div>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-const Single: React.FC<StillProps> = ({ ratio, brand, headline, sub, photo }) => {
-  const tall = ratio === "9x16";
-  const size = headline.length <= 26 ? 118 : headline.length <= 40 ? 100 : 86;
-  return (
-    <AbsoluteFill style={{ backgroundColor: INK }}>
-      {photo ? (
-        <Img src={source(photo.src)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 20%, ${brand.primaryColor} 0%, transparent 60%), radial-gradient(circle at 84% 80%, ${brand.accentColor}66 0%, transparent 50%)` }} />
-      )}
-      <AbsoluteFill style={{ background: `linear-gradient(180deg, ${INK}99 0%, transparent 18%, transparent 36%, ${INK}cc 62%, ${INK}f7 100%)` }} />
-      <div style={{ position: "absolute", left: 64, top: tall ? 110 : 56, display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: brand.accentColor }} />
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 38, color: "#fff", textShadow: "0 4px 18px rgba(0,0,0,0.6)" }}>{brand.name}</div>
-      </div>
-      <div style={{ position: "absolute", left: 64, right: 64, bottom: tall ? 300 : 84 }}>
-        <div style={{ width: 150, height: 14, borderRadius: 7, backgroundColor: brand.accentColor, marginBottom: 34 }} />
-        <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, lineHeight: 1.04, letterSpacing: -2.5, color: "#fff", textShadow: "0 8px 30px rgba(0,0,0,0.5)" }}>{headline}</div>
-        <div style={{ fontFamily: body, fontWeight: 600, fontSize: 46, lineHeight: 1.25, color: "rgba(255,255,255,0.9)", marginTop: 30 }}>{sub}</div>
-        <div
-          style={{
-            display: "inline-block",
-            marginTop: 50,
-            fontFamily: display,
-            fontWeight: 800,
-            fontSize: 58,
-            color: brand.primaryColor,
-            backgroundColor: "#fff",
-            padding: "30px 76px",
-            borderRadius: 80,
-            boxShadow: "0 24px 60px rgba(0,0,0,0.4)",
-          }}
-        >
-          Get a quote
-        </div>
-      </div>
     </AbsoluteFill>
   );
 };

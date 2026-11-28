@@ -2769,6 +2769,8 @@ export default defineSchema({
         type: v.string(),
         layout: v.union(v.literal("single"), v.literal("pair"), v.literal("grid")),
         sub: v.string(),
+        // Where the words sit (the renderer's four looks), so ads don't all look alike.
+        variant: v.optional(v.number()),
       }),
     ),
     // Also the ad's name in Meta, so a lead's adName joins back here.

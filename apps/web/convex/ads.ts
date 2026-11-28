@@ -4107,7 +4107,7 @@ export const claimRenders = internalMutation({
           }
           const need = c.still.layout === "pair" ? 2 : c.still.layout === "grid" ? 3 : 1;
           if (srcs.length < need) throw new Error("A photo this image ad was made from is gone");
-          const base = { ratio: "4x5" as const, brand, headline: c.script.onScreen[0] ?? c.script.headline, sub: c.still.sub };
+          const base = { ratio: "4x5" as const, brand, headline: c.script.onScreen[0] ?? c.script.headline, sub: c.still.sub, variant: c.still.variant ?? 0 };
           const props = c.still.layout === "pair" ? { ...base, pair: [srcs[0], srcs[1]] } : c.still.layout === "grid" ? { ...base, grid: srcs.slice(0, 4) } : { ...base, photo: srcs[0] };
           await ctx.db.patch(c._id, { status: "rendering", renderStartedAt: nowIso(), error: undefined });
           jobs.push({ id: c._id, name: c.name, kind: "image", props: props as never });
@@ -5440,6 +5440,8 @@ export const storeImageAd = internalMutation({
     // Its turn is taken: the next image ad builds on another of the best.
     if (a.swipeId && (await ctx.db.get(a.swipeId))) await ctx.db.patch(a.swipeId, { lastUsedAt: nowIso() });
     const batchId = await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "rendering", startedBy: a.startedBy, createdAt: nowIso() });
+    // Each new image ad takes the next of the four text layouts, so a set looks varied.
+    const before = (await ctx.db.query("adCreatives").order("desc").take(200)).filter((c) => c.still).length;
     let name = `${creativeName(hookId, "4x5", new Date())}_${type.key}`;
     for (let n = 2; (await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first()) !== null; n++)
       name = `${creativeName(hookId, "4x5", new Date())}_${type.key}_${n}`;
@@ -5449,7 +5451,7 @@ export const storeImageAd = internalMutation({
       ratio: "4x5",
       kind: "image",
       name,
-      still: { type: type.key, layout: type.layout, sub: a.sub },
+      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 4 },
       script: { voice: "", onScreen: [a.headline, a.sub], headline: a.title, primaryText: a.primaryText },
       assetIds: a.assetIds,
       // Nothing to voice: it waits to be drawn.
