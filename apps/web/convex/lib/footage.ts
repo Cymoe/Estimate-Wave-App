@@ -93,9 +93,7 @@ export const SPEECH = ["crew", "song", "none"] as const;
 export type Speech = (typeof SPEECH)[number];
 
 /** The instructions for the words around a job site video. */
-export function footagePrompt(opts: { brand: string; trade: string; town: string; heard: string; seen?: string; swipe: FootageSwipe }): string {
-  const { swipe } = opts;
-  const theirs = onceOnly(swipe.adCopy ?? "").slice(0, 400);
+export function footagePrompt(opts: { brand: string; trade: string; town: string; heard: string; seen?: string }): string {
   return [
     `${FOOTAGE_MARK}: a clip ${opts.brand}'s crew shot on a ${opts.trade.toLowerCase()} job, run as it was shot, with its own sound.`,
     "Write only the short words around it. Nothing is written over the clip but captions of what the crew says in it.",
@@ -107,11 +105,8 @@ export function footagePrompt(opts: { brand: string; trade: string; town: string
     "or a few stray words, is \"none\".",
     ...(opts.seen ? ["", `What the clip shows: ${opts.seen}`] : []),
     "",
-    `Follow this competitor ad, which has run for ${swipe.daysRunning ?? "many"} days (${swipe.company}; angle: ${swipe.hook}; offer: ${swipe.offer}).`,
-    theirs
-      ? `Their written words begin: "${theirs}". Keep their angle and their kind of opening, but not their length.`
-      : "Only their angle is on file: keep its angle and kind of opening.",
-    "Change only what isn't true for us: their name, prices, discounts, warranties or guarantees, awards, review counts, years in business, licensed or insured claims, and deadlines.",
+    // No competitor ad is followed (the owner, Nov 2026): a job site clip speaks for itself, and its words say plainly what it shows.
+    "Write it plainly, from the clip alone: say what the work in it is, in a homeowner's words, then the free quote. Don't model it on anyone else's ad.",
     "",
     "Rules:",
     `- Speak as ${opts.brand}, the company doing the work ("we", "our crew"), never as a homeowner or customer.`,

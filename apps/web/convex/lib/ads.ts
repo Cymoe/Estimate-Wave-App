@@ -1515,10 +1515,8 @@ function drawnFrom(input: {
       footage: { src: input.audioUrl, ...(design.cuts?.length ? { cuts: design.cuts } : {}) },
       // Drawn with Tesseract instead of Remotion (ads-video/scripts/tesseract.mjs).
       ...(design.engine === "tesseract" ? { engine: "tesseract" as const } : {}),
-      // Nobody talks in it: the music plays low under the job site's own sound, as work-footage ads run.
-      ...(input.music && !(script.shots ?? []).length
-        ? { sound: { music: input.music.url, ...(input.music.from ? { musicFrom: input.music.from } : {}), ...(input.music.beats?.length ? { beats: input.music.beats } : {}) } }
-        : {}),
+      // No music is ever added to a job site clip (the owner, Nov 2026): it plays with its own sound, or, when that
+      // sound is a song that can't be used, silent.
     };
   }
   const shots = script.shots ?? [];

@@ -198,6 +198,10 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   become captions. With `song` (lyrics of a radio or song in the background, e.g. "Wicked Game"), there are no
   captions and the clip plays silent under our music (`design.muteClip`): a copyrighted song gets an ad muted or
   blocked.
+- **No music is ever added to a job site clip, and no competitor ad is followed for one** (the owner, Nov 2026,
+  firmly). It plays with its own sound only; when that sound is a song that can't be used, it plays silent. Its words
+  are written from the clip alone (`footagePrompt` takes no swipe; `footage:make` needs none on file). The older
+  notes below about following a work-footage competitor ad and playing music under a silent clip no longer apply.
 - **A clip is cut to its good parts before it becomes an ad** (the owner, Nov 2026: clips ran whole, dead time and
   all). The clips runner looks through it (`ads-video/scripts/scan-clips.mjs` in `ads-clips.yml`: a frame every
   second or two on contact sheets, `adAssets.scan`); `footage:proposeCuts` shows Claude the sheets and what is said

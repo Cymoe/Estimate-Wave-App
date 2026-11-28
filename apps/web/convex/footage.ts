@@ -10,7 +10,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
-import { ANY_SCOPE, creativeName, inTrade, parseJson, tradeOf, weekOf } from "./lib/ads";
+import { ANY_SCOPE, creativeName, parseJson, tradeOf, weekOf } from "./lib/ads";
 import { callClaude } from "./lib/claude";
 import {
   CLIP_MAX_SEC,
@@ -22,7 +22,6 @@ import {
   footageProblems,
   footagePrompt,
   linesFromHeard,
-  pickFootageSwipe,
   readCuts,
   scanEvery,
   wordsInCuts,
@@ -60,11 +59,7 @@ async function startFootage(ctx: MutationCtx, assetId: Id<"adAssets">, startedBy
       fail("INVALID", cuts.length ? `The parts you kept run ${Math.round(runs)} seconds. Keep ${FOOTAGE_MAX_SEC} seconds or less` : `That clip runs ${Math.round(runs)} seconds. Choose the parts to keep first (Create ads → Video → Job site clip)`);
     const trade = tradeOf(asset.trade);
     const scope = asset.tags.find((t) => trade.scopes.includes(t)) ?? ANY_SCOPE;
-    // The words around the clip follow a competitor ad that has kept running, like every ad's do: one that is itself
-    // work on camera when there is one (lib/footage.ts isWorkFootage).
-    const onFile = (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade.slug) && x.hook.trim());
-    const swipe = pickFootageSwipe(onFile, scope);
-    if (!swipe) fail("INVALID", `No ${trade.label.toLowerCase()} competitor ad on file to build it on. Run the competitor search first`);
+    // No competitor ad is followed (the owner, Nov 2026): the words are written from the clip alone.
     const hookId = await ctx.db.insert("adHooks", {
       family: "proof",
       scope,
@@ -76,12 +71,11 @@ async function startFootage(ctx: MutationCtx, assetId: Id<"adAssets">, startedBy
       wins: 0,
       losses: 0,
       createdAt: nowIso(),
-      swipeId: swipe._id,
       photoId: assetId,
     });
     const batchId = await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "drafting", startedBy, createdAt: nowIso() });
     await ctx.scheduler.runAfter(0, internal.footage.write, { batchId, hookId, assetId });
-    return { batchId, builtOn: swipe.company };
+    return { batchId };
   }
 }
 
@@ -91,8 +85,7 @@ export const writeInput = internalQuery({
   handler: async (ctx, { hookId, assetId }) => {
     const asset = await ctx.db.get(assetId);
     const hook = await ctx.db.get(hookId);
-    const swipe = hook?.swipeId ? await ctx.db.get(hook.swipeId) : null;
-    if (!asset || !hook || !swipe) return null;
+    if (!asset || !hook) return null;
     const settings = (await ctx.db.query("adSettings").take(1))[0];
     return {
       storageId: asset.storageId,
@@ -108,7 +101,6 @@ export const writeInput = internalQuery({
       trade: tradeOf(asset.trade).label,
       town: settings?.researchMarkets?.[0] ?? "",
       brand: consumerBrand(),
-      swipe: { company: swipe.company, hook: swipe.hook, offer: swipe.offer, adCopy: swipe.adCopy, transcript: swipe.transcript, daysRunning: swipe.daysRunning },
     };
   },
 });
@@ -175,7 +167,7 @@ export const write = internalAction({
   handler: async (ctx, { batchId, hookId, assetId }) => {
     try {
       const input = await ctx.runQuery(internal.footage.writeInput, { hookId, assetId });
-      if (!input) throw new Error("The video or the competitor ad it was built on is gone");
+      if (!input) throw new Error("The video is gone from the library");
       const clip = await ctx.storage.get(input.storageId);
       if (!clip) throw new Error("The video's file is gone");
       const all = await heardWords(clip);
@@ -193,7 +185,7 @@ export const write = internalAction({
       const seen = cut
         ? `The ad shows ONLY these seconds of the clip, in this order: ${parts}.${input.cutsNote ? ` ${input.cutsNote}` : ""} Write about what those parts show and nothing else in the clip.${input.seen ? ` (The whole clip, most of which is cut: ${input.seen})` : ""}`
         : input.seen;
-      const prompt = footagePrompt({ brand: input.brand, trade: input.trade, town: input.town, heard: lines.map((l) => l.voice).join(" "), seen, swipe: input.swipe });
+      const prompt = footagePrompt({ brand: input.brand, trade: input.trade, town: input.town, heard: lines.map((l) => l.voice).join(" "), seen });
       // The sheets that hold the kept parts' frames (each frame is stamped with its second), two at most.
       const kept = cut && input.scanEvery && input.scanPer ? [...new Set(keptCuts.map((c) => Math.floor(Math.round(c.from / input.scanEvery!) / input.scanPer!)))].slice(0, 2).map((i) => input.sheets[i] as string).filter(Boolean) : [];
       const pictures = kept.length
@@ -215,8 +207,8 @@ export const write = internalAction({
         if (problems.length === 0) copy = { title: plan!.title.trim(), headline: plan!.headline.trim(), primaryText: plan!.primaryText.trim(), speech: plan!.speech };
       }
       if (!copy) throw new Error(`The words for the video still broke the rules: ${problems.join("; ")}`);
-      // Only the crew's own words become captions. A song playing in the clip gives no captions, and its sound is
-      // replaced with our music (a copyrighted song gets an ad muted or blocked).
+      // Only the crew's own words become captions. A song playing in the clip gives no captions and the clip plays
+      // silent (a copyrighted song gets an ad muted or blocked). No music of ours is added.
       const { speech, ...words } = copy;
       await ctx.runMutation(internal.footage.addFootage, { batchId, hookId, assetId, copy: words, lines: speech === "crew" ? lines : [], durationSec, muteClip: speech === "song", ...(cut ? { cuts: input.cuts } : {}) });
       await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});

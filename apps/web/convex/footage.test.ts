@@ -47,18 +47,17 @@ describe("the pure parts", () => {
     expect(linesFromHeard([])).toEqual([]);
   });
 
-  test("the prompt: what is heard and seen, the competitor ad to follow, and the rules; silence is said as such", () => {
-    const prompt = footagePrompt({ brand: "GoodFit Pros", trade: "Painting", town: "Midland", heard: "We take every door.", seen: "A crew member sprays a cabinet door.", swipe: SWIPE });
+  test("the prompt: what is heard and seen, no competitor ad to follow, and the rules; silence is said as such", () => {
+    const prompt = footagePrompt({ brand: "GoodFit Pros", trade: "Painting", town: "Midland", heard: "We take every door.", seen: "A crew member sprays a cabinet door." });
     expect(prompt.startsWith(FOOTAGE_MARK)).toBe(true);
     expect(prompt).toContain('"We take every door."');
     expect(prompt).toContain("A crew member sprays a cabinet door.");
-    expect(prompt).toContain("Rodgers Painting");
-    expect(prompt).toContain("160 days");
-    expect(prompt).toContain(SWIPE.adCopy);
-    expect(prompt).toContain("but not their length");
+    // A job site clip speaks for itself: no competitor ad is followed (the owner, Nov 2026).
+    expect(prompt).not.toMatch(/competitor|Rodgers Painting/);
+    expect(prompt).toContain("from the clip alone");
     expect(prompt).toContain('Lyrics of a song or a radio');
     expect(prompt).toContain("never as a homeowner or customer");
-    expect(footagePrompt({ brand: "B", trade: "Painting", town: "", heard: "", swipe: { ...SWIPE, adCopy: undefined } })).toContain("(nothing: it is the work and the job site's sound)");
+    expect(footagePrompt({ brand: "B", trade: "Painting", town: "", heard: "" })).toContain("(nothing: it is the work and the job site's sound)");
   });
 
   test("the words are checked: lengths, and the same banned claims as every ad", () => {
@@ -163,7 +162,6 @@ describe("a job site video", () => {
     const calls: Call[] = [];
     stub(calls, { badFirst: true });
     const made = await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
-    expect(made.builtOn).toBe("Rodgers Painting");
     const batch = (await owner.as.query(api.ads.batches, {}))[0];
     expect(batch.id).toBe(made.batchId);
     expect(batch.creatives.map((c: { ratio: string; status: string; style: { label: string } }) => `${c.ratio} ${c.status} ${c.style.label}`)).toEqual([
@@ -178,7 +176,8 @@ describe("a job site video", () => {
     expect(card.style.label).toBe("Job site video");
     expect(card.script.headline).toBe("Cabinets sprayed smooth");
     expect(card.script.onScreen).toEqual(["Doors off, sprayed"]);
-    expect(card.hook.basedOn?.company).toBe("Rodgers Painting");
+    // It is built on no competitor ad.
+    expect(card.hook.basedOn).toBeUndefined();
     // The first words broke the rules and were asked for again, with the problems named.
     const asks = calls.filter((c) => c.url.includes("anthropic"));
     expect(asks).toHaveLength(2);
@@ -307,8 +306,9 @@ describe("a job site video", () => {
     await t.run((ctx) => ctx.db.patch(assetId, { kind: "video" }));
     await expect(t.mutation(api.footage.make, { assetId })).rejects.toThrow();
 
+    // With no competitor ad on file at all, a job site ad is still made: it needs none.
     const none = await ready({ swipe: false });
-    await expect(none.owner.as.mutation(api.footage.make, { assetId: none.assetId as Id<"adAssets"> })).rejects.toThrow("No painting competitor ad on file");
+    expect(await none.owner.as.mutation(api.footage.make, { assetId: none.assetId as Id<"adAssets"> })).toHaveProperty("batchId");
   });
 });
 
@@ -359,7 +359,7 @@ describe("job site videos follow ads that are work on camera", () => {
     expect(pickFootageSwipe([], "cabinets")).toBeUndefined();
   });
 
-  test("made from a clip: built on the work-footage ad; a clip nobody talks in plays the music under it", async () => {
+  test("made from a clip: no competitor ad is followed, and no music is added, even to a clip nobody talks in", async () => {
     vi.useFakeTimers();
     const { t, owner, assetId } = await ready();
     await t.run(async (ctx) => {
@@ -373,16 +373,19 @@ describe("job site videos follow ads that are work on camera", () => {
       const storageId = await ctx.storage.store(new Blob(["mp3"], { type: "audio/mpeg" }));
       await ctx.db.insert("adMusic", { name: "Track", storageId, from: 4, active: true, createdAt: now });
     });
-    stub([], { silent: true });
-    const made = await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
-    expect(made.builtOn).toBe("Rodgers Painting");
+    const calls: Call[] = [];
+    stub(calls, { silent: true });
+    await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
     const props = (await t.mutation(internal.ads.claimRenders, {}))[0].props as Record<string, any>;
     expect(props.lines).toEqual([]);
-    expect(props.sound).toMatchObject({ musicFrom: 4 });
-    expect(props.sound.music).toMatch(/^https?:/);
+    // A music track is switched on in the app, and the clip still gets none: only its own sound.
+    expect(props.sound).toBeUndefined();
+    expect(props.audio).toMatch(/^https?:/);
+    const brief = JSON.parse(calls.find((c) => c.url.includes("anthropic"))!.body!).messages[0].content[0].text as string;
+    expect(brief).not.toMatch(/Rodgers Painting|Selfie Co|competitor/);
   });
 
-  test("a song playing in the clip: no captions of its lyrics, and the clip plays silent under our music", async () => {
+  test("a song playing in the clip: no captions of its lyrics, and the clip plays silent, with no music of ours", async () => {
     vi.useFakeTimers();
     const { t, owner, assetId } = await ready();
     await t.run(async (ctx) => {
@@ -398,6 +401,6 @@ describe("job site videos follow ads that are work on camera", () => {
     expect(props.audio).toBe("");
     expect(props.lines).toEqual([]);
     expect(props.footage.src).toMatch(/^https?:/);
-    expect(props.sound.music).toMatch(/^https?:/);
+    expect(props.sound).toBeUndefined();
   });
 });
