@@ -247,6 +247,9 @@ describe("a job site video", () => {
     ]);
     expect(readCuts('{"parts":[{"from":5,"to":9,"why":"x"},{"from":1,"to":1.2}],"note":" Spraying. "}', 20)).toEqual({ cuts: [{ from: 5, to: 9 }], note: "Spraying." });
     expect(readCuts('{"parts":[]}', 20)).toBeNull();
+    // The frames were upside down: the app says how far to turn the clip. Anything but a quarter or half turn is ignored.
+    expect(readCuts('{"parts":[{"from":1,"to":4}],"turn":180}', 20)).toEqual({ cuts: [{ from: 1, to: 4 }], turn: 180 });
+    expect(readCuts('{"parts":[{"from":1,"to":4}],"turn":45}', 20)).toEqual({ cuts: [{ from: 1, to: 4 }] });
     expect(readCuts("no", 20)).toBeNull();
     // A frame a second for a short clip; fewer for a long one, so it still fits on four sheets.
     expect([scanEvery(30), scanEvery(64), scanEvery(140), scanEvery(600)]).toEqual([1, 1, 3, 10]);
@@ -293,7 +296,16 @@ describe("a job site video", () => {
     expect(wrote[0].text).toContain("The ad shows ONLY these seconds of the clip, in this order: 2.2 to 3.4, 0.4 to 2.");
     expect(wrote.filter((c: { type: string }) => c.type === "image")).toHaveLength(1);
     expect(wrote[1].text).toContain("Look only at the ones within 2.2 to 3.4, 0.4 to 2");
+    // A clip stored upside down is turned by the owner: it is looked through again turned, its parts stay, and an ad
+    // made from it is drawn turned.
+    expect(await run(t, () => owner.as.mutation(api.footage.turnBy, { assetId, by: 180 }))).toEqual({ turn: 180 });
+    expect(await owner.as.query(api.footage.clipForEdit, { assetId })).toMatchObject({ turn: 180, turnedBy: "person", looking: true, cuts: [{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }] });
+    expect((await t.mutation(internal.footage.scanClaim, { limit: 5 }))[0]).toMatchObject({ id: assetId, turn: 180 });
+    await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
+    const turned = (await t.run((ctx) => ctx.db.query("adCreatives").order("desc").take(1)))[0];
+    expect(turned.design).toMatchObject({ turn: 180, cuts: [{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }] });
     const jobs = await t.mutation(internal.ads.claimRenders, {});
+    expect((jobs.at(-1)!.props as Record<string, any>).footage).toMatchObject({ turn: 180 });
     expect((jobs[0].props as Record<string, any>).footage.cuts).toEqual([{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }]);
     expect((jobs[0].props as Record<string, any>).audioSec).toBe(2.8);
   });

@@ -114,14 +114,18 @@ async function evenMusic(file, from = 0) {
  * The parts of a clip, each cut out and made again (so a cut lands on the frame asked for, not the nearest key
  * frame), then joined in the order given. A clip with no sound stays silent.
  */
-async function joinParts(file, cuts, out) {
+async function joinParts(file, cuts, out, turn) {
   const dir = path.dirname(out);
   const parts = [];
+  // Clockwise: a quarter turn, a half turn (upside down), three quarters.
+  const upright = turn === 90 ? ["-vf", "transpose=1"] : turn === 180 ? ["-vf", "hflip,vflip"] : turn === 270 ? ["-vf", "transpose=2"] : [];
   for (const [i, c] of cuts.entries()) {
     const part = path.join(dir, `part${i}.mp4`);
+    // No part named: the whole clip (it is only being turned).
+    const span = c ? ["-ss", String(c.from), "-t", String(Math.max(0.2, c.to - c.from))] : [];
     await run(
       "npx",
-      ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-ss", String(c.from), "-t", String(Math.max(0.2, c.to - c.from)), "-i", file, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-ar", "48000", "-ac", "2", part],
+      ["remotion", "ffmpeg", "-y", "-loglevel", "error", ...span, "-i", file, ...upright, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-ar", "48000", "-ac", "2", part],
       { cwd: root },
     );
     parts.push(part);
@@ -214,12 +218,13 @@ async function localProps(job, serveDir, base) {
   let footage = job.props.footage;
   if (footage?.src) {
     const clip = path.join(serveDir, "public", folder, "clip.mp4");
-    if (footage.cuts?.length) {
+    if (footage.cuts?.length || footage.turn) {
       // Cut to its good parts (the owner's edit, apps/web/convex/footage.ts): the parts are joined in the order
-      // given, and that joined clip is what is drawn and heard.
+      // given, and that joined clip is what is drawn and heard. A clip stored the wrong way up is turned upright
+      // on the way (whole, when it has no parts).
       const whole = path.join(serveDir, "public", folder, "clip-whole.mp4");
       await writeFile(whole, await bytesOf(footage.src, base));
-      await joinParts(whole, footage.cuts, clip);
+      await joinParts(whole, footage.cuts?.length ? footage.cuts : [undefined], clip, footage.turn);
     } else await writeFile(clip, await bytesOf(footage.src, base));
     footage = { src: `${folder}/clip.mp4` };
     // A clip whose sound is a song plays silent under our music (no audio); one with no sound at all plays silent

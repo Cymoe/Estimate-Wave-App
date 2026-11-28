@@ -683,6 +683,9 @@ interface ClipEdit {
   choosing: boolean;
   tooLong: boolean;
   cuts: ClipCut[];
+  /** How far the clip is turned clockwise so it plays upright (it is stored as filmed). */
+  turn?: number;
+  turnedBy?: 'app' | 'person';
   total: number;
   cutsBy?: 'app' | 'person';
   note?: string;
@@ -745,7 +748,7 @@ const ClipEditor: React.FC<{ assetId: string; act: Act; onReady: (ready: boolean
     setDirty(false);
   };
   useEffect(() => {
-    onReady(Boolean(data && usable && !data.looking), save);
+    onReady(Boolean(data && usable), save);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usable, data?.looking, dirty, parts]);
   if (data === undefined) return <p className="text-xs text-gray-500">Opening the clip…</p>;
@@ -783,8 +786,31 @@ const ClipEditor: React.FC<{ assetId: string; act: Act; onReady: (ready: boolean
   return (
     <div className="space-y-3" data-testid="clip-editor">
       {data.videoUrl && (
-        <video ref={video} src={data.videoUrl} controls playsInline preload="metadata" onTimeUpdate={onTime} onSeeking={() => undefined} className="w-full max-h-[50vh] rounded bg-black" />
+        <div className="rounded bg-black overflow-hidden flex items-center justify-center">
+          {/* The file is stored as filmed; a clip turned upright is shown turned (a quarter turn is shrunk to fit). */}
+          <video
+            ref={video}
+            src={data.videoUrl}
+            controls
+            playsInline
+            preload="metadata"
+            onTimeUpdate={onTime}
+            className="w-full max-h-[50vh]"
+            style={data.turn ? { transform: `rotate(${data.turn}deg)${data.turn === 180 ? '' : ' scale(0.56)'}` } : undefined}
+          />
+        </div>
       )}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-400">
+          {data.turn ? `Turned ${data.turn === 180 ? 'the right way up' : 'a quarter'}${data.turnedBy === 'app' ? ' by the app' : ''}.` : 'Sideways or upside down?'}
+        </span>
+        <button type="button" className={small} onClick={() => act(() => adsAPI.turnClip(assetId, 180), 'Turned over. Its frames are being taken again.')}>
+          Flip upside down
+        </button>
+        <button type="button" className={small} onClick={() => act(() => adsAPI.turnClip(assetId, 90), 'Turned a quarter. Its frames are being taken again.')}>
+          Turn a quarter
+        </button>
+      </div>
       {data.tooLong ? (
         <p className="text-sm text-amber-200/80">This clip is too long to look through. Upload one of ten minutes or less.</p>
       ) : data.looking ? (

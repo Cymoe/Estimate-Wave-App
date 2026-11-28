@@ -91,6 +91,7 @@ export const writeInput = internalQuery({
       storageId: asset.storageId,
       durationSec: asset.durationSec,
       cuts: cleanCuts(asset.cuts, asset.durationSec ?? 0),
+      turn: asset.turn,
       // What the kept parts show, in the app's own words when it chose them, and the clip's frames to look at.
       cutsNote: asset.cutsBy === "app" ? asset.cutsNote : undefined,
       sheets: await Promise.all((asset.scan?.sheets ?? []).map(async (id) => (await ctx.storage.getUrl(id)) ?? "")),
@@ -116,8 +117,9 @@ export const addFootage = internalMutation({
     durationSec: v.number(),
     muteClip: v.optional(v.boolean()),
     cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))),
+    turn: v.optional(v.union(v.literal(90), v.literal(180), v.literal(270))),
   },
-  handler: async (ctx, { batchId, hookId, assetId, copy, lines, durationSec, muteClip, cuts }) => {
+  handler: async (ctx, { batchId, hookId, assetId, copy, lines, durationSec, muteClip, cuts, turn }) => {
     const asset = await ctx.db.get(assetId);
     if (!asset) throw new Error("The video left the library");
     const script = {
@@ -144,7 +146,7 @@ export const addFootage = internalMutation({
           ratio,
           name,
           script,
-          design: { style: "footage", title: copy.title, ...(engine ? { engine } : {}), ...(muteClip ? { muteClip: true } : {}), ...(cuts?.length ? { cuts } : {}) },
+          design: { style: "footage", title: copy.title, ...(engine ? { engine } : {}), ...(muteClip ? { muteClip: true } : {}), ...(cuts?.length ? { cuts } : {}), ...(turn ? { turn } : {}) },
           assetIds: [assetId],
           // The clip's own sound is the voice.
           audioStorageId: asset.storageId,
@@ -210,7 +212,7 @@ export const write = internalAction({
       // Only the crew's own words become captions. A song playing in the clip gives no captions and the clip plays
       // silent (a copyrighted song gets an ad muted or blocked). No music of ours is added.
       const { speech, ...words } = copy;
-      await ctx.runMutation(internal.footage.addFootage, { batchId, hookId, assetId, copy: words, lines: speech === "crew" ? lines : [], durationSec, muteClip: speech === "song", ...(cut ? { cuts: input.cuts } : {}) });
+      await ctx.runMutation(internal.footage.addFootage, { batchId, hookId, assetId, copy: words, lines: speech === "crew" ? lines : [], durationSec, muteClip: speech === "song", ...(cut ? { cuts: input.cuts } : {}), ...(input.turn ? { turn: input.turn } : {}) });
       await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
     } catch (e) {
       await ctx.runMutation(internal.ads.failBatch, { batchId, error: `The job site ad couldn't be made: ${errText(e)}` });
@@ -252,11 +254,11 @@ export const scanClaim = internalMutation({
     const waiting = (await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(1000)).filter(
       (a) => a.scanAskedAt && !a.scan && (a.durationSec ?? 0) <= CLIP_MAX_SEC,
     );
-    const out: Array<{ id: Id<"adAssets">; url: string; durationSec: number; every: number }> = [];
+    const out: Array<{ id: Id<"adAssets">; url: string; durationSec: number; every: number; turn?: number }> = [];
     for (const a of waiting.slice(0, Math.max(1, Math.min(10, limit)))) {
       const url = await ctx.storage.getUrl(a.storageId);
       if (!url) continue;
-      out.push({ id: a._id, url, durationSec: a.durationSec ?? 0, every: scanEvery(a.durationSec ?? 0) });
+      out.push({ id: a._id, url, durationSec: a.durationSec ?? 0, every: scanEvery(a.durationSec ?? 0), ...(a.turn ? { turn: a.turn } : {}) });
     }
     return out;
   },
@@ -288,8 +290,9 @@ export const scanDone = internalMutation({
     }
     for (const old of a.scan?.sheets ?? []) await ctx.storage.delete(old);
     await ctx.db.patch(id, { scan: { every, frames, cols, per, tileW, tileH, sheets, at: nowIso() }, cutsError: undefined, ...(durationSec && !a.durationSec ? { durationSec } : {}) });
-    // The owner's own parts are never replaced by a proposal.
-    if (a.cutsBy !== "person") await ctx.scheduler.runAfter(0, internal.footage.proposeCuts, { assetId: id });
+    // The owner's own parts are never replaced by a proposal; nor are parts already chosen, when the clip was only
+    // looked through again after being turned upright (the times are the same either way up).
+    if (a.cutsBy !== "person" && !(a.cuts && a.turn)) await ctx.scheduler.runAfter(0, internal.footage.proposeCuts, { assetId: id });
   },
 });
 
@@ -336,7 +339,7 @@ export const proposeCuts = internalAction({
         found = readCuts(reply.content.map((b) => (typeof b.text === "string" ? b.text : "")).join(""), input.durationSec);
       }
       if (!found) throw new Error("No usable edit came back. Choose the parts yourself, or ask again.");
-      await ctx.runMutation(internal.footage.saveCuts, { assetId, cuts: found.cuts, note: found.note });
+      await ctx.runMutation(internal.footage.saveCuts, { assetId, cuts: found.cuts, note: found.note, turn: found.turn });
     } catch (e) {
       await ctx.runMutation(internal.footage.saveCuts, { assetId, error: errText(e) });
     }
@@ -344,8 +347,14 @@ export const proposeCuts = internalAction({
 });
 
 export const saveCuts = internalMutation({
-  args: { assetId: v.id("adAssets"), cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))), note: v.optional(v.string()), error: v.optional(v.string()) },
-  handler: async (ctx, { assetId, cuts, note, error }) => {
+  args: {
+    assetId: v.id("adAssets"),
+    cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))),
+    note: v.optional(v.string()),
+    error: v.optional(v.string()),
+    turn: v.optional(v.union(v.literal(90), v.literal(180), v.literal(270))),
+  },
+  handler: async (ctx, { assetId, cuts, note, error, turn }) => {
     const a = await ctx.db.get(assetId);
     if (!a) return;
     if (!cuts) {
@@ -353,6 +362,9 @@ export const saveCuts = internalMutation({
       return;
     }
     await ctx.db.patch(assetId, { cuts: cleanCuts(cuts, a.durationSec ?? Infinity), cutsBy: "app", cutsNote: note, cutsError: undefined });
+    // The frames were the wrong way up: the clip is turned (unless a person already set which way), and looked
+    // through again so its frames show upright.
+    if (turn && !a.turn && a.turnBy !== "person") await turnClip(ctx, assetId, turn, "app");
   },
 });
 
@@ -381,6 +393,8 @@ export const clipForEdit = query({
       choosing: Boolean(a.scan && !a.cuts && !a.cutsError),
       tooLong: durationSec > CLIP_MAX_SEC,
       cuts,
+      turn: a.turn ?? 0,
+      turnedBy: a.turnBy,
       total: cutTotal(cuts),
       cutsBy: a.cutsBy,
       note: a.cutsNote,
@@ -412,6 +426,28 @@ export const prepareClip = mutation({
       await ctx.scheduler.runAfter(0, internal.footage.proposeCuts, { assetId, force: true });
     }
     return { looking: false };
+  },
+});
+
+/** Turns a clip so it plays upright, and has it looked through again so its frames match. Its parts stay as they are. */
+async function turnClip(ctx: MutationCtx, assetId: Id<"adAssets">, turn: 0 | 90 | 180 | 270, by: "app" | "person") {
+  const a = await ctx.db.get(assetId);
+  if (!a) return;
+  for (const s of a.scan?.sheets ?? []) await ctx.storage.delete(s);
+  await ctx.db.patch(assetId, { turn: turn === 0 ? undefined : turn, turnBy: by, scan: undefined, scanAskedAt: nowIso() });
+  await ctx.scheduler.runAfter(0, internal.footage.startScan, {});
+}
+
+/** The owner turns a clip a quarter or a half turn further, clockwise, when it plays sideways or upside down. */
+export const turnBy = mutation({
+  args: { assetId: v.id("adAssets"), by: v.union(v.literal(90), v.literal(180)) },
+  handler: async (ctx, { assetId, by }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(assetId);
+    if (!a || a.kind !== "video") fail("NOT_FOUND", "That video isn't in the library");
+    const turn = (((a.turn ?? 0) + by) % 360) as 0 | 90 | 180 | 270;
+    await turnClip(ctx, assetId, turn, "person");
+    return { turn };
   },
 });
 
@@ -460,6 +496,7 @@ export const cutsReport = internalQuery({
       scanned: Boolean(a.scan),
       frames: a.scan?.frames,
       cuts: a.cuts,
+      turn: a.turn,
       cutsBy: a.cutsBy,
       note: a.cutsNote,
       error: a.cutsError,
@@ -477,5 +514,20 @@ export const setCompareTest = internalMutation({
     const was = row.tesseractFootage;
     await ctx.db.patch(row._id, { tesseractFootage: on });
     return { set: true, was };
+  },
+});
+
+
+/** From the deployment: has the app propose its edit again for every looked-through clip the owner hasn't edited (after a change to how it edits). */
+export const proposeAll = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let asked = 0;
+    for (const a of await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(1000)) {
+      if (!a.scan || a.cutsBy === "person") continue;
+      await ctx.scheduler.runAfter(asked * 4000, internal.footage.proposeCuts, { assetId: a._id });
+      asked++;
+    }
+    return { asked };
   },
 });

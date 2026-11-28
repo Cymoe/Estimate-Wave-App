@@ -202,6 +202,11 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   firmly). It plays with its own sound only; when that sound is a song that can't be used, it plays silent. Its words
   are written from the clip alone (`footagePrompt` takes no swipe; `footage:make` needs none on file). The older
   notes below about following a work-footage competitor ad and playing music under a silent clip no longer apply.
+- **A clip stored the wrong way up is turned** (`adAssets.turn`: 90, 180 or 270 clockwise). A phone filming straight
+  up tags the clip wrong, so it plays upside down (IMG_2534 did). The app says so when it proposes the edit (the
+  frames look upside down), or the owner presses "Flip upside down" / "Turn a quarter" in the clip editor
+  (`footage:turnBy`). The clip is then looked through again turned, and drawn turned (`joinParts`). **Look at a job
+  site ad's frames for which way up it is before showing it.**
 - **A clip is cut to its good parts before it becomes an ad** (the owner, Nov 2026: clips ran whole, dead time and
   all). The clips runner looks through it (`ads-video/scripts/scan-clips.mjs` in `ads-clips.yml`: a frame every
   second or two on contact sheets, `adAssets.scan`); `footage:proposeCuts` shows Claude the sheets and what is said

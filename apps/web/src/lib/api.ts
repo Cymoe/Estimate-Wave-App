@@ -1171,6 +1171,8 @@ export const adsAPI = {
   driveRetry: (id: string) => run('mutation', api.adDrive.retry, { id }),
   /** Has a clip looked through and its good parts proposed (again: a fresh proposal). */
   prepareClip: (assetId: string, again?: boolean): Promise<{ looking: boolean }> => run('mutation', api.footage.prepareClip, defined({ assetId, again })),
+  /** Turns a clip a quarter (90) or half (180) turn clockwise, when it plays sideways or upside down. */
+  turnClip: (assetId: string, by: 90 | 180): Promise<{ turn: number }> => run('mutation', api.footage.turnBy, { assetId, by }),
   /** The owner's own parts of a clip to keep, in the order shown. */
   setCuts: (assetId: string, cuts: Array<{ from: number; to: number }>): Promise<{ parts: number; total: number }> => run('mutation', api.footage.setCuts, { assetId, cuts }),
   makeFootage: (assetId: string): Promise<{ batchId: string }> => run('mutation', api.footage.make, { assetId }),

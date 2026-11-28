@@ -234,6 +234,8 @@ export function cutsPrompt(input: { trade: string; durationSec: number; every: n
     "- Don't cut a spoken sentence in half: start and end a part in a pause in the speech.",
     "- You can only see still frames, so prefer stretches where the frames change from one to the next (something is happening) over ones where they look the same.",
     "",
+    "- If the frames are plainly the wrong way up (a ceiling along the bottom, people hanging down from the top, everything on its side), also say how far to turn the picture clockwise to stand it upright: \"turn\": 180, 90 or 270. Leave it out when the clip is upright or you can't tell.",
+    "",
     'Return only JSON: {"parts":[{"from":12,"to":15.5,"why":"spray going onto the doors"}],"note":"one plain sentence on what the edit shows"}',
   ]
     .filter((l, i, all) => l !== "" || all[i - 1] !== "")
@@ -241,13 +243,14 @@ export function cutsPrompt(input: { trade: string; durationSec: number; every: n
 }
 
 /** Claude's proposed parts; null when the reply can't be read or keeps nothing. */
-export function readCuts(reply: string, durationSec: number): { cuts: Cut[]; note?: string } | null {
-  const out = parseJson<{ parts?: Array<Partial<Cut>>; note?: string }>(reply);
+export function readCuts(reply: string, durationSec: number): { cuts: Cut[]; note?: string; turn?: 90 | 180 | 270 } | null {
+  const out = parseJson<{ parts?: Array<Partial<Cut>>; note?: string; turn?: number }>(reply);
   if (!out) return null;
   const cuts = cleanCuts(out.parts, durationSec);
   if (cuts.length === 0) return null;
   // Never over the longest an edit may run: parts are dropped from the end.
   while (cuts.length > 1 && cutTotal(cuts) > EDIT_MAX_SEC + 5) cuts.pop();
   const note = typeof out.note === "string" ? out.note.replace(/\s+/g, " ").trim().slice(0, 200) : undefined;
-  return { cuts, ...(note ? { note } : {}) };
+  const turn = out.turn === 90 || out.turn === 180 || out.turn === 270 ? out.turn : undefined;
+  return { cuts, ...(note ? { note } : {}), ...(turn ? { turn } : {}) };
 }

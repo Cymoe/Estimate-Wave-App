@@ -2540,6 +2540,10 @@ export default defineSchema({
     cutsBy: v.optional(v.union(v.literal("app"), v.literal("person"))),
     cutsNote: v.optional(v.string()),
     cutsError: v.optional(v.string()),
+    // A clip stored the wrong way up (a phone filming straight up tags it wrong): how far to turn it clockwise so it
+    // plays upright. Applied when it is looked through, shown and drawn.
+    turn: v.optional(v.union(v.literal(90), v.literal(180), v.literal(270))),
+    turnBy: v.optional(v.union(v.literal("app"), v.literal("person"))),
     thumbStorageId: v.optional(v.id("_storage")),
     // What it shows in detail, from the trade's list (doors, trim, front door...): Claude's, or as a person fixed them.
     items: v.optional(v.array(v.string())),
@@ -2765,6 +2769,8 @@ export default defineSchema({
         // Drawn with Tesseract instead of Remotion (ads-video/scripts/tesseract.mjs): job site videos, side by side.
         engine: v.optional(v.literal("tesseract")),
         // A job site video whose own sound is a song or radio: played silent, with our music instead.
+        // A job site clip stored the wrong way up: how far it is turned clockwise when drawn.
+        turn: v.optional(v.union(v.literal(90), v.literal(180), v.literal(270))),
         // A job site clip cut to its good parts: the parts drawn, in order.
         cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))),
         muteClip: v.optional(v.boolean()),
