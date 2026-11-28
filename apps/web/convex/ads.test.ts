@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, isDetailShot, AD_SERVICES, photoOfService, BRAND_GUIDE, imageAdIssues, isCollage, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, readImageAd, isDetailShot, AD_SERVICES, photoOfService, BRAND_GUIDE, imageAdIssues, isCollage, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -3352,6 +3352,49 @@ describe("the weekly run", () => {
     expect(filed.pairs).toBe(2);
     const jobs = new Set(await t.run(async (ctx) => (await ctx.db.query("adAssets").collect()).filter((a) => a.pairKey?.startsWith("e")).map((a) => a.jobId)));
     expect([jobs.size, jobs.has(filed.jobId)]).toEqual([1, true]);
+  });
+
+  test("a before and after joined into one image is offered as a pair, cut where the two meet, and drawn as two crops of the one file", async () => {
+    const t = setup();
+    await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    const joinedId = await t.run(async (ctx) => {
+      const user = (await ctx.db.query("users").take(1))[0]._id;
+      const add = async (fileName: string, description: string) =>
+        await ctx.db.insert("adAssets", {
+          storageId: await ctx.storage.store(new Blob([fileName], { type: "image/jpeg" })),
+          kind: "photo",
+          fileName,
+          contentType: "image/jpeg",
+          size: 10,
+          tags: ["interior", "cabinets", "cabinets-painted", "before", "after"],
+          description,
+          uploadedBy: user,
+          createdAt: "2026-11-01T00:00:00Z",
+        });
+      await add("four.jpg", "Four-photo collage of a gutted kitchen and its finished state.");
+      return await add("joined.jpg", "Side-by-side kitchen comparison: brown cabinets on the left, painted white on the right.");
+    });
+    // The joined image is offered; the collage of four is not.
+    const input = await t.query(internal.ads.imageAdInput, { service: "cabinets", type: "plain_pair", fresh: true });
+    expect(input.picks.map((p) => [p.joined, p.description.slice(0, 12), p.urls.length])).toEqual([[true, "Side-by-side", 1]]);
+    const type = IMAGE_AD_TYPES.find((x) => x.key === "plain_pair")!;
+    const prompt = imageAdPrompt(type, "GoodFit Painting", "Midland", AD_TRADES.painting, input.picks, undefined, new Date(), [], undefined, [], undefined, true);
+    expect(prompt).toContain("1. JOINED (one image holding a before and its after)");
+    expect(prompt).toContain('"split":"side","at":50,"beforeFirst":true');
+    // The writer must say how to cut it, near the middle.
+    const words = { headline: "Tired of your brown cabinets?", sub: "Same cabinets, new colour. Get a free quote.", primaryText: "Get a free quote from GoodFit Painting.", title: "Cabinet painting" };
+    const issues = (reply: object) => imageAdIssues(readImageAd(JSON.stringify({ pair: 1, ...words, ...reply })), type, input.picks, "Midland", "GoodFit Painting").map((i) => i.text);
+    expect(issues({})[0]).toContain("say how to cut it");
+    expect(issues({ split: "side", at: 90, beforeFirst: true })[0]).toContain("meet near the middle");
+    expect(issues({ split: "side", at: 48, beforeFirst: false })).toEqual([]);
+    expect(readImageAd(JSON.stringify({ pair: 1, ...words, split: "stacked", at: 51.4 }))!.cut).toEqual({ at: 51, down: true, beforeFirst: true });
+    // Stored with its cut, it is drawn as a pair of two crops of the one file, the before first.
+    await t.mutation(internal.ads.storeImageAd, { type: "plain_pair", trade: "painting", assetIds: [joinedId], ...words, cut: { at: 48, down: false, beforeFirst: false } });
+    const [job] = await t.mutation(internal.ads.claimRenders, { limit: 1 });
+    const pair = (job.props as unknown as { pair: Array<{ src: string; crop: { from: number; to: number; down?: boolean } }>; clean?: boolean }).pair;
+    expect(pair.map((p) => p.crop)).toEqual([{ from: 48, to: 100 }, { from: 0, to: 48 }]);
+    expect(pair[0].src).toBe(pair[1].src);
+    expect((job.props as unknown as { clean?: boolean }).clean).toBe(true);
   });
 
   test("the brand guide: a draft that breaks a rule is reported by the rule, and the brief carries the guide", () => {

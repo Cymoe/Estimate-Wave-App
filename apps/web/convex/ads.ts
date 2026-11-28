@@ -4110,11 +4110,20 @@ export const claimRenders = internalMutation({
       try {
         if (c.still) {
           // A static image ad: its photos in order, its headline and the line under it. Nothing else.
-          const srcs: Array<{ src: string }> = [];
+          const srcs: Array<{ src: string; crop?: { from: number; to: number; down?: boolean } }> = [];
           for (const assetId of c.assetIds) {
             const a = await ctx.db.get(assetId);
             const url = a ? await lookUrl(ctx, a) : undefined;
             if (url) srcs.push({ src: url });
+          }
+          // A joined before-and-after is one file shown as two: each half cut from it where they meet, the before first.
+          const cut = c.still.cut;
+          if (c.still.layout === "pair" && cut && srcs.length >= 1) {
+            const halves = [
+              { src: srcs[0].src, crop: { from: 0, to: cut.at, ...(cut.down ? { down: true } : {}) } },
+              { src: srcs[0].src, crop: { from: cut.at, to: 100, ...(cut.down ? { down: true } : {}) } },
+            ];
+            srcs.splice(0, srcs.length, ...(cut.beforeFirst ? halves : [halves[1], halves[0]]));
           }
           const need = c.still.layout === "pair" ? 2 : c.still.layout === "grid" ? 3 : 1;
           if (srcs.length < need) throw new Error("A photo this image ad was made from is gone");
@@ -5513,8 +5522,13 @@ export const imageAdInput = internalQuery({
         if (b && a && ofService(a)) pairs.push([b, a]);
       }
       pairs.sort(([, x], [, y]) => order(x, y));
+      // A before and its after already joined into one image counts too: it is cut in two where they meet.
+      for (const a of drawable.filter((x) => x.tags.includes("before") && x.tags.includes("after") && ofService(x)).sort(order).slice(0, 20))
+        picks.push({ n: 0, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best, joined: true, ids: [a._id], urls: [urlOf.get(a._id)!], job: a.jobId });
       for (const [b, a] of pairs.slice(0, 60))
         picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id], urls: [urlOf.get(b._id)!, urlOf.get(a._id)!], job: a.jobId ?? b.jobId });
+      // The least used first, whichever kind of pair it is, so the same kitchen doesn't lead every time.
+      picks.sort((x, y) => Number(!!y.best) - Number(!!x.best) || x.uses - y.uses);
     } else {
       // Finished work only: never a before, never work in progress, never two pictures in one.
       const whole = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
@@ -5677,7 +5691,7 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
     const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), shown, input.basedOn, new Date(), avoid, input.service, input.field, input.playbook, true, input.usedHeadlines);
     const pictures: unknown[] = shown.flatMap((p) =>
       p.urls.flatMap((url, k) => [
-        { type: "text", text: type!.layout === "pair" ? `Pair ${p.n}, ${k === 0 ? "before" : "after"}:` : `Photo ${p.n}:` },
+        { type: "text", text: type!.layout !== "pair" ? `Photo ${p.n}:` : p.joined ? `Pair ${p.n}, one image holding the before and the after:` : `Pair ${p.n}, ${k === 0 ? "before" : "after"}:` },
         { type: "image", source: { type: "url", url } },
       ]),
     );
@@ -5704,6 +5718,8 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
       primaryText: plan!.primaryText,
       title: plan!.title || plan!.headline,
       startedBy: me,
+      // A joined image: where it is cut into its before and its after.
+      ...(shown[plan!.picks[0] - 1]?.joined && plan!.cut ? { cut: plan!.cut } : {}),
     });
     set.batchId = stored.batchId;
     const name = stored.name;
@@ -5722,6 +5738,7 @@ export const storeImageAd = internalMutation({
   args: {
     // The batch of the set it is made in; without one it starts its own.
     batchId: v.optional(v.id("adBatches")),
+    cut: v.optional(v.object({ at: v.number(), down: v.boolean(), beforeFirst: v.boolean() })),
     type: v.string(),
     trade: v.string(),
     swipeId: v.optional(v.id("adSwipes")),
@@ -5768,7 +5785,7 @@ export const storeImageAd = internalMutation({
       kind: "image",
       name,
       // Stored only once its plan has passed every check, so it keeps the whole guide.
-      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 3, guide: guidePassed(), ...(type.clean ? { clean: true } : {}) },
+      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 3, guide: guidePassed(), ...(type.clean ? { clean: true } : {}), ...(a.cut ? { cut: a.cut } : {}) },
       script: { voice: "", onScreen: [a.headline, a.sub], headline: a.title, primaryText: a.primaryText },
       assetIds: a.assetIds,
       // Nothing to voice: it waits to be drawn.

@@ -2775,6 +2775,8 @@ export default defineSchema({
         guide: v.optional(v.array(v.string())),
         // Nothing printed on the picture but the small mark (the plain kinds).
         clean: v.optional(v.boolean()),
+        // A pair made from one joined image (assetIds holds just it): where it is cut, and which half is the before.
+        cut: v.optional(v.object({ at: v.number(), down: v.boolean(), beforeFirst: v.boolean() })),
       }),
     ),
     // Also the ad's name in Meta, so a lead's adName joins back here.

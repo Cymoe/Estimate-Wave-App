@@ -1792,7 +1792,23 @@ export interface ImageCandidate {
   project?: string;
   /** For a pair: what its before shows. */
   before?: string;
+  /** A pair that is one image holding a before and its after, to be cut in two where they meet. */
+  joined?: boolean;
 }
+
+/** Where a joined before-and-after image is cut: how far across (or down, when one is above the other), and which half is the before. */
+export interface JoinCut {
+  at: number;
+  down: boolean;
+  beforeFirst: boolean;
+}
+/** The join must sit near the middle: a cut outside this isn't two pictures of a kind. */
+export const JOIN_CUT_MIN = 25;
+export const JOIN_CUT_MAX = 75;
+const pairLine = (c: ImageCandidate, cut: number): string =>
+  c.joined
+    ? `${c.n}. JOINED (one image holding a before and its after) · ${c.best ? "BEST · " : ""}uses ${c.uses}: ${c.description.replace(/\s+/g, " ").slice(0, cut * 2)}`
+    : `${c.n}. ${c.best ? "BEST · " : ""}uses ${c.uses} · before: ${(c.before ?? "").replace(/\s+/g, " ").slice(0, cut)} · after: ${c.description.replace(/\s+/g, " ").slice(0, cut)}`;
 
 /**
  * The brand guide: what every image ad is held to before it is made (the owner asked for one checklist, Nov 2026).
@@ -1897,12 +1913,17 @@ export function imageAdPrompt(
       : "The finished photos on file (BEST marks the owner's favourites; uses is how many ads a photo is already in):",
     ...candidates.map((c) =>
       type.layout === "pair"
-        ? `${c.n}. ${c.best ? "BEST · " : ""}uses ${c.uses} · before: ${(c.before ?? "").replace(/\s+/g, " ").slice(0, 160)} · after: ${c.description.replace(/\s+/g, " ").slice(0, 160)}`
+        ? pairLine(c, 160)
         : `${c.n}. ${c.best ? "BEST · " : ""}${c.tags.join(", ")}${c.project ? ` · project ${c.project}` : ""} · uses ${c.uses}: ${c.description.replace(/\s+/g, " ").slice(0, 200)}`,
     ),
     "",
     ...(byEye ? IMAGE_BY_EYE : []),
     ...(byEye && service?.eye ? [`- ${service.eye}`] : []),
+    ...(candidates.some((c) => c.joined)
+      ? [
+          `- A JOINED pair is one image holding a before and its after. Use one only if it is exactly two pictures of the same room, a before and its after: never one of three or more pictures, or of two different rooms. If you choose one, also say how to cut it: "split" is "side" (they sit side by side) or "stacked" (one above the other); "at" is where they meet, from 0 to 100 across (or down, when stacked), normally near 50; "beforeFirst" is true when the before is the left (or top) one.`,
+        ]
+      : []),
     `Choose ${want} that best carries this ad. BEST photos are the owner's favourites: use them first, even when already in ads. Among the rest, choose ones with uses 0 wherever some fit. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
     type.layout === "grid" ? "Every word of the headline and the line under it must be true of every photo chosen, not most of them: if one has no island, don't say islands." : "",
     ...(avoid.length ? [`Already made in this set, so take a different angle and different photos from these: ${avoid.map((h) => `"${h}"`).join(", ")}.`] : []),
@@ -1923,7 +1944,9 @@ export function imageAdPrompt(
     "",
     "Return only JSON. Start your answer with { and write nothing before or after it.",
     type.layout === "pair"
-      ? '{"pair":2,"headline":"...","sub":"...","primaryText":"...","title":"..."}'
+      ? candidates.some((c) => c.joined)
+        ? '{"pair":2,"headline":"...","sub":"...","primaryText":"...","title":"..."} and, only when the pair chosen is a JOINED one, add "split":"side","at":50,"beforeFirst":true'
+        : '{"pair":2,"headline":"...","sub":"...","primaryText":"...","title":"..."}'
       : type.layout === "grid"
         ? '{"photos":[3,7,12],"headline":"...","sub":"...","primaryText":"...","title":"..."}'
         : '{"photo":3,"headline":"...","sub":"...","primaryText":"...","title":"..."}',
@@ -1952,7 +1975,7 @@ export function imageShortlistPrompt(type: ImageAdType, service: AdService | und
     "",
     ...candidates.map((c) =>
       type.layout === "pair"
-        ? `${c.n}. ${c.best ? "BEST · " : ""}uses ${c.uses} · before: ${(c.before ?? "").replace(/\s+/g, " ").slice(0, 140)} · after: ${c.description.replace(/\s+/g, " ").slice(0, 140)}`
+        ? pairLine(c, 140)
         : `${c.n}. ${c.best ? "BEST · " : ""}${c.project ? `project ${c.project} · ` : ""}uses ${c.uses}: ${c.description.replace(/\s+/g, " ").slice(0, 180)}`,
     ),
     "",
@@ -1977,6 +2000,8 @@ export interface ImageAdPlan {
   sub: string;
   primaryText: string;
   title: string;
+  /** For a joined before-and-after image: where to cut it. */
+  cut?: JoinCut;
 }
 
 /** Claude's reply as an image ad; null when it can't be read. */
@@ -1985,7 +2010,10 @@ export function readImageAd(reply: string): ImageAdPlan | null {
   if (!out) return null;
   const nums = (Array.isArray(out.photos) ? out.photos : [out.pair ?? out.photo]).map(Number).filter((n) => Number.isInteger(n) && n >= 1);
   const text = (x: unknown) => wholeText(String(x ?? "").replace(/\s+/g, " ").trim());
-  return { picks: [...new Set(nums)], headline: text(out.headline), sub: text(out.sub), primaryText: text(out.primaryText), title: text(out.title) };
+  const at = Number(out.at);
+  const cut: JoinCut | undefined =
+    (out.split === "side" || out.split === "stacked") && Number.isFinite(at) ? { at: Math.round(at), down: out.split === "stacked", beforeFirst: out.beforeFirst !== false } : undefined;
+  return { picks: [...new Set(nums)], headline: text(out.headline), sub: text(out.sub), primaryText: text(out.primaryText), title: text(out.title), ...(cut ? { cut } : {}) };
 }
 
 /** What is wrong with an image ad's plan, each with the brand guide rule it breaks (none for a plain mistake of form). */
@@ -1999,6 +2027,10 @@ export function imageAdIssues(plan: ImageAdPlan | null, type: ImageAdType, candi
     const projects = known.map((n) => candidates[n - 1].project).filter(Boolean);
     if (new Set(projects).size !== projects.length) out.push({ rule: "no-repeat", text: "two photos from the same project: a showcase takes one from each" });
   } else if (known.length !== 1) out.push({ text: type.layout === "pair" ? "choose exactly one pair" : "choose exactly one photo" });
+  if (known.some((n) => candidates[n - 1].joined)) {
+    if (!plan.cut) out.push({ text: 'the pair chosen is a JOINED image: say how to cut it with "split" ("side" or "stacked"), "at" and "beforeFirst"' });
+    else if (plan.cut.at < JOIN_CUT_MIN || plan.cut.at > JOIN_CUT_MAX) out.push({ text: `"at" is ${plan.cut.at}: the two pictures of a joined image meet near the middle (${JOIN_CUT_MIN} to ${JOIN_CUT_MAX}); if they don't, choose another pair` });
+  }
   if (known.some((n) => isCollage(candidates[n - 1].description))) out.push({ rule: "no-collage", text: "a chosen photo is a collage or a screenshot: choose single clean photos" });
   if (!plan.headline) out.push({ text: "no headline" });
   if (usedHeadlines.some((h) => sameHeadline(h, plan.headline))) out.push({ rule: "fresh-headline", text: `the headline "${plan.headline}" is already on an earlier ad: write a new one` });
