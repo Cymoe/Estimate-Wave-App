@@ -5190,6 +5190,19 @@ export const dropStale = internalMutation({
   },
 });
 
+/** The best long-running competitor image ads on file, with their pictures: to look at how they are designed. Read-only. */
+export const imageSwipes = internalQuery({
+  args: { trade: v.optional(v.string()), limit: v.optional(v.number()) },
+  handler: async (ctx, { trade, limit }) => {
+    const slug = tradeOf(trade).slug;
+    return (await ctx.db.query("adSwipes").take(1000))
+      .filter((x) => inTrade(x, slug) && isImageSwipe(x) && x.imageUrl)
+      .map((x) => ({ company: x.company, scope: x.scope, hook: x.hook, offer: x.offer, days: runDays(x), ended: Boolean(x.endedAt), score: swipeScore(x), imageUrl: x.imageUrl }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit ?? 30);
+  },
+});
+
 /** A file's bytes as base64, for Meta's image upload (no Buffer in Convex's default runtime). */
 async function base64Of(url: string): Promise<string> {
   const res = await fetch(url);
