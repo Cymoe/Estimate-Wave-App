@@ -8,7 +8,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
 import { ANY_SCOPE, creativeName, inTrade, parseJson, tradeOf, weekOf } from "./lib/ads";
 import { callClaude } from "./lib/claude";
@@ -39,8 +39,17 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).sli
 /** Starts a job site ad from a video in the Library: its own batch, built on the trade's best competitor ad. */
 export const make = mutation({
   args: { assetId: v.id("adAssets") },
-  handler: async (ctx, { assetId }) => {
-    const user = await requireStaff(ctx);
+  handler: async (ctx, { assetId }) => await startFootage(ctx, assetId, (await requireStaff(ctx))._id),
+});
+
+/** The same from a cloud session (the deploy workflow), to check an edit on the live library. */
+export const makeOutside = internalMutation({
+  args: { assetId: v.id("adAssets") },
+  handler: async (ctx, { assetId }) => await startFootage(ctx, assetId),
+});
+
+async function startFootage(ctx: MutationCtx, assetId: Id<"adAssets">, startedBy?: Id<"users">) {
+  {
     const asset = await ctx.db.get(assetId);
     if (!asset) fail("NOT_FOUND", "That video isn't in the library");
     if (asset.kind !== "video") fail("INVALID", "A job site ad is made from a video");
@@ -70,11 +79,11 @@ export const make = mutation({
       swipeId: swipe._id,
       photoId: assetId,
     });
-    const batchId = await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "drafting", startedBy: user._id, createdAt: nowIso() });
+    const batchId = await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "drafting", startedBy, createdAt: nowIso() });
     await ctx.scheduler.runAfter(0, internal.footage.write, { batchId, hookId, assetId });
     return { batchId, builtOn: swipe.company };
-  },
-});
+  }
+}
 
 /** Everything the words are written from: the clip, what Claude saw in it, and the competitor ad to follow. */
 export const writeInput = internalQuery({
