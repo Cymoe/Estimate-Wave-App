@@ -142,7 +142,8 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
       ))}
       {look === 0 ? (
         <>
-          <div style={{ position: "absolute", left: 0, top: 0, width: W, height: safeTop + 430, background: `linear-gradient(to bottom, rgba(${SHADE},0.92) 0%, rgba(${SHADE},0.64) 55%, rgba(${SHADE},0) 100%)` }} />
+          {/* Deep enough for a three-line headline and both lines under it to read on a bright photo. */}
+          <div style={{ position: "absolute", left: 0, top: 0, width: W, height: safeTop + 700, background: `linear-gradient(to bottom, rgba(${SHADE},0.94) 0%, rgba(${SHADE},0.8) 45%, rgba(${SHADE},0.5) 68%, rgba(${SHADE},0) 100%)` }} />
           {shadeUp(safeBottom + 250, 0.88)}
           <div style={{ position: "absolute", left: 56, right: 56, top: safeTop + 44 }}>
             <Words headline={headline} sub={sub} />
