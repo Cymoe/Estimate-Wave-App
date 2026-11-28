@@ -577,32 +577,45 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
   const [model, setModel] = useState('');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [count, setCount] = useState(3);
+  const [made, setMade] = useState<string | null>(null);
   const swipes = useAdsSwipes<Swipe[]>(trade === DEFAULT_TRADE ? undefined : trade, open);
   const needle = search.trim().toLowerCase();
   // The best competitor ads first (they arrive sorted by star, then fit); the search narrows by company or angle.
   const choices = (swipes ?? []).filter((x) => !needle || `${x.company} ${x.hook} ${x.paintingType}`.toLowerCase().includes(needle)).slice(0, 40);
   const create = () => {
     setBusy(true);
+    setMade(null);
     void act(async () => {
-      const made = await adsAPI.createImageAd(type, model || undefined, trade === DEFAULT_TRADE ? undefined : trade);
+      const out = await adsAPI.createImageAd(type, model || undefined, trade === DEFAULT_TRADE ? undefined : trade, count);
       setOpen(false);
       setModel('');
-      return made;
-    }, 'Your image ad is written. It shows below once it is drawn, in a minute or two.').finally(() => setBusy(false));
+      const n = out.made.length;
+      setMade(
+        `${n === 1 ? 'Your image ad is' : `${n} image ads are`} written. ${n === 1 ? 'It shows' : 'They show'} below once drawn, in a minute or two.${
+          out.missed.length ? ` ${out.missed.length} couldn't be made: ${out.missed[0]}` : ''
+        }`,
+      );
+    }).finally(() => setBusy(false));
   };
   return (
     <>
       <div className="flex flex-wrap items-center gap-3 rounded border border-[#2A2A2A] px-4 py-3">
         <div className="flex-1 min-w-[16rem]">
-          <h3 className="text-sm font-medium text-white">Create an ad</h3>
-          <p className="text-xs text-gray-400">One static image at a time. You pick the type; the app picks the photos and writes the words.</p>
+          <h3 className="text-sm font-medium text-white">Create ads</h3>
+          <p className="text-xs text-gray-400">Static images, up to six in one go. You pick the type; the app picks the photos and writes the words.</p>
         </div>
         <button type="button" className="min-h-[40px] px-4 rounded bg-[#e2b350] text-black text-sm font-medium inline-flex items-center gap-1.5" onClick={() => setOpen(true)}>
-          <Plus className="w-4 h-4" /> Create an ad
+          <Plus className="w-4 h-4" /> Create ads
         </button>
+        {made && (
+          <p role="status" className="basis-full text-sm text-emerald-300">
+            {made}
+          </p>
+        )}
       </div>
       {open && (
-        <Dialog title="Create an ad" onClose={() => !busy && setOpen(false)} wide>
+        <Dialog title="Create ads" onClose={() => !busy && setOpen(false)} wide>
           <div className="space-y-5">
             <fieldset>
               <legend className="text-sm font-medium text-white mb-2">1. What type of image?</legend>
@@ -654,9 +667,27 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                 ))}
               </div>
             </fieldset>
+            <fieldset>
+              <legend className="text-sm font-medium text-white mb-2">3. How many?</legend>
+              <div role="radiogroup" aria-label="How many" className="flex gap-2">
+                {[1, 3, 6].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    role="radio"
+                    aria-checked={count === n}
+                    onClick={() => setCount(n)}
+                    className={`min-h-[40px] px-5 rounded border text-sm ${count === n ? 'border-[#e2b350] bg-[#2a2415] text-white' : 'border-[#2A2A2A] text-gray-300'}`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Each one gets different photos and a different angle.</p>
+            </fieldset>
             <div className="flex items-center gap-3">
               <button type="button" className={`${primary} flex-1`} disabled={busy} onClick={create}>
-                {busy ? 'Choosing photos and writing…' : 'Create this ad'}
+                {busy ? `Choosing photos and writing${count > 1 ? ` ${count} ads` : ''}…` : count === 1 ? 'Create this ad' : `Create ${count} ads`}
               </button>
               <button type="button" className={secondary} disabled={busy} onClick={() => setOpen(false)}>
                 Cancel

@@ -130,7 +130,7 @@ const campaignOf = (on: boolean) => ({
 });
 const campaignState = jest.fn(async () => campaignOf(false));
 const setCampaign = jest.fn(async (on: boolean) => campaignOf(on));
-const createImageAd = jest.fn(async (..._args: unknown[]) => ({ name: 'WL_x_45_photo', headline: 'Cabinets, freshly painted' }));
+const createImageAd = jest.fn(async (..._args: unknown[]) => ({ made: [{ name: 'WL_x_45_photo', headline: 'Cabinets, freshly painted' }, { name: 'WL_y_45_photo', headline: 'Two' }, { name: 'WL_z_45_photo', headline: 'Three' }], missed: [] }));
 const setBest = jest.fn(async (..._args: unknown[]) => undefined);
 const saveScrapeKey = jest.fn(async (..._args: unknown[]) => ({ credits: 99 }));
 const pairPhotos = jest.fn(async (..._args: unknown[]) => undefined);
@@ -324,7 +324,7 @@ describe('Ops → Ads', () => {
       { id: 's1', company: 'Carolina Cabinet Pros', paintingType: 'Cabinets', hook: 'Keep layout, fix ugly cabinets', offer: 'Free quote', creative: 'image', area: '', cta: '', adaptation: '', starred: false, source: 'research', daysRunning: 751 },
     ] as never;
     await render();
-    await act(async () => (Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Create an ad') as HTMLButtonElement).click());
+    await act(async () => (Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Create ads') as HTMLButtonElement).click());
     const types = Array.from(dialog().querySelectorAll('[aria-label="Type of ad"] [role="radio"]'));
     expect(types.map((b) => b.querySelector('span')!.textContent)).toEqual(['Finished photo', 'Before and after', 'Showcase', 'Offer', 'Seasonal offer']);
     await act(async () => (types[2] as HTMLButtonElement).click());
@@ -332,14 +332,16 @@ describe('Ops → Ads', () => {
     expect(models()[0].textContent).toBe('None: write it fresh');
     expect(models()[1].textContent).toContain('Carolina Cabinet Pros · Cabinets · running 751 days');
     await act(async () => (models()[1] as HTMLButtonElement).click());
-    await act(async () => byText('Create this ad')!.click());
+    // Three at once is the usual; one or six can be picked.
+    expect(Array.from(dialog().querySelectorAll('[aria-label="How many"] [role="radio"]')).map((b) => [b.textContent, b.getAttribute('aria-checked')])).toEqual([['1', 'false'], ['3', 'true'], ['6', 'false']]);
+    await act(async () => byText('Create 3 ads')!.click());
     await flush();
-    expect(createImageAd).toHaveBeenCalledWith('showcase', 's1', undefined);
-    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('Your image ad is written');
+    expect(createImageAd).toHaveBeenCalledWith('showcase', 's1', undefined, 3);
+    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('3 image ads are written');
 
     document.body.innerHTML = '';
     await render(false);
-    expect(Array.from(document.body.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Create an ad')).toBe(false);
+    expect(Array.from(document.body.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Create ads')).toBe(false);
   });
 
   it('This week shows each ad as a tile: picture, title, kind; Approve takes all its sizes; tapping opens the rest', async () => {

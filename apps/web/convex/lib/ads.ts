@@ -1701,6 +1701,8 @@ export function imageAdPrompt(
   candidates: ImageCandidate[],
   basedOn?: { company: string; angle: string; offer: string; daysRunning?: number; words?: string },
   now = new Date(),
+  // Headlines of the ads made just before this one in the same go: this one takes a different angle and photos.
+  avoid: string[] = [],
 ): string {
   const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
   const want = type.layout === "pair" ? "one pair" : type.layout === "grid" ? "three or four photos, each from a different project" : "one photo";
@@ -1728,6 +1730,8 @@ export function imageAdPrompt(
     ),
     "",
     `Choose ${want} that best carries this ad. Prefer BEST ones and ones in fewer ads. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
+    type.layout === "grid" ? "Every word of the headline and the line under it must be true of every photo chosen, not most of them: if one has no island, don't say islands." : "",
+    ...(avoid.length ? [`Already made in this set, so take a different angle and different photos from these: ${avoid.map((h) => `"${h}"`).join(", ")}.`] : []),
     "Rules:",
     ...RULES(brand, town),
     `- headline: the words printed large on the image, at most ${IMAGE_HEADLINE_MAX} characters, plain and specific. No full stop needed.`,

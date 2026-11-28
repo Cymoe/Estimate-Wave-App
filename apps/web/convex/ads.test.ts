@@ -3047,7 +3047,7 @@ describe("the weekly run", () => {
     await expect(owner.as.action(api.ads.createImageAd, { type: "poster" })).rejects.toThrow("isn't a type");
     // A single finished photo: the hype headline is sent back, the second answer is kept.
     const made = await owner.as.action(api.ads.createImageAd, { type: "photo" });
-    expect(made.headline).toBe("Cabinets, freshly painted");
+    expect(made.made.map((m) => m.headline)).toEqual(["Cabinets, freshly painted"]);
     const asks = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content as Array<{ text?: string }>);
     expect(asks.at(-1)!.at(-1)!.text).toContain("hype");
     // Only finished work is offered: not the before, not the work in progress.
@@ -3083,6 +3083,13 @@ describe("the weekly run", () => {
     const ask = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).find((x) => x.includes("Seasonal offer"))!;
     expect(ask).toMatch(/It is [A-Z][a-z]+ now\./);
     expect(ask).toContain("Never a deadline");
+    // Three in one go: each is told what the ones before it were, and each is its own ad.
+    const before = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).length);
+    const three = await owner.as.action(api.ads.createImageAd, { type: "photo", count: 3 });
+    expect(three.made).toHaveLength(3);
+    expect(await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).length)).toBe(before + 3);
+    const last = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).at(-1)!;
+    expect(last).toContain("Already made in this set");
   });
 
   test("an idea that isn't one project's story shows a range: a couple of photos a project, and the writer is told they're different homes", async () => {

@@ -5245,20 +5245,40 @@ export const imageAdInput = internalQuery({
  * paused, like any other ad. Nothing is spoken, so there is no voice step.
  */
 export const createImageAd = action({
-  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ name: string; headline: string }> => {
+  // count: how many to make in one go (1 to 6), each with different photos and a different angle.
+  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()), count: v.optional(v.number()) },
+  handler: async (ctx, { count, ...args }): Promise<{ made: Array<{ name: string; headline: string }>; missed: string[] }> => {
     const me: Id<"users"> = await ctx.runQuery(internal.ads.ownerId, {});
-    return await makeImageAd(ctx, args, me);
+    return await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1))), me);
   },
 });
 
+/** The most image ads made in one go. */
+export const IMAGE_ADS_AT_ONCE = 6;
+
+/** Several of one type, one after another: each sees what the ones before it used, so photos and angles differ. */
+async function makeImageAds(ctx: ActionCtx, args: { type: string; swipeId?: Id<"adSwipes">; trade?: string }, count: number, me?: Id<"users">) {
+  const made: Array<{ name: string; headline: string }> = [];
+  const missed: string[] = [];
+  for (let i = 0; i < count; i++) {
+    try {
+      made.push(await makeImageAd(ctx, args, me, made.map((m) => m.headline)));
+    } catch (e) {
+      // The first failing stops nothing made before it; with none made, the reason is the owner's to see.
+      if (made.length === 0) throw e;
+      missed.push(errText(e));
+    }
+  }
+  return { made, missed };
+}
+
 /** The same from a cloud session (the deploy workflow), to make one or to check the live library. */
 export const createImageAdOutside = internalAction({
-  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ name: string; headline: string }> => await makeImageAd(ctx, args),
+  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()), count: v.optional(v.number()) },
+  handler: async (ctx, { count, ...args }) => await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1)))),
 });
 
-async function makeImageAd(ctx: ActionCtx, args: { type: string; swipeId?: Id<"adSwipes">; trade?: string }, me?: Id<"users">): Promise<{ name: string; headline: string }> {
+async function makeImageAd(ctx: ActionCtx, args: { type: string; swipeId?: Id<"adSwipes">; trade?: string }, me?: Id<"users">, avoid: string[] = []): Promise<{ name: string; headline: string }> {
   {
     if (!process.env.ANTHROPIC_API_KEY) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
     const type = imageAdType(args.type);
@@ -5267,7 +5287,7 @@ async function makeImageAd(ctx: ActionCtx, args: { type: string; swipeId?: Id<"a
     const need = type!.layout === "grid" ? 3 : 1;
     if (input.picks.length < need)
       fail("INVALID", type!.layout === "pair" ? "No before and after pair in the Library yet. Pair a before with its after first." : "Not enough finished photos with a description in the Library yet.");
-    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), input.picks, input.basedOn);
+    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), input.picks, input.basedOn, new Date(), avoid);
     let plan: ImageAdPlan | null = null;
     let problems: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
