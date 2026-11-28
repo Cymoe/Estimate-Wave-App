@@ -1644,6 +1644,32 @@ export const AD_SERVICES: Record<string, AdService[]> = {
 export const adServicesOf = (trade: string): AdService[] => AD_SERVICES[trade] ?? [];
 export const adServiceOf = (trade: string, key: string | undefined): AdService | undefined => adServicesOf(trade).find((s) => s.key === key);
 
+/** A competitor ad is a static image ad when the Ad Library says so (an image or a carousel of them). */
+export const isImageSwipe = (x: { mediaType?: string; creative?: string }): boolean =>
+  x.mediaType ? x.mediaType === "image" || x.mediaType === "carousel" : /\b(image|photo|static|carousel|still)\b/i.test(x.creative ?? "");
+
+/** How many of the best competitor ads take turns being the model, so a set isn't built on one ad. */
+export const IMAGE_MODEL_ROTATION = 6;
+
+/**
+ * The competitor ads an image ad learns from, for one service: its own kind of job only, never junk, best first by
+ * fit (quality and how long it has run). Static image ads come before videos, since a still is what we're making.
+ * `model` is the one to build on: of the best few, the one used longest ago, skipping any this set already used.
+ */
+export function pickImageModels<S extends Scored & { _id: string; scope?: string; mediaType?: string; creative?: string; hook: string; lastUsedAt?: string }>(
+  swipes: S[],
+  scope: string,
+  skip: string[] = [],
+): { model?: S; field: S[]; imageAds: number } {
+  const fits = swipes.filter((x) => x.scope === scope && x.hook.trim() && !(x.quality !== undefined && x.quality < 20));
+  const byScore = (a: S, b: S) => swipeScore(b) - swipeScore(a);
+  const images = fits.filter(isImageSwipe).sort(byScore);
+  const ranked = [...images, ...fits.filter((x) => !isImageSwipe(x)).sort(byScore)];
+  const open = ranked.filter((x) => !skip.includes(x._id)).slice(0, IMAGE_MODEL_ROTATION);
+  const model = open.reduce<S | undefined>((best, x) => (!best || (x.lastUsedAt ?? "") < (best.lastUsedAt ?? "") ? x : best), undefined);
+  return { model, field: ranked.filter((x) => x !== model).slice(0, 6), imageAds: images.length };
+}
+
 export type ImageLayout = "single" | "pair" | "grid";
 export interface ImageAdType {
   key: string;
@@ -1731,6 +1757,9 @@ export function imageAdPrompt(
   avoid: string[] = [],
   // What the ad is about: every photo offered is of it, and the words stay on it.
   service?: AdService,
+  // What else has run for months in this service, and what the long-runners have in common (the playbook).
+  field: Array<{ company: string; angle: string; offer: string; daysRunning?: number; image?: boolean }> = [],
+  playbook?: string,
 ): string {
   const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
   const want = type.layout === "pair" ? "one pair" : type.layout === "grid" ? "three or four photos, each from a different project" : "one photo";
@@ -1751,6 +1780,14 @@ export function imageAdPrompt(
           "",
         ]
       : []),
+    ...(field.length
+      ? [
+          "Other competitor ads for this service that have kept running, best first. An ad that keeps running is paying for itself, so notice which hooks and offers last, and write in that vein:",
+          ...field.map((f) => `- ${f.company}${f.daysRunning ? `, ${f.daysRunning} days` : ""}${f.image ? ", image ad" : ""}. Hook: ${f.angle}. Offer: ${f.offer}`),
+          "",
+        ]
+      : []),
+    ...(playbook ? ["What the long-running ads in this category have in common. Follow the angles and openings; never their claims:", playbook.trim().slice(0, 1400), ""] : []),
     type.layout === "pair"
       ? "The before-and-after pairs on file (each is one project; BEST marks the owner's favourites; uses is how many ads it is already in):"
       : "The finished photos on file (BEST marks the owner's favourites; uses is how many ads a photo is already in):",

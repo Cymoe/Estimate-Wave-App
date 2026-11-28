@@ -1147,8 +1147,9 @@ export const adsAPI = {
   /** "Make an ad for cabinet painting in Odessa": starts it and returns the private link that shows it being made. */
   makeFor: (ask: string): Promise<{ link: string }> => run('mutation', api.ads.makeFor, { ask }),
   /** One static image ad: its type, and the competitor ad to model (or none). Returns its headline once written. */
-  createImageAd: (service: string, type: string, swipeId?: string, trade?: string, count = 1): Promise<{ made: Array<{ name: string; headline: string }>; missed: string[] }> =>
-    run('action', api.ads.createImageAd, defined({ service, type, swipeId, trade, count })),
+  // model: a competitor ad's id, "auto" (the app takes the best long-running image ads in turn) or "none".
+  createImageAd: (service: string, type: string, model = 'auto', trade?: string, count = 1): Promise<{ made: Array<{ name: string; headline: string; builtOn?: string }>; missed: string[] }> =>
+    run('action', api.ads.createImageAd, defined({ service, type, swipeId: model === 'auto' || model === 'none' ? undefined : model, fresh: model === 'none' ? true : undefined, trade, count })),
   activate: (id: string) => run('mutation', api.ads.activate, { id }),
   retire: (id: string) => run('mutation', api.ads.retire, { id }),
   reject: (id: string) => run('mutation', api.ads.reject, { id }),

@@ -334,9 +334,12 @@ describe('Ops → Ads', () => {
     expect(types.map((b) => b.querySelector('span')!.textContent)).toEqual(['Finished photo', 'Before and after', 'Showcase', 'Offer', 'Seasonal offer']);
     await act(async () => (types[2] as HTMLButtonElement).click());
     const models = () => Array.from(dialog().querySelectorAll('[aria-label="Competitor ad to model"] [role="radio"]'));
-    expect(models()[0].textContent).toBe('None: write it fresh');
-    expect(models()[1].textContent).toContain('Carolina Cabinet Pros · Cabinets · running 751 days');
-    await act(async () => (models()[1] as HTMLButtonElement).click());
+    // The app's own pick of the best long-running image ads is the usual; none, or one by hand, can be chosen.
+    expect(models()[0].textContent).toContain('Best match (recommended)');
+    expect(models()[0].getAttribute('aria-checked')).toBe('true');
+    expect(models()[1].textContent).toBe('None: write it fresh, without competitor ads');
+    expect(models()[2].textContent).toContain('Carolina Cabinet Pros · Cabinets · running 751 days');
+    await act(async () => (models()[2] as HTMLButtonElement).click());
     // Three at once is the usual; one or six can be picked.
     expect(Array.from(dialog().querySelectorAll('[aria-label="How many"] [role="radio"]')).map((b) => [b.textContent, b.getAttribute('aria-checked')])).toEqual([['1', 'false'], ['3', 'true'], ['6', 'false']]);
     await act(async () => byText('Create 3 cabinet painting ads')!.click());

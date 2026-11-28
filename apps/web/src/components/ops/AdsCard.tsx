@@ -578,7 +578,8 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
   const [service, setService] = useState('');
   const picked = services.find((s) => s.key === service);
   const [type, setType] = useState(IMAGE_TYPES[0][0]);
-  const [model, setModel] = useState('');
+  // 'auto': the app builds each ad on one of the best long-running competitor image ads, a different one each.
+  const [model, setModel] = useState('auto');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [count, setCount] = useState(3);
@@ -597,14 +598,14 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
     setBusy(true);
     setMade(null);
     void act(async () => {
-      const out = await adsAPI.createImageAd(service, type, model || undefined, trade === DEFAULT_TRADE ? undefined : trade, count);
+      const out = await adsAPI.createImageAd(service, type, model, trade === DEFAULT_TRADE ? undefined : trade, count);
       setOpen(false);
-      setModel('');
+      setModel('auto');
       const n = out.made.length;
       setMade(
         `${n === 1 ? 'Your image ad is' : `${n} image ads are`} written. ${n === 1 ? 'It shows' : 'They show'} below once drawn, in a minute or two.${
           out.missed.length ? ` ${out.missed.length} couldn't be made: ${out.missed[0]}` : ''
-        }`,
+        }${out.made.some((m) => m.builtOn) ? ` Built on: ${[...new Set(out.made.map((m) => m.builtOn).filter(Boolean))].join('; ')}.` : ''}`,
       );
     }).finally(() => setBusy(false));
   };
@@ -664,7 +665,7 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               </div>
             </fieldset>
             <fieldset>
-              <legend className="text-sm font-medium text-white mb-2">3. Model it on a competitor ad? (optional)</legend>
+              <legend className="text-sm font-medium text-white mb-2">3. Which competitor ad is it built on?</legend>
               <input
                 type="search"
                 value={search}
@@ -674,8 +675,12 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                 className={`${input} mb-2`}
               />
               <div role="radiogroup" aria-label="Competitor ad to model" className="max-h-64 overflow-y-auto rounded border border-[#2A2A2A] divide-y divide-[#1f1f1f]">
-                <button type="button" role="radio" aria-checked={model === ''} onClick={() => setModel('')} className={`block w-full text-left px-3 py-2 text-sm ${model === '' ? 'bg-[#2a2415] text-white' : 'text-gray-300'}`}>
-                  None: write it fresh
+                <button type="button" role="radio" aria-checked={model === 'auto'} onClick={() => setModel('auto')} className={`block w-full text-left px-3 py-2 ${model === 'auto' ? 'bg-[#2a2415]' : ''}`}>
+                  <span className="block text-sm text-white">Best match (recommended)</span>
+                  <span className="block text-xs text-gray-400">The app builds each ad on one of the top-scoring, longest-running competitor image ads for this service, a different one for each ad.</span>
+                </button>
+                <button type="button" role="radio" aria-checked={model === 'none'} onClick={() => setModel('none')} className={`block w-full text-left px-3 py-2 text-sm ${model === 'none' ? 'bg-[#2a2415] text-white' : 'text-gray-300'}`}>
+                  None: write it fresh, without competitor ads
                 </button>
                 {choices.map((x) => (
                   <button

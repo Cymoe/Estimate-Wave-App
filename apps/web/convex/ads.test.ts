@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, IMAGE_AD_TYPES, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -3173,6 +3173,28 @@ describe("the weekly run", () => {
     const image = imageAdPrompt(IMAGE_AD_TYPES[0], "GoodFit Painting", "Midland", AD_TRADES.painting, []);
     expect(image).toContain("brown cabinets, not honey oak");
     expect(image).toContain("uses 0 wherever some fit");
+  });
+
+  test("an image ad is built on the best long-running competitor image ad for its service, taking turns", () => {
+    const sw = (id: string, over: Record<string, unknown>) => ({ _id: id, starred: false, hook: `hook ${id}`, scope: "cabinets", mediaType: "image", quality: 40, daysRunning: 200, ...over });
+    const all = [
+      sw("video-best", { mediaType: "video", quality: 60, daysRunning: 900 }),
+      sw("img-long", { daysRunning: 700 }),
+      sw("img-short", { daysRunning: 95 }),
+      sw("img-junk", { quality: 5, daysRunning: 999 }),
+      sw("exterior", { scope: "exterior", daysRunning: 999 }),
+      sw("img-used", { daysRunning: 800, lastUsedAt: "2026-11-27" }),
+    ];
+    const first = pickImageModels(all, "cabinets");
+    // Image ads before the video however well it scores; never junk or another service; the unused one before the used.
+    expect(first.imageAds).toBe(3);
+    expect(first.model!._id).toBe("img-long");
+    expect(first.field.map((x) => x._id)).toEqual(["img-used", "img-short", "video-best"]);
+    // The next ad in a set takes another.
+    expect(pickImageModels(all, "cabinets", ["img-long"]).model!._id).toBe("img-short");
+    const prompt = imageAdPrompt(IMAGE_AD_TYPES[0], "GoodFit Painting", "Midland", AD_TRADES.painting, [], { company: "Rodgers", angle: "Process", offer: "Free estimate", daysRunning: 167 }, new Date(), [], undefined, [{ company: "Rock Creek", angle: "Same kitchen", offer: "Free quote", daysRunning: 157, image: true }], "Winners open on the owner.");
+    expect(prompt).toContain("Rock Creek, 157 days, image ad. Hook: Same kitchen");
+    expect(prompt).toContain("Winners open on the owner.");
   });
 
   test("an image ad is direct response: a caption for a headline is sent back, and the sub line must state the free quote", () => {
