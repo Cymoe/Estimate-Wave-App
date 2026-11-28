@@ -13,7 +13,8 @@ export const Still: React.FC<StillProps> = (props) =>
 
 /**
  * A before and its after, edge to edge like a showcase: side by side when both stand upright, else one above the
- * other. Each is marked, the brand's mark sits on the line between them, the headline is on the photos, no bars.
+ * other. No Before or After tags (the owner: the photos already say it, Nov 2026); the brand's mark sits on the
+ * line between them and the headline is on the photos, no bars.
  */
 const Pair: React.FC<StillProps & { pair: [Photo, Photo]; marks: string[] }> = ({ ratio, brand, headline, sub, pair, marks }) => {
   const tall = ratio === "9x16";
@@ -32,9 +33,6 @@ const Pair: React.FC<StillProps & { pair: [Photo, Photo]; marks: string[] }> = (
       {cells.map((c, i) => (
         <div key={i} style={{ position: "absolute", left: c.left, top: c.top, width: c.width, height: c.height, overflow: "hidden", backgroundColor: INK }}>
           <Img src={source(c.ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${c.ph.focus?.[0]?.x ?? 50}% ${c.ph.focus?.[0]?.y ?? 50}%` }} />
-          <div style={{ position: "absolute", left: 28, top: (i === 0 || side ? safeTop : 0) + 28, fontFamily: display, fontWeight: 800, fontSize: 40, letterSpacing: 1, textTransform: "uppercase", color: i === 0 ? NAVY : "#fff", backgroundColor: i === 0 ? "#fff" : TEAL, padding: "10px 24px", borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.35)" }}>
-            {marks[i]}
-          </div>
         </div>
       ))}
       <div style={{ position: "absolute", left: 0, bottom: 0, width: W, height: safeBottom + 560, background: "linear-gradient(to top, rgba(6,20,46,0.94) 0%, rgba(6,20,46,0.7) 50%, rgba(6,20,46,0) 100%)" }} />
