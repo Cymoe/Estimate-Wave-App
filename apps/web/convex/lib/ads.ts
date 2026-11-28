@@ -1632,13 +1632,36 @@ export interface AdService {
   scope: string;
   /** The types of work whose photos count as this service. */
   works: string[];
+  /** A photo whose description says any of this is not this service, whatever it is tagged. */
+  not?: RegExp;
+  /** A tag that rules a photo out (an indoor photo for an outdoor service). */
+  notTag?: string;
+  /** What the writer is told to look for when it chooses this service's photos by eye. */
+  eye?: string;
+}
+
+/** Whether a photo counts as a service: tagged as its work, and nothing in its tags or description rules it out. */
+export function photoOfService(service: AdService, photo: { tags: readonly string[]; description?: string }): boolean {
+  if (!photo.tags.some((t) => service.works.includes(t))) return false;
+  if (service.notTag && photo.tags.includes(service.notTag)) return false;
+  return !service.not?.test(photo.description ?? "");
 }
 
 /** What ads may be about, by trade (the owner, Nov 2026: cabinet painting and exterior painting for now). One line adds another. */
 export const AD_SERVICES: Record<string, AdService[]> = {
   painting: [
     { key: "cabinets", label: "Cabinet painting", scope: "cabinets", works: ["cabinets-painted"] },
-    { key: "exterior", label: "Exterior painting", scope: "exterior", works: ["exterior-repaint", "brick"] },
+    {
+      key: "exterior",
+      label: "Exterior painting",
+      scope: "exterior",
+      works: ["exterior-repaint", "brick"],
+      // The owner's exterior test (Nov 2026) drew a storage building, an indoor fireplace, stained doors and jobs with
+      // ladders up: an exterior ad shows finished painted homes from outside, nothing else.
+      notTag: "interior",
+      not: /\b(commercial|storage|warehouse|shop|office|store ?front|business|industrial|roll[- ]up|indoors?|inside|interior|fireplace|living room|stain(?:ed|ing)?|scaffold\w*|ladders?|in progress|unfinished|mask(?:ed|ing)|tarps?|drop cloths?)\b/i,
+      eye: "Only the finished outside of a home, painted: the house itself fills the picture. Pass over a commercial or storage building, anything indoors, a stained (not painted) door, and any photo with a ladder, scaffolding, masking or an open garage full of things.",
+    },
   ],
 };
 export const adServicesOf = (trade: string): AdService[] => AD_SERVICES[trade] ?? [];
@@ -1844,6 +1867,7 @@ export function imageAdPrompt(
     ),
     "",
     ...(byEye ? IMAGE_BY_EYE : []),
+    ...(byEye && service?.eye ? [`- ${service.eye}`] : []),
     `Choose ${want} that best carries this ad. BEST photos are the owner's favourites: use them first, even when already in ads. Among the rest, choose ones with uses 0 wherever some fit. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
     type.layout === "grid" ? "Every word of the headline and the line under it must be true of every photo chosen, not most of them: if one has no island, don't say islands." : "",
     ...(avoid.length ? [`Already made in this set, so take a different angle and different photos from these: ${avoid.map((h) => `"${h}"`).join(", ")}.`] : []),
@@ -1886,6 +1910,7 @@ export const IMAGE_SHORTLIST_MARK = "Shortlist photos for one static image ad";
 export function imageShortlistPrompt(type: ImageAdType, service: AdService | undefined, candidates: ImageCandidate[], max: number, avoid: string[] = []): string {
   return [
     `${IMAGE_SHORTLIST_MARK}${service ? ` about ${service.label.toLowerCase()}` : ""} (${type.label.toLowerCase()}). From what each shows, pick the ${max} ${type.layout === "pair" ? "pairs" : "photos"} most likely to make a strong ad: the work is the main subject and fills the picture, the room is finished and tidy, and it would stop a homeowner scrolling.`,
+    service?.eye ?? "",
     "BEST marks the owner's favourite shots: put every BEST one that fits on the list first, even if it is already in ads. For the rest, prefer ones with uses 0.",
     type.layout === "grid" ? "Take them from as many different projects as you can." : "",
     avoid.length ? `Other ads in this set are already being made, so favour different photos from the obvious first picks.` : "",
@@ -1907,7 +1932,7 @@ export const IMAGE_BY_EYE = [
   "The photos are attached below, each labelled with its number. Look at them: choose by what you see, not only by the descriptions.",
   "- Pass over a photo where the work barely shows (a close-up of a sink or a counter with a sliver of cabinet), one with black bars, a border or phone-screen clutter, a blurry or dark one, a collage, or one where mess or a person is what you notice first.",
   "- Choose photos where the work is the main subject, well lit, and looks like something a homeowner would want.",
-  "- List the strongest photo first: it is shown largest. It must be a whole finished room (a full kitchen), never a detail, a single cupboard or empty shelves.",
+  "- List the strongest photo first: it is shown largest. It must show the whole of the work (a full kitchen, the whole front of a house), never a detail, a single cupboard, one door or empty shelves.",
 ];
 
 export interface ImageAdPlan {

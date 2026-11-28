@@ -23,7 +23,7 @@ const NAVY = "#0f1c42";
 const GOLD = "#f2c043";
 const SHADE = "15,28,66";
 
-/** The mark (the gold house and tick on navy) as a disc with a white rim, to sit where photos meet or beside the name. */
+/** The mark (the gold spray gun on navy, the logo of Nov 2026) as a disc with a white rim, to sit where photos meet or beside the name. */
 const Mark: React.FC<{ size: number; left: number; top: number }> = ({ size, left, top }) => (
   <div
     style={{
@@ -40,7 +40,7 @@ const Mark: React.FC<{ size: number; left: number; top: number }> = ({ size, lef
       boxShadow: "0 10px 34px rgba(0,0,0,0.4)",
     }}
   >
-    <Img src={staticFile("brand/mark-navy.png")} style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scale(1.08)" }} />
+    <Img src={staticFile("brand/mark-navy.png")} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
   </div>
 );
 

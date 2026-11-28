@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, BRAND_GUIDE, imageAdIssues, isCollage, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, AD_SERVICES, photoOfService, BRAND_GUIDE, imageAdIssues, isCollage, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -3315,6 +3315,20 @@ describe("the weekly run", () => {
     const prompt = imageAdPrompt(type, "GoodFit Painting", "Midland", AD_TRADES.painting, cands);
     for (const g of BRAND_GUIDE.filter((x) => x.where !== "look")) expect(prompt).toContain(g.rule);
     expect(prompt).toContain('The name is "GoodFit Painting"');
+  });
+
+  test("exterior painting takes only finished painted homes from outside: no commercial building, indoor brick, stained door or job with a ladder up", () => {
+    const ext = AD_SERVICES.painting.find((x) => x.key === "exterior")!;
+    const is = (tags: string[], description: string) => photoOfService(ext, { tags, description });
+    expect(is(["exterior", "exterior-repaint", "after"], "A single-storey house repainted white with black trim and a teal front door.")).toBe(true);
+    expect(is(["exterior", "brick", "after"], "A brick house painted white.")).toBe(true);
+    expect(is(["exterior", "exterior-repaint", "after"], "A commercial storage building with blue roll-up doors.")).toBe(false);
+    expect(is(["interior", "brick", "after"], "A painted brick fireplace.")).toBe(false);
+    expect(is(["exterior", "exterior-repaint", "after"], "A stained wood double front door with iron scrollwork.")).toBe(false);
+    expect(is(["exterior", "exterior-repaint", "after"], "A grey house with a ladder against the wall.")).toBe(false);
+    expect(is(["cabinets", "cabinets-painted", "after"], "A painted kitchen.")).toBe(false);
+    const prompt = imageAdPrompt(IMAGE_AD_TYPES[0], "GoodFit Painting", "Midland", AD_TRADES.painting, [{ n: 1, tags: [], description: "A house.", uses: 0 }], undefined, new Date(), [], ext, [], undefined, true);
+    expect(prompt).toContain("Only the finished outside of a home");
   });
 
   test("an image ad's printed words never place the pictured work in the town", () => {

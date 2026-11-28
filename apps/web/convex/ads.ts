@@ -38,6 +38,7 @@ import {
   BRAND_GUIDE,
   guidePassed,
   isCollage,
+  photoOfService,
   readImageAd,
   type ImageCandidate,
   type ImageAdPlan,
@@ -5103,6 +5104,44 @@ export const archiveOld = internalAction({
   },
 });
 
+/** Archives named ads in Meta (ones the owner turned down after they went in) and sets them aside here. Never a live one. */
+export const archiveAds = internalAction({
+  args: { names: v.array(v.string()) },
+  handler: async (ctx, { names }) => {
+    const token = await metaToken(ctx);
+    if (!token) fail("INVALID", "Connect Meta in Settings first");
+    const rows: Array<{ name: string; adId?: string; status: string }> = await ctx.runQuery(internal.ads.adIdsOf, { names });
+    const archived: string[] = [];
+    const skipped: string[] = [];
+    for (const r of rows) {
+      if (!r.adId || r.status === "live") {
+        skipped.push(`${r.name}: ${r.status === "live" ? "is running" : "not in Meta"}`);
+        continue;
+      }
+      try {
+        await graph(r.adId, { status: "ARCHIVED" }, "Archive ad", token!);
+        archived.push(r.adId);
+      } catch (e) {
+        skipped.push(`${r.name}: ${errText(e)}`);
+      }
+    }
+    const cleared: number = await ctx.runMutation(internal.ads.markArchived, { adIds: archived });
+    return { archived: archived.length, cleared, skipped };
+  },
+});
+
+export const adIdsOf = internalQuery({
+  args: { names: v.array(v.string()) },
+  handler: async (ctx, { names }) => {
+    const out: Array<{ name: string; adId?: string; status: string }> = [];
+    for (const name of names) {
+      const c = await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first();
+      out.push({ name, adId: c?.meta?.adId, status: c?.status ?? "not found" });
+    }
+    return out;
+  },
+});
+
 /** Ads archived in Meta leave the review list here too: they can no longer be approved. */
 export const markArchived = internalMutation({
   args: { adIds: v.array(v.string()) },
@@ -5289,7 +5328,7 @@ export const imageAdInput = internalQuery({
     if (!service) fail("INVALID", "Choose what the ad is about");
     const row = await settingsRow(ctx);
     // Only photos of the service: an ad about cabinet painting never shows a staircase.
-    const ofService = (a: Doc<"adAssets">) => a.tags.some((t) => service!.works.includes(t));
+    const ofService = (a: Doc<"adAssets">) => photoOfService(service!, a);
     const photos = (await ctx.db.query("adAssets").take(500)).filter((a) => a.kind === "photo" && inTrade(a, trade.slug) && a.description);
     const drawable: typeof photos = [];
     const urlOf = new Map<string, string>();
@@ -5367,7 +5406,8 @@ export const imageAdInput = internalQuery({
       playbook,
       imageAds: auto.imageAds,
       scope: service!.scope,
-      service: service!,
+      // Without its filter (a pattern can't be passed between functions): the writer needs only its name and what to look for.
+      service: { key: service!.key, label: service!.label, scope: service!.scope, works: service!.works, eye: service!.eye },
     };
   },
 });
