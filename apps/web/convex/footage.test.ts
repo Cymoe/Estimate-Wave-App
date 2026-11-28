@@ -289,6 +289,11 @@ describe("a job site video", () => {
     expect(rows[0].design!.cuts).toEqual([{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }]);
     expect(rows[0].audioDurationSec).toBe(2.8);
     expect(rows[0].script.shots!.map((x) => [x.voice, x.start])).toEqual([["Smooth.", 0.2], ["We spray every door.", 1.3]]);
+    // The words are written about the kept parts, from the clip's frames, not its poster.
+    const wrote = JSON.parse(calls.filter((c) => c.body?.includes("a clip") && c.url.includes("anthropic") && !c.body.includes("You are editing a clip")).at(-1)!.body!).messages[0].content;
+    expect(wrote[0].text).toContain("The ad shows ONLY these seconds of the clip, in this order: 2.2 to 3.4, 0.4 to 2.");
+    expect(wrote.filter((c: { type: string }) => c.type === "image")).toHaveLength(1);
+    expect(wrote[1].text).toContain("Look only at the ones within 2.2 to 3.4, 0.4 to 2");
     const jobs = await t.mutation(internal.ads.claimRenders, {});
     expect((jobs[0].props as Record<string, any>).footage.cuts).toEqual([{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }]);
     expect((jobs[0].props as Record<string, any>).audioSec).toBe(2.8);

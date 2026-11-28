@@ -98,6 +98,11 @@ export const writeInput = internalQuery({
       storageId: asset.storageId,
       durationSec: asset.durationSec,
       cuts: cleanCuts(asset.cuts, asset.durationSec ?? 0),
+      // What the kept parts show, in the app's own words when it chose them, and the clip's frames to look at.
+      cutsNote: asset.cutsBy === "app" ? asset.cutsNote : undefined,
+      sheets: await Promise.all((asset.scan?.sheets ?? []).map(async (id) => (await ctx.storage.getUrl(id)) ?? "")),
+      scanEvery: asset.scan?.every,
+      scanPer: asset.scan?.per,
       seen: asset.description,
       posterUrl: asset.posterStorageId ? ((await ctx.storage.getUrl(asset.posterStorageId)) ?? undefined) : undefined,
       trade: tradeOf(asset.trade).label,
@@ -181,8 +186,22 @@ export const write = internalAction({
       const lastWord = lines.length ? lines[lines.length - 1].end : 0;
       const durationSec = cut ? cutTotal(input.cuts) : Math.round(Math.max(input.durationSec ?? 0, lastWord + 0.5, 3) * 100) / 100;
       if (durationSec > 90.5) throw new Error(`The clip runs ${Math.round(durationSec)} seconds. Trim it to 90 seconds or less`);
-      const prompt = footagePrompt({ brand: input.brand, trade: input.trade, town: input.town, heard: lines.map((l) => l.voice).join(" "), seen: input.seen, swipe: input.swipe });
-      const content: unknown[] = [{ type: "text", text: prompt }, ...(input.posterUrl ? [{ type: "image", source: { type: "url", url: input.posterUrl } }] : [])];
+      // Cut, the ad shows only the kept parts: the words are written about those (the first headline written for a cut
+      // clip was about the messy room it no longer showed), from the frames of the kept parts, not the clip's poster.
+      const keptCuts: Array<{ from: number; to: number }> = input.cuts;
+      const parts = keptCuts.map((c) => `${c.from} to ${c.to}`).join(", ");
+      const seen = cut
+        ? `The ad shows ONLY these seconds of the clip, in this order: ${parts}.${input.cutsNote ? ` ${input.cutsNote}` : ""} Write about what those parts show and nothing else in the clip.${input.seen ? ` (The whole clip, most of which is cut: ${input.seen})` : ""}`
+        : input.seen;
+      const prompt = footagePrompt({ brand: input.brand, trade: input.trade, town: input.town, heard: lines.map((l) => l.voice).join(" "), seen, swipe: input.swipe });
+      // The sheets that hold the kept parts' frames (each frame is stamped with its second), two at most.
+      const kept = cut && input.scanEvery && input.scanPer ? [...new Set(keptCuts.map((c) => Math.floor(Math.round(c.from / input.scanEvery!) / input.scanPer!)))].slice(0, 2).map((i) => input.sheets[i] as string).filter(Boolean) : [];
+      const pictures = kept.length
+        ? [{ type: "text", text: `Frames from the clip, each stamped with its second. Look only at the ones within ${parts}:` }, ...kept.map((url: string) => ({ type: "image", source: { type: "url", url } }))]
+        : input.posterUrl
+          ? [{ type: "image", source: { type: "url", url: input.posterUrl } }]
+          : [];
+      const content: unknown[] = [{ type: "text", text: prompt }, ...pictures];
       let problems: string[] = [];
       let copy: FootageCopy | null = null;
       for (let attempt = 0; attempt < 2 && !copy; attempt++) {
@@ -452,4 +471,17 @@ export const cutsReport = internalQuery({
       error: a.cutsError,
       description: (a.description ?? "").slice(0, 120),
     })),
+});
+
+
+/** From the deployment: switches the old side-by-side drawing test for job site videos on or off (off: a clip makes two ads, not four). */
+export const setCompareTest = internalMutation({
+  args: { on: v.boolean() },
+  handler: async (ctx, { on }) => {
+    const row = (await ctx.db.query("adSettings").take(1))[0];
+    if (!row) return { set: false };
+    const was = row.tesseractFootage;
+    await ctx.db.patch(row._id, { tesseractFootage: on });
+    return { set: true, was };
+  },
 });
