@@ -3339,6 +3339,19 @@ describe("the weekly run", () => {
     // With the first Elm pair already in the set, the other Elm pair is left out too: only Oak is offered.
     const next = await t.query(internal.ads.imageAdInput, { service: "cabinets", type: "plain_pair", fresh: true, skipAssets: ids });
     expect(next.picks.map((p) => p.description)).toEqual(["Oak kitchen, white."]);
+    // And once every job with a pair is in the set, there is no pair to make, rather than the same kitchen again.
+    const oak = await t.run(async (ctx) => (await ctx.db.query("adAssets").collect()).filter((a) => a.pairKey === "o1").map((a) => a._id));
+    await expect(t.query(internal.ads.imageAdInput, { service: "cabinets", type: "plain_pair", fresh: true, skipAssets: [...ids, ...oak] })).rejects.toThrow("No before and after pair from a job");
+    // Pairs in no job are filed under one by what their after shows; a dry run changes nothing.
+    await t.run(async (ctx) => {
+      for (const a of await ctx.db.query("adAssets").collect()) if (a.pairKey?.startsWith("e")) await ctx.db.patch(a._id, { jobId: undefined });
+    });
+    expect((await t.mutation(internal.ads.filePairsAsJob, { name: "Grey kitchen", afterMatches: "elm kitchen, grey", dry: true })).pairs).toBe(2);
+    expect(await t.run(async (ctx) => (await ctx.db.query("adJobs").collect()).length)).toBe(2);
+    const filed = await t.mutation(internal.ads.filePairsAsJob, { name: "Grey kitchen", afterMatches: "elm kitchen, grey" });
+    expect(filed.pairs).toBe(2);
+    const jobs = new Set(await t.run(async (ctx) => (await ctx.db.query("adAssets").collect()).filter((a) => a.pairKey?.startsWith("e")).map((a) => a.jobId)));
+    expect([jobs.size, jobs.has(filed.jobId)]).toEqual([1, true]);
   });
 
   test("the brand guide: a draft that breaks a rule is reported by the rule, and the brief carries the guide", () => {

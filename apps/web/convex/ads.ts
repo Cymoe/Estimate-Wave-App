@@ -5248,6 +5248,27 @@ export const libraryCheck = internalQuery({
   },
 });
 
+/**
+ * Files before-and-after pairs that are in no job under one job, by what their after shows: for one kitchen shot
+ * from several angles that was never grouped, so a set shows it once. `dry` lists what would be filed.
+ */
+export const filePairsAsJob = internalMutation({
+  args: { name: v.string(), afterMatches: v.string(), trade: v.optional(v.string()), dry: v.optional(v.boolean()) },
+  handler: async (ctx, { name, afterMatches, trade: slug, dry }) => {
+    const trade = tradeOf(slug);
+    const re = new RegExp(afterMatches, "i");
+    const photos = (await ctx.db.query("adAssets").take(1000)).filter((a) => a.kind === "photo" && inTrade(a, trade.slug) && a.pairKey && !a.jobId);
+    const byKey = new Map<string, typeof photos>();
+    for (const a of photos) byKey.set(a.pairKey!, [...(byKey.get(a.pairKey!) ?? []), a]);
+    const found = [...byKey.values()].filter((halves) => halves.some((h) => h.tags.includes("after") && !h.tags.includes("before") && re.test(h.description ?? "")));
+    const files = found.flat().map((a) => `${a.fileName}: ${(a.description ?? "").slice(0, 70)}`);
+    if (dry || found.length === 0) return { pairs: found.length, files };
+    const jobId = await ctx.db.insert("adJobs", { trade: trade.slug, name, createdAt: nowIso() });
+    for (const a of found.flat()) await ctx.db.patch(a._id, { jobId });
+    return { pairs: found.length, files, jobId };
+  },
+});
+
 /** A file's bytes as base64, for Meta's image upload (no Buffer in Convex's default runtime). */
 async function base64Of(url: string): Promise<string> {
   const res = await fetch(url);
@@ -5476,6 +5497,9 @@ export const imageAdInput = internalQuery({
       if (job) takenJobs.add(job);
     }
     const otherJobs = open.filter((p) => !p.job || !takenJobs.has(p.job));
+    // A before and after is one job's whole story: when the only pairs left are of a job this set already shows,
+    // there is none to make (a mixed set then makes another kind instead of the same kitchen from a new angle).
+    if (type!.layout === "pair" && takenJobs.size > 0 && open.length > 0 && otherJobs.length === 0) fail("INVALID", "No before and after pair from a job this set doesn't already show");
     const offered = (otherJobs.length >= enough ? otherJobs : open.length >= enough ? open : picks).map(({ job: _job, ...p }, i) => ({ ...p, n: i + 1 }));
     const playbook = fresh ? undefined : (await ctx.db.query("adPlaybooks").take(20)).find((p) => p.scope === service!.scope)?.text;
     // The headlines image ads already carry (rejected ones too): none is written again.
