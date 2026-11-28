@@ -533,33 +533,85 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
           <p className="text-sm text-gray-400">No ads yet. Fill the Library, then ask for ideas above and keep the ones you like.</p>
         </div>
       ) : (
-        batches.map((b) => (
-          <section key={b.id} className="border border-[#2A2A2A] rounded" aria-label={`Week of ${b.weekOf}`}>
-            <header className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-[#2A2A2A]">
-              <h3 className="text-sm font-medium text-white">Week of {b.weekOf}</h3>
-              <span className={chip}>{b.status}</span>
-              {b.summary && <span className="text-xs text-gray-500">{b.summary}</span>}
-              {b.error && <span className="text-xs text-red-300">{b.error}</span>}
-              <span className="text-xs text-gray-500 ml-auto">started {ago(b.createdAt)}</span>
+        <AdGroups batches={batches} act={act} />
+      )}
+    </div>
+  );
+};
+
+/** Which group an ad sits in on This week, by what the owner does with it. */
+type AdStage = 'review' | 'running' | 'making' | 'done';
+function adStageOf(items: AdCreative[]): AdStage {
+  if (items.some((c) => c.status === 'live')) return 'running';
+  if (items.some((c) => c.status === 'paused' || c.status === 'rendered')) return 'review';
+  if (items.some((c) => c.status !== 'retired' && c.status !== 'rejected')) return 'making';
+  return 'done';
+}
+
+const AD_STAGES: Array<[AdStage, string, string]> = [
+  ['review', 'To review', 'Ads to review'],
+  ['running', 'Running', 'Ads running'],
+  ['making', 'Being made', 'Ads being made'],
+  ['done', 'Stopped or set aside', 'Ads stopped or set aside'],
+];
+
+/**
+ * Every ad on one page, side by side, grouped by what the owner does with it (the owner asked, Nov 2026: a set of
+ * four belongs in one row, not a box each). How the app filed them (a batch per run) only shows as a note when a
+ * run failed or passed an idea over.
+ */
+const AdGroups: React.FC<{ batches: AdBatch[]; act: Act }> = ({ batches, act }) => {
+  const newest = (g: HookGroupData) => g.items.reduce((at, c) => (c.createdAt > at ? c.createdAt : at), '');
+  const groups = batches
+    .flatMap((b) => groupByHook(b.creatives).map((g) => ({ ...g, key: `${b.id}:${g.key}` })))
+    .sort((a, b) => newest(b).localeCompare(newest(a)));
+  const notes = batches.filter((b) => b.error || (b.skipped ?? []).length > 0 || (b.creatives.length === 0 && b.summary));
+  const count = (list: HookGroupData[], ...statuses: AdCreative['status'][]) => list.filter((g) => g.items.some((c) => statuses.includes(c.status))).length;
+  return (
+    <div className="space-y-6">
+      {groups.length === 0 && <p className="text-xs text-gray-500">Nothing drafted yet.</p>}
+      {AD_STAGES.map(([stage, title, label]) => {
+        const list = groups.filter((g) => adStageOf(g.items) === stage);
+        if (list.length === 0) return null;
+        const inMeta = count(list, 'paused');
+        const drawn = list.length - inMeta;
+        return (
+          <section key={stage} className="border border-[#2A2A2A] rounded" aria-label={title}>
+            <header className="flex flex-wrap items-baseline gap-3 px-4 py-3 border-b border-[#2A2A2A]">
+              <h3 className="text-sm font-medium text-white">
+                {title} · {list.length}
+              </h3>
+              {stage === 'review' && (
+                <span className="text-xs text-gray-500">
+                  {inMeta} in Meta, paused{drawn > 0 ? ` · ${drawn} drawn, not in Meta yet` : ''}
+                </span>
+              )}
             </header>
-            {(b.skipped ?? []).length > 0 && (
-              <ul className="px-4 pt-3 text-xs text-amber-200/80 space-y-0.5" aria-label="Passed over">
-                {b.skipped!.map((s) => (
-                  <li key={s}>Passed over {s}</li>
-                ))}
-              </ul>
-            )}
-            {b.creatives.length === 0 ? (
-              <p className="px-4 py-3 text-xs text-gray-500">Nothing drafted for this week.</p>
-            ) : (
-              <ul className="grid gap-4 p-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4" aria-label="Ads to review">
-                {groupByHook(b.creatives).map((g) => (
-                  <AdTile key={g.key} group={g} act={act} />
-                ))}
-              </ul>
-            )}
+            <ul className="grid gap-4 p-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4" aria-label={label}>
+              {list.map((g) => (
+                <AdTile key={g.key} group={g} act={act} />
+              ))}
+            </ul>
           </section>
-        ))
+        );
+      })}
+      {notes.length > 0 && (
+        <ul className="text-xs space-y-1" aria-label="Notes from runs">
+          {notes.map((b) => (
+            <li key={b.id} className="text-gray-500">
+              Run {ago(b.createdAt)}
+              {b.summary ? `: ${b.summary}` : ''}
+              {b.error && <span className="text-red-300"> {b.error}</span>}
+              {(b.skipped ?? []).length > 0 && (
+                <ul className="text-amber-200/80 space-y-0.5 mt-0.5" aria-label="Passed over">
+                  {b.skipped!.map((x) => (
+                    <li key={x}>Passed over {x}</li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -898,6 +950,7 @@ const AdTile: React.FC<{ group: HookGroupData; act: Act }> = ({ group, act }) =>
           {sizes > 1 ? ` · ${sizes} sizes` : ''}
           {lead.guide ? <span className="text-[#e2b350]"> · Brand check ✓</span> : null}
         </p>
+        <p className="text-xs text-gray-500">made {ago(lead.createdAt)}</p>
       </button>
       {rejectable.length > 0 && (
         <div className="mt-2 flex gap-2">

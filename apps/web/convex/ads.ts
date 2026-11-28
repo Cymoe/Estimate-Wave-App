@@ -3153,7 +3153,7 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
 
 /** The last few weeks' batches with their creatives, newest first. */
 /** How many batches Ops → Ads lists: the newest, then the older ones still holding an ad that wasn't rejected. */
-const BATCHES_SHOWN = 20;
+const BATCHES_SHOWN = 40;
 
 export const batches = query({
   args: { trade: v.optional(v.string()) },
@@ -5389,9 +5389,11 @@ async function makeImageAds(ctx: ActionCtx, args: { service: string; type: strin
   const missed: string[] = [];
   const usedSwipes: Id<"adSwipes">[] = [];
   const usedAssets: Id<"adAssets">[] = [];
+  // Ads made in one go are filed together (one batch), so they are one set wherever batches are shown.
+  const set: { batchId?: Id<"adBatches"> } = {};
   for (let i = 0; i < count; i++) {
     try {
-      const one = await makeImageAd(ctx, args, me, made.map((m) => m.headline), usedSwipes, usedAssets);
+      const one = await makeImageAd(ctx, args, me, made.map((m) => m.headline), usedSwipes, usedAssets, set);
       if (one.swipeId) usedSwipes.push(one.swipeId);
       usedAssets.push(...one.assetIds);
       made.push({ name: one.name, headline: one.headline, builtOn: one.builtOn });
@@ -5410,7 +5412,7 @@ export const createImageAdOutside = internalAction({
   handler: async (ctx, { count, ...args }) => await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1)))),
 });
 
-async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, me?: Id<"users">, avoid: string[] = [], skipSwipes: Id<"adSwipes">[] = [], skipAssets: Id<"adAssets">[] = []): Promise<{ name: string; headline: string; builtOn?: string; swipeId?: Id<"adSwipes">; assetIds: Id<"adAssets">[] }> {
+async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, me?: Id<"users">, avoid: string[] = [], skipSwipes: Id<"adSwipes">[] = [], skipAssets: Id<"adAssets">[] = [], set: { batchId?: Id<"adBatches"> } = {}): Promise<{ name: string; headline: string; builtOn?: string; swipeId?: Id<"adSwipes">; assetIds: Id<"adAssets">[] }> {
   {
     if (!process.env.ANTHROPIC_API_KEY) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
     const type = imageAdType(args.type);
@@ -5454,7 +5456,8 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
     }
     if (!plan || problems.length) fail("INVALID", `The ad couldn't be written within the rules: ${problems.join("; ")}`);
     const assetIds = plan!.picks.flatMap((n) => shown[n - 1].ids);
-    const name: string = await ctx.runMutation(internal.ads.storeImageAd, {
+    const stored: { name: string; batchId: Id<"adBatches"> } = await ctx.runMutation(internal.ads.storeImageAd, {
+      batchId: set.batchId,
       type: type!.key,
       trade: input.trade,
       swipeId: input.swipeId,
@@ -5466,6 +5469,8 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
       title: plan!.title || plan!.headline,
       startedBy: me,
     });
+    set.batchId = stored.batchId;
+    const name = stored.name;
     const days = input.basedOn?.daysRunning;
     return { name, headline: plan!.headline, assetIds, swipeId: input.swipeId, builtOn: input.basedOn ? `${input.basedOn.company}${days ? `, ${days} days` : ""}` : undefined };
   }
@@ -5479,6 +5484,8 @@ export const ownerId = internalQuery({
 
 export const storeImageAd = internalMutation({
   args: {
+    // The batch of the set it is made in; without one it starts its own.
+    batchId: v.optional(v.id("adBatches")),
     type: v.string(),
     trade: v.string(),
     swipeId: v.optional(v.id("adSwipes")),
@@ -5511,7 +5518,7 @@ export const storeImageAd = internalMutation({
     });
     // Its turn is taken: the next image ad builds on another of the best.
     if (a.swipeId && (await ctx.db.get(a.swipeId))) await ctx.db.patch(a.swipeId, { lastUsedAt: nowIso() });
-    const batchId = await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "rendering", startedBy: a.startedBy, createdAt: nowIso() });
+    const batchId = a.batchId ?? (await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "rendering", startedBy: a.startedBy, createdAt: nowIso() }));
     // Each new image ad takes the next of the four text layouts, so a set looks varied.
     const before = (await ctx.db.query("adCreatives").order("desc").take(200)).filter((c) => c.still).length;
     let name = `${creativeName(hookId, "4x5", new Date())}_${type.key}`;
@@ -5535,7 +5542,7 @@ export const storeImageAd = internalMutation({
       const p = await ctx.db.get(id);
       if (p) await ctx.db.patch(id, { uses: (p.uses ?? 0) + 1, lastUsedAt: nowIso() });
     }
-    return name;
+    return { name, batchId };
   },
 });
 

@@ -384,6 +384,29 @@ describe('Ops → Ads', () => {
     expect(dialog().querySelectorAll('[data-testid="creative"]')).toHaveLength(2);
   });
 
+  it('ads from separate runs sit side by side in one grid, grouped by what the owner does with them', async () => {
+    const one = (id: string, status: AdBatch['creatives'][number]['status'], createdAt: string) =>
+      creative({ id, status, createdAt, kind: 'image', name: `WL_${id}_45`, hook: { id: `h${id}`, family: 'visual', familyLabel: 'Visual', scope: 'cabinets', textEn: `Ad ${id}` }, script: { voice: '', onScreen: [`Ad ${id}`], headline: `Ad ${id}`, primaryText: '' } });
+    const batch = (id: string, c: AdBatch['creatives'][number]): AdBatch => ({ id, weekOf: '2026-11-23', status: 'ready', createdAt: c.createdAt, creatives: [c] });
+    batches = [
+      batch('b1', one('a', 'paused', '2026-11-27T10:00:00Z')),
+      batch('b2', one('b', 'rendered', '2026-11-27T12:00:00Z')),
+      batch('b3', one('c', 'paused', '2026-11-27T11:00:00Z')),
+      batch('b4', one('d', 'live', '2026-11-27T09:00:00Z')),
+      batch('b5', one('e', 'voiced', '2026-11-27T13:00:00Z')),
+      batch('b6', one('f', 'rejected', '2026-11-27T08:00:00Z')),
+    ];
+    await render();
+    const titles = (label: string) => Array.from(document.body.querySelectorAll(`[aria-label="${label}"] [data-testid="ad-tile"] p:first-of-type`)).map((p) => p.textContent);
+    // The three waiting on the owner are one row, newest first, whichever run made them.
+    expect(titles('Ads to review')).toEqual(['Ad b', 'Ad c', 'Ad a']);
+    expect(document.body.querySelector('[aria-label="To review"] header')!.textContent).toBe('To review · 32 in Meta, paused · 1 drawn, not in Meta yet');
+    expect(titles('Ads running')).toEqual(['Ad d']);
+    expect(titles('Ads being made')).toEqual(['Ad e']);
+    expect(titles('Ads stopped or set aside')).toEqual(['Ad f']);
+    expect(document.body.textContent).not.toContain('Week of');
+  });
+
   it("shows the week's batch grouped by hook, approves both sizes at once or one at a time, rejects", async () => {
     batches = [
       {
@@ -412,7 +435,9 @@ describe('Ops → Ads', () => {
     expect(cards.length).toBe(2);
     expect(cards[1].textContent).toContain('4x5');
     expect(cards[1].textContent).toContain('Cabinets, kitchen transformed');
-    expect(document.body.textContent).toContain('Week of 2026-11-02');
+    // No box per week: the ad sits in the one grid of ads to review.
+    expect(document.body.textContent).not.toContain('Week of');
+    expect(document.body.querySelector('[aria-label="To review"] h3')!.textContent).toBe('To review · 1');
     expect(document.body.querySelector('[aria-label="Passed over"]')!.textContent).toBe(
       'Passed over "Get the outside painted before the first freeze": Claude passed: no exterior in this footage',
     );

@@ -3184,6 +3184,8 @@ describe("the weekly run", () => {
     const last = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).at(-1)!;
     expect(last).toContain("Already made in this set");
     // Each takes the next text layout in turn.
+    // Made in one go, they are filed as one set.
+    expect(new Set(await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(-3).map((c) => c.batchId))).size).toBe(1);
     const looks = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(-3).map((c) => c.still!.variant));
     expect(new Set(looks).size).toBe(3);
     // And no two of the three show the same photo.
