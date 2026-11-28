@@ -35,6 +35,9 @@ import {
   adServicesOf,
   imageAdPrompt,
   imageAdProblems,
+  BRAND_GUIDE,
+  guidePassed,
+  isCollage,
   readImageAd,
   type ImageCandidate,
   type ImageAdPlan,
@@ -3127,6 +3130,8 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
         }
       : null,
     kind: c.kind ?? ("video" as AdKind),
+    // How many brand guide rules an image ad was checked against when it was made.
+    guide: c.still?.guide?.length,
     // How it moves; none on ads from before they were drawn with Remotion.
     style: c.design ? { id: c.design.style, label: designLabel(c.design) } : undefined,
     videoUrl: c.videoStorageId ? ((await ctx.storage.getUrl(c.videoStorageId)) ?? undefined) : undefined,
@@ -5190,6 +5195,8 @@ export const imageAdTypes = query({
     return {
       types: IMAGE_AD_TYPES.map((t) => ({ key: t.key, label: t.label, blurb: t.blurb })),
       services: adServicesOf(tradeOf(trade).slug).map((s) => ({ key: s.key, label: s.label })),
+      // The checklist every image ad is held to, for the owner to read before making one.
+      guide: BRAND_GUIDE,
     };
   },
 });
@@ -5224,7 +5231,8 @@ export const imageAdInput = internalQuery({
     const urlOf = new Map<string, string>();
     for (const a of photos) {
       const url = await lookUrl(ctx, a);
-      if (url) {
+      // A collage or a screenshot is never one clean picture, however it is tagged.
+      if (url && !isCollage(a.description ?? "")) {
         drawable.push(a);
         urlOf.set(a._id, url);
       }
@@ -5377,7 +5385,7 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
       const content: unknown[] = [{ type: "text", text: prompt }, ...pictures];
       if (attempt > 0) content.push({ type: "text", text: `Your last answer had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` });
       plan = readImageAd(await claude(content, 3000));
-      problems = imageAdProblems(plan, type!, shown, input.town);
+      problems = imageAdProblems(plan, type!, shown, input.town, input.brand);
       if (problems.length === 0) break;
     }
     if (!plan || problems.length) fail("INVALID", `The ad couldn't be written within the rules: ${problems.join("; ")}`);
@@ -5451,7 +5459,8 @@ export const storeImageAd = internalMutation({
       ratio: "4x5",
       kind: "image",
       name,
-      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 4 },
+      // Stored only once its plan has passed every check, so it keeps the whole guide.
+      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 4, guide: guidePassed() },
       script: { voice: "", onScreen: [a.headline, a.sub], headline: a.title, primaryText: a.primaryText },
       assetIds: a.assetIds,
       // Nothing to voice: it waits to be drawn.

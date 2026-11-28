@@ -4,6 +4,11 @@ import { staticFile } from "remotion";
 /** The fonts are files in public/fonts (both under the Open Font License), so a render needs no font server. */
 export const display = "Montserrat";
 export const body = "Inter";
+/** The still ads' lettering, after Goodyear's (the owner, Nov 2026): heavy condensed capitals, and an italic serif for the small line. */
+export const poster = "Anton";
+export const kicker = "Playfair Display";
+void loadFont({ family: poster, weight: "400", url: staticFile("fonts/anton-latin-400-normal.woff2") });
+void loadFont({ family: kicker, weight: "600", style: "italic", url: staticFile("fonts/playfair-display-latin-600-italic.woff2") });
 for (const [family, weight, file] of [
   [display, "700", "montserrat-latin-700-normal.woff2"],
   [display, "800", "montserrat-latin-800-normal.woff2"],

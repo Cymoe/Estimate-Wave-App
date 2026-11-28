@@ -15,7 +15,7 @@ import {
   useAdsSettings,
   useAdsSwipes,
 } from '../../lib/live';
-import { AD_TRADES, DEFAULT_TRADE, AD_SERVICES, IMAGE_AD_TYPES, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
+import { AD_TRADES, DEFAULT_TRADE, AD_SERVICES, BRAND_GUIDE, IMAGE_AD_TYPES, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
 import { ACTOR_VOICES, ACTOR_VOICE_LABELS } from '../../../convex/lib/voiceActors';
 import { money } from '../market/wallet';
 import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary, tap, usePanel } from './ui';
@@ -106,6 +106,8 @@ export interface AdCreative {
   style?: { id: string; label: string };
   /** What an older ad is made of. An image ad has no voice: script.onScreen is its printed headline and support line. */
   kind?: AdKind;
+  /** How many brand guide rules an image ad was held to when it was made. */
+  guide?: number;
   videoUrl?: string;
   imageUrl?: string;
   meta?: { videoId?: string; creativeId?: string; adId?: string; adsetId?: string };
@@ -718,6 +720,30 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               </div>
               <p className="text-xs text-gray-500 mt-1">Each one gets different photos and a different angle.</p>
             </fieldset>
+            <details className="rounded border border-[#2A2A2A] px-3 py-2">
+              <summary className="text-sm text-white cursor-pointer">Brand guide ({BRAND_GUIDE.length} rules every ad is checked against)</summary>
+              {(
+                [
+                  ['look', 'The look'],
+                  ['words', 'The words'],
+                  ['photos', 'The photos'],
+                ] as const
+              ).map(([where, label]) => (
+                <div key={where} className="mt-3">
+                  <p className="text-xs font-medium text-gray-300">{label}</p>
+                  <ul className="mt-1 space-y-1">
+                    {BRAND_GUIDE.filter((g) => g.where === where).map((g) => (
+                      <li key={g.id} className="text-xs text-gray-400 flex gap-2">
+                        <span className="text-[#e2b350]" aria-hidden="true">
+                          ✓
+                        </span>
+                        {g.rule}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </details>
             <div className="flex items-center gap-3">
               <button type="button" className={`${primary} flex-1`} disabled={busy || !picked} onClick={create}>
                 {busy ? `Choosing photos and writing${count > 1 ? ` ${count} ads` : ''}…` : !picked ? 'Choose what it is about first' : count === 1 ? `Create 1 ${picked.label.toLowerCase()} ad` : `Create ${count} ${picked.label.toLowerCase()} ads`}
@@ -870,6 +896,7 @@ const AdTile: React.FC<{ group: HookGroupData; act: Act }> = ({ group, act }) =>
           {kind}
           {group.hook ? ` · ${scopeLabel(group.hook.scope)}` : ''}
           {sizes > 1 ? ` · ${sizes} sizes` : ''}
+          {lead.guide ? <span className="text-[#e2b350]"> · Brand check ✓</span> : null}
         </p>
       </button>
       {rejectable.length > 0 && (

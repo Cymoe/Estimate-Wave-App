@@ -2771,6 +2771,8 @@ export default defineSchema({
         sub: v.string(),
         // Where the words sit (the renderer's four looks), so ads don't all look alike.
         variant: v.optional(v.number()),
+        // The brand guide rules (lib/ads BRAND_GUIDE ids) it was checked against and kept when it was made.
+        guide: v.optional(v.array(v.string())),
       }),
     ),
     // Also the ad's name in Meta, so a lead's adName joins back here.

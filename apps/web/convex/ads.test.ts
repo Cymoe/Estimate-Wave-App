@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, BRAND_GUIDE, imageAdIssues, isCollage, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -3044,7 +3044,7 @@ describe("the weekly run", () => {
       await add("pair-after.jpg", ["after"], "The same kitchen painted white.", { pairKey: "k9", uses: 9 });
       await add("work.jpg", ["process"], "Doors off and masked.");
       // Other work on file, which a cabinet painting ad must never be offered.
-      for (const [fileName, work, description] of [["barn.jpg", "doors", "A stained barn door."], ["stairs.jpg", "stairs-balusters", "A stained staircase."], ["house.jpg", "exterior-repaint", "A repainted house exterior."]])
+      for (const [fileName, work, description] of [["barn.jpg", "doors", "A stained barn door."], ["stairs.jpg", "stairs-balusters", "A stained staircase."], ["house.jpg", "exterior-repaint", "A repainted house exterior."], ["collage.jpg", "cabinets-painted", "A collage of a kitchen, a house and a fence."]])
         await ctx.db.insert("adAssets", {
           storageId: await ctx.storage.store(new Blob([fileName], { type: "image/jpeg" })),
           kind: "photo",
@@ -3072,11 +3072,14 @@ describe("the weekly run", () => {
     expect(asks[0][0].text).not.toContain("Dated oak");
     expect(asks[0][0].text).not.toContain("Doors off");
     // And only cabinet painting: no barn door, staircase or house exterior, and the writer is told to stay on it.
-    for (const other of ["stained barn door", "stained staircase", "repainted house exterior"]) expect(asks[0][0].text).not.toContain(other);
+    for (const other of ["stained barn door", "stained staircase", "repainted house exterior", "collage of a kitchen"]) expect(asks[0][0].text).not.toContain(other);
     expect(asks[0][0].text).toContain("This ad is about cabinet painting and nothing else");
     await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "showcase" });
     await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "before_after" });
     const rows = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still));
+    // Each is stored with the brand guide rules it was held to, and the screen is given the same list to show.
+    expect(rows[0].still!.guide).toEqual(BRAND_GUIDE.map((g) => g.id));
+    expect((await owner.as.query(api.ads.imageAdTypes, {})).guide.map((g) => g.id)).toEqual(BRAND_GUIDE.map((g) => g.id));
     expect(rows.slice(0, 3).map((c) => [c.still!.type, c.still!.layout, c.assetIds.length, c.kind, c.status, c.ratio])).toEqual([
       ["photo", "single", 1, "image", "voiced", "4x5"],
       ["showcase", "grid", 3, "image", "voiced", "4x5"],
@@ -3232,6 +3235,30 @@ describe("the weekly run", () => {
     const prompt = imageAdPrompt(type, "GoodFit Painting", "Midland", AD_TRADES.painting, cands);
     expect(prompt).toContain("direct-response ad");
     expect(prompt).toContain("NEVER a caption");
+  });
+
+  test("the brand guide: a draft that breaks a rule is reported by the rule, and the brief carries the guide", () => {
+    const type = IMAGE_AD_TYPES[0];
+    const cands = [
+      { n: 1, tags: ["cabinets"], description: "A finished kitchen.", uses: 0 },
+      { n: 2, tags: ["cabinets"], description: "A collage of four kitchens.", uses: 0 },
+    ];
+    const plan = (over: Partial<{ picks: number[]; headline: string; sub: string; primaryText: string }>) => ({ picks: [1], headline: "Tired of your brown cabinets?", sub: "Same cabinets, new colour. Get a free quote.", primaryText: "Get a free quote from GoodFit Painting.", title: "Cabinet painting", ...over });
+    const rules = (over: Parameters<typeof plan>[0]) => imageAdIssues(plan(over), type, cands, "Midland", "GoodFit Painting").map((i) => i.rule);
+    expect(rules({})).toEqual([]);
+    expect(rules({ headline: "Tired of your honey oak cabinets?" })).toEqual(["plain-words"]);
+    expect(rules({ headline: "Kitchen cabinets we've painted" })).toEqual(["hook"]);
+    expect(rules({ sub: "Same cabinets, new colour." })).toEqual(["offer"]);
+    expect(rules({ sub: "Keep the cabinets you have, only the colour changes. Free quote." })).toEqual(["kicker"]);
+    expect(rules({ primaryText: "Get a free quote from Goodfit painting." })).toEqual(["name"]);
+    expect(rules({ primaryText: "20% off this week. Get a free quote from GoodFit Painting." })).toEqual(["no-promises"]);
+    expect(rules({ headline: "Cabinets painted in Midland for you?" })).toEqual(["no-place"]);
+    expect(rules({ picks: [2] })).toEqual(["no-collage"]);
+    expect(isCollage("A kitchen with a side-by-side fridge.")).toBe(false);
+    expect(new Set(BRAND_GUIDE.map((g) => g.id)).size).toBe(BRAND_GUIDE.length);
+    const prompt = imageAdPrompt(type, "GoodFit Painting", "Midland", AD_TRADES.painting, cands);
+    for (const g of BRAND_GUIDE.filter((x) => x.where !== "look")) expect(prompt).toContain(g.rule);
+    expect(prompt).toContain('The name is "GoodFit Painting"');
   });
 
   test("an image ad's printed words never place the pictured work in the town", () => {

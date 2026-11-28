@@ -1744,6 +1744,47 @@ export interface ImageCandidate {
   before?: string;
 }
 
+/**
+ * The brand guide: what every image ad is held to before it is made (the owner asked for one checklist, Nov 2026).
+ * `words` and `photos` rules go to Claude in the brief and are checked on its answer; `look` rules are what the
+ * renderer draws (ads-video/src/formats/Still.tsx), listed here so the owner sees the whole guide in one place.
+ * Change a rule here and the brief, the checks and the list on the Create ads screen all follow.
+ */
+export interface GuideRule {
+  id: string;
+  where: "words" | "photos" | "look";
+  rule: string;
+}
+export const BRAND_GUIDE: GuideRule[] = [
+  { id: "hook", where: "words", rule: "The headline is a hook that speaks to the homeowner, never a caption of the photos." },
+  { id: "offer", where: "words", rule: "The only offer is a free quote, and the line under the headline says so." },
+  { id: "no-promises", where: "words", rule: "No prices, discounts, deadlines, guarantees or time promises." },
+  { id: "plain-words", where: "words", rule: "A homeowner's words (brown cabinets), never a contractor's or designer's (honey oak, shaker)." },
+  { id: "no-hype", where: "words", rule: "No hype: nothing is a nightmare, stunning, a dream or a transformation." },
+  { id: "no-place", where: "words", rule: "Never say where the pictured work was done." },
+  { id: "name", where: "words", rule: "The name is written exactly as the logo writes it." },
+  { id: "kicker", where: "words", rule: "The line under the headline opens with one short sentence, set as the gold italic line." },
+  { id: "service", where: "photos", rule: "Every photo is of the service the ad is about." },
+  { id: "real", where: "photos", rule: "Only real photos of our own work; a before only beside its own after." },
+  { id: "best-first", where: "photos", rule: "Starred photos lead; ordinary ones aren't repeated while unused ones remain." },
+  { id: "no-collage", where: "photos", rule: "No collages or screenshots: one clean picture per frame." },
+  { id: "no-repeat", where: "photos", rule: "Ads made together never share a photo; a showcase takes one photo per project." },
+  { id: "colours", where: "look", rule: "Navy and gold only, with white lettering." },
+  { id: "headline-type", where: "look", rule: "Headline in heavy condensed capitals." },
+  { id: "kicker-type", where: "look", rule: "One gold italic serif line under the headline; plain lettering for the rest." },
+  { id: "button", where: "look", rule: "A gold button with navy capitals: GET A FREE QUOTE." },
+  { id: "mark", where: "look", rule: "The house mark and the name are on every ad." },
+  { id: "full-bleed", where: "look", rule: "Photos run edge to edge: no bars, frames or Before/After tags." },
+  { id: "layout", where: "look", rule: "The words sit somewhere different from the ad before (top, band, low, card)." },
+];
+/** The longest the sub line's first sentence may be: it is printed as the one-line italic kicker. */
+export const IMAGE_KICKER_MAX = 44;
+
+/** Whether a photo's description says it is several pictures in one, or a screenshot: never offered for an image ad. */
+export function isCollage(description: string): boolean {
+  return /\bcollages?\b|\bmontage\b|\bscreenshot\b|\bsplit[- ]screen\b|\bmulti[- ]?panel\b|\b(?:two|three|four|several|multiple)[- ](?:photos?|pictures?|images?|panels?)\b|\bgrid of\b/i.test(description);
+}
+
 /** The brief for one static image ad: its type, the competitor ad to model (if any), and the photos to choose from. */
 export function imageAdPrompt(
   type: ImageAdType,
@@ -1803,13 +1844,16 @@ export function imageAdPrompt(
     `Choose ${want} that best carries this ad. BEST photos are the owner's favourites: use them first, even when already in ads. Among the rest, choose ones with uses 0 wherever some fit. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
     type.layout === "grid" ? "Every word of the headline and the line under it must be true of every photo chosen, not most of them: if one has no island, don't say islands." : "",
     ...(avoid.length ? [`Already made in this set, so take a different angle and different photos from these: ${avoid.map((h) => `"${h}"`).join(", ")}.`] : []),
+    "The brand guide. Every ad is checked against it before it is made:",
+    ...BRAND_GUIDE.filter((g) => g.where !== "look").map((g) => `- ${g.rule}`),
+    `- The name is "${brand}", in exactly those capitals and spaces.`,
     "Rules:",
     ...RULES(brand, town),
     `- Never say or hint where a pictured job was, ${town} included: the photos don't say. The town may only be named to speak to the viewer or say where we work ("${town} homeowners", "serving ${town}"), never as where these jobs were done ("done in ${town}", "kitchens in ${town}").`,
     "- Facts come only from the photo descriptions above. Never invent anything you can't see in them.",
     "This is a direct-response ad: its one job is to get a homeowner to tap for a free quote. It is not a portfolio caption.",
-    `- headline: the hook, printed large, at most ${IMAGE_HEADLINE_MAX} characters, in sentence case. It speaks to the homeowner about their home and what they want or are tired of. NEVER a caption of the photos ("Kitchen cabinets we've painted", "Finished house exteriors", "Exterior repaints" are captions and are wrong). Ways in that work: a question about their problem ("Tired of your brown cabinets?"), the outcome they want ("A new kitchen without replacing a thing"), the smarter choice ("Paint them. Don't replace them."), or calling them out ("${town} homeowners: love your kitchen again").`,
-    `- sub: the offer, said outright, at most ${IMAGE_SUB_MAX} characters. It names the service and the free quote, and why to tap now where that's honest ("Free ${service ? service.label.toLowerCase() : "painting"} quote. No pressure, no cost."). It must contain the words "free quote".`,
+    `- headline: the hook, printed large in capitals, at most ${IMAGE_HEADLINE_MAX} characters; write it in sentence case. It speaks to the homeowner about their home and what they want or are tired of. NEVER a caption of the photos ("Kitchen cabinets we've painted", "Finished house exteriors", "Exterior repaints" are captions and are wrong). Ways in that work: a question about their problem ("Tired of your brown cabinets?"), the outcome they want ("A new kitchen without replacing a thing"), the smarter choice ("Paint them. Don't replace them."), or calling them out ("${town} homeowners: love your kitchen again").`,
+    `- sub: the offer, said outright, at most ${IMAGE_SUB_MAX} characters. It names the service and the free quote, and why to tap now where that's honest ("Free ${service ? service.label.toLowerCase() : "painting"} quote. No pressure, no cost."). It must contain the words "free quote". Write it as two short sentences: the first (at most ${IMAGE_KICKER_MAX} characters) is printed on its own line in gold italics, so it must stand alone ("Same cabinets, new colour."); the second carries the free quote.`,
     "- The offer is only ever a free quote: no price, discount, deadline, warranty or time promise. Urgency comes from the homeowner's own reason (guests coming, selling, sick of looking at it), never a made-up deadline.",
     `- primaryText: the text above the image in the feed, at most ${IMAGE_PRIMARY_MAX} characters: open on the homeowner's problem or wish, say what we do about it in one plain sentence, and end by telling them to tap for a free quote from ${brand}. No emoji, no lists.`,
     "- title: the short link headline under the image, at most 40 characters.",
@@ -1878,29 +1922,56 @@ export function readImageAd(reply: string): ImageAdPlan | null {
   return { picks: [...new Set(nums)], headline: text(out.headline), sub: text(out.sub), primaryText: text(out.primaryText), title: text(out.title) };
 }
 
-/** What is wrong with an image ad's plan, in words Claude can act on. Empty when it can be made. */
-export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string): string[] {
-  if (!plan) return ["the reply wasn't JSON"];
-  const out: string[] = [];
+/** What is wrong with an image ad's plan, each with the brand guide rule it breaks (none for a plain mistake of form). */
+export function imageAdIssues(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string, brand?: string): Array<{ rule?: string; text: string }> {
+  if (!plan) return [{ text: "the reply wasn't JSON" }];
+  const out: Array<{ rule?: string; text: string }> = [];
   const known = plan.picks.filter((n) => n <= candidates.length);
-  if (known.length !== plan.picks.length) out.push("a photo number that wasn't offered");
+  if (known.length !== plan.picks.length) out.push({ text: "a photo number that wasn't offered" });
   if (type.layout === "grid") {
-    if (known.length < 3 || known.length > 4) out.push("a showcase needs three or four photos");
+    if (known.length < 3 || known.length > 4) out.push({ text: "a showcase needs three or four photos" });
     const projects = known.map((n) => candidates[n - 1].project).filter(Boolean);
-    if (new Set(projects).size !== projects.length) out.push("two photos from the same project: a showcase takes one from each");
-  } else if (known.length !== 1) out.push(type.layout === "pair" ? "choose exactly one pair" : "choose exactly one photo");
-  if (!plan.headline) out.push("no headline");
-  if (plan.headline.length > IMAGE_HEADLINE_MAX) out.push(`the headline is ${plan.headline.length} characters (at most ${IMAGE_HEADLINE_MAX})`);
-  if (plan.sub.length > IMAGE_SUB_MAX) out.push(`the sub line is ${plan.sub.length} characters (at most ${IMAGE_SUB_MAX})`);
-  if (plan.sub && !/free (\w+ ){0,3}quote/i.test(plan.sub)) out.push('the sub line doesn\'t state the offer: it must say "free quote"');
+    if (new Set(projects).size !== projects.length) out.push({ rule: "no-repeat", text: "two photos from the same project: a showcase takes one from each" });
+  } else if (known.length !== 1) out.push({ text: type.layout === "pair" ? "choose exactly one pair" : "choose exactly one photo" });
+  if (known.some((n) => isCollage(candidates[n - 1].description))) out.push({ rule: "no-collage", text: "a chosen photo is a collage or a screenshot: choose single clean photos" });
+  if (!plan.headline) out.push({ text: "no headline" });
+  if (plan.headline.length > IMAGE_HEADLINE_MAX) out.push({ text: `the headline is ${plan.headline.length} characters (at most ${IMAGE_HEADLINE_MAX})` });
+  if (plan.sub.length > IMAGE_SUB_MAX) out.push({ text: `the sub line is ${plan.sub.length} characters (at most ${IMAGE_SUB_MAX})` });
+  if (plan.sub && !/free (\w+ ){0,3}quote/i.test(plan.sub)) out.push({ rule: "offer", text: 'the sub line doesn\'t state the offer: it must say "free quote"' });
+  // The first sentence is printed alone in italics; a sub line of one sentence is all of it.
+  const first = plan.sub.match(/^(.+?[.!?])\s+\S/)?.[1] ?? plan.sub;
+  if (first.length > IMAGE_KICKER_MAX)
+    out.push({ rule: "kicker", text: `the sub line must open with a short sentence of at most ${IMAGE_KICKER_MAX} characters (it is printed alone in italics); put the rest in a second sentence` });
   if (/\bwe(?:'ve| have) (?:painted|stained|done|finished)\b|^(?:finished|painted|stained|freshly painted|exterior|interior)\b[^?!]*$/i.test(plan.headline) && !/[?!]|\byou(r)?\b/i.test(plan.headline))
-    out.push("the headline is a caption of the photos, not a hook: speak to the homeowner about their home (a question, the outcome they want, or the smarter choice)");
-  if (!plan.primaryText) out.push("no primaryText");
-  if (plan.primaryText.length > IMAGE_PRIMARY_MAX) out.push(`primaryText is ${plan.primaryText.length} characters (at most ${IMAGE_PRIMARY_MAX})`);
-  out.push(...forbiddenIn([plan.headline, plan.sub, plan.primaryText, plan.title].join(" ")));
-  if (town && jobPlaceClaim(`${plan.headline}. ${plan.sub}`, town)) out.push(`the headline or sub line says the pictured work was in ${town}: the photos don't say where; name the town only to speak to the viewer`);
+    out.push({ rule: "hook", text: "the headline is a caption of the photos, not a hook: speak to the homeowner about their home (a question, the outcome they want, or the smarter choice)" });
+  if (!plan.primaryText) out.push({ text: "no primaryText" });
+  if (plan.primaryText.length > IMAGE_PRIMARY_MAX) out.push({ text: `primaryText is ${plan.primaryText.length} characters (at most ${IMAGE_PRIMARY_MAX})` });
+  const all = [plan.headline, plan.sub, plan.primaryText, plan.title].join(" ");
+  for (const f of forbiddenIn(all)) out.push({ rule: guideRuleOf(f), text: f });
+  if (town && jobPlaceClaim(`${plan.headline}. ${plan.sub}`, town))
+    out.push({ rule: "no-place", text: `the headline or sub line says the pictured work was in ${town}: the photos don't say where; name the town only to speak to the viewer` });
+  if (brand) {
+    const loose = new RegExp(brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*"), "gi");
+    const wrong = (all.match(loose) ?? []).find((m) => m !== brand);
+    if (wrong) out.push({ rule: "name", text: `the name is written "${wrong}": it is "${brand}"` });
+  }
   return out;
 }
+
+/** Which brand guide rule a forbidden-words finding belongs to. */
+function guideRuleOf(finding: string): string {
+  if (/hype|nightmare|stunning|dream|transform/i.test(finding)) return "no-hype";
+  if (/contractor|designer|homeowner's word|honey oak|espresso|shaker|greige/i.test(finding)) return "plain-words";
+  return "no-promises";
+}
+
+/** What is wrong with an image ad's plan, in words Claude can act on. Empty when it can be made. */
+export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string, brand?: string): string[] {
+  return imageAdIssues(plan, type, candidates, town, brand).map((i) => i.text);
+}
+
+/** The guide rules an ad that passed its checks is known to keep: all of them (the look is drawn by the renderer, the photos are offered by rule). */
+export const guidePassed = (): string[] => BRAND_GUIDE.map((g) => g.id);
 
 /** Whether printed words place the pictured work in a town ("Painted cabinets done in Midland", "Staircases in Midland"). */
 export function jobPlaceClaim(text: string, town: string): boolean {

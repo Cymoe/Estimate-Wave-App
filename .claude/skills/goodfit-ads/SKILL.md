@@ -47,6 +47,19 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
 - **The repo is public.** Never commit job photos, voice files or music. Samples go in `ads-video/public/sample`
   (gitignored).
 
+## The brand guide (image ads)
+
+- One list, `BRAND_GUIDE` in `apps/web/convex/lib/ads.ts`, is what every image ad is held to: its `words` and
+  `photos` rules go into the brief (`imageAdPrompt`) and are checked on the answer (`imageAdIssues`, by rule id);
+  its `look` rules describe what `ads-video/src/formats/Still.tsx` draws. Create ads shows the same list, and a made
+  ad's tile says "Brand check ✓". **Change a brand rule in that list first**, then the renderer or check it names.
+- The lettering follows Goodyear's (the owner, Nov 2026): headline, name and button in **Anton** capitals (heavy,
+  condensed); the first sentence of the line under the headline in gold **Playfair Display italic**; the rest in
+  Inter. Navy `#0f1c42`, gold `#f2c043`, white letters; gold button with squared corners. Fonts are files in
+  `ads-video/public/fonts` (`theme.ts`: `poster`, `kicker`).
+- The sub line must open with a sentence of at most 44 characters (it is the italic line) and say "free quote".
+- Collages and screenshots are never offered (`isCollage`), however they are tagged.
+
 ## The look
 
 - The voice is **Chris** (ElevenLabs, set in Ops → Ads → Settings). The length follows the competitor script; sentences of 6 to 12

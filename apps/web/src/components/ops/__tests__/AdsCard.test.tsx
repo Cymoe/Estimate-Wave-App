@@ -342,6 +342,9 @@ describe('Ops → Ads', () => {
     await act(async () => (models()[2] as HTMLButtonElement).click());
     // Three at once is the usual; one or six can be picked.
     expect(Array.from(dialog().querySelectorAll('[aria-label="How many"] [role="radio"]')).map((b) => [b.textContent, b.getAttribute('aria-checked')])).toEqual([['1', 'false'], ['3', 'true'], ['6', 'false']]);
+    // The brand guide every ad is checked against is there to read before making one.
+    expect(dialog().textContent).toMatch(/Brand guide \(\d+ rules every ad is checked against\)/);
+    expect(dialog().textContent).toContain('Headline in heavy condensed capitals.');
     await act(async () => byText('Create 3 cabinet painting ads')!.click());
     await flush();
     expect(createImageAd).toHaveBeenCalledWith('cabinets', 'showcase', 's1', undefined, 3);
