@@ -2567,7 +2567,7 @@ describe("the weekly run", () => {
       ratio: "9x16",
       style: { kind: "lightUp" },
       headline: "Paint them, don't replace",
-      brand: { name: "Permian Home Quotes", primaryColor: "#336699" },
+      brand: { name: "Permian Home Quotes", primaryColor: "#0f1c42" },
       audio: expect.stringContaining("/api/storage/"),
     });
     expect(job.props.audioSec).toBeGreaterThan(8);
@@ -4006,6 +4006,45 @@ describe("the weekly run", () => {
         .filter((p) => p.includes(IDEA_MARK))[4];
       expect(second).toContain("Already offered. Do not offer these again");
       expect(second).toContain("- Cabinet doors drying in rows off site while the family still cooks dinner.");
+    });
+
+    test("Create ads makes videos by kind for one service: a quick offer is voiced; one to be spoken on camera is written and waits for the take, with no voice made", async () => {
+      const { t, owner, calls, settle, latest } = await ready();
+      stubServices(calls);
+      const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+      // The library's cabinet photos are of painted cabinets (the work the service covers).
+      await t.run(async (ctx) => {
+        for (const a of await ctx.db.query("adAssets").collect()) if (a.tags.includes("cabinets")) await ctx.db.patch(a._id, { tags: [...a.tags, "cabinets-painted"] });
+      });
+      await expect(staff.as.mutation(api.ads.createVideoAd, { service: "cabinets", kind: "quick" })).rejects.toThrow();
+      await expect(owner.as.mutation(api.ads.createVideoAd, { service: "barn-doors", kind: "quick" })).rejects.toThrow("Choose what the ad is about");
+      // A quick offer about cabinet painting: its own switched-off idea, written, voiced, in both sizes.
+      expect(await settle(() => owner.as.mutation(api.ads.createVideoAd, { service: "cabinets", kind: "quick" }))).toEqual({ made: 1, kind: "Quick offer" });
+      const quick = await latest();
+      expect(quick.error).toBeUndefined();
+      expect(states(quick)).toEqual(["9x16 voiced", "4x5 voiced"]);
+      expect(quick.creatives[0].hook).toMatchObject({ scope: "cabinets" });
+      const made = await t.run(async (ctx) => (await ctx.db.query("adCreatives").order("desc").take(2)).map((c) => [c.design?.quick === true, c.awaitsTake === true]));
+      expect(made).toEqual([[true, false], [true, false]]);
+      const hooks = await owner.as.query(api.ads.listHooks, {});
+      expect(hooks.find((h) => h.textEn.startsWith("Cabinet painting, shown on one job"))).toMatchObject({ active: false });
+      // Only that service's photos are in it.
+      const shown = await t.run(async (ctx) => {
+        const c = (await ctx.db.query("adCreatives").order("desc").take(1))[0];
+        return Promise.all(c.assetIds.map(async (id) => (await ctx.db.get(id))!.tags.includes("cabinets-painted")));
+      });
+      expect(shown.length).toBeGreaterThan(0);
+      expect(shown.every(Boolean)).toBe(true);
+      // On camera: the script is written, no voice is made, and each size waits for the take.
+      const voiced = to(calls, "elevenlabs").length;
+      expect(await settle(() => owner.as.mutation(api.ads.createVideoAd, { service: "cabinets", kind: "oncamera" }))).toEqual({ made: 1, kind: "On camera" });
+      const spoken = await latest();
+      expect(spoken.error).toBeUndefined();
+      expect(states(spoken)).toEqual(["9x16 recording", "4x5 recording"]);
+      expect(spoken.creatives.map((c) => c.awaitsTake)).toEqual([true, true]);
+      expect(to(calls, "elevenlabs").length).toBe(voiced);
+      // Up to three at a time, each built on a competitor ad.
+      expect((await settle(() => owner.as.mutation(api.ads.createVideoAd, { service: "cabinets", kind: "story", count: 9 }))).made).toBe(3);
     });
 
     test("only kept ideas are made, each opening on the words the owner chose; one the photos can't carry goes back with the reason; the keeps and kills become a note the writers read", async () => {

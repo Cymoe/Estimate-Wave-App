@@ -65,6 +65,12 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   Ads are made a set at a time from Create ads, or from kept ideas: "Make these ads" (`ads:makeKeptImages`) makes
   each kept idea a static image ad of its scope's service, the kinds in turn. An idea about work with no image
   service stays kept with the reason. The old video path (`makeKept`, `weeklyRun`) is still there, unused by the screen.
+- **Create ads asks static image or video** (the owner, Nov 2026), then the kind. Videos: Job site clip (pick a
+  Library clip, `footage:make`), On camera / UGC, Story, Lesson, Quick offer (`ads:createVideoAd {service, kind,
+  count ≤ 3}`: a switched-off hook per ad, then `weeklyRun` with `service` so only that service's photos are offered).
+  On camera writes the script and waits (`awaitsTake`, status recording, "Waiting for the take") with no voice made,
+  until a take is added. Kept ideas have the same choice ("Make as": `makeKeptImages`, or `makeKept {kind}`).
+  The video looks are unchanged; the saved brand colours default to the navy and gold.
 - The sub line must open with a sentence of at most 44 characters (it is the italic line) and say "free quote".
 - Collages and screenshots are never offered (`isCollage`), however they are tagged.
 

@@ -8,6 +8,7 @@ import {
   useAdsBatches,
   useAdsHooks,
   useAdsIdeas,
+  useAdsServiceClips,
   useAdsLibrary,
   useAdsLive,
   useAdsPlaybooks,
@@ -100,6 +101,8 @@ export interface AdCreative {
   actor?: { orderedAt: string; price?: number; test?: boolean };
   /** An on-camera creator's take, when one was added: it is the voice, and they stand in front of the photos. */
   presenter?: { addedAt: string };
+  /** Written to be spoken on camera: no voice was made, and it waits for a person's take. */
+  awaitsTake?: boolean;
   script: { voice: string; onScreen: string[]; headline: string; primaryText: string };
   hook: { id: string; family: string; familyLabel: string; scope: string; textEn: string; basedOn?: BasedOn } | null;
   /** How it moves ("Light-up", "Before / after", "Counter"); none on ads from before. */
@@ -411,6 +414,8 @@ export interface AdIdeas {
  */
 const Ideas: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
   const trade = useTrade();
+  // What the kept ideas are made as: static images unless the owner picks a kind of video.
+  const [makeAs, setMakeAs] = useState('image');
   const data = useAdsIdeas<AdIdeas>(trade);
   if (data === undefined) return null;
   const fresh = data.ideas.filter((i) => i.status === 'new');
@@ -454,11 +459,32 @@ const Ideas: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
           <div className="flex flex-wrap items-center gap-3">
             <h4 className="text-sm text-white flex-1">Kept ({kept.length})</h4>
             {owner && (
+              <label className="text-xs text-gray-400 inline-flex items-center gap-2">
+                Make as
+                <select value={makeAs} onChange={(e) => setMakeAs(e.target.value)} aria-label="Make kept ideas as" className="bg-[#161616] border border-[#2A2A2A] rounded px-2 min-h-[36px] text-sm text-white">
+                  {IDEA_MAKES.map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {owner && (
               <button
                 type="button"
                 className={primary}
-                // Made as static image ads. One that can't be made stays kept, with the reason on its card.
-                onClick={() => act(() => adsAPI.makeKeptImages(trade), `Made as ${kept.length === 1 ? 'an image ad' : 'image ads'}. Each shows in To review once drawn; any that couldn't be made stay kept, with the reason.`)}
+                // Static images or a kind of video, as chosen beside it. One that can't be made stays kept, with the reason on its card.
+                onClick={() =>
+                  makeAs === 'image'
+                    ? act(() => adsAPI.makeKeptImages(trade), `Made as ${kept.length === 1 ? 'an image ad' : 'image ads'}. Each shows in To review once drawn; any that couldn't be made stay kept, with the reason.`)
+                    : act(
+                        () => adsAPI.makeKeptVideos(makeAs, trade),
+                        makeAs === 'oncamera'
+                          ? 'Writing the scripts. Each shows below as "Waiting for the take": copy its brief, send it to your creator, and add their take.'
+                          : 'Making them. Each video shows below as it is written, voiced and drawn.',
+                      )
+                }
               >
                 {kept.length === 1 ? 'Make this ad' : `Make these ${kept.length} ads`}
               </button>
@@ -618,6 +644,30 @@ const AdGroups: React.FC<{ batches: AdBatch[]; act: Act }> = ({ batches, act }) 
   );
 };
 
+/** The kinds of video on offer, in the owner's words. A job site clip is made from a clip; the rest are written. */
+const VIDEO_TYPES: Array<[string, string, string]> = [
+  ['clip', 'Job site clip', 'A clip the crew shot, run as it was filmed, with captions of what is said. The natural one.'],
+  ['oncamera', 'On camera (UGC)', 'A real person speaks the script in front of your job photos. The app writes the script and the brief; you upload their take.'],
+  ['story', 'Story', "One job's photos with a voice-over, from before to after."],
+  ['lesson', 'Lesson', 'A checklist over your photos: what to look for before hiring.'],
+  ['quick', 'Quick offer', 'About 9 seconds: one job, three lines, a free quote.'],
+];
+/** What kept ideas can be made as. */
+const IDEA_MAKES: Array<[string, string]> = [
+  ['image', 'Static images'],
+  ['story', 'Story videos'],
+  ['lesson', 'Lesson videos'],
+  ['quick', 'Quick offer videos'],
+  ['oncamera', 'On camera (UGC) videos'],
+];
+interface ServiceClip {
+  id: string;
+  fileName: string;
+  seconds?: number;
+  description?: string;
+  posterUrl?: string;
+}
+
 /** The static image ads on offer (convex/lib/ads.ts IMAGE_AD_TYPES), in the owner's words. */
 const IMAGE_TYPES: Array<[string, string, string]> = [
   ['mix', 'Mix (recommended)', 'Plain photos, branded designs and plain before and afters in turn, so you see which brings the leads.'],
@@ -636,6 +686,12 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
   const [service, setService] = useState('');
   const picked = services.find((s) => s.key === service);
   const [type, setType] = useState(IMAGE_TYPES[0][0]);
+  // A static image, or a video and which kind (the owner asked to choose each time, Nov 2026).
+  const [medium, setMedium] = useState<'image' | 'video'>('image');
+  const [videoType, setVideoType] = useState(VIDEO_TYPES[0][0]);
+  const [clip, setClip] = useState('');
+  const isClip = medium === 'video' && videoType === 'clip';
+  const clips = useAdsServiceClips<ServiceClip[]>(service, trade === DEFAULT_TRADE ? undefined : trade, open && isClip);
   // 'auto': the app builds each ad on one of the best long-running competitor image ads, a different one each.
   const [model, setModel] = useState('auto');
   const [search, setSearch] = useState('');
@@ -656,7 +712,26 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
     setBusy(true);
     setMade(null);
     void act(async () => {
-      const out = await adsAPI.createImageAd(service, type, model, trade === DEFAULT_TRADE ? undefined : trade, count);
+      const inTrade = trade === DEFAULT_TRADE ? undefined : trade;
+      if (isClip) {
+        await adsAPI.makeFootage(clip);
+        setOpen(false);
+        setMade('Making a job site ad from that clip. It shows below once it is written, then drawn.');
+        return;
+      }
+      if (medium === 'video') {
+        const n = Math.min(count, 3);
+        const v = await adsAPI.createVideoAd(service, videoType, model, inTrade, n);
+        setOpen(false);
+        setModel('auto');
+        setMade(
+          videoType === 'oncamera'
+            ? `${v.made === 1 ? 'The script is' : `${v.made} scripts are`} being written. Each shows below as "Waiting for the take": copy its on-camera brief, send it to your creator, and add their take.`
+            : `${v.made === 1 ? `Your ${v.kind.toLowerCase()} video is` : `${v.made} ${v.kind.toLowerCase()} videos are`} being written. ${v.made === 1 ? 'It shows' : 'They show'} below as each is written, voiced and drawn.`,
+        );
+        return;
+      }
+      const out = await adsAPI.createImageAd(service, type, model, inTrade, count);
       setOpen(false);
       setModel('auto');
       const n = out.made.length;
@@ -672,7 +747,7 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
       <div className="flex flex-wrap items-center gap-3 rounded border border-[#2A2A2A] px-4 py-3">
         <div className="flex-1 min-w-[16rem]">
           <h3 className="text-sm font-medium text-white">Create ads</h3>
-          <p className="text-xs text-gray-400">Static images, up to six in one go. You pick what they're about and the type; the app picks the photos and writes the words.</p>
+          <p className="text-xs text-gray-400">Static images or videos. You pick what they're about and the kind; the app picks the photos and writes the words.</p>
         </div>
         <button type="button" className="min-h-[40px] px-4 rounded bg-[#e2b350] text-black text-sm font-medium inline-flex items-center gap-1.5" onClick={() => setOpen(true)}>
           <Plus className="w-4 h-4" /> Create ads
@@ -705,7 +780,87 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               <p className="text-xs text-gray-500 mt-1">Every ad in the set shows and talks about this, and nothing else.</p>
             </fieldset>
             <fieldset>
-              <legend className="text-sm font-medium text-white mb-2">2. What type of image?</legend>
+              <legend className="text-sm font-medium text-white mb-2">2. Static image or video?</legend>
+              <div role="radiogroup" aria-label="Static image or video" className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ['image', 'Static image'],
+                    ['video', 'Video'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={medium === key}
+                    onClick={() => {
+                      setMedium(key);
+                      // Videos cost a voice-over and a render each: three at most.
+                      if (key === 'video' && count > 3) setCount(3);
+                    }}
+                    className={`min-h-[44px] px-5 rounded border text-sm font-medium ${medium === key ? 'border-[#e2b350] bg-[#2a2415] text-white' : 'border-[#2A2A2A] text-gray-300'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            {medium === 'video' && (
+              <fieldset>
+                <legend className="text-sm font-medium text-white mb-2">3. What kind of video?</legend>
+                <div role="radiogroup" aria-label="Kind of video" className="grid gap-2 sm:grid-cols-2">
+                  {VIDEO_TYPES.map(([key, label, blurb]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="radio"
+                      aria-checked={videoType === key}
+                      onClick={() => setVideoType(key)}
+                      className={`text-left rounded border p-3 ${videoType === key ? 'border-[#e2b350] bg-[#2a2415]' : 'border-[#2A2A2A]'}`}
+                    >
+                      <span className="block text-sm font-medium text-white">{label}</span>
+                      <span className="block text-xs text-gray-400 mt-0.5">{blurb}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+            {isClip && (
+              <fieldset>
+                <legend className="text-sm font-medium text-white mb-2">4. Which clip?</legend>
+                {!picked ? (
+                  <p className="text-xs text-gray-500">Choose what it is about first.</p>
+                ) : clips === undefined ? (
+                  <p className="text-xs text-gray-500">Loading clips…</p>
+                ) : clips.length === 0 ? (
+                  <p className="text-sm text-amber-200/80">No {picked.label.toLowerCase()} clip in the Library yet. Upload one in Library.</p>
+                ) : (
+                  <div role="radiogroup" aria-label="Clip" className="grid gap-2 grid-cols-2 sm:grid-cols-3">
+                    {clips.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={clip === c.id}
+                        onClick={() => setClip(c.id)}
+                        className={`text-left rounded border overflow-hidden ${clip === c.id ? 'border-[#e2b350] bg-[#2a2415]' : 'border-[#2A2A2A]'}`}
+                      >
+                        {c.posterUrl && <img src={c.posterUrl} alt="" className="w-full aspect-video object-cover" loading="lazy" />}
+                        <span className="block px-2 pt-1.5 text-xs text-white truncate">{c.fileName}</span>
+                        <span className="block px-2 pb-1.5 text-xs text-gray-400 line-clamp-2">
+                          {c.seconds ? `${c.seconds}s` : ''}
+                          {c.seconds && c.description ? ' · ' : ''}
+                          {c.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </fieldset>
+            )}
+            {medium === 'image' && (
+            <fieldset>
+              <legend className="text-sm font-medium text-white mb-2">3. What type of image?</legend>
               <div role="radiogroup" aria-label="Type of ad" className="grid gap-2 sm:grid-cols-2">
                 {IMAGE_TYPES.map(([key, label, blurb]) => (
                   <button
@@ -722,8 +877,10 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                 ))}
               </div>
             </fieldset>
+            )}
+            {!isClip && (
             <fieldset>
-              <legend className="text-sm font-medium text-white mb-2">3. Which competitor ad is it built on?</legend>
+              <legend className="text-sm font-medium text-white mb-2">4. Which competitor ad is it built on?</legend>
               <input
                 type="search"
                 value={search}
@@ -758,10 +915,12 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                 ))}
               </div>
             </fieldset>
+            )}
+            {!isClip && (
             <fieldset>
-              <legend className="text-sm font-medium text-white mb-2">4. How many?</legend>
+              <legend className="text-sm font-medium text-white mb-2">5. How many?</legend>
               <div role="radiogroup" aria-label="How many" className="flex gap-2">
-                {[1, 3, 6].map((n) => (
+                {(medium === 'video' ? [1, 2, 3] : [1, 3, 6]).map((n) => (
                   <button
                     key={n}
                     type="button"
@@ -774,8 +933,9 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 mt-1">Each one gets different photos and a different angle.</p>
+              <p className="text-xs text-gray-500 mt-1">{medium === 'video' ? 'Each is built on a different competitor ad. A video costs a voice-over and a render, so three at most.' : 'Each one gets different photos and a different angle.'}</p>
             </fieldset>
+            )}
             <details className="rounded border border-[#2A2A2A] px-3 py-2">
               <summary className="text-sm text-white cursor-pointer">Brand guide ({BRAND_GUIDE.length} rules every ad is checked against)</summary>
               {(
@@ -801,8 +961,22 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               ))}
             </details>
             <div className="flex items-center gap-3">
-              <button type="button" className={`${primary} flex-1`} disabled={busy || !picked} onClick={create}>
-                {busy ? `Choosing photos and writing${count > 1 ? ` ${count} ads` : ''}…` : !picked ? 'Choose what it is about first' : count === 1 ? `Create 1 ${picked.label.toLowerCase()} ad` : `Create ${count} ${picked.label.toLowerCase()} ads`}
+              <button type="button" className={`${primary} flex-1`} disabled={busy || !picked || (isClip && !clip)} onClick={create}>
+                {busy
+                  ? isClip
+                    ? 'Starting…'
+                    : `Choosing photos and writing${count > 1 ? ` ${count} ads` : ''}…`
+                  : !picked
+                    ? 'Choose what it is about first'
+                    : isClip
+                      ? clip
+                        ? 'Make a job site ad from this clip'
+                        : 'Choose a clip'
+                      : medium === 'video'
+                        ? `Create ${count} ${picked.label.toLowerCase()} ${VIDEO_TYPES.find(([k]) => k === videoType)![1].toLowerCase()} video${count === 1 ? '' : 's'}`
+                        : count === 1
+                          ? `Create 1 ${picked.label.toLowerCase()} ad`
+                          : `Create ${count} ${picked.label.toLowerCase()} ads`}
               </button>
               <button type="button" className={secondary} disabled={busy} onClick={() => setOpen(false)}>
                 Cancel
@@ -920,8 +1094,9 @@ const AdTile: React.FC<{ group: HookGroupData; act: Act }> = ({ group, act }) =>
   const reviewable = group.items.filter((c) => (c.status === 'paused' || c.status === 'rendered') && c.meta?.adId);
   const rejectable = group.items.filter((c) => c.status === 'paused' || c.status === 'rendered');
   const title = lead.script.onScreen[0] || lead.script.headline || group.hook?.textEn || lead.name;
-  const kind = lead.kind === 'image' ? 'Still' : lead.style ? lead.style.label : KIND_LABELS[lead.kind ?? 'video'];
-  const statuses = [...new Set(group.items.map((c) => STATUS_LABELS[c.status]))];
+  const onCamera = group.items.some((c) => c.awaitsTake || c.presenter);
+  const kind = lead.kind === 'image' ? 'Still' : onCamera ? 'On camera' : lead.style ? lead.style.label : KIND_LABELS[lead.kind ?? 'video'];
+  const statuses = [...new Set(group.items.map((c) => (c.status === 'recording' && c.awaitsTake && !c.presenter ? 'Waiting for the take' : STATUS_LABELS[c.status])))];
   const live = group.items.some((c) => c.status === 'live');
   const sizes = group.items.length;
   return (
@@ -1144,7 +1319,7 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
         <span
           className={`${chip} ${c.status === 'live' ? 'text-emerald-300 border-emerald-900' : c.status === 'failed' ? 'text-red-300 border-red-900' : ''}`}
         >
-          {c.status === 'recording' && c.presenter ? 'Timing the take' : STATUS_LABELS[c.status]}
+          {c.status === 'recording' && c.presenter ? 'Timing the take' : c.status === 'recording' && c.awaitsTake ? 'Waiting for the take' : STATUS_LABELS[c.status]}
         </span>
         {c.presenter && <span className={chip}>On camera</span>}
       </p>
@@ -1179,7 +1354,7 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
       </div>
     )}
     <div className="flex flex-wrap gap-2 p-3 pt-0">
-      {c.status === 'recording' && !c.presenter && (
+      {c.status === 'recording' && !c.presenter && !c.awaitsTake && (
         <button type="button" className={secondary} onClick={() => act(() => adsAPI.checkActors(), 'Checking Bunny Studio for the read.')}>
           Check now
         </button>

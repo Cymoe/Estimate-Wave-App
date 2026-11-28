@@ -1144,6 +1144,11 @@ export const adsAPI = {
   ideasNow: (trade?: string) => run('mutation', api.ads.ideasNow, defined({ trade })),
   decideIdea: (id: string, status: 'kept' | 'killed' | 'new') => run('mutation', api.ads.decideIdea, { id, status }),
   makeKept: (trade?: string): Promise<number> => run('mutation', api.ads.makeKept, defined({ trade })),
+  /** Kept ideas made as videos of one kind (story, lesson, quick offer, or written to be spoken on camera). */
+  makeKeptVideos: (kind: string, trade?: string): Promise<number> => run('mutation', api.ads.makeKept, defined({ trade, kind })),
+  /** Videos by kind for one service: each is written, voiced (or left waiting for an on-camera take) and drawn. */
+  createVideoAd: (service: string, kind: string, model = 'auto', trade?: string, count = 1): Promise<{ made: number; kind: string }> =>
+    run('mutation', api.ads.createVideoAd, defined({ service, kind, trade, count, ...(model === 'none' ? { fresh: true } : model !== 'auto' ? { swipeId: model } : {}) })),
   /** Kept ideas made as static image ads; `held` says why any stayed kept. */
   makeKeptImages: (trade?: string): Promise<{ made: number; held: string[] }> => run('action', api.ads.makeKeptImages, defined({ trade })),
   /** "Make an ad for cabinet painting in Odessa": starts it and returns the private link that shows it being made. */

@@ -2824,6 +2824,8 @@ export default defineSchema({
     ),
     // An on-camera creator's take (onCamera.ts): a video of them saying the lines in front of a green screen. Its
     // sound is the ad's voice, and the renderer keys out the green and stands them in front of the photos.
+    // Written to be spoken on camera: no voice was made, and it waits for a person's take.
+    awaitsTake: v.optional(v.boolean()),
     presenter: v.optional(v.object({ storageId: v.id("_storage"), addedAt: v.string() })),
     createdAt: v.string(),
     activatedAt: v.optional(v.string()),

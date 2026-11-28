@@ -35,6 +35,9 @@ const retire = jest.fn(async () => undefined);
 const ideasNow = jest.fn(async (..._args: unknown[]) => undefined);
 const decideIdea = jest.fn(async () => undefined);
 const makeKept = jest.fn(async (..._args: unknown[]) => 2);
+let clips: Array<{ id: string; fileName: string; seconds?: number; description?: string }> = [];
+const createVideoAd = jest.fn(async (..._args: unknown[]) => ({ made: 2, kind: 'Quick offer' }));
+const makeKeptVideos = jest.fn(async (..._args: unknown[]) => 1);
 const makeKeptImages = jest.fn(async (..._args: unknown[]) => ({ made: 1, held: [] as string[] }));
 const seedHooks = jest.fn(async () => 6);
 const saveHook = jest.fn(async () => 'h9');
@@ -149,6 +152,8 @@ jest.mock('../../../lib/api', () => ({
     decideIdea: (...args: unknown[]) => decideIdea(...args),
     makeKept: (...args: unknown[]) => makeKept(...args),
     makeKeptImages: (...args: unknown[]) => makeKeptImages(...args),
+    makeKeptVideos: (...args: unknown[]) => makeKeptVideos(...args),
+    createVideoAd: (...args: unknown[]) => createVideoAd(...args),
     seedHooks: () => seedHooks(),
     saveHook: (args: unknown) => saveHook(args),
     saveSettings: (args: unknown) => saveSettings(args),
@@ -201,6 +206,7 @@ jest.mock('../../../lib/live', () => ({
   useAdsHooks: (trade?: string) => (asked.push(`hooks:${trade}`), hooks),
   useAdsSettings: () => settings,
   useAdsSwipes: () => swipes,
+  useAdsServiceClips: (service: string) => (service === 'cabinets' ? clips : []),
   useAdsPlaybooks: () => playbooks,
   useAdsResearchRuns: () => runs,
   useAdsReadiness: () => readiness,
@@ -319,6 +325,50 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[aria-label="Ready for Monday"]')).toBeNull();
     expect(document.body.querySelector('section[aria-label="Make an ad for"]')).toBeNull();
     expect(document.body.querySelector('[role="tablist"][aria-label="Ads"]')).not.toBeNull();
+  });
+
+  it('Create ads: static image or video, and which kind of video; a job site clip is picked from the Library', async () => {
+    clips = [{ id: 'v7', fileName: 'spraying-doors.mp4', seconds: 34, description: 'Spraying cabinet doors.' }];
+    makeFootage.mockClear();
+    createVideoAd.mockClear();
+    createImageAd.mockClear();
+    await render();
+    const open = async () => act(async () => (Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Create ads') as HTMLButtonElement).click());
+    const radios = (label: string) => Array.from(dialog().querySelectorAll(`[aria-label="${label}"] [role="radio"]`)) as HTMLButtonElement[];
+    await open();
+    await act(async () => radios('What it is about')[0].click());
+    // A static image is the usual; video shows its kinds in place of the image types.
+    expect(radios('Static image or video').map((b) => [b.textContent, b.getAttribute('aria-checked')])).toEqual([['Static image', 'true'], ['Video', 'false']]);
+    expect(dialog().querySelector('[aria-label="Kind of video"]')).toBeNull();
+    await act(async () => radios('Static image or video')[1].click());
+    expect(dialog().querySelector('[aria-label="Type of ad"]')).toBeNull();
+    expect(radios('Kind of video').map((b) => b.querySelector('span')!.textContent)).toEqual(['Job site clip', 'On camera (UGC)', 'Story', 'Lesson', 'Quick offer']);
+    // A job site clip: the service's clips to pick from, no competitor ad or count to choose, and nothing made until one is picked.
+    expect(dialog().querySelector('[aria-label="Competitor ad to model"]')).toBeNull();
+    expect(dialog().querySelector('[aria-label="How many"]')).toBeNull();
+    expect((byText('Choose a clip') as HTMLButtonElement).disabled).toBe(true);
+    expect(radios('Clip')[0].textContent).toContain('spraying-doors.mp4');
+    await act(async () => radios('Clip')[0].click());
+    await act(async () => byText('Make a job site ad from this clip')!.click());
+    await flush();
+    expect(makeFootage).toHaveBeenCalledWith('v7');
+    // A quick offer: three at most, built on the app's pick of competitor ads.
+    await open();
+    await act(async () => radios('What it is about')[0].click());
+    await act(async () => radios('Static image or video')[1].click());
+    await act(async () => radios('Kind of video')[4].click());
+    expect(radios('How many').map((b) => b.textContent)).toEqual(['1', '2', '3']);
+    await act(async () => radios('How many')[1].click());
+    await act(async () => byText('Create 2 cabinet painting quick offer videos')!.click());
+    await flush();
+    expect(createVideoAd).toHaveBeenCalledWith('cabinets', 'quick', 'auto', undefined, 2);
+    expect(createImageAd).not.toHaveBeenCalled();
+    // With no clip of the service on file, it says so.
+    await open();
+    await act(async () => radios('What it is about')[1].click());
+    await act(async () => radios('Static image or video')[1].click());
+    await act(async () => radios('Kind of video')[0].click());
+    expect(dialog().textContent).toContain('No exterior painting clip in the Library yet. Upload one in Library.');
   });
 
   it('Create an ad: the owner picks a type of image and, if they like, a competitor ad to model; staff never see it', async () => {
@@ -555,9 +605,18 @@ describe('Ops → Ads', () => {
     expect(panel().textContent).toContain('Kept (1)');
     await act(async () => byText('Make this ad')!.click());
     await flush();
-    // Kept ideas are made as static image ads, not the old videos.
+    // Kept ideas are made as static image ads unless a kind of video is chosen beside the button.
     expect(makeKeptImages).toHaveBeenCalled();
     expect(makeKept).not.toHaveBeenCalled();
+    const makeAs = document.body.querySelector('select[aria-label="Make kept ideas as"]') as HTMLSelectElement;
+    expect(Array.from(makeAs.options).map((o) => o.textContent)).toEqual(['Static images', 'Story videos', 'Lesson videos', 'Quick offer videos', 'On camera (UGC) videos']);
+    await act(async () => {
+      makeAs.value = 'oncamera';
+      makeAs.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => byText('Make this ad')!.click());
+    await flush();
+    expect(makeKeptVideos).toHaveBeenCalledWith('oncamera', expect.anything());
     expect(panel().textContent).toContain('What it has learned about your taste: Keeps plain openings about mess.');
     expect(byText('Get new ideas')).toBeDefined();
 

@@ -2421,8 +2421,8 @@ export const settings = query({
       pageId: row?.pageId,
       leadFormId: row?.leadFormId,
       adsetId: row?.adsetId,
-      primaryColor: row?.primaryColor ?? "#336699",
-      accentColor: row?.accentColor ?? "#8fb6e0",
+      primaryColor: row?.primaryColor ?? "#0f1c42",
+      accentColor: row?.accentColor ?? "#f2c043",
       voiceId: row?.voiceId,
       ...actorSettings(row),
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
@@ -2489,6 +2489,14 @@ export const saveSettings = mutation({
 // or kills them. Four writers with different points of view are each asked on
 // their own; near-copies are dropped in code; one more pass picks the best.
 // Only kept ideas go on to be written, voiced and drawn.
+
+/** A kind of video asked for by name. */
+const videoKind = v.union(v.literal("story"), v.literal("lesson"), v.literal("quick"), v.literal("oncamera"));
+/** What the writer is told for a kind: a checklist, a quick offer, or (on camera) no voice and a wait for the take. */
+const videoRun = (kind?: "story" | "lesson" | "quick" | "oncamera") => ({
+  ...(kind === "lesson" ? { style: "explainer" as const } : kind === "quick" ? { style: "quick" as const } : {}),
+  ...(kind === "oncamera" ? { awaitTake: true } : {}),
+});
 
 /** How many kept ideas one press of Make turns into ads. The rest stay kept for the next press. */
 const MAKE_AT_ONCE = 6;
@@ -3032,11 +3040,12 @@ export const makeIdeas = internalMutation({
 });
 
 export const makeKept = mutation({
-  args: { trade: v.optional(v.string()) },
-  handler: async (ctx, { trade }) => {
+  // kind: which video each kept idea is made as (a story when none is given).
+  args: { trade: v.optional(v.string()), kind: v.optional(videoKind) },
+  handler: async (ctx, { trade, kind }) => {
     const user = await requireSuperAdmin(ctx);
     const k = keys();
-    if (!k.anthropic || !k.elevenlabs) fail("INVALID", "Set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY on the deployment first");
+    if (!k.anthropic || (!k.elevenlabs && kind !== "oncamera")) fail("INVALID", "Set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY on the deployment first");
     const newest = (await ctx.db.query("adBatches").order("desc").take(1))[0];
     if (newest && newest.status === "drafting" && Date.now() - new Date(newest.createdAt).getTime() < 30 * 60_000)
       fail("INVALID", "A batch is already drafting; it shows under This week as each piece finishes");
@@ -3050,9 +3059,94 @@ export const makeKept = mutation({
       .slice(0, MAKE_AT_ONCE);
     if (kept.length === 0) fail("INVALID", "Keep at least one idea first");
     const only = await hooksFor(ctx, kept);
-    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only, trade: tradeOf(trade).slug });
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only, trade: tradeOf(trade).slug, ...videoRun(kind) });
     await ctx.scheduler.runAfter(0, internal.ads.learnTaste, {});
     return kept.length;
+  },
+});
+
+/** The kinds of video the owner can ask for by name. A job site clip is made from a clip instead (footage:make). */
+const VIDEO_KINDS = {
+  story: { label: "Story", family: "before_after" as Family, line: (s: string) => `${s}: one job, from how it looked before to how it looks now.` },
+  lesson: { label: "Lesson", family: "education" as Family, line: (s: string) => `What a homeowner should look for in ${s.toLowerCase()} before hiring anyone.` },
+  quick: { label: "Quick offer", family: "objection" as Family, line: (s: string) => `${s}, shown on one job, and a free quote.` },
+  oncamera: { label: "On camera", family: "before_after" as Family, line: (s: string) => `${s}: one job, from how it looked before to how it looks now, told by a person on camera.` },
+};
+/** How many videos Create ads makes in one go: each costs a voice-over and a render. */
+export const VIDEO_ADS_AT_ONCE = 3;
+
+/**
+ * The owner asks for videos by kind (Create ads): what they are about, and a story, a lesson, a quick offer or one
+ * for a person to speak on camera. Each gets a switched-off hook of its own, built on one of the best long-running
+ * competitor ads for the service (a different one each), and goes down the usual path: written, voiced, drawn.
+ */
+export const createVideoAd = mutation({
+  args: { service: v.string(), kind: videoKind, swipeId: v.optional(v.id("adSwipes")), fresh: v.optional(v.boolean()), trade: v.optional(v.string()), count: v.optional(v.number()) },
+  handler: async (ctx, { service: key, kind, swipeId, fresh, trade: slug, count }) => {
+    const user = await requireSuperAdmin(ctx);
+    const k = keys();
+    if (!k.anthropic || (!k.elevenlabs && kind !== "oncamera")) fail("INVALID", "Set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY on the deployment first");
+    const trade = tradeOf(slug);
+    const service = adServiceOf(trade.slug, key);
+    if (!service) fail("INVALID", "Choose what the ad is about");
+    // One request written at a time: while the last one has nothing written yet, this waits. Once its ads exist
+    // (being voiced or drawn), another kind can be asked for straight away.
+    const newest = (await ctx.db.query("adBatches").order("desc").take(1))[0];
+    if (newest && newest.status === "drafting" && Date.now() - new Date(newest.createdAt).getTime() < 10 * 60_000) {
+      const written = await ctx.db.query("adCreatives").withIndex("by_batch", (q) => q.eq("batchId", newest._id)).first();
+      if (!written) fail("INVALID", "The last ads you asked for are still being written. Try again in a minute.");
+    }
+    const n = Math.max(1, Math.min(VIDEO_ADS_AT_ONCE, Math.round(count ?? 1)));
+    const onFile = fresh ? [] : (await ctx.db.query("adSwipes").take(1000)).filter((x) => inTrade(x, trade.slug));
+    const taken: Id<"adSwipes">[] = [];
+    const only: Id<"adHooks">[] = [];
+    const what = VIDEO_KINDS[kind];
+    for (let i = 0; i < n; i++) {
+      // The owner's pick for the first; after that (or with none picked) the best that hasn't had its turn.
+      const model = fresh ? undefined : i === 0 && swipeId ? swipeId : pickImageModels(onFile, service!.scope, taken).model?._id;
+      if (model) taken.push(model);
+      only.push(
+        await ctx.db.insert("adHooks", {
+          family: what.family,
+          scope: service!.scope,
+          trade: trade.slug,
+          textEn: what.line(service!.label),
+          // Off, so nothing drafts it a second time.
+          active: false,
+          uses: 0,
+          wins: 0,
+          losses: 0,
+          createdAt: nowIso(),
+          ...(model ? { swipeId: model } : {}),
+        }),
+      );
+    }
+    await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true, only, trade: trade.slug, service: service!.key, ...videoRun(kind) });
+    return { made: n, kind: what.label };
+  },
+});
+
+/** The Library's video clips of a service, newest first: what a job site clip ad can be made from. */
+export const serviceClips = query({
+  args: { service: v.string(), trade: v.optional(v.string()) },
+  handler: async (ctx, { service: key, trade: slug }) => {
+    await requireStaff(ctx);
+    const trade = tradeOf(slug);
+    const service = adServiceOf(trade.slug, key);
+    if (!service) return [];
+    const clips = (await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(500))
+      .filter((a) => inTrade(a, trade.slug) && a.tags.some((t) => t === service.scope || service.works.includes(t)) && !(service.notTag && a.tags.includes(service.notTag)))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 24);
+    return await Promise.all(
+      clips.map(async (a) => ({
+        id: a._id,
+        fileName: a.fileName,
+        seconds: a.durationSec ? Math.round(a.durationSec) : undefined,
+        description: a.description,
+        posterUrl: a.posterStorageId ? ((await ctx.storage.getUrl(a.posterStorageId)) ?? undefined) : undefined,
+      })),
+    );
   },
 });
 
@@ -3148,6 +3242,8 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
     actor: c.actor ? { orderedAt: c.actor.orderedAt, price: c.actor.price, test: c.actor.test } : undefined,
     // An on-camera creator's take, when one was added.
     presenter: c.presenter ? { addedAt: c.presenter.addedAt } : undefined,
+    // Written to be spoken on camera: it waits for a person's take, not a voice.
+    awaitsTake: c.awaitsTake,
     week: c.week,
     baselineCtr: c.baselineCtr,
     fatigued: c.week ? isFatigued({ frequency: c.week.frequency, ctr: c.week.ctr, baselineCtr: c.baselineCtr ?? null }) : false,
@@ -3472,8 +3568,8 @@ export const config = internalQuery({
     return {
       brand: {
         name: consumerBrand(),
-        primaryColor: row?.primaryColor ?? "#336699",
-        accentColor: row?.accentColor ?? "#8fb6e0",
+        primaryColor: row?.primaryColor ?? "#0f1c42",
+        accentColor: row?.accentColor ?? "#f2c043",
         markets: research(row).researchMarkets,
       },
       liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
@@ -3639,6 +3735,14 @@ const adDesign = v.object({
 });
 
 /** Creates the week's creatives for one hook (two sizes) once its script is in. */
+/** An on-camera ad waits for its take: no voice is made for it. */
+export const waitForTake = internalMutation({
+  args: { ids: v.array(v.id("adCreatives")) },
+  handler: async (ctx, { ids }) => {
+    for (const id of ids) if (await ctx.db.get(id)) await ctx.db.patch(id, { status: "recording", awaitsTake: true });
+  },
+});
+
 export const addCreatives = internalMutation({
   args: {
     batchId: v.id("adBatches"),
@@ -4053,8 +4157,8 @@ export const renderInputOf = internalQuery({
     const row = await settingsRow(ctx);
     const brand = {
       name: consumerBrand(),
-      primaryColor: row?.primaryColor ?? "#336699",
-      accentColor: row?.accentColor ?? "#8fb6e0",
+      primaryColor: row?.primaryColor ?? "#0f1c42",
+      accentColor: row?.accentColor ?? "#f2c043",
       markets: research(row).researchMarkets,
     };
     const track = (await ctx.db.query("adMusic").order("desc").take(20)).find((m) => m.active);
@@ -4100,8 +4204,8 @@ export const claimRenders = internalMutation({
     const row = await settingsRow(ctx);
     const brand = {
       name: consumerBrand(),
-      primaryColor: row?.primaryColor ?? "#336699",
-      accentColor: row?.accentColor ?? "#8fb6e0",
+      primaryColor: row?.primaryColor ?? "#0f1c42",
+      accentColor: row?.accentColor ?? "#f2c043",
       markets: research(row).researchMarkets,
     };
     // The music a reel plays: the newest track switched on.
@@ -4429,8 +4533,12 @@ export const weeklyRun = internalAction({
     quickToo: v.optional(v.boolean()),
     // The job a request named: every version shows that job's photos only.
     jobId: v.optional(v.id("adJobs")),
+    // What the ads are about (lib/ads AD_SERVICES), when the owner picked it in Create ads: only its photos are offered.
+    service: v.optional(v.string()),
+    // On camera: a person will speak the lines, so no voice is made; each ad waits for its take (onCamera:addTake).
+    awaitTake: v.optional(v.boolean()),
   },
-  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo, jobId, steps }) => {
+  handler: async (ctx, { startedBy, force, hooks: hookCount, only, trade: slug, style: asked, requestId, town: askedTown, quickToo, jobId, steps, service: serviceKey, awaitTake }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
     const trade = tradeOf(slug);
@@ -4461,8 +4569,12 @@ export const weeklyRun = internalAction({
         throw new Error(`${liveCount} ads are live and the target is ${cfg.liveTarget}. Retire one under Live, or raise the target in Settings.`);
       if (hooks.length === 0) throw new Error("No active hooks. Add or switch on hooks in Ops → Ads → Hooks.");
       // An ad is drawn from photos Claude can look at.
-      const photos = assets.filter((a: { kind: string; imageUrl?: string }) => a.kind === "photo" && a.imageUrl);
-      if (photos.length === 0) throw new Error("The library has no photos. Upload job photos in Ops → Ads → Library.");
+      const service = serviceKey ? adServiceOf(trade.slug, serviceKey) : undefined;
+      const photos = assets.filter(
+        (a: { kind: string; imageUrl?: string; tags: string[]; description?: string }) => a.kind === "photo" && a.imageUrl && (!service || photoOfService(service, a)),
+      );
+      if (photos.length === 0)
+        throw new Error(service ? `The library has no ${service.label.toLowerCase()} photos. Upload some in Ops → Ads → Library.` : "The library has no photos. Upload job photos in Ops → Ads → Library.");
       const used = new Set<string>();
       let made = 0;
       let delay = 0;
@@ -4502,6 +4614,11 @@ export const weeklyRun = internalAction({
         script.shots!.forEach((s) => used.add(s.assetId));
         (design.frames ?? []).forEach((f) => (f.more ?? []).forEach((id) => used.add(id)));
         const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, { batchId, hookId: hook._id, script: script as never, design: design as never });
+        // A person on camera speaks it: no voice is made, and it waits for the take.
+        if (awaitTake) {
+          await ctx.runMutation(internal.ads.waitForTake, { ids });
+          return;
+        }
         // One voice per hook, shared by its two sizes.
         await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
         delay += 1500;
@@ -5336,6 +5453,18 @@ export const pairCensus = internalQuery({
       beyondFirst500: all.length - Math.min(all.length, 500),
       pairs,
     };
+  },
+});
+
+/** Sets the saved brand colours, from the deployment: the navy and gold of the GoodFit Painting logo (the owner, Nov 2026). */
+export const setBrandColours = internalMutation({
+  args: { primaryColor: v.string(), accentColor: v.string() },
+  handler: async (ctx, { primaryColor, accentColor }) => {
+    const row = await settingsRow(ctx);
+    if (!row) return { set: false };
+    const was = { primaryColor: row.primaryColor, accentColor: row.accentColor };
+    await ctx.db.patch(row._id, { primaryColor, accentColor, updatedAt: nowIso() });
+    return { set: true, was };
   },
 });
 
