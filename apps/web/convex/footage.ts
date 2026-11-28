@@ -12,7 +12,7 @@ import { internalAction, internalMutation, internalQuery, mutation } from "./_ge
 import { fail, nowIso, requireStaff } from "./lib/access";
 import { ANY_SCOPE, creativeName, inTrade, parseJson, tradeOf, weekOf } from "./lib/ads";
 import { callClaude } from "./lib/claude";
-import { FOOTAGE_MAX_SEC, footageProblems, footagePrompt, linesFromHeard, pickFootageSwipe, type FootageCopy } from "./lib/footage";
+import { FOOTAGE_MAX_SEC, fitTitle, footageProblems, footagePrompt, linesFromHeard, pickFootageSwipe, type FootageCopy } from "./lib/footage";
 import { consumerBrand } from "./lib/support";
 import { heardWords } from "./voiceActors";
 
@@ -158,6 +158,8 @@ export const write = internalAction({
         const reply = await callClaude({ model: AD_MODEL, max_tokens: 2000, messages: [{ role: "user", content: ask }] });
         const text = reply.content.map((b) => (typeof b.text === "string" ? b.text : "")).join("");
         const plan = parseJson<FootageCopy>(text);
+        // The title only names the ad: one that runs over is cut to fit, not sent back.
+        if (plan && typeof plan.title === "string") plan.title = fitTitle(plan.title);
         problems = footageProblems(plan);
         if (problems.length === 0) copy = { title: plan!.title.trim(), headline: plan!.headline.trim(), primaryText: plan!.primaryText.trim(), speech: plan!.speech };
       }

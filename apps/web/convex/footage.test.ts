@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { designLabel, forbiddenIn } from "./lib/ads";
-import { FOOTAGE_MARK, footageProblems, footagePrompt, FOOTAGE_PRIMARY_MAX, isWorkFootage, linesFromHeard, pickFootageSwipe } from "./lib/footage";
+import { FOOTAGE_MARK, footageProblems, footagePrompt, FOOTAGE_PRIMARY_MAX, isWorkFootage, linesFromHeard, pickFootageSwipe, fitTitle } from "./lib/footage";
 import { setup, signUp } from "./test.setup";
 
 afterEach(() => {
@@ -15,6 +15,14 @@ const SWIPE = { company: "Rodgers Painting", hook: "Process + minimal disruption
 const at = (text: string, start: number) => ({ text, start, end: start + 0.3 });
 
 describe("the pure parts", () => {
+  test("a job site video's title that runs over is cut at a whole word, not refused", () => {
+    expect(fitTitle("Cabinet doors sprayed")).toBe("Cabinet doors sprayed");
+    const long = fitTitle("Spraying cabinet doors in the shop this week");
+    expect(long.length).toBeLessThanOrEqual(30);
+    expect(long).toBe("Spraying cabinet doors in the");
+    expect(fitTitle("Supercalifragilisticexpialidociousness")).toHaveLength(30);
+  });
+
   test("what is said becomes caption lines: a sentence's end, a pause or a dozen words closes one", () => {
     const heard = [
       at("We", 0.5),

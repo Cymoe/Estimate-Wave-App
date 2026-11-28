@@ -126,6 +126,19 @@ export function footagePrompt(opts: { brand: string; trade: string; town: string
   ].join("\n");
 }
 
+/**
+ * A title cut to fit, at a whole word: a job site video shows no title on screen (it only names the ad), so one a
+ * few characters over is shortened rather than the whole ad failing on it (it did, on the owner's first try from
+ * Create ads, Nov 2026).
+ */
+export function fitTitle(title: string, max = TITLE_MAX): string {
+  const t = title.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max + 1);
+  const at = cut.lastIndexOf(" ");
+  return (at > max / 2 ? cut.slice(0, at) : t.slice(0, max)).replace(/[\s,;:.\-–]+$/, "");
+}
+
 /** What is wrong with the words written for a job site video. */
 export function footageProblems(copy: Partial<FootageCopy> | null): string[] {
   if (!copy) return ["the reply wasn't JSON"];
