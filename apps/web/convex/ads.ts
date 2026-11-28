@@ -5232,7 +5232,15 @@ export const libraryCheck = internalQuery({
       if (b && a && photoOfService(service!, a))
         pairs.push({ job: a.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)", uses: Math.max(a.uses ?? 0, b.uses ?? 0), before: (b.description ?? "").slice(0, 90), after: (a.description ?? "").slice(0, 90) });
     }
+    // What could be a before and after but isn't linked as one: befores with no pair, and single images that are
+    // a before and its after joined (tagged both), which an image ad doesn't use.
+    const both = (a: Doc<"adAssets">) => a.tags.includes("before") && a.tags.includes("after");
+    const line = (a: Doc<"adAssets">) => `${a.fileName} · ${a.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)"} · ${a.pairLookedAt ? "looked at" : "not looked at"} · ${(a.description ?? "").slice(0, 80)}`;
     return {
+      befores: mine.filter(before).length,
+      beforesUnpaired: mine.filter((a) => before(a) && !a.pairKey).map(line),
+      joined: mine.filter(both).map(line),
+      aftersUnpaired: mine.filter((a) => a.tags.includes("after") && !before(a) && !both(a) && !a.pairKey).length,
       tagged: mine.length,
       finished: finished.length,
       usable: usable.length,
