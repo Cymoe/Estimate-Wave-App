@@ -5215,7 +5215,10 @@ export const imageAdInput = internalQuery({
         picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id] });
     } else {
       // Finished work only: never a before, never work in progress, never two pictures in one.
-      const finished = drawable.filter((a) => !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
+      const all = drawable.filter((a) => !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
+      // With plenty of photos no ad has used yet, only those are offered, so a new ad never repeats an old one's.
+      const unused = all.filter((a) => (a.uses ?? 0) === 0);
+      const finished = unused.length >= UNUSED_ENOUGH ? unused : all;
       // Each project a short name of its own (P1, P2...); a photo in no project counts as its own.
       const names = new Map<string, string>();
       const projectOf = (a: Doc<"adAssets">) => {
@@ -5252,6 +5255,9 @@ export const createImageAd = action({
     return await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1))), me);
   },
 });
+
+/** With at least this many finished photos no ad has used, an image ad is offered only those. */
+const UNUSED_ENOUGH = 12;
 
 /** The most image ads made in one go. */
 export const IMAGE_ADS_AT_ONCE = 6;

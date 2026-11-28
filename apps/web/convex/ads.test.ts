@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, IMAGE_AD_TYPES, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -3056,14 +3056,34 @@ describe("the weekly run", () => {
     await owner.as.action(api.ads.createImageAd, { type: "showcase" });
     await owner.as.action(api.ads.createImageAd, { type: "before_after" });
     const rows = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still));
-    expect(rows.map((c) => [c.still!.type, c.still!.layout, c.assetIds.length, c.kind, c.status, c.ratio])).toEqual([
+    expect(rows.slice(0, 3).map((c) => [c.still!.type, c.still!.layout, c.assetIds.length, c.kind, c.status, c.ratio])).toEqual([
       ["photo", "single", 1, "image", "voiced", "4x5"],
       ["showcase", "grid", 3, "image", "voiced", "4x5"],
       ["before_after", "pair", 2, "image", "voiced", "4x5"],
     ]);
     expect(rows[0].script).toMatchObject({ voice: "", onScreen: ["Cabinets, freshly painted", "White uppers, colour below"] });
+    // With plenty of unused finished photos on file, ones already in an ad aren't offered again.
+    await t.run(async (ctx) => {
+      const user = (await ctx.db.query("users").take(1))[0]._id;
+      for (let i = 0; i < 12; i++)
+        await ctx.db.insert("adAssets", {
+          storageId: await ctx.storage.store(new Blob([`fresh${i}`], { type: "image/jpeg" })),
+          kind: "photo",
+          fileName: `fresh-${i}.jpg`,
+          contentType: "image/jpeg",
+          size: 10,
+          tags: ["interior", "cabinets", "after"],
+          description: `Fresh kitchen number ${i}.`,
+          uploadedBy: user,
+          createdAt: "2026-11-02T00:00:00Z",
+        });
+    });
+    await owner.as.action(api.ads.createImageAd, { type: "photo" });
+    const lastAsk = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).at(-1)!;
+    expect(lastAsk).toContain("Fresh kitchen number 3");
+    expect(lastAsk).not.toContain("Elm kitchen");
     // Drawn without a voice: each as a still, with its photos laid out by type.
-    const jobs = (await claim()).filter((j) => rows.some((r) => r.name === j.name));
+    const jobs = (await claim()).filter((j) => rows.slice(0, 3).some((r) => r.name === j.name));
     expect(jobs.map((j) => j.kind)).toEqual(["image", "image", "image"]);
     const props = jobs.map((j) => j.props as unknown as { photo?: unknown; grid?: unknown[]; pair?: unknown[]; headline: string });
     expect(props[0].photo).toBeDefined();
@@ -3122,6 +3142,15 @@ describe("the weekly run", () => {
     expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(6);
     expect(plan[0].text).toContain("Show a range of our work");
     expect(plan[0].text).not.toContain("Tell it as one small story");
+  });
+
+  test("ads use a homeowner's words: a painter's or designer's term is sent back, and every writer is told so", () => {
+    expect(forbiddenIn("Honey oak to white and grey").join(" ")).toContain("homeowner");
+    expect(forbiddenIn("White shaker cabinets and LVP floors").join(" ")).toContain("homeowner");
+    expect(forbiddenIn("Brown cabinets, painted white")).toEqual([]);
+    const image = imageAdPrompt(IMAGE_AD_TYPES[0], "GoodFit Painting", "Midland", AD_TRADES.painting, []);
+    expect(image).toContain("brown cabinets, not honey oak");
+    expect(image).toContain("uses 0 wherever some fit");
   });
 
   test("an image ad's printed words never place the pictured work in the town", () => {

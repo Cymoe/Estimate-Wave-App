@@ -649,12 +649,17 @@ export interface Candidate {
   imageUrl?: string;
 }
 
+/** The words a homeowner uses, not a contractor's or a designer's (the owner: people say brown cabinets, not honey oak; Nov 2026). */
+export const PLAIN_WORDS =
+  "- Use the words a homeowner would say, not a contractor's or a designer's. Colours by their everyday name: brown cabinets, not honey oak, espresso or walnut; white, grey, green, blue, not sage, navy or greige. No trade or product terms: shaker, LVP, quartz, herringbone, soffit, satin. The photo descriptions use precise terms; translate them.";
+
 const RULES = (brand: string, town: string) => [
   `- The voice speaks only as ${brand}, never as a homeowner or customer. No testimonials, no "I hired", no invented reviews or names.`,
   "- No prices, dollar amounts, discounts, percentages off, warranties, guarantees, or promised completion times. A cost-education hook may say prices vary by size and condition and that a quote is free.",
   `- Never promise how fast, or whether, anyone answers: no "never wait", no "always calls back", no "same-day".`,
   `- Do not address the viewer by a personal attribute (no "is your home in...", no age, income or ethnicity). Say "${town} homeowners" style phrasing instead.`,
   "- Close the last shot with a plain ask: get a quote.",
+  PLAIN_WORDS,
   "- No hype, even where the competitor's ad uses it: never nightmare, dream kitchen, stunning, amazing, flawless, jaw-dropping. Say plainly what is seen.",
 ];
 
@@ -731,6 +736,7 @@ const FORBIDDEN: Array<[RegExp, string]> = [
   [/is your home in|are you over/i, "a personal attribute"],
   // Nothing about how the pros are chosen is written down, so nothing is claimed about it.
   [/\bvetted\b|\bpre-?screened\b|\btop-rated\b/i, "a claim about how the pros are checked (vetted, screened, top-rated)"],
+  [/\bhoney[- ]?oak\b|\bespresso\b|\bshaker\b|\bLVP\b|\bgreige\b|\bherringbone\b/i, "a contractor's or designer's term (honey oak, espresso, shaker, LVP): say it the way a homeowner would (brown cabinets, wood-look floor)"],
   // Plain words about what is seen; a competitor's hype isn't carried over.
   [/\bnightmare\b|\bdream (kitchen|home|bath|house)|\bstunning\b|\bamazing\b|\bjaw[- ]dropping\b|\bbreathtaking\b|\bflawless\b/i, "hype (nightmare, dream kitchen, stunning, amazing, flawless): say plainly what is seen"],
 ];
@@ -1729,7 +1735,7 @@ export function imageAdPrompt(
         : `${c.n}. ${c.best ? "BEST · " : ""}${c.tags.join(", ")}${c.project ? ` · project ${c.project}` : ""} · uses ${c.uses}: ${c.description.replace(/\s+/g, " ").slice(0, 200)}`,
     ),
     "",
-    `Choose ${want} that best carries this ad. Prefer BEST ones and ones in fewer ads. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
+    `Choose ${want} that best carries this ad. Choose from photos with uses 0 wherever some fit; one already in ads only when nothing unused fits. Among those, prefer BEST ones. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
     type.layout === "grid" ? "Every word of the headline and the line under it must be true of every photo chosen, not most of them: if one has no island, don't say islands." : "",
     ...(avoid.length ? [`Already made in this set, so take a different angle and different photos from these: ${avoid.map((h) => `"${h}"`).join(", ")}.`] : []),
     "Rules:",
@@ -2351,6 +2357,7 @@ const IDEA_RULES = (brand: string, town: string, trade: AdTrade) => [
   "- No prices, discounts, guarantees, warranties, deadlines, awards, review counts or anything a customer is supposed to have said.",
   "- No people on camera and nothing that needs filming. An ad is made from the job photos on file, words on screen, a voice, music and simple graphics.",
   "- A photo of one stage of a job is never passed off as another, and nothing is shown as finished work that isn't.",
+  PLAIN_WORDS,
 ];
 
 /** The brief one writer answers. */
