@@ -3211,6 +3211,8 @@ describe("the weekly run", () => {
     expect(new Set(await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(-3).map((c) => c.batchId))).size).toBe(1);
     const looks = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(-3).map((c) => c.still!.variant));
     expect(new Set(looks).size).toBe(3);
+    // The card layout (3) is never given out: it covered the leading photo.
+    expect(looks.every((v) => v !== undefined && v >= 0 && v <= 2)).toBe(true);
     // And no two of the three show the same photo.
     const shown = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(-3).flatMap((c) => c.assetIds));
     expect(new Set(shown).size).toBe(shown.length);

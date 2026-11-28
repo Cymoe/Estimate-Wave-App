@@ -1798,8 +1798,8 @@ export const BRAND_GUIDE: GuideRule[] = [
   { id: "kicker-type", where: "look", rule: "One gold italic serif line under the headline; plain lettering for the rest." },
   { id: "button", where: "look", rule: "A gold button with navy capitals: GET A FREE QUOTE." },
   { id: "mark", where: "look", rule: "The house mark and the name are on every ad." },
-  { id: "full-bleed", where: "look", rule: "Photos run edge to edge: no bars, frames or Before/After tags." },
-  { id: "layout", where: "look", rule: "The words sit somewhere different from the ad before (top, band, low, card)." },
+  { id: "full-bleed", where: "look", rule: "Photos run edge to edge: no bars, frames or Before/After tags, and the design never covers the leading photo." },
+  { id: "layout", where: "look", rule: "The words sit somewhere different from the ad before (top, band, low)." },
 ];
 /** The longest the sub line's first sentence may be: it is printed as the one-line italic kicker. */
 export const IMAGE_KICKER_MAX = 44;

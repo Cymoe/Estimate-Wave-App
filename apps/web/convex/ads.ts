@@ -5591,7 +5591,8 @@ export const storeImageAd = internalMutation({
     // Its turn is taken: the next image ad builds on another of the best.
     if (a.swipeId && (await ctx.db.get(a.swipeId))) await ctx.db.patch(a.swipeId, { lastUsedAt: nowIso() });
     const batchId = a.batchId ?? (await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "rendering", startedBy: a.startedBy, createdAt: nowIso() }));
-    // Each new image ad takes the next of the four text layouts, so a set looks varied.
+    // Each new image ad takes the next of the three text layouts (top, band, low), so a set looks varied. The card
+    // layout (3) is no longer given out: it covered the middle of the leading photo (the owner dropped it, Nov 2026).
     const before = (await ctx.db.query("adCreatives").order("desc").take(200)).filter((c) => c.still).length;
     let name = `${creativeName(hookId, "4x5", new Date())}_${type.key}`;
     for (let n = 2; (await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first()) !== null; n++)
@@ -5603,7 +5604,7 @@ export const storeImageAd = internalMutation({
       kind: "image",
       name,
       // Stored only once its plan has passed every check, so it keeps the whole guide.
-      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 4, guide: guidePassed() },
+      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 3, guide: guidePassed() },
       script: { voice: "", onScreen: [a.headline, a.sub], headline: a.title, primaryText: a.primaryText },
       assetIds: a.assetIds,
       // Nothing to voice: it waits to be drawn.

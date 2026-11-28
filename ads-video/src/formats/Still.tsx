@@ -11,7 +11,7 @@ import type { Photo, StillProps } from "../types";
  *   0 top     the headline on the top (over the smaller photos; the leading photo is clean below it), the ask along the bottom
  *   1 band    a navy band across the middle carries the words; the photos share the room above and below, none covered
  *   2 bottom  the picture is clean on top; the headline sits low, above the ask
- *   3 card    a navy card in the middle carries the words, the photos showing all round it
+ *   3 card    a navy card in the middle carries the words. No longer given to new ads (it covered the leading photo); kept so older ads redraw as they were
  */
 export const Still: React.FC<StillProps> = (props) => {
   const photos = props.grid?.length ? props.grid.slice(0, 4) : props.pair ? [props.pair[0], props.pair[1]] : props.photo ? [props.photo] : [];
