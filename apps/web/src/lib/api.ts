@@ -1169,6 +1169,10 @@ export const adsAPI = {
   driveConnect: (trade: string): Promise<string> => run('mutation', api.adDrive.connect, { trade, returnTo: '/ops?tab=ads&ads=library&view=clips' }),
   driveDisconnect: (trade: string) => run('mutation', api.adDrive.disconnect, { trade }),
   driveRetry: (id: string) => run('mutation', api.adDrive.retry, { id }),
+  /** Has a clip looked through and its good parts proposed (again: a fresh proposal). */
+  prepareClip: (assetId: string, again?: boolean): Promise<{ looking: boolean }> => run('mutation', api.footage.prepareClip, defined({ assetId, again })),
+  /** The owner's own parts of a clip to keep, in the order shown. */
+  setCuts: (assetId: string, cuts: Array<{ from: number; to: number }>): Promise<{ parts: number; total: number }> => run('mutation', api.footage.setCuts, { assetId, cuts }),
   makeFootage: (assetId: string): Promise<{ batchId: string; builtOn: string }> => run('mutation', api.footage.make, { assetId }),
   /** Puts an on-camera creator's take (already uploaded) on an ad and its other size. */
   addTake: (id: string, storageId: string, fileName?: string): Promise<number> =>

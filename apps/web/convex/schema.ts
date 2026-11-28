@@ -2530,6 +2530,16 @@ export default defineSchema({
     // render source for HEIC photos, and the poster for video ads.
     posterStorageId: v.optional(v.id("_storage")),
     // A small JPEG (about 480 pixels) the library grid shows, so the page loads fast; the still is for the big view.
+    // A clip looked through for editing (footage.ts): frames taken every `every` seconds, laid out on contact sheets
+    // (`cols` across, `per` to a sheet), each `tileW` by `tileH`. What the app and the owner choose the good parts from.
+    scan: v.optional(v.object({ every: v.number(), frames: v.number(), cols: v.number(), per: v.number(), tileW: v.number(), tileH: v.number(), sheets: v.array(v.id("_storage")), at: v.string() })),
+    scanAskedAt: v.optional(v.string()),
+    // The parts of the clip an ad is made from, in the order shown (the opener first), in seconds. Proposed by the
+    // app from the scan, then the owner's once they change them.
+    cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))),
+    cutsBy: v.optional(v.union(v.literal("app"), v.literal("person"))),
+    cutsNote: v.optional(v.string()),
+    cutsError: v.optional(v.string()),
     thumbStorageId: v.optional(v.id("_storage")),
     // What it shows in detail, from the trade's list (doors, trim, front door...): Claude's, or as a person fixed them.
     items: v.optional(v.array(v.string())),
@@ -2755,6 +2765,8 @@ export default defineSchema({
         // Drawn with Tesseract instead of Remotion (ads-video/scripts/tesseract.mjs): job site videos, side by side.
         engine: v.optional(v.literal("tesseract")),
         // A job site video whose own sound is a song or radio: played silent, with our music instead.
+        // A job site clip cut to its good parts: the parts drawn, in order.
+        cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))),
         muteClip: v.optional(v.boolean()),
         // A quick offer: about 9 seconds, one job, a local hook, then the free quote.
         quick: v.optional(v.boolean()),

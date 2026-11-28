@@ -933,6 +933,8 @@ export interface Design {
   engine?: "tesseract";
   /** A job site video whose own sound is a song or radio: played silent, with our music instead. */
   muteClip?: boolean;
+  /** A job site clip cut to its good parts: the parts drawn, in order, in seconds of the clip as filmed. */
+  cuts?: Array<{ from: number; to: number }>;
   /** A quick offer: a reel of about 9 seconds, one job, a local hook, then the free quote. */
   quick?: boolean;
 }
@@ -1509,7 +1511,8 @@ function drawnFrom(input: {
       audio: design.muteClip ? "" : input.audioUrl,
       audioSec: input.audioSec,
       photos: [] as Array<{ src: string }>,
-      footage: { src: input.audioUrl },
+      // Cut to its good parts when it has any: the renderer joins them before it draws (render-queue.mjs).
+      footage: { src: input.audioUrl, ...(design.cuts?.length ? { cuts: design.cuts } : {}) },
       // Drawn with Tesseract instead of Remotion (ads-video/scripts/tesseract.mjs).
       ...(design.engine === "tesseract" ? { engine: "tesseract" as const } : {}),
       // Nobody talks in it: the music plays low under the job site's own sound, as work-footage ads run.

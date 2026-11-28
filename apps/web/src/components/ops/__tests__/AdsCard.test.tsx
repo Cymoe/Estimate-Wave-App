@@ -36,6 +36,9 @@ const ideasNow = jest.fn(async (..._args: unknown[]) => undefined);
 const decideIdea = jest.fn(async () => undefined);
 const makeKept = jest.fn(async (..._args: unknown[]) => 2);
 let clips: Array<{ id: string; fileName: string; seconds?: number; description?: string }> = [];
+let clipEdit: Record<string, unknown> | null = null;
+const prepareClip = jest.fn(async (..._args: unknown[]) => ({ looking: false }));
+const setCuts = jest.fn(async (..._args: unknown[]) => ({ parts: 2, total: 5 }));
 const createVideoAd = jest.fn(async (..._args: unknown[]) => ({ made: 2, kind: 'Quick offer' }));
 const makeKeptVideos = jest.fn(async (..._args: unknown[]) => 1);
 const makeKeptImages = jest.fn(async (..._args: unknown[]) => ({ made: 1, held: [] as string[] }));
@@ -154,6 +157,8 @@ jest.mock('../../../lib/api', () => ({
     makeKeptImages: (...args: unknown[]) => makeKeptImages(...args),
     makeKeptVideos: (...args: unknown[]) => makeKeptVideos(...args),
     createVideoAd: (...args: unknown[]) => createVideoAd(...args),
+    prepareClip: (...args: unknown[]) => prepareClip(...args),
+    setCuts: (...args: unknown[]) => setCuts(...args),
     seedHooks: () => seedHooks(),
     saveHook: (args: unknown) => saveHook(args),
     saveSettings: (args: unknown) => saveSettings(args),
@@ -207,6 +212,7 @@ jest.mock('../../../lib/live', () => ({
   useAdsSettings: () => settings,
   useAdsSwipes: () => swipes,
   useAdsServiceClips: (service: string) => (service === 'cabinets' ? clips : []),
+  useAdsClipEdit: () => clipEdit,
   useAdsPlaybooks: () => playbooks,
   useAdsResearchRuns: () => runs,
   useAdsReadiness: () => readiness,
@@ -348,9 +354,24 @@ describe('Ops → Ads', () => {
     expect(dialog().querySelector('[aria-label="How many"]')).toBeNull();
     expect((byText('Choose a clip') as HTMLButtonElement).disabled).toBe(true);
     expect(radios('Clip')[0].textContent).toContain('spraying-doors.mp4');
+    // Picking a clip opens it for editing: it is looked through, and the parts the app proposes show, the opener first.
+    clipEdit = { id: 'v7', fileName: 'spraying-doors.mp4', videoUrl: 'https://files.example/v7.mp4', durationSec: 34, looking: false, choosing: false, tooLong: false, cuts: [{ from: 12, to: 15 }, { from: 2, to: 6.5 }], total: 7.5, cutsBy: 'app', note: 'Spray going on, then the doors laid out.', canLook: true };
+    prepareClip.mockClear();
+    setCuts.mockClear();
     await act(async () => radios('Clip')[0].click());
-    await act(async () => byText('Make a job site ad from this clip')!.click());
     await flush();
+    expect(prepareClip).toHaveBeenCalledWith('v7');
+    const editor = () => dialog().querySelector('[data-testid="clip-editor"]')!;
+    expect(editor().textContent).toContain('2 parts, 7.5s of 34s');
+    expect(editor().textContent).toContain("The app's edit: Spray going on, then the doors laid out.");
+    expect(Array.from(editor().querySelectorAll('[aria-label="Parts kept"] li')).map((li) => li.textContent!.slice(0, 6))).toEqual(['Opener', 'Part 2']);
+    // The owner ends the opener half a second later and drops nothing: their change is saved before the ad is made.
+    await act(async () => (editor().querySelector('[aria-label="End part 1 half a second later"]') as HTMLButtonElement).click());
+    expect(editor().textContent).toContain('2 parts, 8s of 34s');
+    expect(editor().textContent).toContain('Your changes, not saved yet');
+    await act(async () => byText('Make a job site ad from these parts')!.click());
+    await flush();
+    expect(setCuts).toHaveBeenCalledWith('v7', [{ from: 12, to: 15.5 }, { from: 2, to: 6.5 }]);
     expect(makeFootage).toHaveBeenCalledWith('v7');
     // A quick offer: three at most, built on the app's pick of competitor ads.
     await open();

@@ -8,11 +8,26 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
 import { ANY_SCOPE, creativeName, inTrade, parseJson, tradeOf, weekOf } from "./lib/ads";
 import { callClaude } from "./lib/claude";
-import { FOOTAGE_MAX_SEC, fitTitle, footageProblems, footagePrompt, linesFromHeard, pickFootageSwipe, type FootageCopy } from "./lib/footage";
+import {
+  CLIP_MAX_SEC,
+  FOOTAGE_MAX_SEC,
+  cleanCuts,
+  cutTotal,
+  cutsPrompt,
+  fitTitle,
+  footageProblems,
+  footagePrompt,
+  linesFromHeard,
+  pickFootageSwipe,
+  readCuts,
+  scanEvery,
+  wordsInCuts,
+  type FootageCopy,
+} from "./lib/footage";
 import { consumerBrand } from "./lib/support";
 import { heardWords } from "./voiceActors";
 
@@ -29,8 +44,11 @@ export const make = mutation({
     const asset = await ctx.db.get(assetId);
     if (!asset) fail("NOT_FOUND", "That video isn't in the library");
     if (asset.kind !== "video") fail("INVALID", "A job site ad is made from a video");
-    if (asset.durationSec && asset.durationSec > FOOTAGE_MAX_SEC)
-      fail("INVALID", `That clip runs ${Math.round(asset.durationSec)} seconds. Trim it to ${FOOTAGE_MAX_SEC} seconds or less and upload it again`);
+    // Cut to its good parts, it is as long as those; uncut, it runs whole.
+    const cuts = cleanCuts(asset.cuts, asset.durationSec ?? 0);
+    const runs = cuts.length ? cutTotal(cuts) : asset.durationSec;
+    if (runs && runs > FOOTAGE_MAX_SEC)
+      fail("INVALID", cuts.length ? `The parts you kept run ${Math.round(runs)} seconds. Keep ${FOOTAGE_MAX_SEC} seconds or less` : `That clip runs ${Math.round(runs)} seconds. Choose the parts to keep first (Create ads → Video → Job site clip)`);
     const trade = tradeOf(asset.trade);
     const scope = asset.tags.find((t) => trade.scopes.includes(t)) ?? ANY_SCOPE;
     // The words around the clip follow a competitor ad that has kept running, like every ad's do: one that is itself
@@ -70,6 +88,7 @@ export const writeInput = internalQuery({
     return {
       storageId: asset.storageId,
       durationSec: asset.durationSec,
+      cuts: cleanCuts(asset.cuts, asset.durationSec ?? 0),
       seen: asset.description,
       posterUrl: asset.posterStorageId ? ((await ctx.storage.getUrl(asset.posterStorageId)) ?? undefined) : undefined,
       trade: tradeOf(asset.trade).label,
@@ -90,8 +109,9 @@ export const addFootage = internalMutation({
     lines: v.array(v.object({ voice: v.string(), start: v.number(), end: v.number(), words: v.array(v.object({ text: v.string(), start: v.number(), end: v.number() })) })),
     durationSec: v.number(),
     muteClip: v.optional(v.boolean()),
+    cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))),
   },
-  handler: async (ctx, { batchId, hookId, assetId, copy, lines, durationSec, muteClip }) => {
+  handler: async (ctx, { batchId, hookId, assetId, copy, lines, durationSec, muteClip, cuts }) => {
     const asset = await ctx.db.get(assetId);
     if (!asset) throw new Error("The video left the library");
     const script = {
@@ -118,7 +138,7 @@ export const addFootage = internalMutation({
           ratio,
           name,
           script,
-          design: { style: "footage", title: copy.title, ...(engine ? { engine } : {}), ...(muteClip ? { muteClip: true } : {}) },
+          design: { style: "footage", title: copy.title, ...(engine ? { engine } : {}), ...(muteClip ? { muteClip: true } : {}), ...(cuts?.length ? { cuts } : {}) },
           assetIds: [assetId],
           // The clip's own sound is the voice.
           audioStorageId: asset.storageId,
@@ -144,10 +164,13 @@ export const write = internalAction({
       if (!input) throw new Error("The video or the competitor ad it was built on is gone");
       const clip = await ctx.storage.get(input.storageId);
       if (!clip) throw new Error("The video's file is gone");
-      const heard = await heardWords(clip);
+      const all = await heardWords(clip);
+      // Cut to its good parts: only what is said in them is captioned, timed on the cut clip, and the ad is as long as they are.
+      const cut = input.cuts.length > 0;
+      const heard = cut ? wordsInCuts(all, input.cuts) : all;
       const lines = linesFromHeard(heard);
       const lastWord = lines.length ? lines[lines.length - 1].end : 0;
-      const durationSec = Math.round(Math.max(input.durationSec ?? 0, lastWord + 0.5, 3) * 100) / 100;
+      const durationSec = cut ? cutTotal(input.cuts) : Math.round(Math.max(input.durationSec ?? 0, lastWord + 0.5, 3) * 100) / 100;
       if (durationSec > 90.5) throw new Error(`The clip runs ${Math.round(durationSec)} seconds. Trim it to 90 seconds or less`);
       const prompt = footagePrompt({ brand: input.brand, trade: input.trade, town: input.town, heard: lines.map((l) => l.voice).join(" "), seen: input.seen, swipe: input.swipe });
       const content: unknown[] = [{ type: "text", text: prompt }, ...(input.posterUrl ? [{ type: "image", source: { type: "url", url: input.posterUrl } }] : [])];
@@ -167,10 +190,257 @@ export const write = internalAction({
       // Only the crew's own words become captions. A song playing in the clip gives no captions, and its sound is
       // replaced with our music (a copyrighted song gets an ad muted or blocked).
       const { speech, ...words } = copy;
-      await ctx.runMutation(internal.footage.addFootage, { batchId, hookId, assetId, copy: words, lines: speech === "crew" ? lines : [], durationSec, muteClip: speech === "song" });
+      await ctx.runMutation(internal.footage.addFootage, { batchId, hookId, assetId, copy: words, lines: speech === "crew" ? lines : [], durationSec, muteClip: speech === "song", ...(cut ? { cuts: input.cuts } : {}) });
       await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
     } catch (e) {
       await ctx.runMutation(internal.ads.failBatch, { batchId, error: `The job site ad couldn't be made: ${errText(e)}` });
     }
   },
+});
+
+
+// ------------------------------------------------------------------ Looking through a clip and choosing its good parts
+//
+// 1. The clip is looked through: the clips runner (.github/workflows/ads-clips.yml, ads-video/scripts/scan-clips.mjs)
+//    takes a frame every second or two with ffmpeg and stores them as contact sheets (scanClaim, scanDone).
+// 2. The app proposes the parts to keep (proposeCuts): Claude is shown the sheets and what is said when.
+// 3. The owner sees them over the clip and changes them (clipForEdit, setCuts), or asks for a new proposal.
+// 4. The ad is made from those parts only (make, write above).
+
+/** Asks GitHub to run the clips runner, which also looks through clips. Nothing without ADS_RENDER_TOKEN. */
+export const startScan = internalAction({
+  args: {},
+  handler: async () => {
+    const token = process.env.ADS_RENDER_TOKEN;
+    if (!token) return { started: false };
+    const repo = process.env.ADS_RENDER_REPO ?? "Cymoe/Estimate-Wave-App";
+    const ref = process.env.ADS_RENDER_REF ?? "fieldquote-convex";
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/ads-clips.yml/dispatches`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json", "user-agent": "ad-maker" },
+      body: JSON.stringify({ ref }),
+    });
+    if (!res.ok) console.error("start clip scan", res.status, (await res.text()).slice(0, 200));
+    return { started: res.ok };
+  },
+});
+
+/** The runner asks for clips to look through: ones asked for, not yet looked through and short enough. */
+export const scanClaim = internalMutation({
+  args: { limit: v.number() },
+  handler: async (ctx, { limit }) => {
+    const waiting = (await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(1000)).filter(
+      (a) => a.scanAskedAt && !a.scan && (a.durationSec ?? 0) <= CLIP_MAX_SEC,
+    );
+    const out: Array<{ id: Id<"adAssets">; url: string; durationSec: number; every: number }> = [];
+    for (const a of waiting.slice(0, Math.max(1, Math.min(10, limit)))) {
+      const url = await ctx.storage.getUrl(a.storageId);
+      if (!url) continue;
+      out.push({ id: a._id, url, durationSec: a.durationSec ?? 0, every: scanEvery(a.durationSec ?? 0) });
+    }
+    return out;
+  },
+});
+
+/** The runner hands in a clip's contact sheets (or says why it couldn't); the app then proposes the parts to keep. */
+export const scanDone = internalMutation({
+  args: {
+    id: v.id("adAssets"),
+    sheets: v.optional(v.array(v.id("_storage"))),
+    every: v.optional(v.number()),
+    frames: v.optional(v.number()),
+    cols: v.optional(v.number()),
+    per: v.optional(v.number()),
+    tileW: v.optional(v.number()),
+    tileH: v.optional(v.number()),
+    durationSec: v.optional(v.number()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, sheets, every, frames, cols, per, tileW, tileH, durationSec, error }) => {
+    const a = await ctx.db.get(id);
+    if (!a) {
+      for (const s of sheets ?? []) await ctx.storage.delete(s);
+      return;
+    }
+    if (!sheets?.length || !every || !frames || !cols || !per || !tileW || !tileH) {
+      await ctx.db.patch(id, { scanAskedAt: undefined, cutsError: (error ?? "The clip couldn't be looked through").slice(0, 300) });
+      return;
+    }
+    for (const old of a.scan?.sheets ?? []) await ctx.storage.delete(old);
+    await ctx.db.patch(id, { scan: { every, frames, cols, per, tileW, tileH, sheets, at: nowIso() }, cutsError: undefined, ...(durationSec && !a.durationSec ? { durationSec } : {}) });
+    // The owner's own parts are never replaced by a proposal.
+    if (a.cutsBy !== "person") await ctx.scheduler.runAfter(0, internal.footage.proposeCuts, { assetId: id });
+  },
+});
+
+export const cutsInput = internalQuery({
+  args: { assetId: v.id("adAssets") },
+  handler: async (ctx, { assetId }) => {
+    const a = await ctx.db.get(assetId);
+    if (!a || a.kind !== "video" || !a.scan) return null;
+    const sheets: string[] = [];
+    for (const s of a.scan.sheets) {
+      const url = await ctx.storage.getUrl(s);
+      if (url) sheets.push(url);
+    }
+    return { storageId: a.storageId, durationSec: a.durationSec ?? a.scan.frames * a.scan.every, every: a.scan.every, frames: a.scan.frames, seen: a.description, trade: tradeOf(a.trade).label, sheets, cutsBy: a.cutsBy };
+  },
+});
+
+/** The app's own edit: Claude is shown the clip's frames and what is said when, and names the parts to keep. */
+export const proposeCuts = internalAction({
+  args: { assetId: v.id("adAssets"), force: v.optional(v.boolean()) },
+  handler: async (ctx, { assetId, force }) => {
+    const input: { storageId: Id<"_storage">; durationSec: number; every: number; frames: number; seen?: string; trade: string; sheets: string[]; cutsBy?: "app" | "person" } | null =
+      await ctx.runQuery(internal.footage.cutsInput, { assetId });
+    if (!input || (input.cutsBy === "person" && !force)) return;
+    try {
+      // What is said when, so a part doesn't cut a sentence in half. A clip that can't be heard is cut by eye alone.
+      let lines: ReturnType<typeof linesFromHeard> = [];
+      try {
+        const clip = await ctx.storage.get(input.storageId);
+        if (clip) lines = linesFromHeard(await heardWords(clip));
+      } catch (e) {
+        console.error("hear clip for cuts", errText(e));
+      }
+      const content: unknown[] = [
+        { type: "text", text: cutsPrompt({ trade: input.trade, durationSec: input.durationSec, every: input.every, frames: input.frames, seen: input.seen, lines }) },
+        ...input.sheets.flatMap((url, i) => [
+          { type: "text", text: `Sheet ${i + 1} of ${input.sheets.length}:` },
+          { type: "image", source: { type: "url", url } },
+        ]),
+      ];
+      let found: ReturnType<typeof readCuts> = null;
+      for (let attempt = 0; attempt < 2 && !found; attempt++) {
+        const reply = await callClaude({ model: AD_MODEL, max_tokens: 2000, messages: [{ role: "user", content }] });
+        found = readCuts(reply.content.map((b) => (typeof b.text === "string" ? b.text : "")).join(""), input.durationSec);
+      }
+      if (!found) throw new Error("No usable edit came back. Choose the parts yourself, or ask again.");
+      await ctx.runMutation(internal.footage.saveCuts, { assetId, cuts: found.cuts, note: found.note });
+    } catch (e) {
+      await ctx.runMutation(internal.footage.saveCuts, { assetId, error: errText(e) });
+    }
+  },
+});
+
+export const saveCuts = internalMutation({
+  args: { assetId: v.id("adAssets"), cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))), note: v.optional(v.string()), error: v.optional(v.string()) },
+  handler: async (ctx, { assetId, cuts, note, error }) => {
+    const a = await ctx.db.get(assetId);
+    if (!a) return;
+    if (!cuts) {
+      await ctx.db.patch(assetId, { cutsError: (error ?? "No edit could be proposed").slice(0, 300) });
+      return;
+    }
+    await ctx.db.patch(assetId, { cuts: cleanCuts(cuts, a.durationSec ?? Infinity), cutsBy: "app", cutsNote: note, cutsError: undefined });
+  },
+});
+
+/**
+ * A clip opened for editing: the clip, its frames, and the parts kept so far. Opening one that hasn't been looked
+ * through is what asks for it (prepareClip).
+ */
+export const clipForEdit = query({
+  args: { assetId: v.id("adAssets") },
+  handler: async (ctx, { assetId }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(assetId);
+    if (!a || a.kind !== "video") return null;
+    const sheets: string[] = [];
+    for (const s of a.scan?.sheets ?? []) sheets.push((await ctx.storage.getUrl(s)) ?? "");
+    const durationSec = a.durationSec ?? (a.scan ? a.scan.frames * a.scan.every : 0);
+    const cuts = cleanCuts(a.cuts, durationSec || Infinity);
+    return {
+      id: a._id,
+      fileName: a.fileName,
+      videoUrl: (await ctx.storage.getUrl(a.storageId)) ?? undefined,
+      durationSec,
+      scan: a.scan ? { every: a.scan.every, frames: a.scan.frames, cols: a.scan.cols, per: a.scan.per, tileW: a.scan.tileW, tileH: a.scan.tileH, sheets } : undefined,
+      // Being looked through, or its parts being chosen, right now.
+      looking: Boolean(a.scanAskedAt && !a.scan),
+      choosing: Boolean(a.scan && !a.cuts && !a.cutsError),
+      tooLong: durationSec > CLIP_MAX_SEC,
+      cuts,
+      total: cutTotal(cuts),
+      cutsBy: a.cutsBy,
+      note: a.cutsNote,
+      error: a.cutsError,
+      canLook: Boolean(process.env.ADS_RENDER_TOKEN),
+    };
+  },
+});
+
+/** Has a clip looked through and its parts proposed, if that hasn't been done; `again` asks for a fresh proposal. */
+export const prepareClip = mutation({
+  args: { assetId: v.id("adAssets"), again: v.optional(v.boolean()) },
+  handler: async (ctx, { assetId, again }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(assetId);
+    if (!a || a.kind !== "video") fail("NOT_FOUND", "That video isn't in the library");
+    if ((a.durationSec ?? 0) > CLIP_MAX_SEC) fail("INVALID", `That clip runs ${Math.round((a.durationSec ?? 0) / 60)} minutes. Upload one of ${CLIP_MAX_SEC / 60} minutes or less`);
+    if (!a.scan) {
+      // Asked again after a while (the runner missed it): the ask is renewed.
+      const stale = !a.scanAskedAt || Date.now() - Date.parse(a.scanAskedAt) > 10 * 60_000;
+      if (stale) {
+        await ctx.db.patch(assetId, { scanAskedAt: nowIso(), cutsError: undefined });
+        await ctx.scheduler.runAfter(0, internal.footage.startScan, {});
+      }
+      return { looking: true };
+    }
+    if (again || (!a.cuts && a.cutsError)) {
+      await ctx.db.patch(assetId, { cuts: undefined, cutsBy: undefined, cutsNote: undefined, cutsError: undefined });
+      await ctx.scheduler.runAfter(0, internal.footage.proposeCuts, { assetId, force: true });
+    }
+    return { looking: false };
+  },
+});
+
+/** The owner's own parts: saved as given (within the clip, each at least a second), and never replaced by a proposal. */
+export const setCuts = mutation({
+  args: { assetId: v.id("adAssets"), cuts: v.array(v.object({ from: v.number(), to: v.number() })) },
+  handler: async (ctx, { assetId, cuts }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(assetId);
+    if (!a || a.kind !== "video") fail("NOT_FOUND", "That video isn't in the library");
+    const clean = cleanCuts(cuts, a.durationSec ?? Infinity);
+    if (clean.length === 0) fail("INVALID", "Keep at least one part of a second or more");
+    if (cutTotal(clean) > FOOTAGE_MAX_SEC) fail("INVALID", `Those parts run ${Math.round(cutTotal(clean))} seconds. Keep ${FOOTAGE_MAX_SEC} seconds or less`);
+    await ctx.db.patch(assetId, { cuts: clean, cutsBy: "person", cutsError: undefined });
+    return { parts: clean.length, total: cutTotal(clean) };
+  },
+});
+
+/** From the deployment: asks for every clip not yet looked through to be, and starts the runner. */
+export const scanAll = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let asked = 0;
+    for (const a of await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(1000)) {
+      if (a.scan || (a.durationSec ?? 0) > CLIP_MAX_SEC) continue;
+      await ctx.db.patch(a._id, { scanAskedAt: nowIso(), cutsError: undefined });
+      asked++;
+    }
+    if (asked) await ctx.scheduler.runAfter(0, internal.footage.startScan, {});
+    return { asked };
+  },
+});
+
+/** From the deployment: what every clip's edit looks like now, to check proposals. */
+export const cutsReport = internalQuery({
+  args: {},
+  handler: async (ctx) =>
+    (await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(1000)).map((a) => ({
+      id: a._id,
+      fileName: a.fileName,
+      trade: a.trade,
+      tags: a.tags,
+      durationSec: a.durationSec,
+      scanned: Boolean(a.scan),
+      frames: a.scan?.frames,
+      cuts: a.cuts,
+      cutsBy: a.cutsBy,
+      note: a.cutsNote,
+      error: a.cutsError,
+      description: (a.description ?? "").slice(0, 120),
+    })),
 });

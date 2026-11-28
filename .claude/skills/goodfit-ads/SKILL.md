@@ -198,6 +198,16 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   become captions. With `song` (lyrics of a radio or song in the background, e.g. "Wicked Game"), there are no
   captions and the clip plays silent under our music (`design.muteClip`): a copyrighted song gets an ad muted or
   blocked.
+- **A clip is cut to its good parts before it becomes an ad** (the owner, Nov 2026: clips ran whole, dead time and
+  all). The clips runner looks through it (`ads-video/scripts/scan-clips.mjs` in `ads-clips.yml`: a frame every
+  second or two on contact sheets, `adAssets.scan`); `footage:proposeCuts` shows Claude the sheets and what is said
+  when and saves the parts to keep, **the opener first** (`adAssets.cuts`, `cutsBy: "app"`). In Create ads → Video →
+  Job site clip the owner plays the parts, moves their edges, reorders, drops or adds, and saves (`footage:setCuts`,
+  `cutsBy: "person"`, never replaced by a proposal unless they ask). `footage:make` then makes the ad from those parts
+  only: captions are the words said inside them, retimed (`wordsInCuts`), and the renderer joins the parts
+  (`render-queue.mjs` `joinParts`). Claude sees stills, not motion: its edit is a first guess, the owner's is final.
+  From a cloud session: `footage:scanAll` asks for every clip to be looked through, `footage:cutsReport` lists each
+  clip's edit. A clip up to ten minutes can be cut; an uncut one still has to be 90 seconds or less.
 - Real footage only, as with photos: never AI-made or AI-moved. Captions come from what is heard, so check a
   name or a word that could be misheard before approving.
 

@@ -85,6 +85,7 @@ export const useDemandSlot = <T>(county: string, jobType: string) => useLive<T>(
 
 // Ads on autopilot (Ops → Ads). The ones that take a trade show that trade's rows; painting when none is given.
 export const useAdsBatches = <T>(trade?: string, on = true) => useLive<T>(q('ads:batches'), on ? (trade ? { trade } : {}) : 'skip');
+export const useAdsClipEdit = <T>(assetId: string, on = true) => useLive<T>(q('footage:clipForEdit'), on && assetId ? { assetId } : 'skip');
 export const useAdsServiceClips = <T>(service: string, trade?: string, on = true) => useLive<T>(q('ads:serviceClips'), on && service ? (trade ? { service, trade } : { service }) : 'skip');
 export const useAdsIdeas = <T>(trade?: string, on = true) => useLive<T>(q('ads:listIdeas'), on ? (trade ? { trade } : {}) : 'skip');
 export const useAdsLive = <T>(on = true) => useLive<T>(q('ads:live'), on ? {} : 'skip');

@@ -2,7 +2,8 @@ name: Bring in the ad clips
 
 # Clips shared to the Ads library's Google Drive folder (apps/web/convex/adDrive.ts): the backend notes each new
 # video in the folder and starts this run, which downloads it, makes it 1080p with ffmpeg and puts it in the
-# library (ads-video/scripts/import-clips.mjs).
+# library (ads-video/scripts/import-clips.mjs). The same run looks through clips waiting to be edited
+# (ads-video/scripts/scan-clips.mjs), and the backend starts it for that too.
 
 on:
   workflow_dispatch:
@@ -49,3 +50,9 @@ jobs:
 
       - name: Bring in what's waiting
         run: node ads-video/scripts/import-clips.mjs
+
+      # Clips are cut to their good parts before they become ads: this takes the frames the app and the owner
+      # choose from (apps/web/convex/footage.ts). It runs even when nothing new came in, and when an import failed.
+      - name: Look through the clips waiting to be edited
+        if: always()
+        run: node ads-video/scripts/scan-clips.mjs

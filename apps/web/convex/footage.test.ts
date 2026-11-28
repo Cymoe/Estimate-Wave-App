@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { designLabel, forbiddenIn } from "./lib/ads";
-import { FOOTAGE_MARK, footageProblems, footagePrompt, FOOTAGE_PRIMARY_MAX, isWorkFootage, linesFromHeard, pickFootageSwipe, fitTitle } from "./lib/footage";
+import { cleanCuts, cutTotal, readCuts, scanEvery, wordsInCuts, FOOTAGE_MARK, footageProblems, footagePrompt, FOOTAGE_PRIMARY_MAX, isWorkFootage, linesFromHeard, pickFootageSwipe, fitTitle } from "./lib/footage";
 import { setup, signUp } from "./test.setup";
 
 afterEach(() => {
@@ -133,6 +133,9 @@ function stub(calls: Call[], opts: { badFirst?: boolean; alwaysBad?: boolean; si
       calls.push({ url, body: typeof init?.body === "string" ? init.body : undefined });
       if (url.includes("speech-to-text"))
         return new Response(JSON.stringify({ words: opts.silent ? [] : [at("We", 0.5), at("spray", 0.9), at("every", 1.3), at("door.", 1.7), at("Smooth.", 2.4)] }));
+      // The edit: the opener (a later moment) first, then the start of the clip.
+      if (url.includes("api.anthropic.com") && String(init?.body).includes("You are editing a clip filmed on a job site"))
+        return new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ parts: [{ from: 2, to: 3.5, why: "the finish" }, { from: 0.2, to: 1.9, why: "spraying" }, { from: 9, to: 9.3 }], note: "The finish, then the spraying." }) }], stop_reason: "end_turn" }));
       if (url.includes("api.anthropic.com")) {
         asked++;
         const bad = opts.alwaysBad || (opts.badFirst && asked === 1);
@@ -233,9 +236,67 @@ describe("a job site video", () => {
     expect(batch.error).toBe("The job site ad couldn't be made: The words for the video still broke the rules: mentions a price or discount; mentions a warranty or guarantee");
   });
 
+  test("a clip is cut to its good parts: kept within the clip, a second or more each, and the words said in them move to the cut clip's time", () => {
+    expect(cleanCuts([{ from: 12.04, to: 15.5 }, { from: 3, to: 3.5 }, { from: -2, to: 4 }, { from: 58, to: 99 }], 60)).toEqual([{ from: 12, to: 15.5 }, { from: 0, to: 4 }, { from: 58, to: 60 }]);
+    expect(cutTotal([{ from: 12, to: 15.5 }, { from: 0, to: 4 }])).toBe(7.5);
+    const words = [{ text: "We", start: 0.5, end: 0.8 }, { text: "spray", start: 0.9, end: 1.2 }, { text: "Smooth.", start: 12.4, end: 12.9 }, { text: "Later", start: 30, end: 30.4 }];
+    // The opener (12 to 15.5) now plays first, so "Smooth." is at 0.4; the part from 0 follows it, 3.5 seconds on.
+    expect(wordsInCuts(words, [{ from: 12, to: 15.5 }, { from: 0, to: 4 }])).toEqual([
+      { text: "Smooth.", start: 0.4, end: 0.9 },
+      { text: "We", start: 4, end: 4.3 },
+      { text: "spray", start: 4.4, end: 4.7 },
+    ]);
+    expect(readCuts('{"parts":[{"from":5,"to":9,"why":"x"},{"from":1,"to":1.2}],"note":" Spraying. "}', 20)).toEqual({ cuts: [{ from: 5, to: 9 }], note: "Spraying." });
+    expect(readCuts('{"parts":[]}', 20)).toBeNull();
+    expect(readCuts("no", 20)).toBeNull();
+    // A frame a second for a short clip; fewer for a long one, so it still fits on four sheets.
+    expect([scanEvery(30), scanEvery(64), scanEvery(140), scanEvery(600)]).toEqual([1, 1, 3, 10]);
+  });
+
+  test("a long clip is looked through, the app proposes its parts, the owner's own parts stick, and the ad is made from those parts only", async () => {
+    vi.useFakeTimers();
+    const { t, owner, assetId } = await ready({ durationSec: 140 });
+    const calls: Call[] = [];
+    stub(calls);
+    // Uncut, a clip this long can't be an ad.
+    await expect(owner.as.mutation(api.footage.make, { assetId })).rejects.toThrow("Choose the parts to keep first");
+    // Opening it for editing asks for it to be looked through, and starts the runner.
+    vi.stubEnv("ADS_RENDER_TOKEN", "ghs");
+    expect(await run(t, () => owner.as.mutation(api.footage.prepareClip, { assetId }))).toEqual({ looking: true });
+    expect(calls.some((c) => c.url.includes("workflows/ads-clips.yml/dispatches"))).toBe(true);
+    expect(await owner.as.query(api.footage.clipForEdit, { assetId })).toMatchObject({ looking: true, cuts: [], durationSec: 140 });
+    const [job] = await t.mutation(internal.footage.scanClaim, { limit: 5 });
+    expect(job).toMatchObject({ id: assetId, durationSec: 140, every: 3 });
+    // The runner hands in the frames; the app then proposes the parts (the opener first), dropping one under a second.
+    const sheets = await t.run(async (ctx) => [await ctx.storage.store(new Blob(["s1"], { type: "image/jpeg" })), await ctx.storage.store(new Blob(["s2"], { type: "image/jpeg" }))]);
+    await run(t, () => t.mutation(internal.footage.scanDone, { id: assetId, sheets, every: 3, frames: 47, cols: 4, per: 16, tileW: 360, tileH: 640 }));
+    const proposed = await owner.as.query(api.footage.clipForEdit, { assetId });
+    expect(proposed).toMatchObject({ looking: false, cuts: [{ from: 2, to: 3.5 }, { from: 0.2, to: 1.9 }], total: 3.2, cutsBy: "app", note: "The finish, then the spraying." });
+    expect(proposed!.scan).toMatchObject({ every: 3, frames: 47, cols: 4, per: 16 });
+    expect(proposed!.scan!.sheets).toHaveLength(2);
+    const brief = JSON.parse(calls.find((c) => c.body?.includes("You are editing a clip filmed on a job site"))!.body!).messages[0].content;
+    expect(brief.filter((c: { type: string }) => c.type === "image")).toHaveLength(2);
+    expect(brief[0].text).toContain("- 0.5 to 2.0: We spray every door.");
+    // The owner changes them: theirs are kept, and a new proposal doesn't replace them unless asked for.
+    await expect(owner.as.mutation(api.footage.setCuts, { assetId, cuts: [{ from: 5, to: 5.4 }] })).rejects.toThrow("Keep at least one part");
+    expect(await owner.as.mutation(api.footage.setCuts, { assetId, cuts: [{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }] })).toEqual({ parts: 2, total: 2.8 });
+    await run(t, () => t.action(internal.footage.proposeCuts, { assetId }));
+    expect(await owner.as.query(api.footage.clipForEdit, { assetId })).toMatchObject({ cutsBy: "person", cuts: [{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }] });
+    await expect(t.mutation(api.footage.setCuts, { assetId, cuts: [{ from: 0, to: 2 }] })).rejects.toThrow();
+    // Made from those parts: as long as they are, with only the words said in them, timed on the cut clip.
+    await run(t, () => owner.as.mutation(api.footage.make, { assetId }));
+    const rows = await t.run((ctx) => ctx.db.query("adCreatives").collect());
+    expect(rows[0].design!.cuts).toEqual([{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }]);
+    expect(rows[0].audioDurationSec).toBe(2.8);
+    expect(rows[0].script.shots!.map((x) => [x.voice, x.start])).toEqual([["Smooth.", 0.2], ["We spray every door.", 1.3]]);
+    const jobs = await t.mutation(internal.ads.claimRenders, {});
+    expect((jobs[0].props as Record<string, any>).footage.cuts).toEqual([{ from: 2.2, to: 3.4 }, { from: 0.4, to: 2 }]);
+    expect((jobs[0].props as Record<string, any>).audioSec).toBe(2.8);
+  });
+
   test("refused: a photo, a clip over 90 seconds, no competitor ad on file, or someone who isn't staff", async () => {
     const { t, owner, assetId } = await ready({ durationSec: 140 });
-    await expect(owner.as.mutation(api.footage.make, { assetId })).rejects.toThrow("Trim it to 90 seconds or less");
+    await expect(owner.as.mutation(api.footage.make, { assetId })).rejects.toThrow("Choose the parts to keep first");
     await t.run((ctx) => ctx.db.patch(assetId, { durationSec: 30, kind: "photo" }));
     await expect(owner.as.mutation(api.footage.make, { assetId })).rejects.toThrow("A job site ad is made from a video");
     await t.run((ctx) => ctx.db.patch(assetId, { kind: "video" }));

@@ -3743,6 +3743,7 @@ const adDesign = v.object({
   look: v.optional(adLook),
   engine: v.optional(v.literal("tesseract")),
   muteClip: v.optional(v.boolean()),
+  cuts: v.optional(v.array(v.object({ from: v.number(), to: v.number() }))),
   quick: v.optional(v.boolean()),
 });
 

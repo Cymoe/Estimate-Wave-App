@@ -110,6 +110,27 @@ async function evenMusic(file, from = 0) {
  * before and its after in one image, side by side or one above the other, is shown one picture at a time, so the
  * cut has to be right: if it can't be made, the ad isn't drawn.
  */
+/**
+ * The parts of a clip, each cut out and made again (so a cut lands on the frame asked for, not the nearest key
+ * frame), then joined in the order given. A clip with no sound stays silent.
+ */
+async function joinParts(file, cuts, out) {
+  const dir = path.dirname(out);
+  const parts = [];
+  for (const [i, c] of cuts.entries()) {
+    const part = path.join(dir, `part${i}.mp4`);
+    await run(
+      "npx",
+      ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-ss", String(c.from), "-t", String(Math.max(0.2, c.to - c.from)), "-i", file, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-ar", "48000", "-ac", "2", part],
+      { cwd: root },
+    );
+    parts.push(part);
+  }
+  const list = path.join(dir, "parts.txt");
+  await writeFile(list, parts.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n"));
+  await run("npx", ["remotion", "ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", out], { cwd: root });
+}
+
 async function cutPhoto(file, size, crop) {
   const out = file.replace(/(\.[a-z]+)$/i, `-${crop.down ? "d" : ""}${crop.from}-${crop.to}.jpg`);
   const share = (crop.to - crop.from) / 100;
@@ -193,7 +214,13 @@ async function localProps(job, serveDir, base) {
   let footage = job.props.footage;
   if (footage?.src) {
     const clip = path.join(serveDir, "public", folder, "clip.mp4");
-    await writeFile(clip, await bytesOf(footage.src, base));
+    if (footage.cuts?.length) {
+      // Cut to its good parts (the owner's edit, apps/web/convex/footage.ts): the parts are joined in the order
+      // given, and that joined clip is what is drawn and heard.
+      const whole = path.join(serveDir, "public", folder, "clip-whole.mp4");
+      await writeFile(whole, await bytesOf(footage.src, base));
+      await joinParts(whole, footage.cuts, clip);
+    } else await writeFile(clip, await bytesOf(footage.src, base));
     footage = { src: `${folder}/clip.mp4` };
     // A clip whose sound is a song plays silent under our music (no audio); one with no sound at all plays silent
     // rather than failing the ad.

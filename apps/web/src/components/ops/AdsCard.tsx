@@ -8,6 +8,7 @@ import {
   useAdsBatches,
   useAdsHooks,
   useAdsIdeas,
+  useAdsClipEdit,
   useAdsServiceClips,
   useAdsLibrary,
   useAdsLive,
@@ -668,6 +669,234 @@ interface ServiceClip {
   posterUrl?: string;
 }
 
+interface ClipCut {
+  from: number;
+  to: number;
+}
+interface ClipEdit {
+  id: string;
+  fileName: string;
+  videoUrl?: string;
+  durationSec: number;
+  scan?: { every: number; frames: number; cols: number; per: number; tileW: number; tileH: number; sheets: string[] };
+  looking: boolean;
+  choosing: boolean;
+  tooLong: boolean;
+  cuts: ClipCut[];
+  total: number;
+  cutsBy?: 'app' | 'person';
+  note?: string;
+  error?: string;
+  canLook: boolean;
+}
+const secs = (n: number) => `${Math.round(n * 10) / 10}s`;
+
+/** One frame of a looked-through clip, shown from its contact sheet: the frame nearest `at` seconds. */
+const ClipFrame: React.FC<{ scan: NonNullable<ClipEdit['scan']>; at: number; width: number; dim?: boolean }> = ({ scan, at, width, dim }) => {
+  const i = Math.max(0, Math.min(scan.frames - 1, Math.round(at / scan.every)));
+  const pos = i % scan.per;
+  const rows = scan.per / scan.cols;
+  const col = pos % scan.cols;
+  const row = Math.floor(pos / scan.cols);
+  return (
+    <span
+      aria-hidden="true"
+      className={`block rounded-sm bg-black flex-none ${dim ? 'opacity-35' : ''}`}
+      style={{
+        width,
+        height: Math.round((width * scan.tileH) / scan.tileW),
+        backgroundImage: `url(${scan.sheets[Math.floor(i / scan.per)]})`,
+        backgroundSize: `${scan.cols * 100}% ${rows * 100}%`,
+        backgroundPosition: `${scan.cols > 1 ? (col / (scan.cols - 1)) * 100 : 0}% ${rows > 1 ? (row / (rows - 1)) * 100 : 0}%`,
+      }}
+    />
+  );
+};
+
+/**
+ * A job site clip cut to its good parts before it becomes an ad (the owner, Nov 2026: clips ran whole, dead time
+ * and all). The app looks through the clip and proposes the parts, the opener first; here the owner plays them,
+ * moves where each starts and ends, drops or adds one, and saves. `onReady` says whether an ad can be made now and
+ * hands back how to save any change first.
+ */
+const ClipEditor: React.FC<{ assetId: string; act: Act; onReady: (ready: boolean, save: () => Promise<void>) => void }> = ({ assetId, act, onReady }) => {
+  const data = useAdsClipEdit<ClipEdit | null>(assetId);
+  const video = useRef<HTMLVideoElement>(null);
+  const [parts, setParts] = useState<ClipCut[]>([]);
+  const [dirty, setDirty] = useState(false);
+  // Which part is playing, and (for the whole edit) which come after it.
+  const playing = useRef<{ list: ClipCut[]; i: number } | null>(null);
+  const saved = data?.cuts ?? [];
+  const savedKey = saved.map((c) => `${c.from}-${c.to}`).join(',');
+  // What is saved shows until the owner changes something; a new proposal then never overwrites their work here.
+  useEffect(() => {
+    if (!dirty) setParts(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey, assetId]);
+  useEffect(() => {
+    setDirty(false);
+    void adsAPI.prepareClip(assetId).catch(() => undefined);
+  }, [assetId]);
+  const total = Math.round(parts.reduce((n, c) => n + (c.to - c.from), 0) * 10) / 10;
+  const usable = parts.length > 0 && parts.every((c) => c.to - c.from >= 1);
+  const save = async () => {
+    if (!dirty || !usable) return;
+    await adsAPI.setCuts(assetId, parts);
+    setDirty(false);
+  };
+  useEffect(() => {
+    onReady(Boolean(data && usable && !data.looking), save);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usable, data?.looking, dirty, parts]);
+  if (data === undefined) return <p className="text-xs text-gray-500">Opening the clip…</p>;
+  if (data === null) return <p className="text-sm text-red-300">That clip is gone from the Library.</p>;
+  const max = data.durationSec || 0;
+  const change = (next: ClipCut[]) => {
+    setParts(next.map((c) => ({ from: Math.round(Math.max(0, Math.min(c.from, max)) * 10) / 10, to: Math.round(Math.max(0, Math.min(c.to, max)) * 10) / 10 })));
+    setDirty(true);
+  };
+  const edit = (i: number, patch: Partial<ClipCut>) => change(parts.map((c, k) => (k === i ? { ...c, ...patch } : c)));
+  const now = () => Math.round((video.current?.currentTime ?? 0) * 10) / 10;
+  const play = (list: ClipCut[]) => {
+    const v = video.current;
+    if (!v || list.length === 0) return;
+    playing.current = { list, i: 0 };
+    v.currentTime = list[0].from;
+    void v.play();
+  };
+  // A part stops where it ends; in the whole edit the next one starts at once.
+  const onTime = () => {
+    const v = video.current;
+    const p = playing.current;
+    if (!v || !p) return;
+    if (v.currentTime < p.list[p.i].to) return;
+    if (p.i + 1 < p.list.length) {
+      p.i += 1;
+      v.currentTime = p.list[p.i].from;
+    } else {
+      playing.current = null;
+      v.pause();
+    }
+  };
+  const kept = (t: number) => parts.some((c) => t >= c.from && t < c.to);
+  const small = `${secondary} min-h-[36px] px-2 text-xs`;
+  return (
+    <div className="space-y-3" data-testid="clip-editor">
+      {data.videoUrl && (
+        <video ref={video} src={data.videoUrl} controls playsInline preload="metadata" onTimeUpdate={onTime} onSeeking={() => undefined} className="w-full max-h-[50vh] rounded bg-black" />
+      )}
+      {data.tooLong ? (
+        <p className="text-sm text-amber-200/80">This clip is too long to look through. Upload one of ten minutes or less.</p>
+      ) : data.looking ? (
+        <p role="status" className="text-sm text-gray-300">
+          {data.canLook ? 'Looking through the clip to find its good parts. This takes a minute or two; you can leave this open.' : "The clip can't be looked through yet: the renderer isn't connected (ADS_RENDER_TOKEN). You can still choose the parts yourself below."}
+        </p>
+      ) : data.choosing ? (
+        <p role="status" className="text-sm text-gray-300">
+          Choosing the good parts…
+        </p>
+      ) : null}
+      {data.error && (
+        <p className="text-sm text-amber-200/80">
+          The app couldn&apos;t propose an edit: {data.error}{' '}
+          <button type="button" className="underline" onClick={() => act(() => adsAPI.prepareClip(assetId, true), 'Asking again.')}>
+            Ask again
+          </button>
+        </p>
+      )}
+      {data.scan && (
+        <div className="flex gap-0.5 overflow-x-auto pb-1" aria-label="The clip, frame by frame">
+          {Array.from({ length: data.scan.frames }, (_, i) => i * data.scan!.every).map((t) => (
+            <button
+              key={t}
+              type="button"
+              aria-label={`Go to ${t} seconds`}
+              title={`${t}s`}
+              onClick={() => {
+                playing.current = null;
+                if (video.current) video.current.currentTime = t;
+              }}
+              className={`flex-none rounded-sm ${kept(t) ? 'ring-2 ring-[#e2b350]' : ''}`}
+            >
+              <ClipFrame scan={data.scan!} at={t} width={54} dim={parts.length > 0 && !kept(t)} />
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <p className="text-sm text-white">
+          {parts.length === 0 ? 'No parts chosen yet' : `${parts.length} part${parts.length === 1 ? '' : 's'}, ${secs(total)} of ${secs(max)}`}
+        </p>
+        <p className="text-xs text-gray-400">{dirty ? 'Your changes, not saved yet' : data.cutsBy === 'person' ? 'Your edit' : data.cutsBy === 'app' ? `The app's edit${data.note ? `: ${data.note}` : ''}` : ''}</p>
+      </div>
+      {total > 30 && <p className="text-xs text-amber-200/80">That is long for an ad. Ten to twenty seconds of the best parts usually does better.</p>}
+      <ol className="space-y-2" aria-label="Parts kept">
+        {parts.map((c, i) => (
+          <li key={i} className="flex flex-wrap items-center gap-2 rounded border border-[#2A2A2A] p-2">
+            {data.scan && <ClipFrame scan={data.scan} at={c.from} width={56} />}
+            <span className="text-xs text-gray-300 w-14">{i === 0 ? 'Opener' : `Part ${i + 1}`}</span>
+            {(['from', 'to'] as const).map((edge) => (
+              <span key={edge} className="inline-flex items-center gap-1">
+                <span className="text-xs text-gray-500">{edge === 'from' ? 'Starts' : 'Ends'}</span>
+                <button type="button" className={small} aria-label={`${edge === 'from' ? 'Start' : 'End'} part ${i + 1} half a second earlier`} onClick={() => edit(i, { [edge]: c[edge] - 0.5 })}>
+                  −
+                </button>
+                <span className="text-sm text-white tabular-nums w-12 text-center">{secs(c[edge])}</span>
+                <button type="button" className={small} aria-label={`${edge === 'from' ? 'Start' : 'End'} part ${i + 1} half a second later`} onClick={() => edit(i, { [edge]: c[edge] + 0.5 })}>
+                  +
+                </button>
+                <button type="button" className={small} aria-label={`${edge === 'from' ? 'Start' : 'End'} part ${i + 1} where the video is now`} onClick={() => edit(i, { [edge]: now() })}>
+                  Here
+                </button>
+              </span>
+            ))}
+            <span className="inline-flex gap-1 ml-auto">
+              <button type="button" className={small} aria-label={`Play part ${i + 1}`} onClick={() => play([c])}>
+                Play
+              </button>
+              {i > 0 && (
+                <button type="button" className={small} aria-label={`Move part ${i + 1} earlier`} onClick={() => change(parts.map((x, k) => (k === i - 1 ? parts[i] : k === i ? parts[i - 1] : x)))}>
+                  ↑
+                </button>
+              )}
+              <button type="button" className={small} aria-label={`Remove part ${i + 1}`} onClick={() => change(parts.filter((_, k) => k !== i))}>
+                ✕
+              </button>
+            </span>
+            {c.to - c.from < 1 && <span className="basis-full text-xs text-amber-200/80">A part has to run at least a second.</span>}
+          </li>
+        ))}
+      </ol>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={secondary} disabled={parts.length === 0} onClick={() => play(parts)}>
+          Play the edit
+        </button>
+        <button type="button" className={secondary} disabled={parts.length >= 8} onClick={() => change([...parts, { from: now(), to: Math.min(max || now() + 3, now() + 3) }])}>
+          Add a part from where the video is
+        </button>
+        {dirty && (
+          <button type="button" className={secondary} disabled={!usable} onClick={() => act(save, 'Your edit is saved.')}>
+            Save my edit
+          </button>
+        )}
+        {data.scan && (
+          <button
+            type="button"
+            className={secondary}
+            onClick={() => {
+              setDirty(false);
+              void act(() => adsAPI.prepareClip(assetId, true), 'Asking the app for a new edit.');
+            }}
+          >
+            Ask the app again
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-gray-500">The first part is what people see first: make it the most striking few seconds. The ad is made from these parts only, in this order.</p>
+    </div>
+  );
+};
+
 /** The static image ads on offer (convex/lib/ads.ts IMAGE_AD_TYPES), in the owner's words. */
 const IMAGE_TYPES: Array<[string, string, string]> = [
   ['mix', 'Mix (recommended)', 'Plain photos, branded designs and plain before and afters in turn, so you see which brings the leads.'],
@@ -690,6 +919,9 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
   const [medium, setMedium] = useState<'image' | 'video'>('image');
   const [videoType, setVideoType] = useState(VIDEO_TYPES[0][0]);
   const [clip, setClip] = useState('');
+  // Whether the chosen clip's parts are ready to be made into an ad, and how to save a change to them first.
+  const [clipReady, setClipReady] = useState(false);
+  const saveClip = useRef<() => Promise<void>>(async () => undefined);
   const isClip = medium === 'video' && videoType === 'clip';
   const clips = useAdsServiceClips<ServiceClip[]>(service, trade === DEFAULT_TRADE ? undefined : trade, open && isClip);
   // 'auto': the app builds each ad on one of the best long-running competitor image ads, a different one each.
@@ -714,6 +946,7 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
     void act(async () => {
       const inTrade = trade === DEFAULT_TRADE ? undefined : trade;
       if (isClip) {
+        await saveClip.current();
         await adsAPI.makeFootage(clip);
         setOpen(false);
         setMade('Making a job site ad from that clip. It shows below once it is written, then drawn.');
@@ -842,7 +1075,10 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                         type="button"
                         role="radio"
                         aria-checked={clip === c.id}
-                        onClick={() => setClip(c.id)}
+                        onClick={() => {
+                          setClip(c.id);
+                          setClipReady(false);
+                        }}
                         className={`text-left rounded border overflow-hidden ${clip === c.id ? 'border-[#e2b350] bg-[#2a2415]' : 'border-[#2A2A2A]'}`}
                       >
                         {c.posterUrl && <img src={c.posterUrl} alt="" className="w-full aspect-video object-cover" loading="lazy" />}
@@ -856,6 +1092,19 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                     ))}
                   </div>
                 )}
+              </fieldset>
+            )}
+            {isClip && clip && (
+              <fieldset>
+                <legend className="text-sm font-medium text-white mb-2">5. Which parts of it?</legend>
+                <ClipEditor
+                  assetId={clip}
+                  act={act}
+                  onReady={(ready, save) => {
+                    setClipReady(ready);
+                    saveClip.current = save;
+                  }}
+                />
               </fieldset>
             )}
             {medium === 'image' && (
@@ -961,7 +1210,7 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               ))}
             </details>
             <div className="flex items-center gap-3">
-              <button type="button" className={`${primary} flex-1`} disabled={busy || !picked || (isClip && !clip)} onClick={create}>
+              <button type="button" className={`${primary} flex-1`} disabled={busy || !picked || (isClip && (!clip || !clipReady))} onClick={create}>
                 {busy
                   ? isClip
                     ? 'Starting…'
@@ -970,7 +1219,9 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
                     ? 'Choose what it is about first'
                     : isClip
                       ? clip
-                        ? 'Make a job site ad from this clip'
+                        ? clipReady
+                          ? 'Make a job site ad from these parts'
+                          : 'Choose the parts to keep first'
                         : 'Choose a clip'
                       : medium === 'video'
                         ? `Create ${count} ${picked.label.toLowerCase()} ${VIDEO_TYPES.find(([k]) => k === videoType)![1].toLowerCase()} video${count === 1 ? '' : 's'}`

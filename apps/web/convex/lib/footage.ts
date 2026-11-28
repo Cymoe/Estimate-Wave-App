@@ -5,7 +5,7 @@
 // are written by Claude from what can be seen and heard in the clip, following a long-running competitor ad's
 // written copy the way every other ad follows one, and are checked against the same banned claims.
 
-import { HEADLINE_MAX, TITLE_MAX, forbiddenIn, onceOnly, pickExamples } from "./ads";
+import { HEADLINE_MAX, TITLE_MAX, forbiddenIn, onceOnly, parseJson, pickExamples } from "./ads";
 import type { HeardWord } from "./voiceActors";
 
 /** The longest clip that runs as an ad: Meta's reels and stories run to 90 seconds. */
@@ -156,4 +156,103 @@ export function footageProblems(copy: Partial<FootageCopy> | null): string[] {
   if (!SPEECH.includes(copy.speech as Speech)) out.push('no "speech" (crew, song or none)');
   out.push(...forbiddenIn([title, headline, primary].join(" ")));
   return out;
+}
+
+
+// ------------------------------------------------------------------ Editing a clip down to its good parts
+//
+// A job site clip used to run whole, from its first second (the owner, Nov 2026: "you have no clue where to edit
+// the clips"). Now it is cut: the app looks through the clip (frames taken every second or two, and what is said
+// when) and proposes the parts to keep, the opener first; the owner adjusts them; the ad is made from those only.
+
+/** One part of a clip to keep, in seconds from its start. */
+export interface Cut {
+  from: number;
+  to: number;
+}
+/** The shortest part worth keeping, the most parts, and how long an edit should run. */
+export const CUT_MIN_SEC = 1;
+export const CUT_PARTS_MAX = 8;
+export const EDIT_MIN_SEC = 6;
+export const EDIT_MAX_SEC = 30;
+/** The longest clip that can be looked through and cut (an uncut clip still has to be FOOTAGE_MAX_SEC or less). */
+export const CLIP_MAX_SEC = 600;
+
+const tenth = (n: number) => Math.round(n * 10) / 10;
+
+/** Parts as they are stored: within the clip, a tenth of a second fine, each at least a second, in the order given. */
+export function cleanCuts(cuts: Array<Partial<Cut>> | undefined | null, durationSec: number): Cut[] {
+  const end = Math.max(0, durationSec);
+  const out: Cut[] = [];
+  for (const c of cuts ?? []) {
+    const from = tenth(Math.min(Math.max(0, Number(c.from)), end));
+    const to = tenth(Math.min(Math.max(0, Number(c.to)), end));
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to - from < CUT_MIN_SEC) continue;
+    out.push({ from, to });
+    if (out.length >= CUT_PARTS_MAX) break;
+  }
+  return out;
+}
+
+/** How long the parts run together. */
+export const cutTotal = (cuts: Cut[]): number => tenth(cuts.reduce((n, c) => n + (c.to - c.from), 0));
+
+/**
+ * The words said inside the parts kept, timed on the cut clip: a word counts where its middle falls, and its time
+ * moves to where its part now starts.
+ */
+export function wordsInCuts<W extends { text: string; start: number; end: number }>(words: W[], cuts: Cut[]): W[] {
+  const out: W[] = [];
+  let offset = 0;
+  for (const c of cuts) {
+    for (const w of words) {
+      const mid = (w.start + w.end) / 2;
+      if (mid < c.from || mid >= c.to) continue;
+      out.push({ ...w, start: tenth(Math.max(w.start, c.from) - c.from + offset), end: tenth(Math.min(w.end, c.to) - c.from + offset) });
+    }
+    offset += c.to - c.from;
+  }
+  return out;
+}
+
+/** How often a frame is taken for a clip of this length, so the whole clip fits on a few sheets (at most 64 frames). */
+export const scanEvery = (durationSec: number): number => Math.max(1, Math.ceil(durationSec / 64));
+
+export const CUTS_MARK = "You are editing a clip filmed on a job site into a short ad";
+
+/** The brief for proposing the parts of a clip to keep. The contact sheets follow it. */
+export function cutsPrompt(input: { trade: string; durationSec: number; every: number; frames: number; seen?: string; lines: Array<{ voice: string; start: number; end: number }> }): string {
+  const said = input.lines.length
+    ? ["What is said in it, with the seconds each line runs:", ...input.lines.map((l) => `- ${l.start.toFixed(1)} to ${l.end.toFixed(1)}: ${l.voice}`)]
+    : ["Nobody speaks in it."];
+  return [
+    `${CUTS_MARK} for Facebook and Instagram, for a ${input.trade.toLowerCase()} company. The clip runs ${Math.round(input.durationSec)} seconds.`,
+    `Frames from it are attached as contact sheets, one frame every ${input.every} second${input.every === 1 ? "" : "s"}, read left to right, top to bottom. Each frame is stamped with its time in seconds.`,
+    input.seen ? `What the clip shows, as described when it was filed: ${input.seen.replace(/\s+/g, " ").slice(0, 400)}` : "",
+    ...said,
+    "",
+    `Choose the parts to keep: 1 to 5 parts, ${EDIT_MIN_SEC} to ${EDIT_MAX_SEC} seconds together (a clip shorter than that: what is good in it).`,
+    "- The FIRST part is the opener, and it decides whether anyone watches: the single most striking two to four seconds, wherever it is in the clip. Work visibly happening (paint going on, a spray gun moving, tape coming off) or the finished result filling the frame. Never a person walking in, a hand adjusting the camera, or a wide shot of nothing happening.",
+    "- After the opener, the rest in the order they happen in the clip.",
+    "- Keep: the work being done, the finish up close, the before turning into the after, a person speaking to the camera about the work.",
+    "- Leave out: walking and setting up, the camera pointing at the floor or the ceiling, blur, dark stretches, long stretches where nothing changes, and mess that isn't the work.",
+    "- Don't cut a spoken sentence in half: start and end a part in a pause in the speech.",
+    "- You can only see still frames, so prefer stretches where the frames change from one to the next (something is happening) over ones where they look the same.",
+    "",
+    'Return only JSON: {"parts":[{"from":12,"to":15.5,"why":"spray going onto the doors"}],"note":"one plain sentence on what the edit shows"}',
+  ]
+    .filter((l, i, all) => l !== "" || all[i - 1] !== "")
+    .join("\n");
+}
+
+/** Claude's proposed parts; null when the reply can't be read or keeps nothing. */
+export function readCuts(reply: string, durationSec: number): { cuts: Cut[]; note?: string } | null {
+  const out = parseJson<{ parts?: Array<Partial<Cut>>; note?: string }>(reply);
+  if (!out) return null;
+  const cuts = cleanCuts(out.parts, durationSec);
+  if (cuts.length === 0) return null;
+  // Never over the longest an edit may run: parts are dropped from the end.
+  while (cuts.length > 1 && cutTotal(cuts) > EDIT_MAX_SEC + 5) cuts.pop();
+  const note = typeof out.note === "string" ? out.note.replace(/\s+/g, " ").trim().slice(0, 200) : undefined;
+  return { cuts, ...(note ? { note } : {}) };
 }
