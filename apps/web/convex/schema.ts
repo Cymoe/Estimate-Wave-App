@@ -2773,6 +2773,8 @@ export default defineSchema({
         variant: v.optional(v.number()),
         // The brand guide rules (lib/ads BRAND_GUIDE ids) it was checked against and kept when it was made.
         guide: v.optional(v.array(v.string())),
+        // Nothing printed on the picture but the small mark (the plain kinds).
+        clean: v.optional(v.boolean()),
       }),
     ),
     // Also the ad's name in Meta, so a lead's adName joins back here.

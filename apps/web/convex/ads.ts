@@ -38,6 +38,8 @@ import {
   BRAND_GUIDE,
   guidePassed,
   isCollage,
+  IMAGE_MIX,
+  IMAGE_MIX_KEY,
   photoOfService,
   readImageAd,
   type ImageCandidate,
@@ -4115,7 +4117,7 @@ export const claimRenders = internalMutation({
           }
           const need = c.still.layout === "pair" ? 2 : c.still.layout === "grid" ? 3 : 1;
           if (srcs.length < need) throw new Error("A photo this image ad was made from is gone");
-          const base = { ratio: "4x5" as const, brand, headline: c.script.onScreen[0] ?? c.script.headline, sub: c.still.sub, variant: c.still.variant ?? 0 };
+          const base = { ratio: "4x5" as const, brand, headline: c.script.onScreen[0] ?? c.script.headline, sub: c.still.sub, variant: c.still.variant ?? 0, ...(c.still.clean ? { clean: true } : {}) };
           const props = c.still.layout === "pair" ? { ...base, pair: [srcs[0], srcs[1]] } : c.still.layout === "grid" ? { ...base, grid: srcs.slice(0, 4) } : { ...base, photo: srcs[0] };
           await ctx.db.patch(c._id, { status: "rendering", renderStartedAt: nowIso(), error: undefined });
           jobs.push({ id: c._id, name: c.name, kind: "image", props: props as never });
@@ -5478,7 +5480,19 @@ async function makeImageAds(ctx: ActionCtx, args: { service: string; type: strin
   const set: { batchId?: Id<"adBatches"> } = {};
   for (let i = 0; i < count; i++) {
     try {
-      const one = await makeImageAd(ctx, args, me, made.map((m) => m.headline), usedSwipes, usedAssets, set);
+      // A mixed set takes the kinds in turn; a kind that can't be made (no pair on file) falls to the next.
+      let one: Awaited<ReturnType<typeof makeImageAd>> | undefined;
+      if (args.type === IMAGE_MIX_KEY) {
+        let last: unknown;
+        for (let k = 0; k < IMAGE_MIX.length && !one; k++) {
+          try {
+            one = await makeImageAd(ctx, { ...args, type: IMAGE_MIX[(i + k) % IMAGE_MIX.length] }, me, made.map((m) => m.headline), usedSwipes, usedAssets, set);
+          } catch (e) {
+            last = e;
+          }
+        }
+        if (!one) throw last;
+      } else one = await makeImageAd(ctx, args, me, made.map((m) => m.headline), usedSwipes, usedAssets, set);
       if (one.swipeId) usedSwipes.push(one.swipeId);
       usedAssets.push(...one.assetIds);
       made.push({ name: one.name, headline: one.headline, builtOn: one.builtOn });
@@ -5617,7 +5631,7 @@ export const storeImageAd = internalMutation({
       kind: "image",
       name,
       // Stored only once its plan has passed every check, so it keeps the whole guide.
-      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 3, guide: guidePassed() },
+      still: { type: type.key, layout: type.layout, sub: a.sub, variant: before % 3, guide: guidePassed(), ...(type.clean ? { clean: true } : {}) },
       script: { voice: "", onScreen: [a.headline, a.sub], headline: a.title, primaryText: a.primaryText },
       assetIds: a.assetIds,
       // Nothing to voice: it waits to be drawn.

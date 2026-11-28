@@ -57,6 +57,10 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   condensed); the first sentence of the line under the headline in gold **Playfair Display italic**; the rest in
   Inter. Navy `#0f1c42`, gold `#f2c043`, white letters; gold button with squared corners. New ads rotate three text layouts (top, band, low); the card layout was dropped because it covered the leading photo, and the design must never cover it. Fonts are files in
   `ads-video/public/fonts` (`theme.ts`: `poster`, `kicker`).
+- Three kinds of image ad, because the long-running competitor image ads are mostly plain (the owner looked at the
+  top 24, Nov 2026): **plain photo** and **plain before and after** (`clean`: nothing printed but the small mark; the
+  text above the picture does the selling) and the **branded** kinds. Type `mix` takes them in turn (`IMAGE_MIX`).
+  `ads:imageSwipes` lists the best competitor image ads with their pictures, to look at.
 - The sub line must open with a sentence of at most 44 characters (it is the italic line) and say "free quote".
 - Collages and screenshots are never offered (`isCollage`), however they are tagged.
 

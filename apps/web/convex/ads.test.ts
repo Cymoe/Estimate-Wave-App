@@ -3216,6 +3216,16 @@ describe("the weekly run", () => {
     // And no two of the three show the same photo.
     const shown = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(-3).flatMap((c) => c.assetIds));
     expect(new Set(shown).size).toBe(shown.length);
+    // A mixed set takes the kinds in turn (plain photo, branded showcase, plain before and after); the plain ones
+    // are drawn with nothing on them, and the writer is told the text above the picture does the selling.
+    const mixed = await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "mix", count: 3 });
+    expect(mixed.made).toHaveLength(3);
+    const mixRows = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(-3).map((c) => [c.still!.type, c.still!.clean ?? false]));
+    expect(mixRows.map((r) => r[1])).toContain(true);
+    expect(mixRows.some((r) => r[0] === "plain_photo")).toBe(true);
+    expect(mixRows.some((r) => r[0] === "showcase" && r[1] === false)).toBe(true);
+    // (With no pair on file here, the plain before and after's turn falls to the next kind.)
+    expect(calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).some((x) => x.includes("NOTHING is printed on it"))).toBe(true);
   });
 
   test("an idea that isn't one project's story shows a range: a couple of photos a project, and the writer is told they're different homes", async () => {

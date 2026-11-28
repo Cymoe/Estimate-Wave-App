@@ -112,7 +112,7 @@ function cellsOf(photos: Photo[], pair: boolean, W: number, top: number, H: numb
   return { cells, joinX: W / 2, joinY: top + topH + gap / 2 };
 }
 
-const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ ratio, brand, headline, sub, photos, isPair, variant = 0 }) => {
+const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ ratio, brand, headline, sub, photos, isPair, variant = 0, clean = false }) => {
   const tall = ratio === "9x16";
   const W = 1080;
   const H = tall ? 1920 : 1350;
@@ -137,6 +137,20 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
   const shadeUp = (h: number, strong = 0.9) => (
     <div style={{ position: "absolute", left: 0, bottom: 0, width: W, height: h, background: `linear-gradient(to top, rgba(${SHADE},${strong}) 0%, rgba(${SHADE},${strong * 0.7}) 50%, rgba(${SHADE},0) 100%)` }} />
   );
+  // The plain kinds: the photo, or the before and its after, and the small mark. No words, no shade, no button:
+  // it should look like a real job, as most long-running competitor image ads do.
+  if (clean && photos.length) {
+    return (
+      <AbsoluteFill style={{ backgroundColor: "#fff" }}>
+        {laid.cells.map((c, i) => (
+          <div key={i} style={{ position: "absolute", left: c.left, top: c.top, width: c.width, height: c.height, overflow: "hidden", backgroundColor: INK }}>
+            <Img src={source(c.ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${c.ph.focus?.[0]?.x ?? 50}% ${c.ph.focus?.[0]?.y ?? 50}%` }} />
+          </div>
+        ))}
+        {photos.length > 1 ? <Mark size={150} left={laid.joinX} top={laid.joinY} /> : <Mark size={130} left={W - 48 - 65} top={H - safeBottom - 48 - 65} />}
+      </AbsoluteFill>
+    );
+  }
   const picture = (ph: Photo, key: number) => (
     <div key={key} style={{ flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: INK }}>
       <Img src={source(ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${ph.focus?.[0]?.x ?? 50}% ${ph.focus?.[0]?.y ?? 50}%` }} />

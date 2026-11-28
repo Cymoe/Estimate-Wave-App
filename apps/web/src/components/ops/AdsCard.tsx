@@ -618,7 +618,10 @@ const AdGroups: React.FC<{ batches: AdBatch[]; act: Act }> = ({ batches, act }) 
 };
 
 /** The static image ads on offer (convex/lib/ads.ts IMAGE_AD_TYPES), in the owner's words. */
-const IMAGE_TYPES: Array<[string, string, string]> = IMAGE_AD_TYPES.map((t) => [t.key, t.label, t.blurb]);
+const IMAGE_TYPES: Array<[string, string, string]> = [
+  ['mix', 'Mix (recommended)', 'Plain photos, branded designs and plain before and afters in turn, so you see which brings the leads.'],
+  ...IMAGE_AD_TYPES.map((t): [string, string, string] => [t.key, t.label, t.blurb]),
+];
 
 /**
  * Create an ad: one static image at a time. The owner picks the type and, if they like, the competitor ad to model;

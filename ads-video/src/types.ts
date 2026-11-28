@@ -169,4 +169,6 @@ export type StillProps = {
   grid?: Photo[];
   /** Where the words sit, so ads don't all look alike: 0 top, 1 a band across the middle, 2 low, 3 a card in the middle. */
   variant?: number;
+  /** Nothing printed on the picture: the photo (or the before and its after) and the small mark only. */
+  clean?: boolean;
 };

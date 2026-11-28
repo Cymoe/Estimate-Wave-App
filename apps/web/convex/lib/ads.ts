@@ -1703,10 +1703,37 @@ export interface ImageAdType {
   family: Family;
   /** What the writer is told this ad is. */
   brief: string;
+  /** Nothing is printed on the picture but the small mark: the text above it in the feed does the selling. */
+  clean?: boolean;
 }
+
+/**
+ * A mixed set (the owner, Nov 2026): the long-running competitor image ads are mostly plain photos and plain before
+ * and afters, with branded designs a minority, so a set takes these in turn and Meta shows which brings the leads.
+ */
+export const IMAGE_MIX_KEY = "mix";
+export const IMAGE_MIX = ["plain_photo", "showcase", "plain_pair"] as const;
 
 /** The static image ads the owner can ask for, one at a time (Ops → Ads → Create an ad). */
 export const IMAGE_AD_TYPES: ImageAdType[] = [
+  {
+    key: "plain_photo",
+    label: "Plain photo",
+    blurb: "One of your best finished photos with nothing on it but the small logo. The text above it does the selling.",
+    layout: "single",
+    family: "proof",
+    clean: true,
+    brief: "One finished photo fills the picture and NOTHING is printed on it. It should look like a real job, not an advert. So the primaryText does all the selling: open it on the hook, then the free quote. The headline and sub are still needed (they name the ad and may be used elsewhere) but are not shown on the picture.",
+  },
+  {
+    key: "plain_pair",
+    label: "Plain before and after",
+    blurb: "A before and its own after from the same project, with nothing on them but the small logo.",
+    layout: "pair",
+    family: "before_after",
+    clean: true,
+    brief: "A before and its own after fill the picture and NOTHING is printed on them: no labels, no words. The change is the whole ad. So the primaryText does all the selling: open it on the homeowner living with the 'before', then the free quote. The headline and sub are still needed but are not shown on the picture.",
+  },
   {
     key: "photo",
     label: "Finished photo",

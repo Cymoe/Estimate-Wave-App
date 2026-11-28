@@ -331,8 +331,10 @@ describe('Ops → Ads', () => {
     expect((byText('Choose what it is about first') as HTMLButtonElement).disabled).toBe(true);
     await act(async () => (about[0] as HTMLButtonElement).click());
     const types = Array.from(dialog().querySelectorAll('[aria-label="Type of ad"] [role="radio"]'));
-    expect(types.map((b) => b.querySelector('span')!.textContent)).toEqual(['Finished photo', 'Before and after', 'Showcase', 'Offer', 'Seasonal offer']);
-    await act(async () => (types[2] as HTMLButtonElement).click());
+    expect(types.map((b) => b.querySelector('span')!.textContent)).toEqual(['Mix (recommended)', 'Plain photo', 'Plain before and after', 'Finished photo', 'Before and after', 'Showcase', 'Offer', 'Seasonal offer']);
+    // A mix of kinds is the usual; one kind can be picked.
+    expect(types[0].getAttribute('aria-checked')).toBe('true');
+    await act(async () => (types[5] as HTMLButtonElement).click());
     const models = () => Array.from(dialog().querySelectorAll('[aria-label="Competitor ad to model"] [role="radio"]'));
     // The app's own pick of the best long-running image ads is the usual; none, or one by hand, can be chosen.
     expect(models()[0].textContent).toContain('Best match (recommended)');
