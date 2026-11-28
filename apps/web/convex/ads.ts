@@ -5248,6 +5248,18 @@ export const createImageAd = action({
   args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ name: string; headline: string }> => {
     const me: Id<"users"> = await ctx.runQuery(internal.ads.ownerId, {});
+    return await makeImageAd(ctx, args, me);
+  },
+});
+
+/** The same from a cloud session (the deploy workflow), to make one or to check the live library. */
+export const createImageAdOutside = internalAction({
+  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ name: string; headline: string }> => await makeImageAd(ctx, args),
+});
+
+async function makeImageAd(ctx: ActionCtx, args: { type: string; swipeId?: Id<"adSwipes">; trade?: string }, me?: Id<"users">): Promise<{ name: string; headline: string }> {
+  {
     if (!process.env.ANTHROPIC_API_KEY) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
     const type = imageAdType(args.type);
     if (!type) fail("INVALID", "That isn't a type of image ad");
@@ -5280,8 +5292,8 @@ export const createImageAd = action({
       startedBy: me,
     });
     return { name, headline: plan!.headline };
-  },
-});
+  }
+}
 
 /** The signed-in owner's id (a super admin), for an action. */
 export const ownerId = internalQuery({
