@@ -1813,6 +1813,37 @@ describe("the library, hooks and settings", () => {
     expect((await staff.as.query(api.ads.settings, {})).metaToken).toBeNull();
   });
 
+  test("archiving old ads in Meta: only paused ads from before the date; one switched on is never touched; a dry run changes nothing", async () => {
+    const t = setup();
+    vi.stubEnv("META_ACCESS_TOKEN", "tok");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("adSettings", { adsetId: "900", weeklyEnabled: false, hooksPerWeek: 3, liveTarget: 6, updatedAt: "2026-11-27T00:00:00Z" });
+    });
+    const ads = [
+      { id: "a1", name: "old paused", status: "PAUSED", created_time: "2026-11-20T10:00:00+0000" },
+      { id: "a2", name: "old live", status: "ACTIVE", created_time: "2026-11-20T10:00:00+0000" },
+      { id: "a3", name: "new paused", status: "PAUSED", created_time: "2026-11-28T03:00:00+0000" },
+    ];
+    const posts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (init?.method === "POST") {
+          posts.push(`${url.split("/").pop()} ${new URLSearchParams(String(init.body)).get("status")}`);
+          return new Response(JSON.stringify({ success: true }));
+        }
+        return new Response(JSON.stringify({ data: ads }));
+      }),
+    );
+    const dry = await t.action(internal.ads.archiveOld, { before: "2026-11-28T00:00:00Z", dry: true });
+    expect(dry.wouldArchive).toEqual(["old paused (2026-11-20T10:00)"]);
+    expect(posts).toEqual([]);
+    const done = await t.action(internal.ads.archiveOld, { before: "2026-11-28T00:00:00Z" });
+    expect(posts).toEqual(["a1 ARCHIVED"]);
+    expect([done.archived, done.failed, done.kept.length]).toEqual([1, [], 2]);
+  });
+
   test("the campaign switch: read from Meta, turned on (with its ad set) or off by the owner only", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });

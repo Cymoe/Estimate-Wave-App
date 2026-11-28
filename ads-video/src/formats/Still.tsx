@@ -177,11 +177,11 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
       ) : (
         <>
           {shadeUp(safeBottom + 230, 0.85)}
-          <div style={{ position: "absolute", left: 70, right: 70, top: H * 0.47, transform: "translateY(-50%)", backgroundColor: NAVY, borderRadius: 36, padding: "96px 48px 48px", boxShadow: "0 18px 50px rgba(0,0,0,0.45)", border: `4px solid ${GOLD}` }}>
+          <div style={{ position: "absolute", left: 48, right: 48, top: Math.max(joinY, H * 0.5), transform: "translateY(-50%)", backgroundColor: NAVY, borderRadius: 28, padding: "84px 40px 36px", boxShadow: "0 18px 50px rgba(0,0,0,0.45)", border: `4px solid ${GOLD}` }}>
             <div style={{ position: "absolute", left: "50%", top: 0 }}>
               <Mark size={150} left={0} top={0} />
             </div>
-            <Words headline={headline} sub={sub} center max={112} />
+            <Words headline={headline} sub={sub} center max={92} />
           </div>
           {foot}
         </>

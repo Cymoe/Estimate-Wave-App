@@ -1903,6 +1903,7 @@ export const IMAGE_BY_EYE = [
   "The photos are attached below, each labelled with its number. Look at them: choose by what you see, not only by the descriptions.",
   "- Pass over a photo where the work barely shows (a close-up of a sink or a counter with a sliver of cabinet), one with black bars, a border or phone-screen clutter, a blurry or dark one, a collage, or one where mess or a person is what you notice first.",
   "- Choose photos where the work is the main subject, well lit, and looks like something a homeowner would want.",
+  "- List the strongest photo first: it is shown largest. It must be a whole finished room (a full kitchen), never a detail, a single cupboard or empty shelves.",
 ];
 
 export interface ImageAdPlan {

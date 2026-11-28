@@ -4008,9 +4008,11 @@ export const rerender = internalMutation({
         .withIndex("by_name", (q) => q.eq("name", name))
         .first();
       // Only one still waiting for review, and only one the renderer can draw: an ad in Meta keeps the file Meta has.
-      if (!c || !c.design || !c.audioStorageId || (c.status !== "rendered" && c.status !== "failed")) continue;
+      const drawable = c?.still || (c?.design && c?.audioStorageId);
+      if (!c || !drawable || c.meta?.adId || (c.status !== "rendered" && c.status !== "failed")) continue;
       if (c.videoStorageId) await ctx.storage.delete(c.videoStorageId);
-      await ctx.db.patch(c._id, { status: "voiced", videoStorageId: undefined, renderStartedAt: undefined, error: undefined });
+      if (c.imageStorageId) await ctx.storage.delete(c.imageStorageId);
+      await ctx.db.patch(c._id, { status: "voiced", videoStorageId: undefined, imageStorageId: undefined, renderStartedAt: undefined, error: undefined });
       sent.push(name);
     }
     if (sent.length) await ctx.scheduler.runAfter(0, internal.ads.startRenders, {});
@@ -5066,6 +5068,68 @@ export const sendToMeta = internalMutation({
       sent.push(name);
     }
     return { sent, skipped };
+  },
+});
+
+/**
+ * Archives the ad set's old paused ads in Meta, so it drops below Meta's limit of 50 ads and new ones fit (the owner
+ * said yes, Nov 2026). Only ads made before `before` and switched off: one the owner turned on is never touched.
+ * Archived ads stay visible in Ads Manager under the archived filter. `dry` lists what would go without changing it.
+ */
+export const archiveOld = internalAction({
+  args: { before: v.string(), dry: v.optional(v.boolean()) },
+  handler: async (ctx, { before, dry }) => {
+    const token = await metaToken(ctx);
+    const { adsetId } = await ctx.runQuery(internal.ads.campaignSwitchInput, {});
+    if (!token || !adsetId) fail("INVALID", "Connect Meta and pick the ad set in Settings first");
+    const cutoff = Date.parse(before);
+    if (!Number.isFinite(cutoff)) fail("INVALID", "before must be a date");
+    const all: Array<{ id: string; name: string; status: string; created_time: string }> = (await graphGet(`${adsetId}/ads?fields=id,name,status,created_time&limit=200`, token!)).data ?? [];
+    const old = all.filter((a) => a.status === "PAUSED" && Date.parse(a.created_time) < cutoff);
+    const kept = all.filter((a) => !old.includes(a)).map((a) => `${a.name} (${a.status}, ${a.created_time.slice(0, 16)})`);
+    if (dry) return { inAdSet: all.length, wouldArchive: old.map((a) => `${a.name} (${a.created_time.slice(0, 16)})`), kept };
+    const archived: string[] = [];
+    const failed: string[] = [];
+    for (const a of old) {
+      try {
+        await graph(a.id, { status: "ARCHIVED" }, "Archive ad", token!);
+        archived.push(a.id);
+      } catch (e) {
+        failed.push(`${a.name}: ${errText(e)}`);
+      }
+    }
+    const cleared: number = await ctx.runMutation(internal.ads.markArchived, { adIds: archived });
+    return { inAdSet: all.length, archived: archived.length, cleared, failed, kept };
+  },
+});
+
+/** Ads archived in Meta leave the review list here too: they can no longer be approved. */
+export const markArchived = internalMutation({
+  args: { adIds: v.array(v.string()) },
+  handler: async (ctx, { adIds }) => {
+    const gone = new Set(adIds);
+    let n = 0;
+    for (const c of await ctx.db.query("adCreatives").take(2000)) {
+      if (!c.meta?.adId || !gone.has(c.meta.adId) || c.status === "live") continue;
+      await ctx.db.patch(c._id, { status: "rejected", error: undefined });
+      n++;
+    }
+    return n;
+  },
+});
+
+/** Sets aside drawn ads that never reached Meta, by name: for one remade after a fix, so the old drawing isn't left to review. */
+export const drop = internalMutation({
+  args: { names: v.array(v.string()) },
+  handler: async (ctx, { names }) => {
+    const dropped: string[] = [];
+    for (const name of names) {
+      const c = await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first();
+      if (!c || c.meta?.adId || (c.status !== "rendered" && c.status !== "failed" && c.status !== "voiced")) continue;
+      await ctx.db.patch(c._id, { status: "rejected" });
+      dropped.push(name);
+    }
+    return { dropped };
   },
 });
 
