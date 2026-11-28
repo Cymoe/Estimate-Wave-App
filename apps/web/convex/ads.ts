@@ -38,6 +38,7 @@ import {
   BRAND_GUIDE,
   guidePassed,
   isCollage,
+  isDetailShot,
   IMAGE_MIX,
   IMAGE_MIX_KEY,
   photoOfService,
@@ -5395,7 +5396,10 @@ export const imageAdInput = internalQuery({
         picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id], urls: [urlOf.get(b._id)!, urlOf.get(a._id)!] });
     } else {
       // Finished work only: never a before, never work in progress, never two pictures in one.
-      const all = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
+      const whole = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
+      // A close-up, one cupboard or empty shelves is left out while enough whole rooms are on file.
+      const strong = whole.filter((a) => !isDetailShot(a.description ?? ""));
+      const all = strong.length >= DETAIL_FREE_ENOUGH ? strong : whole;
       // The owner's best shots are always offered, however many ads they are in: those are the ones to keep showing.
       // Of the rest, with plenty that no ad has used yet, only the unused, so ordinary photos aren't repeated.
       // A best shot used in the last day rests while enough others can carry the ad.
@@ -5460,6 +5464,8 @@ export const createImageAd = action({
   },
 });
 
+/** With at least this many photos showing the whole of the work, detail shots aren't offered at all. */
+const DETAIL_FREE_ENOUGH = 6;
 /** How long a starred photo rests after going into an ad, while enough others can carry the next one. */
 const BEST_REST_HOURS = 24;
 /** How many earlier image ad headlines the writer is shown, newest first, so none is repeated. */

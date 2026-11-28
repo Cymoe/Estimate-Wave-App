@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, AD_SERVICES, photoOfService, BRAND_GUIDE, imageAdIssues, isCollage, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, isDetailShot, AD_SERVICES, photoOfService, BRAND_GUIDE, imageAdIssues, isCollage, IMAGE_AD_TYPES, pickImageModels, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -3323,6 +3323,9 @@ describe("the weekly run", () => {
     expect(rules({ headline: "Cabinets painted in Midland for you?" })).toEqual(["no-place"]);
     expect(rules({ picks: [2] })).toEqual(["no-collage"]);
     expect(isCollage("A kitchen with a side-by-side fridge.")).toBe(false);
+    // A piece of the work is too weak for any spot; a whole room is not.
+    for (const weak of ["Built-in shelving painted white, the shelves empty.", "A close-up of a cabinet door.", "Empty shelves in a painted hutch."]) expect(isDetailShot(weak)).toBe(true);
+    for (const fine of ["A finished kitchen with green lower cabinets and an island.", "A kitchen with open floor and white uppers."]) expect(isDetailShot(fine)).toBe(false);
     expect(new Set(BRAND_GUIDE.map((g) => g.id)).size).toBe(BRAND_GUIDE.length);
     const prompt = imageAdPrompt(type, "GoodFit Painting", "Midland", AD_TRADES.painting, cands);
     for (const g of BRAND_GUIDE.filter((x) => x.where !== "look")) expect(prompt).toContain(g.rule);

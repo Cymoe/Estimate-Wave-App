@@ -1831,6 +1831,14 @@ export const BRAND_GUIDE: GuideRule[] = [
 /** The longest the sub line's first sentence may be: it is printed as the one-line italic kicker. */
 export const IMAGE_KICKER_MAX = 44;
 
+/**
+ * Whether a photo's description says it shows only a piece of the work (a close-up, one cupboard, empty shelves): too
+ * weak for any spot in an image ad while whole rooms are on file (the owner's sets kept drawing the empty shelves).
+ */
+export function isDetailShot(description: string): boolean {
+  return /\bclose[- ]?up\b|\bdetail (?:of|shot)\b|\bempty (?:\w+ )?(?:shelves|shelving|shelf|bookcase|cabinet|cupboard)s?\b|\b(?:open|built[- ]in) (?:shelves|shelving|bookcase)\b|\b(?:a|one) single (?:door|drawer|cupboard|cabinet)\b/i.test(description);
+}
+
 /** Whether a photo's description says it is several pictures in one, or a screenshot: never offered for an image ad. */
 export function isCollage(description: string): boolean {
   return /\bcollages?\b|\bmontage\b|\bscreenshot\b|\bsplit[- ]screen\b|\bmulti[- ]?panel\b|\b(?:two|three|four|several|multiple)[- ](?:photos?|pictures?|images?|panels?)\b|\bgrid of\b/i.test(description);
@@ -1959,6 +1967,7 @@ export const IMAGE_BY_EYE = [
   "The photos are attached below, each labelled with its number. Look at them: choose by what you see, not only by the descriptions.",
   "- Pass over a photo where the work barely shows (a close-up of a sink or a counter with a sliver of cabinet), one with black bars, a border or phone-screen clutter, a blurry or dark one, a collage, or one where mess or a person is what you notice first.",
   "- Choose photos where the work is the main subject, well lit, and looks like something a homeowner would want.",
+  "- Every photo chosen, in every spot, must show the whole of the work. A detail, a single cupboard, a run of empty shelves or a close-up is never chosen, even for a small spot: choose fewer photos (three, not four) before choosing a weak one.",
   "- List the strongest photo first: it is shown largest. It must show the whole of the work (a full kitchen, the whole front of a house), never a detail, a single cupboard, one door or empty shelves.",
 ];
 

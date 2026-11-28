@@ -388,7 +388,7 @@ describe('Ops → Ads', () => {
 
   it('ads from separate runs sit side by side in one grid, grouped by what the owner does with them', async () => {
     const one = (id: string, status: AdBatch['creatives'][number]['status'], createdAt: string) =>
-      creative({ id, status, createdAt, kind: 'image', name: `WL_${id}_45`, hook: { id: `h${id}`, family: 'visual', familyLabel: 'Visual', scope: 'cabinets', textEn: `Ad ${id}` }, script: { voice: '', onScreen: [`Ad ${id}`], headline: `Ad ${id}`, primaryText: '' } });
+      creative({ id, status, createdAt, kind: 'image', name: `WL_${id}_45`, hook: { id: `h${id}`, family: 'visual', familyLabel: 'Visual', scope: 'cabinets', textEn: `Ad ${id}` }, script: { voice: '', onScreen: [`Ad ${id}`], headline: `Ad ${id}`, primaryText: 'Tired of them? Get a free quote.' } });
     const batch = (id: string, c: AdBatch['creatives'][number]): AdBatch => ({ id, weekOf: '2026-11-23', status: 'ready', createdAt: c.createdAt, creatives: [c] });
     batches = [
       batch('b1', one('a', 'paused', '2026-11-27T10:00:00Z')),
@@ -404,6 +404,8 @@ describe('Ops → Ads', () => {
     expect(titles('Ads to review')).toEqual(['Ad b', 'Ad c', 'Ad a']);
     expect(document.body.querySelector('[aria-label="To review"] header')!.textContent).toBe('To review · 32 in Meta, paused · 1 drawn, not in Meta yet');
     expect(titles('Ads running')).toEqual(['Ad d']);
+    // A still's tile carries the text that runs above the picture.
+    expect(document.body.querySelector('[aria-label="Ads to review"] [data-testid="primary-text"]')!.textContent).toBe('Tired of them? Get a free quote.');
     expect(titles('Ads being made')).toEqual(['Ad e']);
     expect(titles('Ads stopped or set aside')).toEqual(['Ad f']);
     expect(document.body.textContent).not.toContain('Week of');

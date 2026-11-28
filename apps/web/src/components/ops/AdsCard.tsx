@@ -945,6 +945,12 @@ const AdTile: React.FC<{ group: HookGroupData; act: Act }> = ({ group, act }) =>
           )}
         </div>
         <p className="mt-2 text-sm font-medium text-white line-clamp-2">{title}</p>
+        {/* A still's text above the picture in the feed: on the plain kinds it is the whole pitch, so it shows here. */}
+        {lead.kind === 'image' && lead.script.primaryText && (
+          <p className="mt-1 text-xs text-gray-300 line-clamp-4" data-testid="primary-text">
+            {lead.script.primaryText}
+          </p>
+        )}
         <p className="text-xs text-gray-400">
           <span className={live ? 'text-emerald-300' : 'text-gray-300'}>{statuses.join(' · ')}</span>
           {' · '}
