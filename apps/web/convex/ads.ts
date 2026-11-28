@@ -5294,7 +5294,7 @@ async function makeImageAd(ctx: ActionCtx, args: { type: string; swipeId?: Id<"a
       const content: unknown[] = [{ type: "text", text: prompt }];
       if (attempt > 0) content.push({ type: "text", text: `Your last answer had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` });
       plan = readImageAd(await claude(content, 3000));
-      problems = imageAdProblems(plan, type!, input.picks);
+      problems = imageAdProblems(plan, type!, input.picks, input.town);
       if (problems.length === 0) break;
     }
     if (!plan || problems.length) fail("INVALID", `The ad couldn't be written within the rules: ${problems.join("; ")}`);

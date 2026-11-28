@@ -1734,7 +1734,9 @@ export function imageAdPrompt(
     ...(avoid.length ? [`Already made in this set, so take a different angle and different photos from these: ${avoid.map((h) => `"${h}"`).join(", ")}.`] : []),
     "Rules:",
     ...RULES(brand, town),
-    `- headline: the words printed large on the image, at most ${IMAGE_HEADLINE_MAX} characters, plain and specific. No full stop needed.`,
+    `- Never say or hint where a pictured job was, ${town} included: the photos don't say. The town may only be named to speak to the viewer or say where we work ("${town} homeowners", "serving ${town}"), never as where these jobs were done ("done in ${town}", "kitchens in ${town}").`,
+    "- Facts come only from the photo descriptions above. Never invent anything you can't see in them.",
+    `- headline: the words printed large on the image, at most ${IMAGE_HEADLINE_MAX} characters, plain and specific, in sentence case (only the first word and names capitalised). No full stop needed.`,
     `- sub: one short line under it, at most ${IMAGE_SUB_MAX} characters.`,
     `- primaryText: the text above the image in the feed, one to three plain sentences, at most ${IMAGE_PRIMARY_MAX} characters, ending on the free quote from ${brand}. No emoji, no lists.`,
     "- title: the short link headline under the image, at most 40 characters.",
@@ -1768,7 +1770,7 @@ export function readImageAd(reply: string): ImageAdPlan | null {
 }
 
 /** What is wrong with an image ad's plan, in words Claude can act on. Empty when it can be made. */
-export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[]): string[] {
+export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string): string[] {
   if (!plan) return ["the reply wasn't JSON"];
   const out: string[] = [];
   const known = plan.picks.filter((n) => n <= candidates.length);
@@ -1784,7 +1786,15 @@ export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, can
   if (!plan.primaryText) out.push("no primaryText");
   if (plan.primaryText.length > IMAGE_PRIMARY_MAX) out.push(`primaryText is ${plan.primaryText.length} characters (at most ${IMAGE_PRIMARY_MAX})`);
   out.push(...forbiddenIn([plan.headline, plan.sub, plan.primaryText, plan.title].join(" ")));
+  if (town && jobPlaceClaim(`${plan.headline}. ${plan.sub}`, town)) out.push(`the headline or sub line says the pictured work was in ${town}: the photos don't say where; name the town only to speak to the viewer`);
   return out;
+}
+
+/** Whether printed words place the pictured work in a town ("Painted cabinets done in Midland", "Staircases in Midland"). */
+export function jobPlaceClaim(text: string, town: string): boolean {
+  const t = town.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // "serving Midland", "for Midland homeowners", "Midland homeowners" speak to the viewer; "in Midland" after the work places it.
+  return new RegExp(`\\b(?:in|at|around|across|from|near)\\s+(?:the\\s+)?${t}\\b`, "i").test(text) && !new RegExp(`\\bserving\\s+${t}\\b`, "i").test(text);
 }
 
 // ------------------------------------------------------------ Swipe file

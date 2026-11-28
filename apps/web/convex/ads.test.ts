@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -3122,6 +3122,13 @@ describe("the weekly run", () => {
     expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(6);
     expect(plan[0].text).toContain("Show a range of our work");
     expect(plan[0].text).not.toContain("Tell it as one small story");
+  });
+
+  test("an image ad's printed words never place the pictured work in the town", () => {
+    expect(jobPlaceClaim("Painted cabinets done in Midland", "Midland")).toBe(true);
+    expect(jobPlaceClaim("Stained wood staircases in Midland", "Midland")).toBe(true);
+    expect(jobPlaceClaim("Midland homeowners: cabinets, repainted", "Midland")).toBe(false);
+    expect(jobPlaceClaim("Cabinet painting, serving Midland", "Midland")).toBe(false);
   });
 
   test("hype is turned back, even when it's the competitor's line", () => {
