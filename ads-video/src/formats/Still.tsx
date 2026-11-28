@@ -8,8 +8,8 @@ import type { Photo, StillProps } from "../types";
  * Nov 2026), in the brand's navy and gold with its house mark. Where the words sit changes from ad to ad (`variant`),
  * so a set doesn't look stamped from one mould. The lettering follows Goodyear's: heavy condensed capitals for the
  * headline, the name and the button; an italic serif in gold for the first sentence of the line under it:
- *   0 top     the headline on the top of the picture, the ask along the bottom
- *   1 band    a navy band across the middle carries the words, photos above and below it
+ *   0 top     the headline on the top (over the smaller photos; the leading photo is clean below it), the ask along the bottom
+ *   1 band    a navy band across the middle carries the words; the photos share the room above and below, none covered
  *   2 bottom  the picture is clean on top; the headline sits low, above the ask
  *   3 card    a navy card in the middle carries the words, the photos showing all round it
  */
@@ -122,7 +122,11 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
   // A lone photo has no join for a band to sit on, so it keeps to the looks that suit it.
   const look = photos.length <= 1 && variant % 4 === 1 ? 2 : variant % 4;
   // Every look fills the frame with the photos; a band or a card is laid over where they meet, as tall as its words.
-  const frames = cellsOf(photos, isPair, W, 0, H, gap);
+  const laid = cellsOf(photos, isPair, W, 0, H, gap);
+  // Words on top: the photos are turned over, so the leading photo sits clean at the bottom and the words stand on
+  // the smaller ones (the owner, Nov 2026: the design shouldn't cover the best picture).
+  const flip = look === 0 && (photos.length === 2 || photos.length === 3) && !(isPair && laid.cells[0].width < W);
+  const frames = flip ? { cells: laid.cells.map((c) => ({ ...c, top: H - c.top - c.height })), joinX: laid.joinX, joinY: H - laid.joinY } : laid;
   const { cells, joinX, joinY } = frames;
   const foot = (
     <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 44, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -133,6 +137,34 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
   const shadeUp = (h: number, strong = 0.9) => (
     <div style={{ position: "absolute", left: 0, bottom: 0, width: W, height: h, background: `linear-gradient(to top, rgba(${SHADE},${strong}) 0%, rgba(${SHADE},${strong * 0.7}) 50%, rgba(${SHADE},0) 100%)` }} />
   );
+  const picture = (ph: Photo, key: number) => (
+    <div key={key} style={{ flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: INK }}>
+      <Img src={source(ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${ph.focus?.[0]?.x ?? 50}% ${ph.focus?.[0]?.y ?? 50}%` }} />
+    </div>
+  );
+  // The band has room of its own: the photos share what is left above and below it, so it covers none of them.
+  if (look === 1 && photos.length > 1) {
+    const upper = photos.slice(0, photos.length === 4 ? 2 : 1);
+    const lower = photos.slice(upper.length);
+    return (
+      <AbsoluteFill style={{ backgroundColor: "#fff", display: "flex", flexDirection: "column", paddingTop: safeTop }}>
+        <div style={{ flex: lower.length > upper.length ? 1.25 : 1, minHeight: 0, display: "flex", gap }}>{upper.map(picture)}</div>
+        <div style={{ flex: "none", backgroundColor: NAVY, display: "flex", alignItems: "center", padding: "36px 56px", gap: 36, borderTop: `6px solid ${GOLD}`, borderBottom: `6px solid ${GOLD}` }}>
+          <div style={{ flex: 1 }}>
+            <Words headline={headline} sub={sub} max={104} />
+          </div>
+          <div style={{ position: "relative", width: 170, height: 170, flex: "none" }}>
+            <Mark size={170} left={85} top={85} />
+          </div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", gap, position: "relative" }}>
+          {lower.map(picture)}
+          <div style={{ position: "absolute", left: 0, bottom: 0, width: W, height: safeBottom + 200, background: `linear-gradient(to top, rgba(${SHADE},0.85) 0%, rgba(${SHADE},0.6) 50%, rgba(${SHADE},0) 100%)` }} />
+        </div>
+        {foot}
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill style={{ backgroundColor: photos.length ? "#fff" : NAVY }}>
       {cells.map((c, i) => (
@@ -143,12 +175,13 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
       {look === 0 ? (
         <>
           {/* Deep enough for a three-line headline and both lines under it to read on a bright photo. */}
-          <div style={{ position: "absolute", left: 0, top: 0, width: W, height: safeTop + 700, background: `linear-gradient(to bottom, rgba(${SHADE},0.94) 0%, rgba(${SHADE},0.8) 45%, rgba(${SHADE},0.5) 68%, rgba(${SHADE},0) 100%)` }} />
+          <div style={{ position: "absolute", left: 0, top: 0, width: W, height: flip ? safeTop + joinY + 60 : safeTop + 700, background: `linear-gradient(to bottom, rgba(${SHADE},0.94) 0%, rgba(${SHADE},0.8) 45%, rgba(${SHADE},0.5) 68%, rgba(${SHADE},0) 100%)` }} />
           {shadeUp(safeBottom + 250, 0.88)}
           <div style={{ position: "absolute", left: 56, right: 56, top: safeTop + 44 }}>
             <Words headline={headline} sub={sub} />
           </div>
-          {photos.length > 1 ? <Mark size={196} left={joinX} top={joinY} /> : null}
+          {/* Turned over, the words reach the join: the mark keeps to the right of it, clear of them. */}
+          {photos.length > 1 ? <Mark size={flip ? 170 : 196} left={flip ? W - 56 - 85 : joinX} top={joinY} /> : null}
           {foot}
         </>
       ) : look === 1 ? (

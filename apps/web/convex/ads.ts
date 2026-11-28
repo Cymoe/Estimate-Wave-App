@@ -5172,6 +5172,24 @@ export const drop = internalMutation({
   },
 });
 
+/**
+ * Sets aside every drawn ad made before `before` that never reached Meta (the ad set was full, or it failed): old
+ * looks left in To review. `dry` only lists them.
+ */
+export const dropStale = internalMutation({
+  args: { before: v.string(), dry: v.optional(v.boolean()) },
+  handler: async (ctx, { before, dry }) => {
+    const names: string[] = [];
+    for (const status of ["rendered", "failed"] as const)
+      for (const c of await ctx.db.query("adCreatives").withIndex("by_status", (q) => q.eq("status", status)).take(500)) {
+        if (c.meta?.adId || c.createdAt >= before) continue;
+        if (!dry) await ctx.db.patch(c._id, { status: "rejected" });
+        names.push(c.name);
+      }
+    return { count: names.length, names };
+  },
+});
+
 /** A file's bytes as base64, for Meta's image upload (no Buffer in Convex's default runtime). */
 async function base64Of(url: string): Promise<string> {
   const res = await fetch(url);
