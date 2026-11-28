@@ -110,23 +110,8 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
   const safeBottom = tall ? 300 : 0;
   // A lone photo has no join for a band to sit on, so it keeps to the looks that suit it.
   const look = photos.length <= 1 && variant % 4 === 1 ? 2 : variant % 4;
-  const bandH = 330;
-  const bandTop = Math.round(H * 0.5 - bandH / 2);
-  // The band look splits the photos round the band; every other look fills the frame.
-  const frames =
-    look === 1 && photos.length > 1
-      ? (() => {
-          const upper = photos.length === 2 ? [photos[0]] : photos.length === 3 ? [photos[0]] : photos.slice(0, 2);
-          const lower = photos.slice(upper.length);
-          const a = cellsOf(upper, false, W, 0, bandTop - gap, gap);
-          const b = cellsOf(lower, false, W, bandTop + bandH + gap, H - bandTop - bandH - gap, gap);
-          const row = (ps: Photo[], top: number, h: number): Cell[] => {
-            const w = Math.floor((W - gap * (ps.length - 1)) / ps.length);
-            return ps.map((ph, i) => ({ ph, left: i * (w + gap), top, width: w, height: h }));
-          };
-          return { cells: [...row(upper, 0, bandTop - gap), ...row(lower, bandTop + bandH + gap, H - bandTop - bandH - gap)], joinX: a.joinX, joinY: b.joinY };
-        })()
-      : cellsOf(photos, isPair, W, 0, H, gap);
+  // Every look fills the frame with the photos; a band or a card is laid over where they meet, as tall as its words.
+  const frames = cellsOf(photos, isPair, W, 0, H, gap);
   const { cells, joinX, joinY } = frames;
   const foot = (
     <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 44, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -156,9 +141,9 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
         </>
       ) : look === 1 ? (
         <>
-          <div style={{ position: "absolute", left: 0, top: bandTop, width: W, height: bandH, backgroundColor: NAVY, display: "flex", alignItems: "center", padding: "0 56px", boxSizing: "border-box", gap: 36 }}>
+          <div style={{ position: "absolute", left: 0, top: Math.min(joinY, H * 0.52), transform: "translateY(-50%)", width: W, minHeight: 300, backgroundColor: NAVY, display: "flex", alignItems: "center", padding: "44px 56px", boxSizing: "border-box", gap: 36, borderTop: `6px solid ${GOLD}`, borderBottom: `6px solid ${GOLD}` }}>
             <div style={{ flex: 1 }}>
-              <Words headline={headline} sub={sub} max={78} />
+              <Words headline={headline} sub={sub} max={76} />
             </div>
             <div style={{ position: "relative", width: 170, height: 170, flex: "none" }}>
               <Mark size={170} left={85} top={85} />
@@ -169,7 +154,7 @@ const Layout: React.FC<StillProps & { photos: Photo[]; isPair: boolean }> = ({ r
         </>
       ) : look === 2 ? (
         <>
-          {shadeUp(safeBottom + 640, 0.95)}
+          {shadeUp(safeBottom + 600, 0.9)}
           {photos.length > 1 ? <Mark size={180} left={joinX} top={joinY} /> : <Mark size={150} left={56 + 75} top={safeTop + 56 + 75} />}
           <div style={{ position: "absolute", left: 56, right: 56, bottom: safeBottom + 160 }}>
             <Words headline={headline} sub={sub} />
