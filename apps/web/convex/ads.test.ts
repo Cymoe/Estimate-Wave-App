@@ -2119,6 +2119,7 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         if (opts.busyLooks && prompt.includes("It will be used in ads.") && opts.busyLooks.n-- > 0)
           return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } }), { status: 429 });
         if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
+        else if (prompt.includes("Shortlist photos for one static image ad")) reply = { photos: [1, 2, 3, 4, 5, 6, 7, 8] };
         else if (prompt.includes("You write one static image ad")) {
           const words = { headline: retry ? "Cabinets, freshly painted" : (opts.imageHeadline ?? "Cabinets, freshly painted"), sub: "Free cabinet painting quote, no pressure", primaryText: "We repaint kitchen cabinets. Get a free quote from GoodFit Painting.", title: "Cabinet painting" };
           reply = prompt.includes('{"pair":') ? { pair: 1, ...words } : prompt.includes('{"photos":') ? { photos: [1, 2, 3], ...words } : { photo: 1, ...words };
@@ -3104,6 +3105,22 @@ describe("the weekly run", () => {
     const lastAsk = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).at(-1)!;
     expect(lastAsk).toContain("Fresh kitchen number 3");
     expect(lastAsk).not.toContain("Elm kitchen");
+    // With more than eight to choose from, a first pass lists the few worth looking at, and the writer is then shown
+    // those as pictures to choose by eye.
+    const lastTwo = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>).slice(-3);
+    // (The first answer's hype headline is sent back once, so the writer is asked twice.)
+    expect(lastTwo[0][0].text).toContain("Shortlist photos for one static image ad about cabinet painting");
+    expect(lastTwo[1].filter((c) => c.type === "image")).toHaveLength(8);
+    expect(lastTwo[1][0].text).toContain("choose by what you see");
+    // A starred best shot is offered however many ads it is in.
+    await t.run(async (ctx) => {
+      const elm = (await ctx.db.query("adAssets").collect()).find((a) => a.fileName === "Elm-after.jpg")!;
+      await ctx.db.patch(elm._id, { best: true, uses: 5 });
+    });
+    await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "photo" });
+    const listAsk = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).filter((x) => x.includes("Shortlist photos")).at(-1)!;
+    expect(listAsk).toContain("1. BEST · ");
+    expect(listAsk).toContain("Elm kitchen");
     // Drawn without a voice: each as a still, with its photos laid out by type.
     const jobs = (await claim()).filter((j) => rows.slice(0, 3).some((r) => r.name === j.name));
     expect(jobs.map((j) => j.kind)).toEqual(["image", "image", "image"]);

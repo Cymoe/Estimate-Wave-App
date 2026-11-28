@@ -1760,6 +1760,8 @@ export function imageAdPrompt(
   // What else has run for months in this service, and what the long-runners have in common (the playbook).
   field: Array<{ company: string; angle: string; offer: string; daysRunning?: number; image?: boolean }> = [],
   playbook?: string,
+  // The photos are attached as pictures after this text, to be chosen by eye.
+  byEye = false,
 ): string {
   const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
   const want = type.layout === "pair" ? "one pair" : type.layout === "grid" ? "three or four photos, each from a different project" : "one photo";
@@ -1797,7 +1799,8 @@ export function imageAdPrompt(
         : `${c.n}. ${c.best ? "BEST · " : ""}${c.tags.join(", ")}${c.project ? ` · project ${c.project}` : ""} · uses ${c.uses}: ${c.description.replace(/\s+/g, " ").slice(0, 200)}`,
     ),
     "",
-    `Choose ${want} that best carries this ad. Choose from photos with uses 0 wherever some fit; one already in ads only when nothing unused fits. Among those, prefer BEST ones. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
+    ...(byEye ? IMAGE_BY_EYE : []),
+    `Choose ${want} that best carries this ad. BEST photos are the owner's favourites: use them first, even when already in ads. Among the rest, choose ones with uses 0 wherever some fit. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
     type.layout === "grid" ? "Every word of the headline and the line under it must be true of every photo chosen, not most of them: if one has no island, don't say islands." : "",
     ...(avoid.length ? [`Already made in this set, so take a different angle and different photos from these: ${avoid.map((h) => `"${h}"`).join(", ")}.`] : []),
     "Rules:",
@@ -1821,6 +1824,42 @@ export function imageAdPrompt(
     .filter((l, i, all) => l !== "" || all[i - 1] !== "")
     .join("\n");
 }
+
+/** How many photos (or pairs) Claude is shown by eye before it chooses: enough to choose from, few enough to look at properly. */
+export const IMAGE_LOOK_MAX = 8;
+export const IMAGE_LOOK_PAIRS = 4;
+export const IMAGE_SHORTLIST_MARK = "Shortlist photos for one static image ad";
+
+/**
+ * The first pass, from descriptions alone: the few photos (or pairs) worth looking at for this ad. The second pass
+ * shows those to Claude as pictures, so one that reads well but looks wrong (a close-up where the cabinets barely
+ * show, a screenshot with black bars) is seen and passed over.
+ */
+export function imageShortlistPrompt(type: ImageAdType, service: AdService | undefined, candidates: ImageCandidate[], max: number, avoid: string[] = []): string {
+  return [
+    `${IMAGE_SHORTLIST_MARK}${service ? ` about ${service.label.toLowerCase()}` : ""} (${type.label.toLowerCase()}). From what each shows, pick the ${max} ${type.layout === "pair" ? "pairs" : "photos"} most likely to make a strong ad: the work is the main subject and fills the picture, the room is finished and tidy, and it would stop a homeowner scrolling.`,
+    "BEST marks the owner's favourite shots: put every BEST one that fits on the list first, even if it is already in ads. For the rest, prefer ones with uses 0.",
+    type.layout === "grid" ? "Take them from as many different projects as you can." : "",
+    avoid.length ? `Other ads in this set are already being made, so favour different photos from the obvious first picks.` : "",
+    "",
+    ...candidates.map((c) =>
+      type.layout === "pair"
+        ? `${c.n}. ${c.best ? "BEST · " : ""}uses ${c.uses} · before: ${(c.before ?? "").replace(/\s+/g, " ").slice(0, 140)} · after: ${c.description.replace(/\s+/g, " ").slice(0, 140)}`
+        : `${c.n}. ${c.best ? "BEST · " : ""}${c.project ? `project ${c.project} · ` : ""}uses ${c.uses}: ${c.description.replace(/\s+/g, " ").slice(0, 180)}`,
+    ),
+    "",
+    'Return only JSON: {"photos":[3,7,12]}',
+  ]
+    .filter((l, i, all) => l !== "" || all[i - 1] !== "")
+    .join("\n");
+}
+
+/** What the second pass is told about the pictures attached to it. */
+export const IMAGE_BY_EYE = [
+  "The photos are attached below, each labelled with its number. Look at them: choose by what you see, not only by the descriptions.",
+  "- Pass over a photo where the work barely shows (a close-up of a sink or a counter with a sliver of cabinet), one with black bars, a border or phone-screen clutter, a blurry or dark one, a collage, or one where mess or a person is what you notice first.",
+  "- Choose photos where the work is the main subject, well lit, and looks like something a homeowner would want.",
+];
 
 export interface ImageAdPlan {
   picks: number[];

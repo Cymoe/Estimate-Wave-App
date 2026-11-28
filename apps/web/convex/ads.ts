@@ -28,6 +28,9 @@ import {
   imageAdType,
   adServiceOf,
   pickImageModels,
+  imageShortlistPrompt,
+  IMAGE_LOOK_MAX,
+  IMAGE_LOOK_PAIRS,
   isImageSwipe,
   adServicesOf,
   imageAdPrompt,
@@ -5191,7 +5194,7 @@ export const imageAdTypes = query({
   },
 });
 
-type ImagePick = ImageCandidate & { ids: Id<"adAssets">[] };
+type ImagePick = ImageCandidate & { ids: Id<"adAssets">[]; urls: string[] };
 
 /** What one image ad is written from: the photos (or pairs) to choose from, and the competitor ad to model. */
 export const imageAdInput = internalQuery({
@@ -5216,7 +5219,14 @@ export const imageAdInput = internalQuery({
     const ofService = (a: Doc<"adAssets">) => a.tags.some((t) => service!.works.includes(t));
     const photos = (await ctx.db.query("adAssets").take(500)).filter((a) => a.kind === "photo" && inTrade(a, trade.slug) && a.description);
     const drawable: typeof photos = [];
-    for (const a of photos) if (await lookUrl(ctx, a)) drawable.push(a);
+    const urlOf = new Map<string, string>();
+    for (const a of photos) {
+      const url = await lookUrl(ctx, a);
+      if (url) {
+        drawable.push(a);
+        urlOf.set(a._id, url);
+      }
+    }
     // The owner's best first, then the least used: so the same photo doesn't head every list.
     const order = (a: Doc<"adAssets">, b: Doc<"adAssets">) => Number(!!b.best) - Number(!!a.best) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt);
     const before = (a: Doc<"adAssets">) => a.tags.includes("before") && !a.tags.includes("after");
@@ -5232,13 +5242,15 @@ export const imageAdInput = internalQuery({
       }
       pairs.sort(([, x], [, y]) => order(x, y));
       for (const [b, a] of pairs.slice(0, 60))
-        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id] });
+        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id], urls: [urlOf.get(b._id)!, urlOf.get(a._id)!] });
     } else {
       // Finished work only: never a before, never work in progress, never two pictures in one.
       const all = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
-      // With plenty of photos no ad has used yet, only those are offered, so a new ad never repeats an old one's.
-      const unused = all.filter((a) => (a.uses ?? 0) === 0);
-      const finished = unused.length >= UNUSED_ENOUGH ? unused : all;
+      // The owner's best shots are always offered, however many ads they are in: those are the ones to keep showing.
+      // Of the rest, with plenty that no ad has used yet, only the unused, so ordinary photos aren't repeated.
+      const best = all.filter((a) => a.best);
+      const unused = all.filter((a) => !a.best && (a.uses ?? 0) === 0);
+      const finished = best.length + unused.length >= UNUSED_ENOUGH ? [...best, ...unused] : all;
       // Each project a short name of its own (P1, P2...); a photo in no project counts as its own.
       const names = new Map<string, string>();
       const projectOf = (a: Doc<"adAssets">) => {
@@ -5247,7 +5259,7 @@ export const imageAdInput = internalQuery({
         return names.get(key)!;
       };
       for (const a of finished.slice(0, 120))
-        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best, project: projectOf(a), ids: [a._id] });
+        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best, project: projectOf(a), ids: [a._id], urls: [urlOf.get(a._id)!] });
     }
     // The competitor ads for this service: the one to build on (the owner's pick, else the best long-running image
     // ad taking its turn), the rest of the best as what's working, and the category's playbook.
@@ -5333,18 +5345,34 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
           ? `No before and after pair of ${about} in the Library yet. Pair a before with its after first.`
           : `Only ${input.picks.length} finished ${about} photo${input.picks.length === 1 ? "" : "s"} with a description in the Library.${type!.layout === "grid" ? " A showcase needs 3 from different projects." : ""}`,
       );
-    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), input.picks, input.basedOn, new Date(), avoid, input.service, input.field, input.playbook);
+    // First, from descriptions: the few worth looking at. Then those are shown as pictures and chosen by eye.
+    const lookMax = type!.layout === "pair" ? IMAGE_LOOK_PAIRS : IMAGE_LOOK_MAX;
+    let shown: ImagePick[] = input.picks;
+    if (shown.length > lookMax) {
+      const listed = readShortlist(await claude([{ type: "text", text: imageShortlistPrompt(type!, input.service, input.picks, lookMax, avoid) }], 2000), input.picks.length);
+      const few = listed.slice(0, lookMax).map((n) => input.picks[n - 1]);
+      // An unusable answer: the first few as offered (best, then least used).
+      shown = few.length >= need ? few : input.picks.slice(0, lookMax);
+    }
+    shown = shown.map((p, i) => ({ ...p, n: i + 1 }));
+    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), shown, input.basedOn, new Date(), avoid, input.service, input.field, input.playbook, true);
+    const pictures: unknown[] = shown.flatMap((p) =>
+      p.urls.flatMap((url, k) => [
+        { type: "text", text: type!.layout === "pair" ? `Pair ${p.n}, ${k === 0 ? "before" : "after"}:` : `Photo ${p.n}:` },
+        { type: "image", source: { type: "url", url } },
+      ]),
+    );
     let plan: ImageAdPlan | null = null;
     let problems: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
-      const content: unknown[] = [{ type: "text", text: prompt }];
+      const content: unknown[] = [{ type: "text", text: prompt }, ...pictures];
       if (attempt > 0) content.push({ type: "text", text: `Your last answer had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` });
       plan = readImageAd(await claude(content, 3000));
-      problems = imageAdProblems(plan, type!, input.picks, input.town);
+      problems = imageAdProblems(plan, type!, shown, input.town);
       if (problems.length === 0) break;
     }
     if (!plan || problems.length) fail("INVALID", `The ad couldn't be written within the rules: ${problems.join("; ")}`);
-    const assetIds = plan!.picks.flatMap((n) => input.picks[n - 1].ids);
+    const assetIds = plan!.picks.flatMap((n) => shown[n - 1].ids);
     const name: string = await ctx.runMutation(internal.ads.storeImageAd, {
       type: type!.key,
       trade: input.trade,
