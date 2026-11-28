@@ -5236,7 +5236,15 @@ export const libraryCheck = internalQuery({
     // a before and its after joined (tagged both), which an image ad doesn't use.
     const both = (a: Doc<"adAssets">) => a.tags.includes("before") && a.tags.includes("after");
     const line = (a: Doc<"adAssets">) => `${a.fileName} · ${a.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)"} · ${a.pairLookedAt ? "looked at" : "not looked at"} · ${(a.description ?? "").slice(0, 80)}`;
+    // Photos that read like a before of this service but aren't tagged as one: an older finish, described as dated,
+    // unpainted or brown, filed as finished or as other work.
+    const oldLook = /\b(unpainted|dated|honey|oak|brown|original wood|natural wood|wood[- ]tone|worn|outdated|old)\b/i;
+    const subject = service!.key === "cabinets" ? /\bcabinet/i : /\b(house|home|siding|exterior|brick)\b/i;
+    const likelyBefores = photos.filter((a) => !before(a) && !both(a) && a.description && oldLook.test(a.description) && subject.test(a.description));
+    const tagLine = (a: Doc<"adAssets">) => `${a.fileName} · ${a.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)"} · [${a.tags.join(", ")}] · ${(a.description ?? "").slice(0, 90)}`;
     return {
+      allBeforesInTrade: photos.filter(before).length,
+      likelyBefores: likelyBefores.map(tagLine),
       befores: mine.filter(before).length,
       beforesUnpaired: mine.filter((a) => before(a) && !a.pairKey).map(line),
       joined: mine.filter(both).map(line),
