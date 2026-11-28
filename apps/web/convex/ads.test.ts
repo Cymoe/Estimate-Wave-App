@@ -3335,7 +3335,8 @@ describe("the weekly run", () => {
       return first;
     });
     const all = await t.query(internal.ads.imageAdInput, { service: "cabinets", type: "plain_pair", fresh: true });
-    expect(all.picks).toHaveLength(3);
+    // One pair a job on the list: Elm's two angles count once.
+    expect(all.picks).toHaveLength(2);
     // With the first Elm pair already in the set, the other Elm pair is left out too: only Oak is offered.
     const next = await t.query(internal.ads.imageAdInput, { service: "cabinets", type: "plain_pair", fresh: true, skipAssets: ids });
     expect(next.picks.map((p) => p.description)).toEqual(["Oak kitchen, white."]);

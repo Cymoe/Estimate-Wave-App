@@ -5529,6 +5529,9 @@ export const imageAdInput = internalQuery({
         picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id], urls: [urlOf.get(b._id)!, urlOf.get(a._id)!], job: a.jobId ?? b.jobId });
       // The least used first, whichever kind of pair it is, so the same kitchen doesn't lead every time.
       picks.sort((x, y) => Number(!!y.best) - Number(!!x.best) || x.uses - y.uses);
+      // One pair a job on the list: four angles of one kitchen would crowd the others off it. The least used angle
+      // is the one kept, so the angles take turns from set to set.
+      for (let i = picks.length - 1; i >= 0; i--) if (picks[i].job && picks.slice(0, i).some((p) => p.job === picks[i].job)) picks.splice(i, 1);
     } else {
       // Finished work only: never a before, never work in progress, never two pictures in one.
       const whole = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
@@ -5571,7 +5574,7 @@ export const imageAdInput = internalQuery({
     const otherJobs = open.filter((p) => !p.job || !takenJobs.has(p.job));
     // A before and after is one job's whole story: when the only pairs left are of a job this set already shows,
     // there is none to make (a mixed set then makes another kind instead of the same kitchen from a new angle).
-    if (type!.layout === "pair" && takenJobs.size > 0 && open.length > 0 && otherJobs.length === 0) fail("INVALID", "No before and after pair from a job this set doesn't already show");
+    if (type!.layout === "pair" && taken.size > 0 && picks.length > 0 && otherJobs.length === 0) fail("INVALID", "No before and after pair from a job this set doesn't already show");
     const offered = (otherJobs.length >= enough ? otherJobs : open.length >= enough ? open : picks).map(({ job: _job, ...p }, i) => ({ ...p, n: i + 1 }));
     const playbook = fresh ? undefined : (await ctx.db.query("adPlaybooks").take(20)).find((p) => p.scope === service!.scope)?.text;
     // The headlines image ads already carry (rejected ones too): none is written again.
@@ -5622,11 +5625,11 @@ const UNUSED_ENOUGH = 12;
 export const IMAGE_ADS_AT_ONCE = 6;
 
 /** Several of one type, one after another: each sees what the ones before it used, so photos and angles differ. */
-async function makeImageAds(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, count: number, me?: Id<"users">) {
+async function makeImageAds(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, count: number, me?: Id<"users">, notAssets: Id<"adAssets">[] = []) {
   const made: Array<{ name: string; headline: string; builtOn?: string }> = [];
   const missed: string[] = [];
   const usedSwipes: Id<"adSwipes">[] = [];
-  const usedAssets: Id<"adAssets">[] = [];
+  const usedAssets: Id<"adAssets">[] = [...notAssets];
   // Ads made in one go are filed together (one batch), so they are one set wherever batches are shown.
   const set: { batchId?: Id<"adBatches"> } = {};
   for (let i = 0; i < count; i++) {
@@ -5658,8 +5661,9 @@ async function makeImageAds(ctx: ActionCtx, args: { service: string; type: strin
 
 /** The same from a cloud session (the deploy workflow), to make one or to check the live library. */
 export const createImageAdOutside = internalAction({
-  args: { service: v.string(), type: v.string(), swipeId: v.optional(v.id("adSwipes")), fresh: v.optional(v.boolean()), trade: v.optional(v.string()), count: v.optional(v.number()) },
-  handler: async (ctx, { count, ...args }) => await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1)))),
+  // notAssets: photos to leave out (and, with them, their jobs), to make an ad from the others.
+  args: { service: v.string(), type: v.string(), swipeId: v.optional(v.id("adSwipes")), fresh: v.optional(v.boolean()), trade: v.optional(v.string()), count: v.optional(v.number()), notAssets: v.optional(v.array(v.id("adAssets"))) },
+  handler: async (ctx, { count, notAssets, ...args }) => await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1))), undefined, notAssets),
 });
 
 async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, me?: Id<"users">, avoid: string[] = [], skipSwipes: Id<"adSwipes">[] = [], skipAssets: Id<"adAssets">[] = [], set: { batchId?: Id<"adBatches"> } = {}): Promise<{ name: string; headline: string; builtOn?: string; swipeId?: Id<"adSwipes">; assetIds: Id<"adAssets">[] }> {
