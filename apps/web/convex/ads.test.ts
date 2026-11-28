@@ -3029,7 +3029,7 @@ describe("the weekly run", () => {
           fileName,
           contentType: "image/jpeg",
           size: 10,
-          tags: ["interior", "cabinets", ...tags],
+          tags: ["interior", "cabinets", "cabinets-painted", ...tags],
           description,
           uploadedBy: user,
           createdAt: "2026-11-01T00:00:00Z",
@@ -3042,19 +3042,39 @@ describe("the weekly run", () => {
       await add("pair-before.jpg", ["before"], "Dated oak cabinets.", { pairKey: "k9" });
       await add("pair-after.jpg", ["after"], "The same kitchen painted white.", { pairKey: "k9", uses: 9 });
       await add("work.jpg", ["process"], "Doors off and masked.");
+      // Other work on file, which a cabinet painting ad must never be offered.
+      for (const [fileName, work, description] of [["barn.jpg", "doors", "A stained barn door."], ["stairs.jpg", "stairs-balusters", "A stained staircase."], ["house.jpg", "exterior-repaint", "A repainted house exterior."]])
+        await ctx.db.insert("adAssets", {
+          storageId: await ctx.storage.store(new Blob([fileName], { type: "image/jpeg" })),
+          kind: "photo",
+          fileName,
+          contentType: "image/jpeg",
+          size: 10,
+          tags: [work === "exterior-repaint" ? "exterior" : "interior", work, "after"],
+          description,
+          uploadedBy: user,
+          createdAt: "2026-11-01T00:00:00Z",
+        });
     });
-    await expect(staff.as.action(api.ads.createImageAd, { type: "photo" })).rejects.toThrow();
-    await expect(owner.as.action(api.ads.createImageAd, { type: "poster" })).rejects.toThrow("isn't a type");
+    // What it's about has to be chosen, and be a service on offer.
+    await expect(owner.as.action(api.ads.createImageAd, { service: "barn-doors", type: "photo" })).rejects.toThrow("Choose what the ad is about");
+    // One exterior photo on file: a single-photo ad can be made, a showcase can't, and says why.
+    await expect(owner.as.action(api.ads.createImageAd, { service: "exterior", type: "showcase" })).rejects.toThrow("Only 1 finished exterior painting photo with a description");
+    await expect(staff.as.action(api.ads.createImageAd, { service: "cabinets", type: "photo" })).rejects.toThrow();
+    await expect(owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "poster" })).rejects.toThrow("isn't a type");
     // A single finished photo: the hype headline is sent back, the second answer is kept.
-    const made = await owner.as.action(api.ads.createImageAd, { type: "photo" });
+    const made = await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "photo" });
     expect(made.made.map((m) => m.headline)).toEqual(["Cabinets, freshly painted"]);
     const asks = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content as Array<{ text?: string }>);
     expect(asks.at(-1)!.at(-1)!.text).toContain("hype");
     // Only finished work is offered: not the before, not the work in progress.
     expect(asks[0][0].text).not.toContain("Dated oak");
     expect(asks[0][0].text).not.toContain("Doors off");
-    await owner.as.action(api.ads.createImageAd, { type: "showcase" });
-    await owner.as.action(api.ads.createImageAd, { type: "before_after" });
+    // And only cabinet painting: no barn door, staircase or house exterior, and the writer is told to stay on it.
+    for (const other of ["barn door", "staircase", "house exterior"]) expect(asks[0][0].text).not.toContain(other);
+    expect(asks[0][0].text).toContain("This ad is about cabinet painting and nothing else");
+    await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "showcase" });
+    await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "before_after" });
     const rows = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still));
     expect(rows.slice(0, 3).map((c) => [c.still!.type, c.still!.layout, c.assetIds.length, c.kind, c.status, c.ratio])).toEqual([
       ["photo", "single", 1, "image", "voiced", "4x5"],
@@ -3062,6 +3082,8 @@ describe("the weekly run", () => {
       ["before_after", "pair", 2, "image", "voiced", "4x5"],
     ]);
     expect(rows[0].script).toMatchObject({ voice: "", onScreen: ["Cabinets, freshly painted", "White uppers, colour below"] });
+    const tagsOf = await t.run(async (ctx) => Promise.all(rows.flatMap((r) => r.assetIds).map(async (id) => (await ctx.db.get(id))!.tags)));
+    expect(tagsOf.every((tags) => tags.includes("cabinets-painted"))).toBe(true);
     // With plenty of unused finished photos on file, ones already in an ad aren't offered again.
     await t.run(async (ctx) => {
       const user = (await ctx.db.query("users").take(1))[0]._id;
@@ -3072,13 +3094,13 @@ describe("the weekly run", () => {
           fileName: `fresh-${i}.jpg`,
           contentType: "image/jpeg",
           size: 10,
-          tags: ["interior", "cabinets", "after"],
+          tags: ["interior", "cabinets", "cabinets-painted", "after"],
           description: `Fresh kitchen number ${i}.`,
           uploadedBy: user,
           createdAt: "2026-11-02T00:00:00Z",
         });
     });
-    await owner.as.action(api.ads.createImageAd, { type: "photo" });
+    await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "photo" });
     const lastAsk = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).at(-1)!;
     expect(lastAsk).toContain("Fresh kitchen number 3");
     expect(lastAsk).not.toContain("Elm kitchen");
@@ -3096,16 +3118,16 @@ describe("the weekly run", () => {
     const { t, owner, calls } = await ready();
     stubServices(calls);
     await t.run(async (ctx) => {
-      for (const a of await ctx.db.query("adAssets").collect()) await ctx.db.patch(a._id, { pairKey: undefined, description: "A finished kitchen.", tags: ["cabinets", "after"] });
+      for (const a of await ctx.db.query("adAssets").collect()) await ctx.db.patch(a._id, { pairKey: undefined, description: "A finished kitchen.", tags: ["cabinets", "cabinets-painted", "after"] });
     });
-    await expect(owner.as.action(api.ads.createImageAd, { type: "before_after" })).rejects.toThrow("No before and after pair");
-    await owner.as.action(api.ads.createImageAd, { type: "seasonal" });
+    await expect(owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "before_after" })).rejects.toThrow("No before and after pair");
+    await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "seasonal" });
     const ask = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).find((x) => x.includes("Seasonal offer"))!;
     expect(ask).toMatch(/It is [A-Z][a-z]+ now\./);
     expect(ask).toContain("Never a deadline");
     // Three in one go: each is told what the ones before it were, and each is its own ad.
     const before = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).length);
-    const three = await owner.as.action(api.ads.createImageAd, { type: "photo", count: 3 });
+    const three = await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "photo", count: 3 });
     expect(three.made).toHaveLength(3);
     expect(await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).length)).toBe(before + 3);
     const last = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).at(-1)!;

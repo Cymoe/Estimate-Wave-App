@@ -15,7 +15,7 @@ import {
   useAdsSettings,
   useAdsSwipes,
 } from '../../lib/live';
-import { AD_TRADES, DEFAULT_TRADE, IMAGE_AD_TYPES, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
+import { AD_TRADES, DEFAULT_TRADE, AD_SERVICES, IMAGE_AD_TYPES, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
 import { ACTOR_VOICES, ACTOR_VOICE_LABELS } from '../../../convex/lib/voiceActors';
 import { money } from '../market/wallet';
 import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary, tap, usePanel } from './ui';
@@ -573,6 +573,10 @@ const IMAGE_TYPES: Array<[string, string, string]> = IMAGE_AD_TYPES.map((t) => [
 const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
   const trade = useTrade();
   const [open, setOpen] = useState(false);
+  // What the ads are about: the owner picks it every time, so a set never wanders to other work.
+  const services = AD_SERVICES[trade] ?? [];
+  const [service, setService] = useState('');
+  const picked = services.find((s) => s.key === service);
   const [type, setType] = useState(IMAGE_TYPES[0][0]);
   const [model, setModel] = useState('');
   const [search, setSearch] = useState('');
@@ -582,12 +586,18 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
   const swipes = useAdsSwipes<Swipe[]>(trade === DEFAULT_TRADE ? undefined : trade, open);
   const needle = search.trim().toLowerCase();
   // The best competitor ads first (they arrive sorted by star, then fit); the search narrows by company or angle.
-  const choices = (swipes ?? []).filter((x) => !needle || `${x.company} ${x.hook} ${x.paintingType}`.toLowerCase().includes(needle)).slice(0, 40);
+  const choices = (swipes ?? [])
+    .filter((x) => !needle || `${x.company} ${x.hook} ${x.paintingType}`.toLowerCase().includes(needle))
+    // The service's own competitor ads first, in the order they came (star, then fit).
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => Number(b.x.scope === picked?.scope) - Number(a.x.scope === picked?.scope) || a.i - b.i)
+    .map(({ x }) => x)
+    .slice(0, 40);
   const create = () => {
     setBusy(true);
     setMade(null);
     void act(async () => {
-      const out = await adsAPI.createImageAd(type, model || undefined, trade === DEFAULT_TRADE ? undefined : trade, count);
+      const out = await adsAPI.createImageAd(service, type, model || undefined, trade === DEFAULT_TRADE ? undefined : trade, count);
       setOpen(false);
       setModel('');
       const n = out.made.length;
@@ -603,7 +613,7 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
       <div className="flex flex-wrap items-center gap-3 rounded border border-[#2A2A2A] px-4 py-3">
         <div className="flex-1 min-w-[16rem]">
           <h3 className="text-sm font-medium text-white">Create ads</h3>
-          <p className="text-xs text-gray-400">Static images, up to six in one go. You pick the type; the app picks the photos and writes the words.</p>
+          <p className="text-xs text-gray-400">Static images, up to six in one go. You pick what they're about and the type; the app picks the photos and writes the words.</p>
         </div>
         <button type="button" className="min-h-[40px] px-4 rounded bg-[#e2b350] text-black text-sm font-medium inline-flex items-center gap-1.5" onClick={() => setOpen(true)}>
           <Plus className="w-4 h-4" /> Create ads
@@ -618,7 +628,25 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
         <Dialog title="Create ads" onClose={() => !busy && setOpen(false)} wide>
           <div className="space-y-5">
             <fieldset>
-              <legend className="text-sm font-medium text-white mb-2">1. What type of image?</legend>
+              <legend className="text-sm font-medium text-white mb-2">1. What is it about?</legend>
+              <div role="radiogroup" aria-label="What it is about" className="flex flex-wrap gap-2">
+                {services.map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    role="radio"
+                    aria-checked={service === s.key}
+                    onClick={() => setService(s.key)}
+                    className={`min-h-[44px] px-5 rounded border text-sm font-medium ${service === s.key ? 'border-[#e2b350] bg-[#2a2415] text-white' : 'border-[#2A2A2A] text-gray-300'}`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Every ad in the set shows and talks about this, and nothing else.</p>
+            </fieldset>
+            <fieldset>
+              <legend className="text-sm font-medium text-white mb-2">2. What type of image?</legend>
               <div role="radiogroup" aria-label="Type of ad" className="grid gap-2 sm:grid-cols-2">
                 {IMAGE_TYPES.map(([key, label, blurb]) => (
                   <button
@@ -636,7 +664,7 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               </div>
             </fieldset>
             <fieldset>
-              <legend className="text-sm font-medium text-white mb-2">2. Model it on a competitor ad? (optional)</legend>
+              <legend className="text-sm font-medium text-white mb-2">3. Model it on a competitor ad? (optional)</legend>
               <input
                 type="search"
                 value={search}
@@ -668,7 +696,7 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               </div>
             </fieldset>
             <fieldset>
-              <legend className="text-sm font-medium text-white mb-2">3. How many?</legend>
+              <legend className="text-sm font-medium text-white mb-2">4. How many?</legend>
               <div role="radiogroup" aria-label="How many" className="flex gap-2">
                 {[1, 3, 6].map((n) => (
                   <button
@@ -686,8 +714,8 @@ const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
               <p className="text-xs text-gray-500 mt-1">Each one gets different photos and a different angle.</p>
             </fieldset>
             <div className="flex items-center gap-3">
-              <button type="button" className={`${primary} flex-1`} disabled={busy} onClick={create}>
-                {busy ? `Choosing photos and writing${count > 1 ? ` ${count} ads` : ''}…` : count === 1 ? 'Create this ad' : `Create ${count} ads`}
+              <button type="button" className={`${primary} flex-1`} disabled={busy || !picked} onClick={create}>
+                {busy ? `Choosing photos and writing${count > 1 ? ` ${count} ads` : ''}…` : !picked ? 'Choose what it is about first' : count === 1 ? `Create 1 ${picked.label.toLowerCase()} ad` : `Create ${count} ${picked.label.toLowerCase()} ads`}
               </button>
               <button type="button" className={secondary} disabled={busy} onClick={() => setOpen(false)}>
                 Cancel

@@ -26,6 +26,8 @@ import {
   itemsIn,
   IMAGE_AD_TYPES,
   imageAdType,
+  adServiceOf,
+  adServicesOf,
   imageAdPrompt,
   imageAdProblems,
   readImageAd,
@@ -5175,12 +5177,15 @@ export const setAdStatus = internalAction({
 
 // ----------------------------------------------------- Create an ad: one static image at a time
 
-/** The types of static image ad on offer, for the Create an ad window. */
+/** The types of static image ad on offer, and what an ad may be about, for the Create ads window. */
 export const imageAdTypes = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) => {
     await requireStaff(ctx);
-    return IMAGE_AD_TYPES.map((t) => ({ key: t.key, label: t.label, blurb: t.blurb }));
+    return {
+      types: IMAGE_AD_TYPES.map((t) => ({ key: t.key, label: t.label, blurb: t.blurb })),
+      services: adServicesOf(tradeOf(trade).slug).map((s) => ({ key: s.key, label: s.label })),
+    };
   },
 });
 
@@ -5188,12 +5193,16 @@ type ImagePick = ImageCandidate & { ids: Id<"adAssets">[] };
 
 /** What one image ad is written from: the photos (or pairs) to choose from, and the competitor ad to model. */
 export const imageAdInput = internalQuery({
-  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
-  handler: async (ctx, { type: key, swipeId, trade: slug }) => {
+  args: { service: v.string(), type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
+  handler: async (ctx, { service: serviceKey, type: key, swipeId, trade: slug }) => {
     const type = imageAdType(key);
     if (!type) fail("INVALID", "That isn't a type of image ad");
     const trade = tradeOf(slug);
+    const service = adServiceOf(trade.slug, serviceKey);
+    if (!service) fail("INVALID", "Choose what the ad is about");
     const row = await settingsRow(ctx);
+    // Only photos of the service: an ad about cabinet painting never shows a staircase.
+    const ofService = (a: Doc<"adAssets">) => a.tags.some((t) => service!.works.includes(t));
     const photos = (await ctx.db.query("adAssets").take(500)).filter((a) => a.kind === "photo" && inTrade(a, trade.slug) && a.description);
     const drawable: typeof photos = [];
     for (const a of photos) if (await lookUrl(ctx, a)) drawable.push(a);
@@ -5208,14 +5217,14 @@ export const imageAdInput = internalQuery({
       for (const halves of byKey.values()) {
         const b = halves.find(before);
         const a = halves.find((h) => h.tags.includes("after") && !h.tags.includes("before"));
-        if (b && a) pairs.push([b, a]);
+        if (b && a && ofService(a)) pairs.push([b, a]);
       }
       pairs.sort(([, x], [, y]) => order(x, y));
       for (const [b, a] of pairs.slice(0, 60))
         picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id] });
     } else {
       // Finished work only: never a before, never work in progress, never two pictures in one.
-      const all = drawable.filter((a) => !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
+      const all = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
       // With plenty of photos no ad has used yet, only those are offered, so a new ad never repeats an old one's.
       const unused = all.filter((a) => (a.uses ?? 0) === 0);
       const finished = unused.length >= UNUSED_ENOUGH ? unused : all;
@@ -5236,7 +5245,8 @@ export const imageAdInput = internalQuery({
       town: research(row).researchMarkets[0] ?? "your town",
       picks,
       basedOn: x ? { company: x.company, angle: x.hook, offer: x.offer, daysRunning: runDays(x), words: swipeWords(x.transcript) ?? swipeWords(x.adCopy) } : undefined,
-      scope: x?.scope,
+      scope: service!.scope,
+      service: service!,
     };
   },
 });
@@ -5249,7 +5259,7 @@ export const imageAdInput = internalQuery({
  */
 export const createImageAd = action({
   // count: how many to make in one go (1 to 6), each with different photos and a different angle.
-  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()), count: v.optional(v.number()) },
+  args: { service: v.string(), type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()), count: v.optional(v.number()) },
   handler: async (ctx, { count, ...args }): Promise<{ made: Array<{ name: string; headline: string }>; missed: string[] }> => {
     const me: Id<"users"> = await ctx.runQuery(internal.ads.ownerId, {});
     return await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1))), me);
@@ -5263,7 +5273,7 @@ const UNUSED_ENOUGH = 12;
 export const IMAGE_ADS_AT_ONCE = 6;
 
 /** Several of one type, one after another: each sees what the ones before it used, so photos and angles differ. */
-async function makeImageAds(ctx: ActionCtx, args: { type: string; swipeId?: Id<"adSwipes">; trade?: string }, count: number, me?: Id<"users">) {
+async function makeImageAds(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; trade?: string }, count: number, me?: Id<"users">) {
   const made: Array<{ name: string; headline: string }> = [];
   const missed: string[] = [];
   for (let i = 0; i < count; i++) {
@@ -5280,20 +5290,26 @@ async function makeImageAds(ctx: ActionCtx, args: { type: string; swipeId?: Id<"
 
 /** The same from a cloud session (the deploy workflow), to make one or to check the live library. */
 export const createImageAdOutside = internalAction({
-  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()), count: v.optional(v.number()) },
+  args: { service: v.string(), type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()), count: v.optional(v.number()) },
   handler: async (ctx, { count, ...args }) => await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1)))),
 });
 
-async function makeImageAd(ctx: ActionCtx, args: { type: string; swipeId?: Id<"adSwipes">; trade?: string }, me?: Id<"users">, avoid: string[] = []): Promise<{ name: string; headline: string }> {
+async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; trade?: string }, me?: Id<"users">, avoid: string[] = []): Promise<{ name: string; headline: string }> {
   {
     if (!process.env.ANTHROPIC_API_KEY) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
     const type = imageAdType(args.type);
     if (!type) fail("INVALID", "That isn't a type of image ad");
     const input = await ctx.runQuery(internal.ads.imageAdInput, args);
     const need = type!.layout === "grid" ? 3 : 1;
+    const about = input.service.label.toLowerCase();
     if (input.picks.length < need)
-      fail("INVALID", type!.layout === "pair" ? "No before and after pair in the Library yet. Pair a before with its after first." : "Not enough finished photos with a description in the Library yet.");
-    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), input.picks, input.basedOn, new Date(), avoid);
+      fail(
+        "INVALID",
+        type!.layout === "pair"
+          ? `No before and after pair of ${about} in the Library yet. Pair a before with its after first.`
+          : `Only ${input.picks.length} finished ${about} photo${input.picks.length === 1 ? "" : "s"} with a description in the Library.${type!.layout === "grid" ? " A showcase needs 3 from different projects." : ""}`,
+      );
+    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), input.picks, input.basedOn, new Date(), avoid, input.service);
     let plan: ImageAdPlan | null = null;
     let problems: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {

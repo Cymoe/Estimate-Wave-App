@@ -1624,6 +1624,26 @@ export function stillProps(reel: ReturnType<typeof renderProps>, pair: { before:
 
 // ------------------------------------------------------------ Static image ads, made one at a time
 
+/** A service an ad can be about: the owner picks one, and the ad shows and says only that. */
+export interface AdService {
+  key: string;
+  label: string;
+  /** The kind of job it is (the trade's scopes): what the tile says and which competitor ads lead. */
+  scope: string;
+  /** The types of work whose photos count as this service. */
+  works: string[];
+}
+
+/** What ads may be about, by trade (the owner, Nov 2026: cabinet painting and exterior painting for now). One line adds another. */
+export const AD_SERVICES: Record<string, AdService[]> = {
+  painting: [
+    { key: "cabinets", label: "Cabinet painting", scope: "cabinets", works: ["cabinets-painted"] },
+    { key: "exterior", label: "Exterior painting", scope: "exterior", works: ["exterior-repaint", "brick"] },
+  ],
+};
+export const adServicesOf = (trade: string): AdService[] => AD_SERVICES[trade] ?? [];
+export const adServiceOf = (trade: string, key: string | undefined): AdService | undefined => adServicesOf(trade).find((s) => s.key === key);
+
 export type ImageLayout = "single" | "pair" | "grid";
 export interface ImageAdType {
   key: string;
@@ -1709,12 +1729,17 @@ export function imageAdPrompt(
   now = new Date(),
   // Headlines of the ads made just before this one in the same go: this one takes a different angle and photos.
   avoid: string[] = [],
+  // What the ad is about: every photo offered is of it, and the words stay on it.
+  service?: AdService,
 ): string {
   const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
   const want = type.layout === "pair" ? "one pair" : type.layout === "grid" ? "three or four photos, each from a different project" : "one photo";
   return [
     `${IMAGE_MARK} for Facebook and Instagram, for ${brand}, a ${trade.contractor} in ${town}, Texas. It is a single picture: nothing moves and nothing is said aloud.`,
     `Type: ${type.label}. ${type.brief}`,
+    service
+      ? `This ad is about ${service.label.toLowerCase()} and nothing else: every photo and every word. Don't drift to other work that happens to show in a photo (floors, stairs, a fireplace, counters).`
+      : "",
     type.key === "seasonal" ? `It is ${month} now.` : "",
     "",
     ...(basedOn

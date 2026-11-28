@@ -325,6 +325,11 @@ describe('Ops → Ads', () => {
     ] as never;
     await render();
     await act(async () => (Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Create ads') as HTMLButtonElement).click());
+    // What it's about comes first, and nothing can be made until it's chosen.
+    const about = Array.from(dialog().querySelectorAll('[aria-label="What it is about"] [role="radio"]'));
+    expect(about.map((b) => b.textContent)).toEqual(['Cabinet painting', 'Exterior painting']);
+    expect((byText('Choose what it is about first') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => (about[0] as HTMLButtonElement).click());
     const types = Array.from(dialog().querySelectorAll('[aria-label="Type of ad"] [role="radio"]'));
     expect(types.map((b) => b.querySelector('span')!.textContent)).toEqual(['Finished photo', 'Before and after', 'Showcase', 'Offer', 'Seasonal offer']);
     await act(async () => (types[2] as HTMLButtonElement).click());
@@ -334,9 +339,9 @@ describe('Ops → Ads', () => {
     await act(async () => (models()[1] as HTMLButtonElement).click());
     // Three at once is the usual; one or six can be picked.
     expect(Array.from(dialog().querySelectorAll('[aria-label="How many"] [role="radio"]')).map((b) => [b.textContent, b.getAttribute('aria-checked')])).toEqual([['1', 'false'], ['3', 'true'], ['6', 'false']]);
-    await act(async () => byText('Create 3 ads')!.click());
+    await act(async () => byText('Create 3 cabinet painting ads')!.click());
     await flush();
-    expect(createImageAd).toHaveBeenCalledWith('showcase', 's1', undefined, 3);
+    expect(createImageAd).toHaveBeenCalledWith('cabinets', 'showcase', 's1', undefined, 3);
     expect(document.body.querySelector('[role="status"]')?.textContent).toContain('3 image ads are written');
 
     document.body.innerHTML = '';
