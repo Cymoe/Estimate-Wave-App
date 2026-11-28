@@ -7,6 +7,14 @@ name: Bring in the ad clips
 
 on:
   workflow_dispatch:
+  # GitHub only lets a workflow be started by hand (or by the backend) once it knows of it, and it learns of one off
+  # the default branch only when that one has run. A change to the runner's own files runs it, which also registers it.
+  push:
+    branches: [fieldquote-convex]
+    paths:
+      - '.github/workflows/ads-clips.yml'
+      - 'ads-video/scripts/import-clips.mjs'
+      - 'ads-video/scripts/scan-clips.mjs'
 
 concurrency:
   group: ads-clips
