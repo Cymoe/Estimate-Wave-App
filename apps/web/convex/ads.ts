@@ -5206,6 +5206,48 @@ export const imageSwipes = internalQuery({
   },
 });
 
+/** What the Library holds for one service, as an image ad sees it: photos, jobs and before-and-after pairs. Read-only. */
+export const libraryCheck = internalQuery({
+  args: { service: v.string(), trade: v.optional(v.string()) },
+  handler: async (ctx, { service: key, trade: slug }) => {
+    const trade = tradeOf(slug);
+    const service = adServiceOf(trade.slug, key);
+    if (!service) fail("INVALID", "No such service");
+    const photos = (await ctx.db.query("adAssets").take(1000)).filter((a) => a.kind === "photo" && inTrade(a, trade.slug));
+    const mine = photos.filter((a) => photoOfService(service!, a));
+    const before = (a: Doc<"adAssets">) => a.tags.includes("before") && !a.tags.includes("after");
+    const finished = mine.filter((a) => !a.tags.includes("before") && !a.tags.includes("process"));
+    const usable = finished.filter((a) => a.description && !isCollage(a.description) && !isDetailShot(a.description));
+    const jobNames = new Map<string, string>();
+    for (const j of await ctx.db.query("adJobs").take(500)) jobNames.set(j._id, j.name);
+    const byJob = new Map<string, number>();
+    for (const a of usable) byJob.set(a.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)", (byJob.get(a.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)") ?? 0) + 1);
+    // Pairs as an image ad finds them: any photo with a pair key, whatever it is tagged, whose after is of the service.
+    const byKey = new Map<string, Doc<"adAssets">[]>();
+    for (const a of photos) if (a.pairKey) byKey.set(a.pairKey, [...(byKey.get(a.pairKey) ?? []), a]);
+    const pairs: Array<{ job: string; uses: number; before: string; after: string }> = [];
+    for (const halves of byKey.values()) {
+      const b = halves.find(before);
+      const a = halves.find((h) => h.tags.includes("after") && !h.tags.includes("before"));
+      if (b && a && photoOfService(service!, a))
+        pairs.push({ job: a.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)", uses: Math.max(a.uses ?? 0, b.uses ?? 0), before: (b.description ?? "").slice(0, 90), after: (a.description ?? "").slice(0, 90) });
+    }
+    return {
+      tagged: mine.length,
+      finished: finished.length,
+      usable: usable.length,
+      noDescription: finished.filter((a) => !a.description).length,
+      collages: finished.filter((a) => a.description && isCollage(a.description)).length,
+      details: finished.filter((a) => a.description && !isCollage(a.description) && isDetailShot(a.description)).length,
+      starred: usable.filter((a) => a.best).length,
+      neverUsed: usable.filter((a) => (a.uses ?? 0) === 0).length,
+      used3OrMore: usable.filter((a) => (a.uses ?? 0) >= 3).length,
+      jobs: [...byJob.entries()].sort((x, y) => y[1] - x[1]).map(([name, n]) => `${name}: ${n}`),
+      pairs,
+    };
+  },
+});
+
 /** A file's bytes as base64, for Meta's image upload (no Buffer in Convex's default runtime). */
 async function base64Of(url: string): Promise<string> {
   const res = await fetch(url);
