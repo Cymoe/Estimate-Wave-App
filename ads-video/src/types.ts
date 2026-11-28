@@ -91,6 +91,8 @@ export type Style =
   | { kind: "reel" }
   /** A job site video run as it was shot (`footage`), its own sound the voice, with its title, captions and the ask. */
   | { kind: "footage" }
+  /** The plain looks: the photos and the voice, no title, labels or effects. cuts: hard cuts; drift: slow move and fades; line: one line of text per photo, no subtitles. */
+  | { kind: "plain"; look: "cuts" | "drift" | "line" }
   /**
    * No photos: a short lesson drawn as graphics. The first line's words slam in as the title under a small tag;
    * each line after it adds a numbered point (its label) that is ticked, or crossed, once it has been said.

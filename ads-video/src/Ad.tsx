@@ -16,6 +16,7 @@ import { Slices } from "./formats/Slices";
 import { Versus } from "./formats/Versus";
 import { Explainer } from "./formats/Explainer";
 import { KineticText } from "./formats/KineticText";
+import { Plain } from "./formats/Plain";
 import { StockMix } from "./formats/StockMix";
 import { BeforeAfter } from "./styles/BeforeAfter";
 import { Counter } from "./styles/Counter";
@@ -55,6 +56,8 @@ export const Ad: React.FC<AdProps> = (props) => {
   const { fps, durationInFrames, width, height } = useVideoConfig();
   const total = durationInFrames / fps;
   const { style } = props;
+  // A plain ad draws everything itself: photos, words, the ask and the voice.
+  if (style.kind === "plain") return <Plain {...props} look={style.look} />;
   // A job site video plays to its end, and the ask comes after it.
   const footage = style.kind === "footage";
   const closeAt = style.kind === "chat" ? style.askAt : footage ? props.audioSec : askAt(props.lines);
