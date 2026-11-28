@@ -2152,7 +2152,10 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
         else if (prompt.includes("Shortlist photos for one static image ad")) reply = { photos: [1, 2, 3, 4, 5, 6, 7, 8] };
         else if (prompt.includes("You write one static image ad")) {
-          const words = { headline: retry ? "Cabinets, freshly painted" : (opts.imageHeadline ?? "Cabinets, freshly painted"), sub: "Free cabinet painting quote, no pressure", primaryText: "We repaint kitchen cabinets. Get a free quote from GoodFit Painting.", title: "Cabinet painting" };
+          // A headline earlier ads carry is never written again: the stand-in numbers its own after the first.
+          const carried = (prompt.split("\n").find((l) => l.startsWith("Headlines our earlier ads already carry")) ?? "").split('"Cabinets, freshly painted').length - 1;
+          const canned = carried ? `Cabinets, freshly painted ${carried + 1}` : "Cabinets, freshly painted";
+          const words = { headline: retry ? canned : (opts.imageHeadline ?? canned), sub: "Free cabinet painting quote, no pressure", primaryText: "We repaint kitchen cabinets. Get a free quote from GoodFit Painting.", title: "Cabinet painting" };
           reply = prompt.includes('{"pair":') ? { pair: 1, ...words } : prompt.includes('{"photos":') ? { photos: [1, 2, 3], ...words } : { photo: 1, ...words };
         } else if (prompt.includes("An ad is about to be made from the owner's own job photos"))
           reply = {
@@ -3149,12 +3152,32 @@ describe("the weekly run", () => {
     // A starred best shot is offered however many ads it is in.
     await t.run(async (ctx) => {
       const elm = (await ctx.db.query("adAssets").collect()).find((a) => a.fileName === "Elm-after.jpg")!;
-      await ctx.db.patch(elm._id, { best: true, uses: 5 });
+      await ctx.db.patch(elm._id, { best: true, uses: 5, lastUsedAt: "2026-01-01T00:00:00.000Z" });
     });
+    const shortlists = () => calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).filter((x) => x.includes("Shortlist photos"));
+    const elmUsed = async (lastUsedAt: string) =>
+      t.run(async (ctx) => {
+        const elm = (await ctx.db.query("adAssets").collect()).find((a) => a.fileName === "Elm-after.jpg")!;
+        await ctx.db.patch(elm._id, { lastUsedAt });
+      });
     await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "photo" });
-    const listAsk = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).filter((x) => x.includes("Shortlist photos")).at(-1)!;
-    expect(listAsk).toContain("1. BEST · ");
-    expect(listAsk).toContain("Elm kitchen");
+    expect(shortlists().at(-1)).toContain("1. BEST · ");
+    expect(shortlists().at(-1)).toContain("Elm kitchen");
+    // But one that went into an ad within the last day rests, so the same day's sets don't all lead with it.
+    await elmUsed(new Date().toISOString());
+    await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "photo" });
+    // (With few photos to choose from it stays on offer, but no longer first or marked as a favourite.)
+    const asked = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string);
+    const sinceRest = asked.slice(asked.lastIndexOf(shortlists().at(-1)!) + 2).join("\n");
+    const elmLine = sinceRest.split("\n").find((l) => l.includes("Elm kitchen")) ?? "";
+    expect(elmLine).not.toContain("BEST");
+    expect(elmLine.startsWith("1. ")).toBe(false);
+    // And no headline is written twice: the writer is shown the ones earlier ads carry, and a repeat is sent back.
+    const lastBrief = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).filter((x) => x.includes("You write one static image ad")).at(-1)!;
+    expect(lastBrief).toContain('Headlines our earlier ads already carry');
+    const heads = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).map((c) => c.script.onScreen[0]));
+    expect(new Set(heads).size).toBe(heads.length);
+    expect(imageAdIssues({ picks: [1], headline: "cabinets, freshly PAINTED!", sub: "Same cabinets. Free quote.", primaryText: "Get a free quote.", title: "t" }, IMAGE_AD_TYPES[0], [{ n: 1, tags: [], description: "A kitchen.", uses: 0 }], "Midland", "GoodFit Painting", ["Cabinets, freshly painted"]).map((i) => i.rule)).toEqual(["fresh-headline"]);
     // Drawn without a voice: each as a still, with its photos laid out by type.
     const jobs = (await claim()).filter((j) => rows.slice(0, 3).some((r) => r.name === j.name));
     expect(jobs.map((j) => j.kind)).toEqual(["image", "image", "image"]);

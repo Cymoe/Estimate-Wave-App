@@ -1763,10 +1763,11 @@ export const BRAND_GUIDE: GuideRule[] = [
   { id: "no-hype", where: "words", rule: "No hype: nothing is a nightmare, stunning, a dream or a transformation." },
   { id: "no-place", where: "words", rule: "Never say where the pictured work was done." },
   { id: "name", where: "words", rule: "The name is written exactly as the logo writes it." },
+  { id: "fresh-headline", where: "words", rule: "A headline is never used twice: each ad says it a new way." },
   { id: "kicker", where: "words", rule: "The line under the headline opens with one short sentence, set as the gold italic line." },
   { id: "service", where: "photos", rule: "Every photo is of the service the ad is about." },
   { id: "real", where: "photos", rule: "Only real photos of our own work; a before only beside its own after." },
-  { id: "best-first", where: "photos", rule: "Starred photos lead; ordinary ones aren't repeated while unused ones remain." },
+  { id: "best-first", where: "photos", rule: "Starred photos lead, but one just used rests for a day while others can carry the ad; ordinary photos aren't repeated while unused ones remain." },
   { id: "no-collage", where: "photos", rule: "No collages or screenshots: one clean picture per frame." },
   { id: "no-repeat", where: "photos", rule: "Ads made together never share a photo; a showcase takes one photo per project." },
   { id: "colours", where: "look", rule: "Navy and gold only, with white lettering." },
@@ -1803,6 +1804,8 @@ export function imageAdPrompt(
   playbook?: string,
   // The photos are attached as pictures after this text, to be chosen by eye.
   byEye = false,
+  // Headlines of image ads made before, in any set: none is used again.
+  usedHeadlines: string[] = [],
 ): string {
   const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
   const want = type.layout === "pair" ? "one pair" : type.layout === "grid" ? "three or four photos, each from a different project" : "one photo";
@@ -1847,6 +1850,7 @@ export function imageAdPrompt(
     "The brand guide. Every ad is checked against it before it is made:",
     ...BRAND_GUIDE.filter((g) => g.where !== "look").map((g) => `- ${g.rule}`),
     `- The name is "${brand}", in exactly those capitals and spaces.`,
+    ...(usedHeadlines.length ? [`Headlines our earlier ads already carry. Never repeat one, or reword one lightly: find a new way in. ${usedHeadlines.map((h) => `"${h}"`).join(", ")}.`] : []),
     "Rules:",
     ...RULES(brand, town),
     `- Never say or hint where a pictured job was, ${town} included: the photos don't say. The town may only be named to speak to the viewer or say where we work ("${town} homeowners", "serving ${town}"), never as where these jobs were done ("done in ${town}", "kitchens in ${town}").`,
@@ -1924,7 +1928,7 @@ export function readImageAd(reply: string): ImageAdPlan | null {
 }
 
 /** What is wrong with an image ad's plan, each with the brand guide rule it breaks (none for a plain mistake of form). */
-export function imageAdIssues(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string, brand?: string): Array<{ rule?: string; text: string }> {
+export function imageAdIssues(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string, brand?: string, usedHeadlines: string[] = []): Array<{ rule?: string; text: string }> {
   if (!plan) return [{ text: "the reply wasn't JSON" }];
   const out: Array<{ rule?: string; text: string }> = [];
   const known = plan.picks.filter((n) => n <= candidates.length);
@@ -1936,6 +1940,7 @@ export function imageAdIssues(plan: ImageAdPlan | null, type: ImageAdType, candi
   } else if (known.length !== 1) out.push({ text: type.layout === "pair" ? "choose exactly one pair" : "choose exactly one photo" });
   if (known.some((n) => isCollage(candidates[n - 1].description))) out.push({ rule: "no-collage", text: "a chosen photo is a collage or a screenshot: choose single clean photos" });
   if (!plan.headline) out.push({ text: "no headline" });
+  if (usedHeadlines.some((h) => sameHeadline(h, plan.headline))) out.push({ rule: "fresh-headline", text: `the headline "${plan.headline}" is already on an earlier ad: write a new one` });
   if (plan.headline.length > IMAGE_HEADLINE_MAX) out.push({ text: `the headline is ${plan.headline.length} characters (at most ${IMAGE_HEADLINE_MAX})` });
   if (plan.sub.length > IMAGE_SUB_MAX) out.push({ text: `the sub line is ${plan.sub.length} characters (at most ${IMAGE_SUB_MAX})` });
   if (plan.sub && !/free (\w+ ){0,3}quote/i.test(plan.sub)) out.push({ rule: "offer", text: 'the sub line doesn\'t state the offer: it must say "free quote"' });
@@ -1959,6 +1964,12 @@ export function imageAdIssues(plan: ImageAdPlan | null, type: ImageAdType, candi
   return out;
 }
 
+/** Whether two headlines are the same words, whatever their capitals and punctuation. */
+export function sameHeadline(a: string, b: string): boolean {
+  const plain = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return plain(a) !== "" && plain(a) === plain(b);
+}
+
 /** Which brand guide rule a forbidden-words finding belongs to. */
 function guideRuleOf(finding: string): string {
   if (/hype|nightmare|stunning|dream|transform/i.test(finding)) return "no-hype";
@@ -1967,8 +1978,8 @@ function guideRuleOf(finding: string): string {
 }
 
 /** What is wrong with an image ad's plan, in words Claude can act on. Empty when it can be made. */
-export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string, brand?: string): string[] {
-  return imageAdIssues(plan, type, candidates, town, brand).map((i) => i.text);
+export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[], town?: string, brand?: string, usedHeadlines: string[] = []): string[] {
+  return imageAdIssues(plan, type, candidates, town, brand, usedHeadlines).map((i) => i.text);
 }
 
 /** The guide rules an ad that passed its checks is known to keep: all of them (the look is drawn by the renderer, the photos are offered by rule). */

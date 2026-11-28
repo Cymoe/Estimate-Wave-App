@@ -5301,8 +5301,12 @@ export const imageAdInput = internalQuery({
         urlOf.set(a._id, url);
       }
     }
-    // The owner's best first, then the least used: so the same photo doesn't head every list.
-    const order = (a: Doc<"adAssets">, b: Doc<"adAssets">) => Number(!!b.best) - Number(!!a.best) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt);
+    // A photo put in an ad within the last day is resting: sets made the same day don't all lead with the same shot.
+    const restFrom = new Date(Date.now() - BEST_REST_HOURS * 3_600_000).toISOString();
+    const resting = (a: Doc<"adAssets">) => (a.lastUsedAt ?? "") > restFrom;
+    // The owner's best first (rested ones ahead of ones just used), then the least used: so the same photo doesn't head every list.
+    const order = (a: Doc<"adAssets">, b: Doc<"adAssets">) =>
+      Number(!!b.best && !resting(b)) - Number(!!a.best && !resting(a)) || Number(resting(a)) - Number(resting(b)) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt);
     const before = (a: Doc<"adAssets">) => a.tags.includes("before") && !a.tags.includes("after");
     const picks: ImagePick[] = [];
     if (type!.layout === "pair") {
@@ -5322,9 +5326,12 @@ export const imageAdInput = internalQuery({
       const all = drawable.filter((a) => ofService(a) && !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
       // The owner's best shots are always offered, however many ads they are in: those are the ones to keep showing.
       // Of the rest, with plenty that no ad has used yet, only the unused, so ordinary photos aren't repeated.
-      const best = all.filter((a) => a.best);
+      // A best shot used in the last day rests while enough others can carry the ad.
+      const ready = all.filter((a) => a.best && !resting(a));
       const unused = all.filter((a) => !a.best && (a.uses ?? 0) === 0);
-      const finished = best.length + unused.length >= UNUSED_ENOUGH ? [...best, ...unused] : all;
+      const tired = all.filter((a) => a.best && resting(a));
+      // Too few without the resting ones: they are offered after all, but last.
+      const finished = ready.length + unused.length >= UNUSED_ENOUGH ? [...ready, ...unused] : ready.length + unused.length + tired.length >= UNUSED_ENOUGH ? [...ready, ...unused, ...tired] : all;
       // Each project a short name of its own (P1, P2...); a photo in no project counts as its own.
       const names = new Map<string, string>();
       const projectOf = (a: Doc<"adAssets">) => {
@@ -5333,7 +5340,7 @@ export const imageAdInput = internalQuery({
         return names.get(key)!;
       };
       for (const a of finished.slice(0, 120))
-        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best, project: projectOf(a), ids: [a._id], urls: [urlOf.get(a._id)!] });
+        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best && !resting(a), project: projectOf(a), ids: [a._id], urls: [urlOf.get(a._id)!] });
     }
     // The competitor ads for this service: the one to build on (the owner's pick, else the best long-running image
     // ad taking its turn), the rest of the best as what's working, and the category's playbook.
@@ -5346,7 +5353,10 @@ export const imageAdInput = internalQuery({
     const enough = type!.layout === "grid" ? 3 : 1;
     const offered = (open.length >= enough ? open : picks).map((p, i) => ({ ...p, n: i + 1 }));
     const playbook = fresh ? undefined : (await ctx.db.query("adPlaybooks").take(20)).find((p) => p.scope === service!.scope)?.text;
+    // The headlines image ads already carry (rejected ones too): none is written again.
+    const usedHeadlines = [...new Set((await ctx.db.query("adCreatives").order("desc").take(400)).filter((c) => c.still && c.script.onScreen[0]).map((c) => c.script.onScreen[0]))].slice(0, HEADLINES_REMEMBERED);
     return {
+      usedHeadlines,
       trade: trade.slug,
       brand: consumerBrand(),
       town: research(row).researchMarkets[0] ?? "your town",
@@ -5377,6 +5387,10 @@ export const createImageAd = action({
   },
 });
 
+/** How long a starred photo rests after going into an ad, while enough others can carry the next one. */
+const BEST_REST_HOURS = 24;
+/** How many earlier image ad headlines the writer is shown, newest first, so none is repeated. */
+const HEADLINES_REMEMBERED = 60;
 /** With at least this many finished photos no ad has used, an image ad is offered only those. */
 const UNUSED_ENOUGH = 12;
 
@@ -5438,7 +5452,7 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
       shown = few.length >= need ? few : input.picks.slice(0, lookMax);
     }
     shown = shown.map((p, i) => ({ ...p, n: i + 1 }));
-    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), shown, input.basedOn, new Date(), avoid, input.service, input.field, input.playbook, true);
+    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), shown, input.basedOn, new Date(), avoid, input.service, input.field, input.playbook, true, input.usedHeadlines);
     const pictures: unknown[] = shown.flatMap((p) =>
       p.urls.flatMap((url, k) => [
         { type: "text", text: type!.layout === "pair" ? `Pair ${p.n}, ${k === 0 ? "before" : "after"}:` : `Photo ${p.n}:` },
@@ -5451,7 +5465,7 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
       const content: unknown[] = [{ type: "text", text: prompt }, ...pictures];
       if (attempt > 0) content.push({ type: "text", text: `Your last answer had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` });
       plan = readImageAd(await claude(content, 3000));
-      problems = imageAdProblems(plan, type!, shown, input.town, input.brand);
+      problems = imageAdProblems(plan, type!, shown, input.town, input.brand, input.usedHeadlines);
       if (problems.length === 0) break;
     }
     if (!plan || problems.length) fail("INVALID", `The ad couldn't be written within the rules: ${problems.join("; ")}`);
