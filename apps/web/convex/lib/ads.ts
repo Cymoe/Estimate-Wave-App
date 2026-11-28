@@ -1664,7 +1664,7 @@ export const IMAGE_AD_TYPES: ImageAdType[] = [
     blurb: "One of your best finished photos with a headline and a Get a free quote button.",
     layout: "single",
     family: "proof",
-    brief: "One finished photo carries the ad. The headline says plainly what the homeowner is looking at and would want for their own home.",
+    brief: "One finished photo carries the ad. The photo is the proof; the headline is the pitch to a homeowner who wants this for their own home.",
   },
   {
     key: "before_after",
@@ -1672,7 +1672,7 @@ export const IMAGE_AD_TYPES: ImageAdType[] = [
     blurb: "A before next to its own after, from the same project.",
     layout: "pair",
     family: "before_after",
-    brief: "A before and its own after, shown together and marked Before and After. The headline names the change you can see between them.",
+    brief: "A before and its own after, shown together. The photos show the change; the headline sells it to a homeowner living with the 'before' right now.",
   },
   {
     key: "showcase",
@@ -1680,7 +1680,7 @@ export const IMAGE_AD_TYPES: ImageAdType[] = [
     blurb: "Three or four finished jobs of one kind, from different projects, in one image.",
     layout: "grid",
     family: "proof",
-    brief: "Several finished jobs of one kind, each from a different home, shown together. The headline names the kind of work in the plural; never as if they were one home.",
+    brief: "Several finished jobs of one kind, each from a different home, shown together as proof. The headline is the pitch, not a label for the photos; never speak as if they were one home.",
   },
   {
     key: "offer",
@@ -1767,9 +1767,11 @@ export function imageAdPrompt(
     ...RULES(brand, town),
     `- Never say or hint where a pictured job was, ${town} included: the photos don't say. The town may only be named to speak to the viewer or say where we work ("${town} homeowners", "serving ${town}"), never as where these jobs were done ("done in ${town}", "kitchens in ${town}").`,
     "- Facts come only from the photo descriptions above. Never invent anything you can't see in them.",
-    `- headline: the words printed large on the image, at most ${IMAGE_HEADLINE_MAX} characters, plain and specific, in sentence case (only the first word and names capitalised). No full stop needed.`,
-    `- sub: one short line under it, at most ${IMAGE_SUB_MAX} characters.`,
-    `- primaryText: the text above the image in the feed, one to three plain sentences, at most ${IMAGE_PRIMARY_MAX} characters, ending on the free quote from ${brand}. No emoji, no lists.`,
+    "This is a direct-response ad: its one job is to get a homeowner to tap for a free quote. It is not a portfolio caption.",
+    `- headline: the hook, printed large, at most ${IMAGE_HEADLINE_MAX} characters, in sentence case. It speaks to the homeowner about their home and what they want or are tired of. NEVER a caption of the photos ("Kitchen cabinets we've painted", "Finished house exteriors", "Exterior repaints" are captions and are wrong). Ways in that work: a question about their problem ("Tired of your brown cabinets?"), the outcome they want ("A new kitchen without replacing a thing"), the smarter choice ("Paint them. Don't replace them."), or calling them out ("${town} homeowners: love your kitchen again").`,
+    `- sub: the offer, said outright, at most ${IMAGE_SUB_MAX} characters. It names the service and the free quote, and why to tap now where that's honest ("Free ${service ? service.label.toLowerCase() : "painting"} quote. No pressure, no cost."). It must contain the words "free quote".`,
+    "- The offer is only ever a free quote: no price, discount, deadline, warranty or time promise. Urgency comes from the homeowner's own reason (guests coming, selling, sick of looking at it), never a made-up deadline.",
+    `- primaryText: the text above the image in the feed, at most ${IMAGE_PRIMARY_MAX} characters: open on the homeowner's problem or wish, say what we do about it in one plain sentence, and end by telling them to tap for a free quote from ${brand}. No emoji, no lists.`,
     "- title: the short link headline under the image, at most 40 characters.",
     "",
     "Return only JSON. Start your answer with { and write nothing before or after it.",
@@ -1814,6 +1816,9 @@ export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, can
   if (!plan.headline) out.push("no headline");
   if (plan.headline.length > IMAGE_HEADLINE_MAX) out.push(`the headline is ${plan.headline.length} characters (at most ${IMAGE_HEADLINE_MAX})`);
   if (plan.sub.length > IMAGE_SUB_MAX) out.push(`the sub line is ${plan.sub.length} characters (at most ${IMAGE_SUB_MAX})`);
+  if (plan.sub && !/free (\w+ ){0,3}quote/i.test(plan.sub)) out.push('the sub line doesn\'t state the offer: it must say "free quote"');
+  if (/\bwe(?:'ve| have) (?:painted|stained|done|finished)\b|^(?:finished|painted|stained|freshly painted|exterior|interior)\b[^?!]*$/i.test(plan.headline) && !/[?!]|\byou(r)?\b/i.test(plan.headline))
+    out.push("the headline is a caption of the photos, not a hook: speak to the homeowner about their home (a question, the outcome they want, or the smarter choice)");
   if (!plan.primaryText) out.push("no primaryText");
   if (plan.primaryText.length > IMAGE_PRIMARY_MAX) out.push(`primaryText is ${plan.primaryText.length} characters (at most ${IMAGE_PRIMARY_MAX})`);
   out.push(...forbiddenIn([plan.headline, plan.sub, plan.primaryText, plan.title].join(" ")));

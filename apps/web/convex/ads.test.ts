@@ -58,7 +58,7 @@ import {
   requestPrompt,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
-import { AD_TRADES, IMAGE_AD_TYPES, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
+import { AD_TRADES, IMAGE_AD_TYPES, imageAdProblems, imageAdPrompt, jobPlaceClaim, forbiddenIn, cutText, cleanItems, describePrompt, itemsIn, oneStage, pairingPrompt, readPairing, withoutJobNames } from "./lib/ads";
 import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
@@ -2120,7 +2120,7 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
           return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } }), { status: 429 });
         if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
         else if (prompt.includes("You write one static image ad")) {
-          const words = { headline: retry ? "Cabinets, freshly painted" : (opts.imageHeadline ?? "Cabinets, freshly painted"), sub: "White uppers, colour below", primaryText: "We repaint kitchen cabinets. Get a free quote from GoodFit Painting.", title: "Cabinet painting" };
+          const words = { headline: retry ? "Cabinets, freshly painted" : (opts.imageHeadline ?? "Cabinets, freshly painted"), sub: "Free cabinet painting quote, no pressure", primaryText: "We repaint kitchen cabinets. Get a free quote from GoodFit Painting.", title: "Cabinet painting" };
           reply = prompt.includes('{"pair":') ? { pair: 1, ...words } : prompt.includes('{"photos":') ? { photos: [1, 2, 3], ...words } : { photo: 1, ...words };
         } else if (prompt.includes("An ad is about to be made from the owner's own job photos"))
           reply = {
@@ -3071,7 +3071,7 @@ describe("the weekly run", () => {
     expect(asks[0][0].text).not.toContain("Dated oak");
     expect(asks[0][0].text).not.toContain("Doors off");
     // And only cabinet painting: no barn door, staircase or house exterior, and the writer is told to stay on it.
-    for (const other of ["barn door", "staircase", "house exterior"]) expect(asks[0][0].text).not.toContain(other);
+    for (const other of ["stained barn door", "stained staircase", "repainted house exterior"]) expect(asks[0][0].text).not.toContain(other);
     expect(asks[0][0].text).toContain("This ad is about cabinet painting and nothing else");
     await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "showcase" });
     await owner.as.action(api.ads.createImageAd, { service: "cabinets", type: "before_after" });
@@ -3081,7 +3081,7 @@ describe("the weekly run", () => {
       ["showcase", "grid", 3, "image", "voiced", "4x5"],
       ["before_after", "pair", 2, "image", "voiced", "4x5"],
     ]);
-    expect(rows[0].script).toMatchObject({ voice: "", onScreen: ["Cabinets, freshly painted", "White uppers, colour below"] });
+    expect(rows[0].script).toMatchObject({ voice: "", onScreen: ["Cabinets, freshly painted", "Free cabinet painting quote, no pressure"] });
     const tagsOf = await t.run(async (ctx) => Promise.all(rows.flatMap((r) => r.assetIds).map(async (id) => (await ctx.db.get(id))!.tags)));
     expect(tagsOf.every((tags) => tags.includes("cabinets-painted"))).toBe(true);
     // With plenty of unused finished photos on file, ones already in an ad aren't offered again.
@@ -3173,6 +3173,20 @@ describe("the weekly run", () => {
     const image = imageAdPrompt(IMAGE_AD_TYPES[0], "GoodFit Painting", "Midland", AD_TRADES.painting, []);
     expect(image).toContain("brown cabinets, not honey oak");
     expect(image).toContain("uses 0 wherever some fit");
+  });
+
+  test("an image ad is direct response: a caption for a headline is sent back, and the sub line must state the free quote", () => {
+    const type = IMAGE_AD_TYPES[0];
+    const cands = [{ n: 1, tags: ["cabinets"], description: "A finished kitchen.", uses: 0 }];
+    const plan = (headline: string, sub: string) => ({ picks: [1], headline, sub, primaryText: "Tired of them? Get a free quote from GoodFit Painting.", title: "Cabinet painting" });
+    expect(imageAdProblems(plan("Kitchen cabinets we've painted", "Free cabinet painting quote"), type, cands).join(" ")).toContain("caption");
+    expect(imageAdProblems(plan("Finished house exteriors", "Free exterior painting quote"), type, cands).join(" ")).toContain("caption");
+    expect(imageAdProblems(plan("Tired of your brown cabinets?", "White on top, colour below"), type, cands).join(" ")).toContain("free quote");
+    expect(imageAdProblems(plan("Tired of your brown cabinets?", "Free cabinet painting quote. No pressure."), type, cands)).toEqual([]);
+    expect(imageAdProblems(plan("Paint them. Don't replace them.", "Get a free quote on cabinet painting"), type, cands)).toEqual([]);
+    const prompt = imageAdPrompt(type, "GoodFit Painting", "Midland", AD_TRADES.painting, cands);
+    expect(prompt).toContain("direct-response ad");
+    expect(prompt).toContain("NEVER a caption");
   });
 
   test("an image ad's printed words never place the pictured work in the town", () => {
