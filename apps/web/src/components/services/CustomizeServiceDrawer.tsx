@@ -29,6 +29,7 @@ import {
 import { formatCurrency } from '../../utils/format';
 import { supabase } from '../../lib/supabase';
 import { ServiceCatalogService } from '../../services/ServiceCatalogService';
+import { askConfirm } from '../common/appDialogs';
 
 interface ServiceOption {
   id: string;
@@ -290,18 +291,25 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
       // Check for saved draft
       const draftItems = loadDraft();
       if (draftItems && draftItems.length > 0) {
-        // Ask user if they want to restore draft
-        const restore = window.confirm('You have unsaved changes from a previous session. Would you like to restore them?');
-        if (restore) {
-          setCurrentItems(draftItems);
-          setChangesHistory([items, draftItems]);
-          setCurrentHistoryIndex(1);
-        } else {
-          clearDraft();
-          setCurrentItems(items);
-          setChangesHistory([items]);
-          setCurrentHistoryIndex(0);
-        }
+        // Start from the saved items, then offer the unsaved changes back.
+        setCurrentItems(items);
+        setChangesHistory([items]);
+        setCurrentHistoryIndex(0);
+        askConfirm({
+          title: 'Restore your unsaved changes?',
+          message: 'You changed this service last time without saving.',
+          confirmLabel: 'Restore',
+          cancelLabel: 'Discard',
+          tone: 'default',
+        }).then((restore) => {
+          if (restore) {
+            setCurrentItems(draftItems);
+            setChangesHistory([items, draftItems]);
+            setCurrentHistoryIndex(1);
+          } else {
+            clearDraft();
+          }
+        });
       } else {
         setCurrentItems(items);
         setChangesHistory([items]);
@@ -820,7 +828,7 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
       }, 1500);
     } catch (error) {
       // Error saving customization
-      setErrorMessage('Failed to save customization. Please try again.');
+      setErrorMessage("Couldn't save your changes. Try again.");
       setTimeout(() => setErrorMessage(''), 5000);
     } finally {
       setIsSaving(false);
@@ -1261,12 +1269,14 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
                         {item.line_item?.cost_code?.name} {!clientPreviewMode && `• ${formatCurrency(item.line_item?.price || 0)}/${item.line_item?.unit}`}
                       </p>
                     </div>
+                    {/* Always shown on touch screens (no hover there); fades in on hover with a mouse. */}
                     <button
                       onClick={() => handleRemoveItem(item.id)}
+                      aria-label="Remove item"
                       className={`p-1 transition-colors ${
                         currentItems.length <= 1
-                          ? 'text-gray-600 cursor-not-allowed opacity-0 group-hover:opacity-50'
-                          : 'text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100'
+                          ? 'text-gray-600 cursor-not-allowed opacity-50 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-50'
+                          : 'text-gray-400 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100'
                       }`}
                       disabled={currentItems.length <= 1}
                       title={currentItems.length <= 1 ? 'At least one item must remain' : 'Remove item'}
@@ -1285,7 +1295,7 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         value={item.quantity}
                         onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
                         className="w-16 px-2 py-1 bg-[#333333] border border-[#444444] rounded text-sm text-white text-center focus:border-[#336699] focus:outline-none"
@@ -1389,7 +1399,7 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
           
           <div className="flex-1 overflow-y-auto px-3 py-2">
             {isLoading ? (
-              <p className="text-sm text-gray-500 text-center py-8">Loading...</p>
+              <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
             ) : filteredItems.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-8">
                 No items found

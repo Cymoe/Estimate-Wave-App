@@ -1,0 +1,272 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, LayoutGrid, Pin, Search, X } from 'lucide-react';
+import type { OutreachListSummary } from '../../lib/api';
+import { WHO_LABEL } from '../../../convex/lib/outreach';
+import { countyOf } from './county';
+import { listProgress, ownerTotal, recentLists, rememberList, UNLISTED } from './listsStore';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
+
+/** How many lists before the panel offers a search (and Recent): fewer all fit on the panel, with nothing to find. */
+const MANY_LISTS = 5;
+
+/**
+ * The lists, one tap away: a box of one size holding the open list's name (a
+ * long name is cut short; the box doesn't grow and shrink with it); it opens
+ * a panel the same width with the pinned lists, the ones opened lately and the
+ * rest grouped by who they're of, and a search once there are many. On a phone
+ * it's a sheet from the bottom.
+ */
+export function ListPicker({
+  lists,
+  currentId,
+  narrow,
+  onPick,
+  onPin,
+  onManage,
+  compact = false,
+  unlisted = 0,
+  count,
+}: {
+  lists: OutreachListSummary[];
+  currentId?: string;
+  narrow: boolean;
+  onPick: (id: string | null) => void;
+  onPin: (id: string, pinned: boolean) => void;
+  onManage: () => void;
+  compact?: boolean;
+  /** Owners on no list (kept from deleted lists): a row of their own under All owners while there are any. */
+  unlisted?: number;
+  /** How many owners All owners (or Not on a list) shows, beside its name; a list's own count comes from the list. */
+  count?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const current = lists.find((l) => l.id === currentId);
+  // A finger, not a mouse: putting the cursor in the search box would bring the keyboard up over the lists just opened.
+  const touch = useMediaQuery('(pointer: coarse)');
+  const searchable = lists.length > MANY_LISTS;
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => box.current && !box.current.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('touchstart', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  useEffect(() => {
+    if (!open) {
+      setQ('');
+    }
+  }, [open]);
+
+  const sections = useMemo(() => {
+    const live = lists;
+    const needle = q.trim().toLowerCase();
+    if (needle) {
+      const hit = (l: OutreachListSummary) => `${l.title} ${WHO_LABEL[l.who]} ${l.definition.county}`.toLowerCase().includes(needle);
+      return { search: live.filter(hit), pinned: [], recent: [], groups: [] as Array<[string, OutreachListSummary[]]> };
+    }
+    const pinned = live.filter((l) => l.pinned);
+    const byId = new Map(live.map((l) => [l.id, l] as const));
+    // With only a handful of lists they all fit already; Recent is for when there are many. The open list isn't repeated.
+    const recent =
+      live.length > MANY_LISTS
+        ? recentLists()
+            .map((id) => byId.get(id))
+            .filter((l): l is OutreachListSummary => Boolean(l) && !l!.pinned && l!.id !== currentId)
+            .slice(0, 3)
+        : [];
+    // Lists in more than one county are grouped by county ("Ector County (Odessa)"); in one, by who they reach.
+    const byCounty = new Set(live.map((l) => l.definition.county)).size > 1;
+    const groups = new Map<string, OutreachListSummary[]>();
+    for (const l of live) {
+      if (l.pinned) continue;
+      const g = byCounty ? countyOf(l.definition.county).label.replace(/, TX/, '') : (WHO_LABEL[l.who] ?? 'Other');
+      groups.set(g, [...(groups.get(g) ?? []), l]);
+    }
+    return { search: null, pinned, recent, groups: [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])) };
+  }, [lists, q, currentId]);
+
+  const pick = (id: string | null) => {
+    if (id && id !== UNLISTED) rememberList(id);
+    setOpen(false);
+    onPick(id);
+  };
+
+  const Row = ({ l }: { l: OutreachListSummary }) => (
+    <li className={`flex items-center gap-2 ${l.id === currentId ? 'bg-[#336699]/15' : ''}`}>
+      <button type="button" onClick={() => pick(l.id)} className="flex-1 min-w-0 text-left px-4 py-2.5 hover:bg-[#2A2A2A]" data-testid="list-option">
+        <span className="block text-sm text-white truncate">
+          {l.title}
+        </span>
+        <span className="block text-xs text-gray-500 truncate">{listProgress(l)}</span>
+      </button>
+      {(
+        <button
+          type="button"
+          onClick={() => onPin(l.id, !l.pinned)}
+          aria-label={l.pinned ? `Unpin ${l.title}` : `Pin ${l.title}`}
+          title={l.pinned ? 'Unpin' : 'Pin to the top'}
+          aria-pressed={Boolean(l.pinned)}
+          data-testid="pin-toggle"
+          className={`relative after:absolute after:-inset-1 after:content-[''] mr-2 w-9 h-9 shrink-0 inline-flex items-center justify-center ${l.pinned ? 'text-[#7fb0e0] hover:text-[#a8cbee]' : 'text-gray-600 hover:text-gray-300'}`}
+        >
+          {/* Pinned is a solid pin, unpinned an outline one; a tap switches it. No crossed-out pin: it read like a fault. */}
+          <Pin className="w-4 h-4" fill={l.pinned ? 'currentColor' : 'none'} aria-hidden />
+        </button>
+      )}
+    </li>
+  );
+  const Section = ({ title, rows }: { title: string; rows: OutreachListSummary[] }) =>
+    rows.length === 0 ? null : (
+      <section>
+        <h3 className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide text-gray-500">{title}</h3>
+        <ul>
+          {rows.map((l) => (
+            <Row key={l.id} l={l} />
+          ))}
+        </ul>
+      </section>
+    );
+
+  const liveCount = lists.length;
+  // The box and its panel on a wide screen: one width, whatever the list is called.
+  const WIDE = 'w-[26rem]';
+  const panel = (
+    <div
+      role="dialog"
+      aria-label="Lists"
+      className={
+        narrow
+          ? 'fixed inset-x-0 bottom-0 z-50 max-h-[80vh] flex flex-col bg-[#1A1A1A] border-t border-[#333333] shadow-2xl'
+          : `absolute left-0 top-full mt-1 z-50 ${WIDE} max-w-[90vw] max-h-[70vh] flex flex-col bg-[#1A1A1A] border border-[#333333] shadow-2xl`
+      }
+    >
+      {/* The search comes with many lists; a phone's sheet keeps its top line for the Close button either way. */}
+      {(searchable || narrow) && (
+        <div className="flex items-center gap-2 p-3 border-b border-[#333333]">
+          {searchable ? (
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
+              <input
+                // With a keyboard in hand, typing finds a list straight away. Never on a touch screen or a phone.
+                autoFocus={!narrow && touch === false}
+                type="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Find a list"
+                aria-label="Find a list"
+                className="w-full h-9 rounded-none border border-[#333333] bg-black pl-8 pr-3 text-base md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+              />
+            </div>
+          ) : (
+            <span className="flex-1 text-sm font-medium text-white">Lists</span>
+          )}
+          {narrow && (
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="relative after:absolute after:-inset-1 after:content-[''] w-9 h-9 inline-flex items-center justify-center text-gray-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+      )}
+      <div className="overflow-y-auto pb-2">
+        {!q && (
+          <ul>
+            <li className={!currentId ? 'bg-[#336699]/15' : ''}>
+              <button type="button" onClick={() => pick(null)} className="w-full text-left px-4 py-2.5 hover:bg-[#2A2A2A]">
+                <span className="block text-sm text-white">All owners</span>
+                <span className="block text-xs text-gray-500">
+                  Everyone on your {liveCount} {liveCount === 1 ? 'list' : 'lists'}
+                  {unlisted > 0 ? ' and the owners kept from deleted ones' : ''}
+                </span>
+              </button>
+            </li>
+            {(unlisted > 0 || currentId === UNLISTED) && (
+              <li className={currentId === UNLISTED ? 'bg-[#336699]/15' : ''}>
+                <button type="button" onClick={() => pick(UNLISTED)} className="w-full text-left px-4 py-2.5 hover:bg-[#2A2A2A]" data-testid="unlisted-option">
+                  <span className="block text-sm text-white">Not on a list</span>
+                  <span className="block text-xs text-gray-500">
+                    {unlisted.toLocaleString('en-US')} {unlisted === 1 ? 'owner' : 'owners'} kept from deleted lists
+                  </span>
+                </button>
+              </li>
+            )}
+          </ul>
+        )}
+        {sections.search ? (
+          sections.search.length ? (
+            <ul>
+              {sections.search.map((l) => (
+                <Row key={l.id} l={l} />
+              ))}
+            </ul>
+          ) : (
+            <p className="px-4 py-3 text-sm text-gray-500">No list matches “{q}”.</p>
+          )
+        ) : (
+          <>
+            <Section title="Pinned" rows={sections.pinned} />
+            <Section title="Recent" rows={sections.recent} />
+            {sections.groups.map(([title, rows]) => (
+              <Section key={title} title={title} rows={rows} />
+            ))}
+          </>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(false);
+          onManage();
+        }}
+        className="flex items-center gap-2 px-4 min-h-[44px] border-t border-[#333333] text-sm text-[#7fb0e0] hover:text-white hover:bg-[#2A2A2A]"
+      >
+        <LayoutGrid className="w-4 h-4" /> Manage lists
+      </button>
+    </div>
+  );
+
+  return (
+    <div ref={box} className={`relative ${compact ? 'flex-1 min-w-0' : narrow ? 'max-w-full' : `${WIDE} max-w-full`}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label="List"
+        data-testid="list-picker"
+        className={
+          compact
+            ? "relative after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] flex items-center gap-2 max-w-full w-full h-9 px-3 text-base border border-[#333333] bg-[#1A1A1A] text-white hover:bg-[#2A2A2A]"
+            : // The list's name, as the page's title, in a box that stays one size: the count and the arrow keep their place.
+              'flex items-center gap-2 w-full h-10 md:h-11 px-3 text-lg font-semibold text-white border border-[#333333] bg-[#1A1A1A] hover:bg-[#2A2A2A]'
+        }
+      >
+        <span className="truncate">{current ? current.title : currentId === UNLISTED ? 'Not on a list' : 'All owners'}</span>
+        {/* How many owners, at a glance beside the name. */}
+        {(current || count !== undefined) && (
+          <span className={`shrink-0 font-normal tabular-nums text-gray-400 ${compact ? 'text-sm' : 'text-base'}`} data-testid="list-count">
+            {current ? ownerTotal(current) : count!.toLocaleString('en-US')}
+          </span>
+        )}
+        <ChevronDown className={`w-4 h-4 shrink-0 ml-auto text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {open &&
+        (narrow ? (
+          // A tap on the dimmed backdrop closes the sheet.
+          <div className="fixed inset-0 z-40 bg-black/60" onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
+            {panel}
+          </div>
+        ) : (
+          panel
+        ))}
+    </div>
+  );
+}

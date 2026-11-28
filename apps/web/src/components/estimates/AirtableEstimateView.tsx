@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 
 interface AirtableItem {
@@ -10,13 +10,16 @@ interface AirtableItem {
   original_price?: number;
   unit?: string;
   total: number;
+  /** The line's type of work, shown under its name. */
+  category?: string;
+  /** The client picks the product for this line. */
+  allowance?: boolean;
 }
 
 interface AirtableEstimateViewProps {
   items: AirtableItem[];
   onUpdateItem: (id: string, field: keyof AirtableItem, value: any) => void;
   onAddItem: () => void;
-  onRemoveItem: (id: string) => void;
   isEditable?: boolean;
   subtotal: number;
   tax?: number;
@@ -28,6 +31,12 @@ interface AirtableEstimateViewProps {
   capTotal?: number;
   redlineTotal?: number;
   showStickyFooter?: boolean;
+  /** Opens a pricing editor for the item instead of editing the price inline. */
+  onEditPrice?: (itemId: string) => void;
+  /** Fill the parent's height instead of the screen's. */
+  fill?: boolean;
+  /** The Add item row after the last line; off when the page pins its own. */
+  showAddRow?: boolean;
 }
 
 interface EditingCell {
@@ -40,7 +49,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   items,
   onUpdateItem,
   onAddItem,
-  onRemoveItem,
   isEditable = false,
   subtotal,
   tax = 0,
@@ -48,18 +56,23 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   marginIndicator,
   capTotal = 0,
   redlineTotal = 0,
-  showStickyFooter = true
+  showStickyFooter = true,
+  onEditPrice,
+  fill = false,
+  showAddRow = true
 }) => {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Focus and select once when a cell opens, not on every keystroke
+  // (re-selecting made each digit replace the previous one).
+  const editingKey = editingCell ? `${editingCell.itemId}:${editingCell.field}` : null;
   useEffect(() => {
-    if (editingCell && inputRef.current) {
+    if (editingKey && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
-  }, [editingCell]);
+  }, [editingKey]);
 
   const handleCellClick = (itemId: string, field: keyof AirtableItem, currentValue: any) => {
     if (field === 'total' || field === 'name') return; // Total is calculated, name comes from price book - both not editable
@@ -96,7 +109,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
       // Move to next cell on Tab
       if (e.key === 'Tab' && editingCell) {
         const currentIndex = items.findIndex(item => item.id === editingCell.itemId);
-        const fields: (keyof AirtableItem)[] = ['quantity', 'price']; // name removed - not editable
+        const fields: (keyof AirtableItem)[] = onEditPrice ? ['quantity'] : ['quantity', 'price']; // name isn't editable
         const fieldIndex = fields.indexOf(editingCell.field);
         
         let nextField = fields[(fieldIndex + 1) % fields.length];
@@ -120,78 +133,63 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   };
 
   return (
-    <div className="w-full bg-[#1d1f25] flex flex-col h-screen">
+    <div className={`w-full bg-[#0A0A0A] flex flex-col ${fill ? 'h-full' : 'h-screen'}`}>
       <div className="flex-1 overflow-y-auto pb-12">
         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-          <thead className="sticky top-0 z-10">
-              <tr className="bg-[#25263a] border-b border-[#3c3d51]">
-            <th className="text-left py-2 px-3 font-medium text-gray-300 text-[13px] border-r border-[#3c3d51]">
-              <div className="flex items-center gap-1.5">
-                <span className="text-gray-500">A</span>
-                <span>Description</span>
-              </div>
-            </th>
-            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-32 border-r border-[#3c3d51]">
-              <div className="flex items-center justify-end gap-1.5">
-                <span className="text-gray-500">$</span>
-                <span>Unit Price</span>
-              </div>
-            </th>
-            <th className="text-center py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#3c3d51]">
-              <div className="flex items-center justify-center gap-1.5">
-                <span className="text-gray-500">123</span>
-                <span>Quantity</span>
-              </div>
-            </th>
-            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-32 border-r border-[#3c3d51]">
-              <div className="flex items-center justify-end gap-1.5">
-                <span className="text-gray-500">ƒ</span>
-                <span>Total</span>
-              </div>
-            </th>
-            <th className="w-10 border-r border-[#3c3d51] bg-[#25263a]">
-              {isEditable && (
-                <button className="w-full h-full flex items-center justify-center text-gray-400 hover:text-gray-300">
-                  <Plus className="w-4 h-4" />
-                </button>
-              )}
-            </th>
-          </tr>
-        </thead>
+          {/* No visible header: price, quantity, total reads on its own, and the sums bar
+              below lines up under the same columns. The labels stay for screen readers. */}
+          <colgroup>
+            <col />
+            <col className="w-28" />
+            <col className="w-16" />
+            <col className="w-28" />
+          </colgroup>
+          <thead className="sr-only">
+            <tr>
+              <th scope="col">Description</th>
+              <th scope="col">Price</th>
+              <th scope="col">Qty</th>
+              <th scope="col">Total</th>
+            </tr>
+          </thead>
         <tbody>
           {items.map((item, index) => (
-              <tr 
+              <tr
                 key={item.id}
-                className="border-b border-[#3c3d51] bg-[#1d1f25] hover:bg-[#25263a] transition-colors"
-                onMouseEnter={() => setHoveredRow(item.id)}
-                onMouseLeave={() => setHoveredRow(null)}
+                // With a pricing drawer, the whole row opens it: items are edited there, not in the table.
+                onClick={onEditPrice ? () => onEditPrice(item.id) : undefined}
+                className={`border-b border-[#333333] bg-[#0A0A0A] [@media(hover:hover)]:hover:bg-[#22272d] active:bg-[#22272d] transition-colors ${onEditPrice ? 'cursor-pointer' : ''}`}
               >
               
-              {/* Name Cell - Read Only */}
-              <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#3c3d51]">
-                <div className='px-1 py-0.5 -mx-1 -my-0.5'>
-                  {item.name}
-                </div>
+              {/* Name Cell - opens the item's pricing editor when there is one */}
+              <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#333333]">
+                {item.name}
+                {(item.category || item.allowance) && (
+                  <span className="block text-[11px] text-gray-400" data-testid="item-category">
+                    {item.category}
+                    {item.allowance && <span className="text-amber-300" data-testid="item-allowance">{item.category ? ' · ' : ''}Allowance</span>}
+                  </span>
+                )}
               </td>
               
               {/* Price Cell */}
               <td 
-                className="py-1.5 px-3 text-right text-white text-[13px] font-normal cursor-pointer border-r border-[#3c3d51]"
-                onClick={() => handleCellClick(item.id, 'price', item.price)}
+                className="py-1.5 px-3 text-right text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
+                onClick={onEditPrice ? undefined : () => handleCellClick(item.id, 'price', item.price)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'price' ? (
                   <input
                     ref={inputRef}
-                    type="number"
+                    type="number" inputMode="decimal"
                     step="0.01"
                     value={editingCell.value}
                     onChange={(e) => setEditingCell({...editingCell, value: e.target.value})}
                     onBlur={handleCellUpdate}
                     onKeyDown={handleKeyDown}
-                    className="w-full px-1 py-0.5 bg-[#15161f] border border-blue-500 rounded-sm outline-none text-white text-right text-[13px]"
+                    className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-right text-[13px]"
                   />
                 ) : (
-                  <div className='hover:bg-[#2a2b3e] px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block cursor-pointer'>
+                  <div className={`px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block ${onEditPrice ? '' : 'hover:bg-[#22272d] cursor-pointer'}`}>
                     {formatCurrency(item.price)}
                   </div>
                 )}
@@ -199,55 +197,46 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               
               {/* Quantity Cell */}
               <td 
-                className="py-1.5 px-3 text-center text-white text-[13px] font-normal cursor-pointer border-r border-[#3c3d51]"
-                onClick={() => handleCellClick(item.id, 'quantity', item.quantity)}
+                className="py-1.5 px-2 text-center text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
+                onClick={onEditPrice ? undefined : () => handleCellClick(item.id, 'quantity', item.quantity)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'quantity' ? (
                   <input
                     ref={inputRef}
-                    type="number"
+                    type="number" inputMode="decimal"
                     step="1"
                     value={editingCell.value}
                     onChange={(e) => setEditingCell({...editingCell, value: e.target.value})}
                     onBlur={handleCellUpdate}
                     onKeyDown={handleKeyDown}
-                    className="w-full px-1 py-0.5 bg-[#15161f] border border-blue-500 rounded-sm outline-none text-white text-center text-[13px]"
+                    className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-center text-[13px]"
                   />
                 ) : (
-                  <div className='hover:bg-[#2a2b3e] px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block cursor-pointer'>
+                  <div className={`px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block ${onEditPrice ? '' : 'hover:bg-[#22272d] cursor-pointer'}`}>
                     {item.quantity}
                   </div>
                 )}
               </td>
               
               {/* Total Cell */}
-              <td className="py-1.5 px-3 text-right text-white text-[13px] font-normal border-r border-[#3c3d51]">
+              <td className="py-1.5 px-3 text-right text-white text-[13px] font-normal border-r border-[#333333]">
                 {formatCurrency(item.total)}
               </td>
               
-              {/* Actions */}
-              <td className="py-1.5 px-2 border-r border-[#3c3d51]">
-                {isEditable && hoveredRow === item.id && (
-                  <button
-                    onClick={() => onRemoveItem(item.id)}
-                    className="p-1 text-gray-400 hover:text-red-400 transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </td>
             </tr>
           ))}
           
             {/* Add Row Button */}
-            {isEditable && (
-              <tr className="border-b border-[#3c3d51] hover:bg-[#25263a]">
-                <td colSpan={6} className="border-r border-[#3c3d51]">
+            {isEditable && showAddRow && (
+              <tr className="border-b border-[#333333] hover:bg-[#22272d]">
+                <td colSpan={6} className="border-r border-[#333333]">
                 <button
+                  type="button"
                   onClick={onAddItem}
-                  className="w-full text-left py-1.5 px-3 text-gray-500 text-[13px] hover:text-gray-300 transition-colors flex items-center gap-2"
+                  className="w-full text-left py-2.5 px-3 text-[#6aa3d9] text-[13px] font-medium hover:text-white transition-colors flex items-center gap-2"
                 >
-                  <span className="text-gray-500">Add...</span>
+                  <Plus className="w-4 h-4" />
+                  <span>Add item</span>
                 </button>
               </td>
             </tr>
@@ -258,22 +247,19 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
       
       {/* Fixed Summary Footer - Always visible at bottom, full width but respects sidebars */}
       {showStickyFooter && (
-        <div className="sticky bottom-0 left-0 right-0 bg-[#15161f] border-t border-[#3c3d51] z-20 flex-shrink-0">
+        <div className="sticky bottom-0 left-0 right-0 bg-[#1D1F25] border-t border-[#333333] z-20 flex-shrink-0">
           <div className="flex items-center text-[12px] font-medium">
-            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#3c3d51] text-center">
-              {items.length} items
+            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
+              {items.length} {items.length === 1 ? 'item' : 'items'} · Sum
             </div>
-            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#3c3d51]">
-              Sum
-            </div>
-            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#3c3d51]">
+            <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
               {formatCurrency(subtotal)}
             </div>
-            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#3c3d51]">
+            <div className="w-16 py-2 px-2 text-center text-gray-300 border-r border-[#333333]">
               {items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
             </div>
-            <div className="w-32 py-2 px-3 text-right border-r border-[#3c3d51] flex flex-col items-end">
-              <span className="text-gray-300">{formatCurrency(total)}</span>
+            <div className="w-28 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
+              <span className="text-white font-semibold">{formatCurrency(total)}</span>
               {marginIndicator && redlineTotal > 0 && (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="text-[10px] text-gray-500">Comm:</span>
@@ -287,7 +273,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 </div>
               )}
             </div>
-            <div className="w-10"></div>
           </div>
         </div>
       )}

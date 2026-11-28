@@ -9,26 +9,50 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+const STORAGE_KEY = 'theme';
+const deviceQuery = () =>
+  typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+
+/** The theme picked with the switch, if any; otherwise the device decides. */
+function savedTheme(): Theme | null {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved === 'light' || saved === 'dark' ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+const deviceTheme = (): Theme => (deviceQuery()?.matches ? 'light' : 'dark');
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const savedTheme = localStorage.getItem('theme');
-    return (savedTheme as Theme) || 'dark';
-  });
+  const [override, setOverride] = useState<Theme | null>(savedTheme);
+  const [device, setDevice] = useState<Theme>(deviceTheme);
+  const theme = override ?? device;
+
+  // Follow the device's light/dark setting as it changes.
+  useEffect(() => {
+    const query = deviceQuery();
+    if (!query) return;
+    const onChange = () => setDevice(query.matches ? 'light' : 'dark');
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('theme', theme);
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.classList.toggle('light', theme === 'light');
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
+    const next: Theme = theme === 'light' ? 'dark' : 'light';
+    setOverride(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Not remembered; the switch still works for this visit.
+    }
   };
-
-  // Ensure dark mode is applied by default
-  useEffect(() => {
-    document.documentElement.classList.add('dark');
-  }, []);
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

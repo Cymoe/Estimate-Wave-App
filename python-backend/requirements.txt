@@ -1,9 +1,0 @@
-langchain==0.1.0
-langchain-openai==0.0.2
-langchain-community==0.0.10
-supabase==2.3.0
-python-dotenv==1.0.0
-tiktoken==0.5.2
-faiss-cpu==1.7.4
-pandas==2.1.4
-pydantic==2.5.3 

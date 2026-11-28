@@ -1,0 +1,66 @@
+name: Bring in the ad clips
+
+# Clips shared to the Ads library's Google Drive folder (apps/web/convex/adDrive.ts): the backend notes each new
+# video in the folder and starts this run, which downloads it, makes it 1080p with ffmpeg and puts it in the
+# library (ads-video/scripts/import-clips.mjs). The same run looks through clips waiting to be edited
+# (ads-video/scripts/scan-clips.mjs), and the backend starts it for that too.
+
+on:
+  workflow_dispatch:
+  # GitHub only lets a workflow be started by hand (or by the backend) once it knows of it, and it learns of one off
+  # the default branch only when that one has run. A change to the runner's own files runs it, which also registers it.
+  push:
+    branches: [fieldquote-convex]
+    paths:
+      - '.github/workflows/ads-clips.yml'
+      - 'ads-video/scripts/import-clips.mjs'
+      - 'ads-video/scripts/scan-clips.mjs'
+
+concurrency:
+  group: ads-clips
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check deploy key
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          [ -n "$key" ] || { echo "::error::Add a CONVEX_DEPLOY_KEY repository secret."; exit 1; }
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          echo "CONVEX_DEPLOY_KEY=$key" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install the app (for the calls to the backend)
+        run: npm ci --no-audit --no-fund
+
+      - name: ffmpeg
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq ffmpeg >/dev/null
+          ffmpeg -version | head -1
+
+      - name: Bring in what's waiting
+        run: node ads-video/scripts/import-clips.mjs
+
+      # Clips are cut to their good parts before they become ads: this takes the frames the app and the owner
+      # choose from (apps/web/convex/footage.ts). It runs even when nothing new came in, and when an import failed.
+      - name: Look through the clips waiting to be edited
+        if: always()
+        run: node ads-video/scripts/scan-clips.mjs

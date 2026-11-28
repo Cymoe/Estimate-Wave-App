@@ -1,0 +1,20 @@
+[
+  {
+    "name": "check_footage_tesseract_9x16",
+    "props": {
+      "ratio": "9x16",
+      "style": { "kind": "footage" },
+      "engine": "tesseract",
+      "brand": { "name": "GoodFit Pros", "primaryColor": "#336699", "accentColor": "#8fb6e0", "markets": ["Midland", "Odessa"] },
+      "headline": "Doors off, sprayed smooth",
+      "lines": [
+        { "voice": "We take every door to the shop.", "start": 0.5, "end": 2.4 },
+        { "voice": "Then we spray them smooth.", "start": 3, "end": 4.6 }
+      ],
+      "audio": "clip.mp4",
+      "audioSec": 6,
+      "photos": [],
+      "footage": { "src": "clip.mp4" }
+    }
+  }
+]
