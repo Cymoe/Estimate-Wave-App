@@ -5285,6 +5285,48 @@ export const filePairsAsJob = internalMutation({
   },
 });
 
+/** Every before and after in the Library, with no filter by trade, service or count: to find where the ad maker loses them. Read-only. */
+export const pairCensus = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("adAssets").collect();
+    const photos = all.filter((a) => a.kind === "photo");
+    const isB = (a: Doc<"adAssets">) => a.tags.includes("before") && !a.tags.includes("after");
+    const isA = (a: Doc<"adAssets">) => a.tags.includes("after") && !a.tags.includes("before");
+    const byKey = new Map<string, Doc<"adAssets">[]>();
+    for (const a of photos) if (a.pairKey) byKey.set(a.pairKey, [...(byKey.get(a.pairKey) ?? []), a]);
+    const first500 = new Set((await ctx.db.query("adAssets").take(500)).map((a) => a._id as string));
+    const jobNames = new Map<string, string>();
+    for (const j of await ctx.db.query("adJobs").collect()) jobNames.set(j._id, j.name);
+    const pairs = [...byKey.values()].map((halves) => {
+      const b = halves.find(isB);
+      const a = halves.find(isA);
+      return {
+        ok: Boolean(b && a),
+        files: halves.map((h) => h.fileName).join(" + "),
+        trade: halves.map((h) => h.trade ?? "-").join("/"),
+        job: a?.jobId ? (jobNames.get(a.jobId) ?? "job") : "(no job)",
+        afterTags: (a ?? halves[0]).tags.join(", "),
+        described: halves.every((h) => Boolean(h.description)),
+        seenByAdMaker: halves.every((h) => first500.has(h._id)),
+        after: ((a ?? halves[0]).description ?? "").slice(0, 70),
+      };
+    });
+    return {
+      assets: all.length,
+      photos: photos.length,
+      photosByTrade: Object.fromEntries([...new Set(photos.map((a) => a.trade ?? "(none)"))].map((t) => [t, photos.filter((a) => (a.trade ?? "(none)") === t).length])),
+      befores: photos.filter(isB).length,
+      afters: photos.filter(isA).length,
+      joined: photos.filter((a) => a.tags.includes("before") && a.tags.includes("after")).length,
+      noStage: photos.filter((a) => !a.tags.some((t) => t === "before" || t === "after" || t === "process")).length,
+      noDescription: photos.filter((a) => !a.description).length,
+      beyondFirst500: all.length - Math.min(all.length, 500),
+      pairs,
+    };
+  },
+});
+
 /** A file's bytes as base64, for Meta's image upload (no Buffer in Convex's default runtime). */
 async function base64Of(url: string): Promise<string> {
   const res = await fetch(url);
