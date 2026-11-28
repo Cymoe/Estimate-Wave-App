@@ -449,8 +449,10 @@ export const scanAll = internalMutation({
 export const cutsReport = internalQuery({
   args: {},
   handler: async (ctx) =>
-    (await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(1000)).map((a) => ({
+    await Promise.all((await ctx.db.query("adAssets").withIndex("by_kind", (q) => q.eq("kind", "video")).take(1000)).map(async (a) => ({
       id: a._id,
+      url: await ctx.storage.getUrl(a.storageId),
+      sheet: a.scan?.sheets[0] ? await ctx.storage.getUrl(a.scan.sheets[0]) : undefined,
       fileName: a.fileName,
       trade: a.trade,
       tags: a.tags,
@@ -462,7 +464,7 @@ export const cutsReport = internalQuery({
       note: a.cutsNote,
       error: a.cutsError,
       description: (a.description ?? "").slice(0, 120),
-    })),
+    }))),
 });
 
 
