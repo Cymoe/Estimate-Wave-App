@@ -8,7 +8,57 @@ import type { Photo, StillProps } from "../types";
  * where the line, what backs it up and the button sit. With no photo the
  * brand's colours fill the frame instead.
  */
-export const Still: React.FC<StillProps> = (props) => (props.pair ? <Split {...props} pair={props.pair} /> : <Single {...props} />);
+export const Still: React.FC<StillProps> = (props) =>
+  props.grid?.length ? <Grid {...props} grid={props.grid} /> : props.pair ? <Split {...props} pair={props.pair} /> : <Single {...props} />;
+
+/**
+ * A showcase: three or four finished jobs from different homes under one headline. Four make a two-by-two; three
+ * put the first across the top and two beneath it. Thin gaps in the brand's accent keep them apart, so they read
+ * as separate homes.
+ */
+const Grid: React.FC<StillProps & { grid: Photo[] }> = ({ ratio, brand, headline, sub, grid }) => {
+  const tall = ratio === "9x16";
+  const W = 1080;
+  const H = tall ? 1920 : 1350;
+  const head = tall ? { top: 180, height: 290 } : { top: 0, height: 250 };
+  const foot = tall ? 440 : 150;
+  const gap = 8;
+  const area = H - head.top - head.height - foot;
+  const rowH = Math.floor((area - gap) / 2);
+  const half = Math.floor((W - gap) / 2);
+  const photos = grid.slice(0, 4);
+  const cells =
+    photos.length >= 4
+      ? photos.map((ph, i) => ({ ph, left: (i % 2) * (half + gap), top: Math.floor(i / 2) * (rowH + gap), width: half, height: rowH }))
+      : [
+          { ph: photos[0], left: 0, top: 0, width: W, height: rowH },
+          ...photos.slice(1, 3).map((ph, i) => ({ ph, left: i * (half + gap), top: rowH + gap, width: photos.length === 2 ? W : half, height: rowH })),
+        ];
+  const size = headline.length <= 24 ? (tall ? 96 : 84) : headline.length <= 36 ? (tall ? 80 : 70) : tall ? 68 : 60;
+  const top = head.top + head.height;
+  return (
+    <AbsoluteFill style={{ backgroundColor: INK }}>
+      <div style={{ position: "absolute", left: 56, right: 56, top: head.top, height: head.height, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <div style={{ fontFamily: display, fontWeight: 800, fontSize: size, lineHeight: 1.05, letterSpacing: -2, color: "#fff" }}>{headline}</div>
+        {sub ? <div style={{ fontFamily: body, fontWeight: 600, fontSize: tall ? 40 : 34, lineHeight: 1.25, color: "rgba(255,255,255,0.82)", marginTop: 16 }}>{sub}</div> : null}
+      </div>
+      <div style={{ position: "absolute", left: 0, top, width: W, height: area, backgroundColor: brand.accentColor }}>
+        {cells.map((c, i) => (
+          <div key={i} style={{ position: "absolute", left: c.left, top: c.top, width: c.width, height: c.height, overflow: "hidden", backgroundColor: INK }}>
+            <Img src={source(c.ph.src)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${c.ph.focus?.[0]?.x ?? 50}% ${c.ph.focus?.[0]?.y ?? 50}%` }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ position: "absolute", left: 56, right: 56, top: top + area, height: tall ? 150 : foot, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: brand.accentColor }} />
+          <div style={{ fontFamily: display, fontWeight: 800, fontSize: 40, color: "#fff" }}>{brand.name}</div>
+        </div>
+        <div style={{ fontFamily: display, fontWeight: 800, fontSize: 40, color: brand.primaryColor, backgroundColor: "#fff", padding: "22px 44px", borderRadius: 60 }}>Get a free quote</div>
+      </div>
+    </AbsoluteFill>
+  );
+};
 
 /** A small marker on a photo saying which state of the job it shows. */
 const Chip: React.FC<{ text: string; color: string; ink: string }> = ({ text, color, ink }) => (

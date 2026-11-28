@@ -15,7 +15,7 @@ import {
   useAdsSettings,
   useAdsSwipes,
 } from '../../lib/live';
-import { AD_TRADES, DEFAULT_TRADE, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
+import { AD_TRADES, DEFAULT_TRADE, IMAGE_AD_TYPES, familyOfAngle, mergeSwipeCsvs, tradeOf } from '../../../convex/lib/ads';
 import { ACTOR_VOICES, ACTOR_VOICE_LABELS } from '../../../convex/lib/voiceActors';
 import { money } from '../market/wallet';
 import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary, tap, usePanel } from './ui';
@@ -520,6 +520,7 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
   return (
     <div className="space-y-6">
       {owner && <CampaignSwitch />}
+      {owner && <CreateAd act={act} />}
       <Ideas owner={owner} act={act} />
       <p className="text-sm text-gray-400">
         Each ad made from an idea you kept shows below in two sizes, and is created paused in Meta once it is drawn. Approve the ones to run.
@@ -559,6 +560,113 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         ))
       )}
     </div>
+  );
+};
+
+/** The static image ads on offer (convex/lib/ads.ts IMAGE_AD_TYPES), in the owner's words. */
+const IMAGE_TYPES: Array<[string, string, string]> = IMAGE_AD_TYPES.map((t) => [t.key, t.label, t.blurb]);
+
+/**
+ * Create an ad: one static image at a time. The owner picks the type and, if they like, the competitor ad to model;
+ * the app chooses the photos and writes the words. It shows below as a tile once written, then drawn.
+ */
+const CreateAd: React.FC<{ act: Act }> = ({ act }) => {
+  const trade = useTrade();
+  const [open, setOpen] = useState(false);
+  const [type, setType] = useState(IMAGE_TYPES[0][0]);
+  const [model, setModel] = useState('');
+  const [search, setSearch] = useState('');
+  const [busy, setBusy] = useState(false);
+  const swipes = useAdsSwipes<Swipe[]>(trade === DEFAULT_TRADE ? undefined : trade, open);
+  const needle = search.trim().toLowerCase();
+  // The best competitor ads first (they arrive sorted by star, then fit); the search narrows by company or angle.
+  const choices = (swipes ?? []).filter((x) => !needle || `${x.company} ${x.hook} ${x.paintingType}`.toLowerCase().includes(needle)).slice(0, 40);
+  const create = () => {
+    setBusy(true);
+    void act(async () => {
+      const made = await adsAPI.createImageAd(type, model || undefined, trade === DEFAULT_TRADE ? undefined : trade);
+      setOpen(false);
+      setModel('');
+      return made;
+    }, 'Your image ad is written. It shows below once it is drawn, in a minute or two.').finally(() => setBusy(false));
+  };
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3 rounded border border-[#2A2A2A] px-4 py-3">
+        <div className="flex-1 min-w-[16rem]">
+          <h3 className="text-sm font-medium text-white">Create an ad</h3>
+          <p className="text-xs text-gray-400">One static image at a time. You pick the type; the app picks the photos and writes the words.</p>
+        </div>
+        <button type="button" className="min-h-[40px] px-4 rounded bg-[#e2b350] text-black text-sm font-medium inline-flex items-center gap-1.5" onClick={() => setOpen(true)}>
+          <Plus className="w-4 h-4" /> Create an ad
+        </button>
+      </div>
+      {open && (
+        <Dialog title="Create an ad" onClose={() => !busy && setOpen(false)} wide>
+          <div className="space-y-5">
+            <fieldset>
+              <legend className="text-sm font-medium text-white mb-2">1. What type of image?</legend>
+              <div role="radiogroup" aria-label="Type of ad" className="grid gap-2 sm:grid-cols-2">
+                {IMAGE_TYPES.map(([key, label, blurb]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={type === key}
+                    onClick={() => setType(key)}
+                    className={`text-left rounded border p-3 ${type === key ? 'border-[#e2b350] bg-[#2a2415]' : 'border-[#2A2A2A]'}`}
+                  >
+                    <span className="block text-sm font-medium text-white">{label}</span>
+                    <span className="block text-xs text-gray-400 mt-0.5">{blurb}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend className="text-sm font-medium text-white mb-2">2. Model it on a competitor ad? (optional)</legend>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search company or angle"
+                aria-label="Search competitor ads"
+                className={`${input} mb-2`}
+              />
+              <div role="radiogroup" aria-label="Competitor ad to model" className="max-h-64 overflow-y-auto rounded border border-[#2A2A2A] divide-y divide-[#1f1f1f]">
+                <button type="button" role="radio" aria-checked={model === ''} onClick={() => setModel('')} className={`block w-full text-left px-3 py-2 text-sm ${model === '' ? 'bg-[#2a2415] text-white' : 'text-gray-300'}`}>
+                  None: write it fresh
+                </button>
+                {choices.map((x) => (
+                  <button
+                    key={x.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={model === x.id}
+                    onClick={() => setModel(x.id)}
+                    className={`block w-full text-left px-3 py-2 ${model === x.id ? 'bg-[#2a2415]' : ''}`}
+                  >
+                    <span className="block text-sm text-white">{x.hook}</span>
+                    <span className="block text-xs text-gray-400">
+                      {x.company} · {x.paintingType}
+                      {x.endedAt ? ` · ${stoppedLine(x.endedAt, x.daysRunning)}` : x.daysRunning ? ` · running ${x.daysRunning} days` : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <div className="flex items-center gap-3">
+              <button type="button" className={`${primary} flex-1`} disabled={busy} onClick={create}>
+                {busy ? 'Choosing photos and writing…' : 'Create this ad'}
+              </button>
+              <button type="button" className={secondary} disabled={busy} onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">It is made paused. Nothing runs until you approve it and the campaign is on.</p>
+          </div>
+        </Dialog>
+      )}
+    </>
   );
 };
 

@@ -1926,6 +1926,8 @@ describe("the library, hooks and settings", () => {
 type StubOpts = {
   /** The shortlist picks the photos whose description has this word (none: Claude names none, the usual picking runs). */
   fits?: string;
+  /** The headline a static image ad's writer gives first (a second ask gets a plain one). */
+  imageHeadline?: string;
   /** What the shortlist says of the idea: one project's story, or a range of projects (unsaid when left out). */
   oneProject?: boolean;
   /** Claude turns this many looks at an upload away for coming too fast (429), counting down. */
@@ -2117,7 +2119,10 @@ function stubServices(calls: Array<{ url: string; body?: string; auth?: string |
         if (opts.busyLooks && prompt.includes("It will be used in ads.") && opts.busyLooks.n-- > 0)
           return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } }), { status: 429 });
         if (opts.describe && prompt.includes("It will be used in ads.")) reply = opts.describe;
-        else if (prompt.includes("An ad is about to be made from the owner's own job photos"))
+        else if (prompt.includes("You write one static image ad")) {
+          const words = { headline: retry ? "Cabinets, freshly painted" : (opts.imageHeadline ?? "Cabinets, freshly painted"), sub: "White uppers, colour below", primaryText: "We repaint kitchen cabinets. Get a free quote from GoodFit Painting.", title: "Cabinet painting" };
+          reply = prompt.includes('{"pair":') ? { pair: 1, ...words } : prompt.includes('{"photos":') ? { photos: [1, 2, 3], ...words } : { photo: 1, ...words };
+        } else if (prompt.includes("An ad is about to be made from the owner's own job photos"))
           reply = {
             photos: opts.fits
               ? prompt
@@ -3007,6 +3012,77 @@ describe("the weekly run", () => {
     // The ad was then offered the one photo that fits, not a dozen white kitchens.
     const plan = asks.find((a) => a.some((c) => /^Photo \d+:$/.test(c.text ?? "")))!;
     expect(plan.filter((c) => /^Photo \d+:$/.test(c.text ?? "")).length).toBe(1);
+  });
+
+  test("Create an ad: one static image at a time, by type; the owner only; photos chosen from finished work, hype sent back once", async () => {
+    const { t, owner, calls, claim } = await ready();
+    const staff = await signUp(t, "ops2@tolliver.example", { role: "staff" });
+    stubServices(calls, { imageHeadline: "Stunning cabinets" });
+    await t.run(async (ctx) => {
+      // A clean library for this test: three projects' finished kitchens, and one before/after pair.
+      for (const a of await ctx.db.query("adAssets").collect()) await ctx.db.delete(a._id);
+      const user = (await ctx.db.query("users").take(1))[0]._id;
+      const add = async (fileName: string, tags: string[], description: string, more: Record<string, unknown> = {}) =>
+        await ctx.db.insert("adAssets", {
+          storageId: await ctx.storage.store(new Blob([fileName], { type: "image/jpeg" })),
+          kind: "photo",
+          fileName,
+          contentType: "image/jpeg",
+          size: 10,
+          tags: ["interior", "cabinets", ...tags],
+          description,
+          uploadedBy: user,
+          createdAt: "2026-11-01T00:00:00Z",
+          ...more,
+        });
+      for (const name of ["Elm", "Oak", "Pine"]) {
+        const jobId = await ctx.db.insert("adJobs", { trade: "painting", name, createdAt: "2026-11-01T00:00:00Z" });
+        await add(`${name}-after.jpg`, ["after"], `A finished ${name} kitchen with green lower cabinets.`, { jobId });
+      }
+      await add("pair-before.jpg", ["before"], "Dated oak cabinets.", { pairKey: "k9" });
+      await add("pair-after.jpg", ["after"], "The same kitchen painted white.", { pairKey: "k9", uses: 9 });
+      await add("work.jpg", ["process"], "Doors off and masked.");
+    });
+    await expect(staff.as.action(api.ads.createImageAd, { type: "photo" })).rejects.toThrow();
+    await expect(owner.as.action(api.ads.createImageAd, { type: "poster" })).rejects.toThrow("isn't a type");
+    // A single finished photo: the hype headline is sent back, the second answer is kept.
+    const made = await owner.as.action(api.ads.createImageAd, { type: "photo" });
+    expect(made.headline).toBe("Cabinets, freshly painted");
+    const asks = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content as Array<{ text?: string }>);
+    expect(asks.at(-1)!.at(-1)!.text).toContain("hype");
+    // Only finished work is offered: not the before, not the work in progress.
+    expect(asks[0][0].text).not.toContain("Dated oak");
+    expect(asks[0][0].text).not.toContain("Doors off");
+    await owner.as.action(api.ads.createImageAd, { type: "showcase" });
+    await owner.as.action(api.ads.createImageAd, { type: "before_after" });
+    const rows = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still));
+    expect(rows.map((c) => [c.still!.type, c.still!.layout, c.assetIds.length, c.kind, c.status, c.ratio])).toEqual([
+      ["photo", "single", 1, "image", "voiced", "4x5"],
+      ["showcase", "grid", 3, "image", "voiced", "4x5"],
+      ["before_after", "pair", 2, "image", "voiced", "4x5"],
+    ]);
+    expect(rows[0].script).toMatchObject({ voice: "", onScreen: ["Cabinets, freshly painted", "White uppers, colour below"] });
+    // Drawn without a voice: each as a still, with its photos laid out by type.
+    const jobs = (await claim()).filter((j) => rows.some((r) => r.name === j.name));
+    expect(jobs.map((j) => j.kind)).toEqual(["image", "image", "image"]);
+    const props = jobs.map((j) => j.props as unknown as { photo?: unknown; grid?: unknown[]; pair?: unknown[]; headline: string });
+    expect(props[0].photo).toBeDefined();
+    expect(props[1].grid).toHaveLength(3);
+    expect(props[2].pair).toHaveLength(2);
+    expect(props[0].headline).toBe("Cabinets, freshly painted");
+  });
+
+  test("Create an ad: with no before and after pair on file, that type says so; a seasonal ad is told the month and no deadline", async () => {
+    const { t, owner, calls } = await ready();
+    stubServices(calls);
+    await t.run(async (ctx) => {
+      for (const a of await ctx.db.query("adAssets").collect()) await ctx.db.patch(a._id, { pairKey: undefined, description: "A finished kitchen.", tags: ["cabinets", "after"] });
+    });
+    await expect(owner.as.action(api.ads.createImageAd, { type: "before_after" })).rejects.toThrow("No before and after pair");
+    await owner.as.action(api.ads.createImageAd, { type: "seasonal" });
+    const ask = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string).find((x) => x.includes("Seasonal offer"))!;
+    expect(ask).toMatch(/It is [A-Z][a-z]+ now\./);
+    expect(ask).toContain("Never a deadline");
   });
 
   test("an idea that isn't one project's story shows a range: a couple of photos a project, and the writer is told they're different homes", async () => {

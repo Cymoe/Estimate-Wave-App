@@ -165,4 +165,6 @@ export type StillProps = {
   photo?: Photo;
   /** A before and its after from the same job: shown one above the other, the before on top, each marked. */
   pair?: [Photo, Photo];
+  /** Three or four finished jobs, each from a different home, shown together under the headline. */
+  grid?: Photo[];
 };

@@ -167,6 +167,13 @@ async function localProps(job, serveDir, base) {
     for (const photo of job.props.pair) pair.push(await local(photo));
     return { props: { ...job.props, pair }, dir };
   }
+  // A static image ad made on its own: one photo, or three or four for a showcase.
+  if (job.props.grid) {
+    const grid = [];
+    for (const photo of job.props.grid) grid.push(await local(photo));
+    return { props: { ...job.props, grid }, dir };
+  }
+  if (job.kind === "image" && job.props.photo) return { props: { ...job.props, photo: await local(job.props.photo) }, dir };
   const photos = [];
   for (const photo of job.props.photos) photos.push(await local(photo));
   // A reel's lines may each have photos of their own, and the ad a few to spare.

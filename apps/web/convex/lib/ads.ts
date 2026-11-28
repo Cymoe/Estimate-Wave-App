@@ -1616,6 +1616,173 @@ export function stillProps(reel: ReturnType<typeof renderProps>, pair: { before:
   };
 }
 
+// ------------------------------------------------------------ Static image ads, made one at a time
+
+export type ImageLayout = "single" | "pair" | "grid";
+export interface ImageAdType {
+  key: string;
+  label: string;
+  /** One line for the owner on what this type is. */
+  blurb: string;
+  layout: ImageLayout;
+  family: Family;
+  /** What the writer is told this ad is. */
+  brief: string;
+}
+
+/** The static image ads the owner can ask for, one at a time (Ops → Ads → Create an ad). */
+export const IMAGE_AD_TYPES: ImageAdType[] = [
+  {
+    key: "photo",
+    label: "Finished photo",
+    blurb: "One of your best finished photos with a headline and a Get a free quote button.",
+    layout: "single",
+    family: "proof",
+    brief: "One finished photo carries the ad. The headline says plainly what the homeowner is looking at and would want for their own home.",
+  },
+  {
+    key: "before_after",
+    label: "Before and after",
+    blurb: "A before next to its own after, from the same project.",
+    layout: "pair",
+    family: "before_after",
+    brief: "A before and its own after, shown together and marked Before and After. The headline names the change you can see between them.",
+  },
+  {
+    key: "showcase",
+    label: "Showcase",
+    blurb: "Three or four finished jobs of one kind, from different projects, in one image.",
+    layout: "grid",
+    family: "proof",
+    brief: "Several finished jobs of one kind, each from a different home, shown together. The headline names the kind of work in the plural; never as if they were one home.",
+  },
+  {
+    key: "offer",
+    label: "Offer",
+    blurb: "Straight to the point: what you do, where, and a free quote.",
+    layout: "single",
+    family: "objection",
+    brief: "A direct offer over one finished photo: the headline names the service and the town, and the line under it is the free quote. No story.",
+  },
+  {
+    key: "seasonal",
+    label: "Seasonal offer",
+    blurb: "The same offer tied to the time of year. Free quote only, no prices or deadlines.",
+    layout: "single",
+    family: "seasonal",
+    brief: "A direct offer tied to the time of year, over one finished photo that suits it. Name the season or the occasion plainly (guests coming for the holidays, spring, before summer heat). Never a deadline, a date, a price or a discount.",
+  },
+];
+
+export const imageAdType = (key: string): ImageAdType | undefined => IMAGE_AD_TYPES.find((t) => t.key === key);
+
+export const IMAGE_HEADLINE_MAX = 44;
+export const IMAGE_SUB_MAX = 70;
+export const IMAGE_PRIMARY_MAX = 300;
+export const IMAGE_MARK = "You write one static image ad";
+
+export interface ImageCandidate {
+  n: number;
+  tags: string[];
+  description: string;
+  uses: number;
+  best?: boolean;
+  project?: string;
+  /** For a pair: what its before shows. */
+  before?: string;
+}
+
+/** The brief for one static image ad: its type, the competitor ad to model (if any), and the photos to choose from. */
+export function imageAdPrompt(
+  type: ImageAdType,
+  brand: string,
+  town: string,
+  trade: AdTrade,
+  candidates: ImageCandidate[],
+  basedOn?: { company: string; angle: string; offer: string; daysRunning?: number; words?: string },
+  now = new Date(),
+): string {
+  const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+  const want = type.layout === "pair" ? "one pair" : type.layout === "grid" ? "three or four photos, each from a different project" : "one photo";
+  return [
+    `${IMAGE_MARK} for Facebook and Instagram, for ${brand}, a ${trade.contractor} in ${town}, Texas. It is a single picture: nothing moves and nothing is said aloud.`,
+    `Type: ${type.label}. ${type.brief}`,
+    type.key === "seasonal" ? `It is ${month} now.` : "",
+    "",
+    ...(basedOn
+      ? [
+          `Model it on a competitor's ad${basedOn.daysRunning ? ` that has been running for ${basedOn.daysRunning} days` : ""}: keep its angle and the feel of its headline, in our own honest words.`,
+          `- Its angle (${basedOn.company}): ${basedOn.angle}`,
+          `- Its offer: ${basedOn.offer}. Ours is only ever a free quote from ${brand}.`,
+          basedOn.words ? `- Its words: ${basedOn.words.replace(/\s+/g, " ").slice(0, 600)}` : "",
+          "",
+        ]
+      : []),
+    type.layout === "pair"
+      ? "The before-and-after pairs on file (each is one project; BEST marks the owner's favourites; uses is how many ads it is already in):"
+      : "The finished photos on file (BEST marks the owner's favourites; uses is how many ads a photo is already in):",
+    ...candidates.map((c) =>
+      type.layout === "pair"
+        ? `${c.n}. ${c.best ? "BEST · " : ""}uses ${c.uses} · before: ${(c.before ?? "").replace(/\s+/g, " ").slice(0, 160)} · after: ${c.description.replace(/\s+/g, " ").slice(0, 160)}`
+        : `${c.n}. ${c.best ? "BEST · " : ""}${c.tags.join(", ")}${c.project ? ` · project ${c.project}` : ""} · uses ${c.uses}: ${c.description.replace(/\s+/g, " ").slice(0, 200)}`,
+    ),
+    "",
+    `Choose ${want} that best carries this ad. Prefer BEST ones and ones in fewer ads. The words must be true of what the chosen ${type.layout === "single" ? "photo shows" : "photos show"}: name only what its description says.`,
+    "Rules:",
+    ...RULES(brand, town),
+    `- headline: the words printed large on the image, at most ${IMAGE_HEADLINE_MAX} characters, plain and specific. No full stop needed.`,
+    `- sub: one short line under it, at most ${IMAGE_SUB_MAX} characters.`,
+    `- primaryText: the text above the image in the feed, one to three plain sentences, at most ${IMAGE_PRIMARY_MAX} characters, ending on the free quote from ${brand}. No emoji, no lists.`,
+    "- title: the short link headline under the image, at most 40 characters.",
+    "",
+    "Return only JSON. Start your answer with { and write nothing before or after it.",
+    type.layout === "pair"
+      ? '{"pair":2,"headline":"...","sub":"...","primaryText":"...","title":"..."}'
+      : type.layout === "grid"
+        ? '{"photos":[3,7,12],"headline":"...","sub":"...","primaryText":"...","title":"..."}'
+        : '{"photo":3,"headline":"...","sub":"...","primaryText":"...","title":"..."}',
+  ]
+    .filter((l, i, all) => l !== "" || all[i - 1] !== "")
+    .join("\n");
+}
+
+export interface ImageAdPlan {
+  picks: number[];
+  headline: string;
+  sub: string;
+  primaryText: string;
+  title: string;
+}
+
+/** Claude's reply as an image ad; null when it can't be read. */
+export function readImageAd(reply: string): ImageAdPlan | null {
+  const out = parseJson<Record<string, unknown>>(reply);
+  if (!out) return null;
+  const nums = (Array.isArray(out.photos) ? out.photos : [out.pair ?? out.photo]).map(Number).filter((n) => Number.isInteger(n) && n >= 1);
+  const text = (x: unknown) => wholeText(String(x ?? "").replace(/\s+/g, " ").trim());
+  return { picks: [...new Set(nums)], headline: text(out.headline), sub: text(out.sub), primaryText: text(out.primaryText), title: text(out.title) };
+}
+
+/** What is wrong with an image ad's plan, in words Claude can act on. Empty when it can be made. */
+export function imageAdProblems(plan: ImageAdPlan | null, type: ImageAdType, candidates: ImageCandidate[]): string[] {
+  if (!plan) return ["the reply wasn't JSON"];
+  const out: string[] = [];
+  const known = plan.picks.filter((n) => n <= candidates.length);
+  if (known.length !== plan.picks.length) out.push("a photo number that wasn't offered");
+  if (type.layout === "grid") {
+    if (known.length < 3 || known.length > 4) out.push("a showcase needs three or four photos");
+    const projects = known.map((n) => candidates[n - 1].project).filter(Boolean);
+    if (new Set(projects).size !== projects.length) out.push("two photos from the same project: a showcase takes one from each");
+  } else if (known.length !== 1) out.push(type.layout === "pair" ? "choose exactly one pair" : "choose exactly one photo");
+  if (!plan.headline) out.push("no headline");
+  if (plan.headline.length > IMAGE_HEADLINE_MAX) out.push(`the headline is ${plan.headline.length} characters (at most ${IMAGE_HEADLINE_MAX})`);
+  if (plan.sub.length > IMAGE_SUB_MAX) out.push(`the sub line is ${plan.sub.length} characters (at most ${IMAGE_SUB_MAX})`);
+  if (!plan.primaryText) out.push("no primaryText");
+  if (plan.primaryText.length > IMAGE_PRIMARY_MAX) out.push(`primaryText is ${plan.primaryText.length} characters (at most ${IMAGE_PRIMARY_MAX})`);
+  out.push(...forbiddenIn([plan.headline, plan.sub, plan.primaryText, plan.title].join(" ")));
+  return out;
+}
+
 // ------------------------------------------------------------ Swipe file
 
 /** Parses a CSV the way Google Sheets writes one: quoted fields, doubled quotes, newlines inside quotes. */

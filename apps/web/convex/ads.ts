@@ -24,6 +24,13 @@ import {
   pairingPrompt,
   cleanItems,
   itemsIn,
+  IMAGE_AD_TYPES,
+  imageAdType,
+  imageAdPrompt,
+  imageAdProblems,
+  readImageAd,
+  type ImageCandidate,
+  type ImageAdPlan,
   readShortlist,
   readOneProject,
   STORY_MIN,
@@ -4083,6 +4090,22 @@ export const claimRenders = internalMutation({
     const jobs: Array<{ id: Id<"adCreatives">; name: string; kind: "video" | "image"; props: ReturnType<typeof renderProps> | NonNullable<ReturnType<typeof stillProps>> }> = [];
     for (const c of [...waiting, ...stale].slice(0, Math.max(1, Math.min(RENDER_BATCH, limit)))) {
       try {
+        if (c.still) {
+          // A static image ad: its photos in order, its headline and the line under it. Nothing else.
+          const srcs: Array<{ src: string }> = [];
+          for (const assetId of c.assetIds) {
+            const a = await ctx.db.get(assetId);
+            const url = a ? await lookUrl(ctx, a) : undefined;
+            if (url) srcs.push({ src: url });
+          }
+          const need = c.still.layout === "pair" ? 2 : c.still.layout === "grid" ? 3 : 1;
+          if (srcs.length < need) throw new Error("A photo this image ad was made from is gone");
+          const base = { ratio: "4x5" as const, brand, headline: c.script.onScreen[0] ?? c.script.headline, sub: c.still.sub };
+          const props = c.still.layout === "pair" ? { ...base, pair: [srcs[0], srcs[1]] } : c.still.layout === "grid" ? { ...base, grid: srcs.slice(0, 4) } : { ...base, photo: srcs[0] };
+          await ctx.db.patch(c._id, { status: "rendering", renderStartedAt: nowIso(), error: undefined });
+          jobs.push({ id: c._id, name: c.name, kind: "image", props: props as never });
+          continue;
+        }
         if (!c.design) throw new Error("This ad was made before ads were drawn this way");
         const audioUrl = c.audioStorageId ? await ctx.storage.getUrl(c.audioStorageId) : null;
         if (!audioUrl) throw new Error("No voice track");
@@ -5147,6 +5170,179 @@ export const setAdStatus = internalAction({
     } catch (e) {
       await ctx.runMutation(internal.ads.patchCreative, { id, error: `Meta didn't take the change: ${errText(e)}` });
     }
+  },
+});
+
+// ----------------------------------------------------- Create an ad: one static image at a time
+
+/** The types of static image ad on offer, for the Create an ad window. */
+export const imageAdTypes = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return IMAGE_AD_TYPES.map((t) => ({ key: t.key, label: t.label, blurb: t.blurb }));
+  },
+});
+
+type ImagePick = ImageCandidate & { ids: Id<"adAssets">[] };
+
+/** What one image ad is written from: the photos (or pairs) to choose from, and the competitor ad to model. */
+export const imageAdInput = internalQuery({
+  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
+  handler: async (ctx, { type: key, swipeId, trade: slug }) => {
+    const type = imageAdType(key);
+    if (!type) fail("INVALID", "That isn't a type of image ad");
+    const trade = tradeOf(slug);
+    const row = await settingsRow(ctx);
+    const photos = (await ctx.db.query("adAssets").take(500)).filter((a) => a.kind === "photo" && inTrade(a, trade.slug) && a.description);
+    const drawable: typeof photos = [];
+    for (const a of photos) if (await lookUrl(ctx, a)) drawable.push(a);
+    // The owner's best first, then the least used: so the same photo doesn't head every list.
+    const order = (a: Doc<"adAssets">, b: Doc<"adAssets">) => Number(!!b.best) - Number(!!a.best) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt);
+    const before = (a: Doc<"adAssets">) => a.tags.includes("before") && !a.tags.includes("after");
+    const picks: ImagePick[] = [];
+    if (type!.layout === "pair") {
+      const byKey = new Map<string, Doc<"adAssets">[]>();
+      for (const a of drawable) if (a.pairKey) byKey.set(a.pairKey, [...(byKey.get(a.pairKey) ?? []), a]);
+      const pairs: Array<[Doc<"adAssets">, Doc<"adAssets">]> = [];
+      for (const halves of byKey.values()) {
+        const b = halves.find(before);
+        const a = halves.find((h) => h.tags.includes("after") && !h.tags.includes("before"));
+        if (b && a) pairs.push([b, a]);
+      }
+      pairs.sort(([, x], [, y]) => order(x, y));
+      for (const [b, a] of pairs.slice(0, 60))
+        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, before: b.description, uses: Math.max(a.uses ?? 0, b.uses ?? 0), best: a.best || b.best, ids: [b._id, a._id] });
+    } else {
+      // Finished work only: never a before, never work in progress, never two pictures in one.
+      const finished = drawable.filter((a) => !a.tags.includes("before") && !a.tags.includes("process")).sort(order);
+      // Each project a short name of its own (P1, P2...); a photo in no project counts as its own.
+      const names = new Map<string, string>();
+      const projectOf = (a: Doc<"adAssets">) => {
+        const key = a.jobId ?? a._id;
+        if (!names.has(key)) names.set(key, `P${names.size + 1}`);
+        return names.get(key)!;
+      };
+      for (const a of finished.slice(0, 120))
+        picks.push({ n: picks.length + 1, tags: a.tags, description: a.description!, uses: a.uses ?? 0, best: a.best, project: projectOf(a), ids: [a._id] });
+    }
+    const x = swipeId ? await ctx.db.get(swipeId) : null;
+    return {
+      trade: trade.slug,
+      brand: consumerBrand(),
+      town: research(row).researchMarkets[0] ?? "your town",
+      picks,
+      basedOn: x ? { company: x.company, angle: x.hook, offer: x.offer, daysRunning: runDays(x), words: swipeWords(x.transcript) ?? swipeWords(x.adCopy) } : undefined,
+      scope: x?.scope,
+    };
+  },
+});
+
+/**
+ * The owner makes one static image ad: its type, and optionally the competitor ad to model. Claude chooses the photo
+ * (or pair, or three or four for a showcase) from what each shows and writes the headline, the line under it and the
+ * text above; the banned claims and the length are checked, with one retry. It is then drawn and put into Meta
+ * paused, like any other ad. Nothing is spoken, so there is no voice step.
+ */
+export const createImageAd = action({
+  args: { type: v.string(), swipeId: v.optional(v.id("adSwipes")), trade: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ name: string; headline: string }> => {
+    const me: Id<"users"> = await ctx.runQuery(internal.ads.ownerId, {});
+    if (!process.env.ANTHROPIC_API_KEY) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
+    const type = imageAdType(args.type);
+    if (!type) fail("INVALID", "That isn't a type of image ad");
+    const input = await ctx.runQuery(internal.ads.imageAdInput, args);
+    const need = type!.layout === "grid" ? 3 : 1;
+    if (input.picks.length < need)
+      fail("INVALID", type!.layout === "pair" ? "No before and after pair in the Library yet. Pair a before with its after first." : "Not enough finished photos with a description in the Library yet.");
+    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), input.picks, input.basedOn);
+    let plan: ImageAdPlan | null = null;
+    let problems: string[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const content: unknown[] = [{ type: "text", text: prompt }];
+      if (attempt > 0) content.push({ type: "text", text: `Your last answer had these problems: ${problems.join("; ")}. Fix them and answer again with JSON only.` });
+      plan = readImageAd(await claude(content, 3000));
+      problems = imageAdProblems(plan, type!, input.picks);
+      if (problems.length === 0) break;
+    }
+    if (!plan || problems.length) fail("INVALID", `The ad couldn't be written within the rules: ${problems.join("; ")}`);
+    const assetIds = plan!.picks.flatMap((n) => input.picks[n - 1].ids);
+    const name: string = await ctx.runMutation(internal.ads.storeImageAd, {
+      type: type!.key,
+      trade: input.trade,
+      swipeId: args.swipeId,
+      scope: input.scope,
+      assetIds,
+      headline: plan!.headline,
+      sub: plan!.sub,
+      primaryText: plan!.primaryText,
+      title: plan!.title || plan!.headline,
+      startedBy: me,
+    });
+    return { name, headline: plan!.headline };
+  },
+});
+
+/** The signed-in owner's id (a super admin), for an action. */
+export const ownerId = internalQuery({
+  args: {},
+  handler: async (ctx) => (await requireSuperAdmin(ctx))._id,
+});
+
+export const storeImageAd = internalMutation({
+  args: {
+    type: v.string(),
+    trade: v.string(),
+    swipeId: v.optional(v.id("adSwipes")),
+    scope: v.optional(v.string()),
+    assetIds: v.array(v.id("adAssets")),
+    headline: v.string(),
+    sub: v.string(),
+    primaryText: v.string(),
+    title: v.string(),
+    startedBy: v.optional(v.id("users")),
+  },
+  handler: async (ctx, a) => {
+    const type = imageAdType(a.type)!;
+    const trade = tradeOf(a.trade);
+    const first = await ctx.db.get(a.assetIds[a.assetIds.length - 1]);
+    const scope = a.scope ?? first?.tags.find((t) => trade.scopes.includes(t)) ?? ANY_SCOPE;
+    // Its own idea, switched off, so the weekly run never drafts it again.
+    const hookId = await ctx.db.insert("adHooks", {
+      family: type.family,
+      scope,
+      trade: trade.slug,
+      textEn: a.headline,
+      active: false,
+      uses: 1,
+      wins: 0,
+      losses: 0,
+      createdAt: nowIso(),
+      lastUsedAt: nowIso(),
+      ...(a.swipeId ? { swipeId: a.swipeId } : {}),
+    });
+    const batchId = await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "rendering", startedBy: a.startedBy, createdAt: nowIso() });
+    let name = `${creativeName(hookId, "4x5", new Date())}_${type.key}`;
+    for (let n = 2; (await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first()) !== null; n++)
+      name = `${creativeName(hookId, "4x5", new Date())}_${type.key}_${n}`;
+    await ctx.db.insert("adCreatives", {
+      batchId,
+      hookId,
+      ratio: "4x5",
+      kind: "image",
+      name,
+      still: { type: type.key, layout: type.layout, sub: a.sub },
+      script: { voice: "", onScreen: [a.headline, a.sub], headline: a.title, primaryText: a.primaryText },
+      assetIds: a.assetIds,
+      // Nothing to voice: it waits to be drawn.
+      status: "voiced",
+      createdAt: nowIso(),
+    });
+    for (const id of a.assetIds) {
+      const p = await ctx.db.get(id);
+      if (p) await ctx.db.patch(id, { uses: (p.uses ?? 0) + 1, lastUsedAt: nowIso() });
+    }
+    return name;
   },
 });
 

@@ -2762,6 +2762,15 @@ export default defineSchema({
         focus: v.optional(v.array(v.object({ assetId: v.id("adAssets"), points: v.array(v.object({ x: v.number(), y: v.number() })) }))),
       }),
     ),
+    // A static image ad made on its own (Create an ad): its type, how its photos are laid out (assetIds, in order)
+    // and the line under the headline. The headline is script.onScreen[0]. No voice and no video.
+    still: v.optional(
+      v.object({
+        type: v.string(),
+        layout: v.union(v.literal("single"), v.literal("pair"), v.literal("grid")),
+        sub: v.string(),
+      }),
+    ),
     // Also the ad's name in Meta, so a lead's adName joins back here.
     name: v.string(),
     // An image ad has no voice: script.onScreen is its printed headline and support line.
