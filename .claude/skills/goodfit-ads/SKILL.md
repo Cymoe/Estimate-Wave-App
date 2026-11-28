@@ -61,6 +61,10 @@ want that line. The trades are painting and hardscaping (`outdoor-construction`)
   top 24, Nov 2026): **plain photo** and **plain before and after** (`clean`: nothing printed but the small mark; the
   text above the picture does the selling) and the **branded** kinds. Type `mix` takes them in turn (`IMAGE_MIX`).
   `ads:imageSwipes` lists the best competitor image ads with their pictures, to look at.
+- **There is no Monday batch any more** (removed Nov 2026): no timer drafts ads, and Settings has no switch for it.
+  Ads are made a set at a time from Create ads, or from kept ideas: "Make these ads" (`ads:makeKeptImages`) makes
+  each kept idea a static image ad of its scope's service, the kinds in turn. An idea about work with no image
+  service stays kept with the reason. The old video path (`makeKept`, `weeklyRun`) is still there, unused by the screen.
 - The sub line must open with a sentence of at most 44 characters (it is the italic line) and say "free quote".
 - Collages and screenshots are never offered (`isCollage`), however they are tagged.
 

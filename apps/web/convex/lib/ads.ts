@@ -1880,6 +1880,8 @@ export function imageAdPrompt(
   byEye = false,
   // Headlines of image ads made before, in any set: none is used again.
   usedHeadlines: string[] = [],
+  // An idea the owner kept (Ad ideas): the ad is built on it.
+  idea?: { line: string; opening: string },
 ): string {
   const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
   const want = type.layout === "pair" ? "one pair" : type.layout === "grid" ? "three or four photos, each from a different project" : "one photo";
@@ -1891,6 +1893,7 @@ export function imageAdPrompt(
       : "",
     `It is ${month} now.${type.key === "seasonal" ? "" : " Don't name a season or a time of year at all unless it is this one."}`,
     "",
+    ...(idea ? [`Build this ad on an idea the owner kept: ${idea.line.trim()}`, `The idea's opening words: "${idea.opening.trim()}". The headline carries that idea in its own words, within every rule below.`, ""] : []),
     ...(basedOn
       ? [
           `Model it on a competitor's ad${basedOn.daysRunning ? ` that has been running for ${basedOn.daysRunning} days` : ""}: keep its angle and the feel of its headline, in our own honest words.`,

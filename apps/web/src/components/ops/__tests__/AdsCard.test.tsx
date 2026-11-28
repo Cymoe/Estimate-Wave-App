@@ -35,6 +35,7 @@ const retire = jest.fn(async () => undefined);
 const ideasNow = jest.fn(async (..._args: unknown[]) => undefined);
 const decideIdea = jest.fn(async () => undefined);
 const makeKept = jest.fn(async (..._args: unknown[]) => 2);
+const makeKeptImages = jest.fn(async (..._args: unknown[]) => ({ made: 1, held: [] as string[] }));
 const seedHooks = jest.fn(async () => 6);
 const saveHook = jest.fn(async () => 'h9');
 const saveSettings = jest.fn(async () => undefined);
@@ -147,6 +148,7 @@ jest.mock('../../../lib/api', () => ({
     ideasNow: (...args: unknown[]) => ideasNow(...args),
     decideIdea: (...args: unknown[]) => decideIdea(...args),
     makeKept: (...args: unknown[]) => makeKept(...args),
+    makeKeptImages: (...args: unknown[]) => makeKeptImages(...args),
     seedHooks: () => seedHooks(),
     saveHook: (args: unknown) => saveHook(args),
     saveSettings: (args: unknown) => saveSettings(args),
@@ -553,7 +555,9 @@ describe('Ops → Ads', () => {
     expect(panel().textContent).toContain('Kept (1)');
     await act(async () => byText('Make this ad')!.click());
     await flush();
-    expect(makeKept).toHaveBeenCalled();
+    // Kept ideas are made as static image ads, not the old videos.
+    expect(makeKeptImages).toHaveBeenCalled();
+    expect(makeKept).not.toHaveBeenCalled();
     expect(panel().textContent).toContain('What it has learned about your taste: Keeps plain openings about mess.');
     expect(byText('Get new ideas')).toBeDefined();
 
@@ -1700,7 +1704,7 @@ describe('Ops → Ads', () => {
     expect(saveSettings.mock.calls.at(-1)![0]).not.toHaveProperty('metaToken');
   });
 
-  it('Settings shows which keys are set, and the owner saves the ids and the Monday switch', async () => {
+  it('Settings shows which keys are set, and the owner saves the ids; the Monday batch has no switch', async () => {
     await render();
     await tab('Settings');
     expect(document.body.textContent).toContain('Homeowners see the ads as Permian Home Quotes');
@@ -1709,12 +1713,14 @@ describe('Ops → Ads', () => {
     expect(document.body.textContent).not.toContain('What a batch makes');
     expect(document.body.textContent).toContain('ANTHROPIC_API_KEY: set');
     await act(async () => type(document.body.querySelector('input[aria-label="Ad account id"]') as HTMLInputElement, 'act_123'));
-    await act(async () => (Array.from(document.body.querySelectorAll('input[type="checkbox"]'))[0] as HTMLInputElement).click());
+    // The Monday batch is gone: nothing in Settings switches it on or sets its size.
+    expect(document.body.textContent).not.toContain('Draft a batch every Monday');
+    expect(document.body.querySelector('input[aria-label="Ads to write each Monday"]')).toBeNull();
     await act(async () =>
       document.body.querySelector('form[aria-label="Ad settings"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
     );
     await flush();
-    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ adAccountId: 'act_123', weeklyEnabled: true, hooksPerWeek: 2 }));
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ adAccountId: 'act_123' }));
     expect(saveSettings.mock.calls[0][0]).not.toHaveProperty('keys');
     expect(document.body.textContent).toContain('Competitor search key: missing');
     // The competitor search key is pasted, checked and saved; the box empties.

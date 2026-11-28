@@ -457,7 +457,8 @@ const Ideas: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
               <button
                 type="button"
                 className={primary}
-                onClick={() => act(() => adsAPI.makeKept(trade), 'Making them. Each ad shows below as it is written, voiced and drawn.')}
+                // Made as static image ads. One that can't be made stays kept, with the reason on its card.
+                onClick={() => act(() => adsAPI.makeKeptImages(trade), `Made as ${kept.length === 1 ? 'an image ad' : 'image ads'}. Each shows in To review once drawn; any that couldn't be made stay kept, with the reason.`)}
               >
                 {kept.length === 1 ? 'Make this ad' : `Make these ${kept.length} ads`}
               </button>
@@ -525,7 +526,7 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
       {owner && <CreateAd act={act} />}
       <Ideas owner={owner} act={act} />
       <p className="text-sm text-gray-400">
-        Each ad made from an idea you kept shows below in two sizes, and is created paused in Meta once it is drawn. Approve the ones to run.
+        Ads you create, and ideas you keep and make, show below as static image ads. Each is created paused in Meta once it is drawn. Approve the ones to run.
       </p>
       {batches.length === 0 ? (
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
@@ -3557,7 +3558,7 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
     <div className="space-y-4">
       <p className="text-sm text-gray-400">
         Competitor ads, kept here for inspiration. "Search the niche" pulls the ads still running after months from Meta's Ad Library; Claude reads
-        each one and writes a playbook per category that the Monday writer follows. Star the ones you like: they lead the examples the writer sees, as
+        each one and writes a playbook per category that the ad writer follows. Star the ones you like: they lead the examples the writer sees, as
         tone and shape, never as claims. "Make a hook" starts a hook from an ad's angle.
       </p>
       {painting && <Playbooks act={act} />}
@@ -4013,18 +4014,6 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {text('voiceId', 'ElevenLabs voice id')}
         {text('primaryColor', 'Brand colour')}
         {text('accentColor', 'Accent colour')}
-        <Field label="Ads to write each Monday">
-          <input
-            type="number" inputMode="decimal"
-            min={1}
-            max={4}
-            value={form.hooksPerWeek}
-            onChange={(e) => setForm({ ...form, hooksPerWeek: Number(e.target.value) })}
-            className={input}
-            disabled={!owner}
-            aria-label="Ads to write each Monday"
-          />
-        </Field>
         <Field label="Most ads running at once">
           <input
             type="number" inputMode="decimal"
@@ -4039,15 +4028,6 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         </Field>
       </div>
       <label className="text-sm text-gray-300 inline-flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={form.weeklyEnabled}
-          onChange={(e) => setForm({ ...form, weeklyEnabled: e.target.checked })}
-          disabled={!owner}
-        />{' '}
-        Draft a batch every Monday
-      </label>
-      <label className="text-sm text-gray-300 inline-flex items-center gap-2 ml-4">
         <input
           type="checkbox"
           checked={form.tesseractFootage}

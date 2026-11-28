@@ -2448,8 +2448,9 @@ export const saveSettings = mutation({
     actorVoice: v.optional(v.string()),
     actorLanguage: v.optional(v.string()),
     actorNotes: v.optional(v.string()),
-    weeklyEnabled: v.boolean(),
-    hooksPerWeek: v.number(),
+    // No longer set from the screen (the Monday batch is gone); still accepted from an older page.
+    weeklyEnabled: v.optional(v.boolean()),
+    hooksPerWeek: v.optional(v.number()),
     liveTarget: v.number(),
     quickOffer: v.optional(v.boolean()),
     tesseractFootage: v.optional(v.boolean()),
@@ -2466,7 +2467,9 @@ export const saveSettings = mutation({
     const words = (list: string[] | undefined) => [...new Set((list ?? []).map((w) => w.trim()).filter(Boolean))].slice(0, 12);
     const data = {
       ...trimmed,
-      hooksPerWeek: Math.min(4, Math.max(1, Math.round(args.hooksPerWeek))),
+      // The Monday batch is gone: it is never switched on from here again.
+      weeklyEnabled: false,
+      hooksPerWeek: Math.min(4, Math.max(1, Math.round(args.hooksPerWeek ?? DEFAULTS.hooksPerWeek))),
       liveTarget: Math.min(12, Math.max(2, Math.round(args.liveTarget))),
       researchKeywords: words(args.researchKeywords),
       researchMarkets: words(args.researchMarkets),
@@ -5659,6 +5662,98 @@ async function makeImageAds(ctx: ActionCtx, args: { service: string; type: strin
   return { made, missed };
 }
 
+/** Why an idea can't be made as an image ad yet. */
+const NO_IMAGE_SERVICE = "Image ads are only set up for cabinet and exterior painting so far.";
+
+/**
+ * The kept ideas made as static image ads (the owner no longer wants the motion-graphic videos, Nov 2026): one ad an
+ * idea, the kinds taken in turn, all in one set. An idea about work no image service covers stays kept, as does one
+ * whose ad couldn't be made, each with the reason on its card.
+ */
+async function makeKeptAsImages(ctx: ActionCtx, trade: string | undefined, me?: Id<"users">): Promise<{ made: number; held: string[] }> {
+  const kept: Array<{ id: Id<"adIdeas">; line: string; opening: string; scope: string; swipeId?: Id<"adSwipes"> }> = await ctx.runQuery(internal.ads.keptIdeas, { trade });
+  if (kept.length === 0) fail("INVALID", "Keep at least one idea first");
+  const slug = tradeOf(trade).slug;
+  const set: { batchId?: Id<"adBatches"> } = {};
+  const usedSwipes: Id<"adSwipes">[] = [];
+  const usedAssets: Id<"adAssets">[] = [];
+  const headlines: string[] = [];
+  const held: string[] = [];
+  let made = 0;
+  for (const idea of kept) {
+    const service = adServicesOf(slug).find((x) => x.scope === idea.scope);
+    if (!service) {
+      await ctx.runMutation(internal.ads.ideaHeld, { id: idea.id, why: NO_IMAGE_SERVICE });
+      held.push(NO_IMAGE_SERVICE);
+      continue;
+    }
+    let one: Awaited<ReturnType<typeof makeImageAd>> | undefined;
+    let last: unknown;
+    for (let k = 0; k < IMAGE_MIX.length && !one; k++) {
+      try {
+        one = await makeImageAd(ctx, { service: service.key, type: IMAGE_MIX[(made + k) % IMAGE_MIX.length], swipeId: idea.swipeId, trade: slug }, me, headlines, usedSwipes, usedAssets, set, { line: idea.line, opening: idea.opening });
+      } catch (e) {
+        last = e;
+      }
+    }
+    if (!one) {
+      const why = errText(last);
+      await ctx.runMutation(internal.ads.ideaHeld, { id: idea.id, why });
+      held.push(why);
+      continue;
+    }
+    if (one.swipeId) usedSwipes.push(one.swipeId);
+    usedAssets.push(...one.assetIds);
+    headlines.push(one.headline);
+    await ctx.runMutation(internal.ads.ideaMadeAsImage, { id: idea.id });
+    made++;
+  }
+  await ctx.scheduler.runAfter(0, internal.ads.learnTaste, {});
+  return { made, held };
+}
+
+export const makeKeptImages = action({
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }): Promise<{ made: number; held: string[] }> => {
+    const me: Id<"users"> = await ctx.runQuery(internal.ads.ownerId, {});
+    return await makeKeptAsImages(ctx, trade, me);
+  },
+});
+
+/** The same from a cloud session. */
+export const makeKeptImagesOutside = internalAction({
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }): Promise<{ made: number; held: string[] }> => await makeKeptAsImages(ctx, trade),
+});
+
+export const keptIdeas = internalQuery({
+  args: { trade: v.optional(v.string()) },
+  handler: async (ctx, { trade }) =>
+    (
+      await ctx.db
+        .query("adIdeas")
+        .withIndex("by_status", (q) => q.eq("status", "kept"))
+        .take(200)
+    )
+      .filter((i) => inTrade(i, trade))
+      .slice(0, IMAGE_ADS_AT_ONCE)
+      .map((i) => ({ id: i._id, line: i.line, opening: i.opening, scope: i.scope, swipeId: i.swipeId })),
+});
+
+export const ideaHeld = internalMutation({
+  args: { id: v.id("adIdeas"), why: v.string() },
+  handler: async (ctx, { id, why }) => {
+    if (await ctx.db.get(id)) await ctx.db.patch(id, { note: why.slice(0, 300) });
+  },
+});
+
+export const ideaMadeAsImage = internalMutation({
+  args: { id: v.id("adIdeas") },
+  handler: async (ctx, { id }) => {
+    if (await ctx.db.get(id)) await ctx.db.patch(id, { status: "made", note: undefined });
+  },
+});
+
 /** The same from a cloud session (the deploy workflow), to make one or to check the live library. */
 export const createImageAdOutside = internalAction({
   // notAssets: photos to leave out (and, with them, their jobs), to make an ad from the others.
@@ -5666,7 +5761,7 @@ export const createImageAdOutside = internalAction({
   handler: async (ctx, { count, notAssets, ...args }) => await makeImageAds(ctx, args, Math.max(1, Math.min(IMAGE_ADS_AT_ONCE, Math.round(count ?? 1))), undefined, notAssets),
 });
 
-async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, me?: Id<"users">, avoid: string[] = [], skipSwipes: Id<"adSwipes">[] = [], skipAssets: Id<"adAssets">[] = [], set: { batchId?: Id<"adBatches"> } = {}): Promise<{ name: string; headline: string; builtOn?: string; swipeId?: Id<"adSwipes">; assetIds: Id<"adAssets">[] }> {
+async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string; swipeId?: Id<"adSwipes">; fresh?: boolean; trade?: string }, me?: Id<"users">, avoid: string[] = [], skipSwipes: Id<"adSwipes">[] = [], skipAssets: Id<"adAssets">[] = [], set: { batchId?: Id<"adBatches"> } = {}, idea?: { line: string; opening: string }): Promise<{ name: string; headline: string; builtOn?: string; swipeId?: Id<"adSwipes">; assetIds: Id<"adAssets">[] }> {
   {
     if (!process.env.ANTHROPIC_API_KEY) fail("INVALID", "Set ANTHROPIC_API_KEY on the deployment first");
     const type = imageAdType(args.type);
@@ -5692,7 +5787,7 @@ async function makeImageAd(ctx: ActionCtx, args: { service: string; type: string
       shown = few.length >= need ? few : input.picks.slice(0, lookMax);
     }
     shown = shown.map((p, i) => ({ ...p, n: i + 1 }));
-    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), shown, input.basedOn, new Date(), avoid, input.service, input.field, input.playbook, true, input.usedHeadlines);
+    const prompt = imageAdPrompt(type!, input.brand, input.town, tradeOf(input.trade), shown, input.basedOn, new Date(), avoid, input.service, input.field, input.playbook, true, input.usedHeadlines, idea);
     const pictures: unknown[] = shown.flatMap((p) =>
       p.urls.flatMap((url, k) => [
         { type: "text", text: type!.layout !== "pair" ? `Photo ${p.n}:` : p.joined ? `Pair ${p.n}, one image holding the before and the after:` : `Pair ${p.n}, ${k === 0 ? "before" : "after"}:` },

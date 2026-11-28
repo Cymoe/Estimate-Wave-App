@@ -1899,7 +1899,7 @@ describe("the library, hooks and settings", () => {
     expect(posts.slice(2)).toEqual(["c7 PAUSED"]);
   });
 
-  test("settings: the owner saves the Meta ids (act_ dropped) and the Monday switch; staff only read; keys show as set or missing", async () => {
+  test("settings: the owner saves the Meta ids (act_ dropped), and the Monday batch can't be switched on; staff only read; keys show as set or missing", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
@@ -1943,7 +1943,8 @@ describe("the library, hooks and settings", () => {
       adAccountId: "123",
       pageId: "77",
       adsetId: "900",
-      weeklyEnabled: true,
+      // The Monday batch is gone: saving never switches it on, whatever an older page sends.
+      weeklyEnabled: false,
       hooksPerWeek: 4,
       liveTarget: 2,
       researchKeywords: ["cabinet painting", "deck staining"],
@@ -3178,6 +3179,31 @@ describe("the weekly run", () => {
     const heads = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).map((c) => c.script.onScreen[0]));
     expect(new Set(heads).size).toBe(heads.length);
     expect(imageAdIssues({ picks: [1], headline: "cabinets, freshly PAINTED!", sub: "Same cabinets. Free quote.", primaryText: "Get a free quote.", title: "t" }, IMAGE_AD_TYPES[0], [{ n: 1, tags: [], description: "A kitchen.", uses: 0 }], "Midland", "GoodFit Painting", ["Cabinets, freshly painted"]).map((i) => i.rule)).toEqual(["fresh-headline"]);
+    // Kept ideas are made as static image ads, one an idea, in one set: each of its own service and built on the
+    // idea. One about work no image service covers stays kept, with the reason on its card.
+    const ideaIds = await t.run(async (ctx) => {
+      const idea = (line: string, opening: string, scope: string) =>
+        ctx.db.insert("adIdeas", { round: "r1", line, opening, family: "objection" as const, scope, writer: "plain", status: "kept" as const, trade: "painting", createdAt: "2026-11-27T00:00:00Z" });
+      return [
+        await idea("Paint the cabinets instead of replacing them.", "Skip the remodel.", "cabinets"),
+        await idea("A faded house looks cared for again.", "Sun-faded siding?", "exterior"),
+        await idea("Stained stairs make the entry.", "Tired stairs?", "interior"),
+      ];
+    });
+    const stillsBefore = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).length);
+    const keptOut = await owner.as.action(api.ads.makeKeptImages, {});
+    expect(keptOut).toEqual({ made: 2, held: ["Image ads are only set up for cabinet and exterior painting so far."] });
+    const ideasNow = await t.run(async (ctx) => Promise.all(ideaIds.map(async (id) => (await ctx.db.get(id))!)));
+    expect(ideasNow.map((i) => i.status)).toEqual(["made", "made", "kept"]);
+    expect(ideasNow[2].note).toContain("only set up for cabinet and exterior");
+    const fromIdeas = await t.run(async (ctx) => (await ctx.db.query("adCreatives").collect()).filter((c) => c.still).slice(stillsBefore));
+    expect(fromIdeas).toHaveLength(2);
+    expect(new Set(fromIdeas.map((c) => c.batchId)).size).toBe(1);
+    const scopes = await t.run(async (ctx) => Promise.all(fromIdeas.map(async (c) => (await ctx.db.get(c.hookId))!.scope)));
+    expect(scopes).toEqual(["cabinets", "exterior"]);
+    const briefs = calls.filter((c) => c.url.includes("api.anthropic.com")).map((c) => JSON.parse(c.body!).messages[0].content[0].text as string);
+    expect(briefs.some((x) => x.includes("Build this ad on an idea the owner kept: A faded house looks cared for again.") && x.includes("This ad is about exterior painting"))).toBe(true);
+    await expect(staff.as.action(api.ads.makeKeptImages, {})).rejects.toThrow();
     // Drawn without a voice: each as a still, with its photos laid out by type.
     const jobs = (await claim()).filter((j) => rows.slice(0, 3).some((r) => r.name === j.name));
     expect(jobs.map((j) => j.kind)).toEqual(["image", "image", "image"]);

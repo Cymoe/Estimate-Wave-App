@@ -82,8 +82,8 @@ crons.interval("outreach lookup queue", { minutes: 5 }, internal.outreach.pump, 
 // Reminder emails to clients who haven't signed their estimate (followUps.ts).
 crons.hourly("remind clients about estimates", { minuteUTC: 23 }, internal.followUps.send, {});
 
-// Ads on autopilot (ads.ts): Monday 6am Central drafts the week's ads; every morning pulls what Meta reports on the live ones.
-crons.weekly("draft the week's ads", { dayOfWeek: "monday", hourUTC: 12, minuteUTC: 0 }, internal.ads.weeklyRun, {});
+// Ads (ads.ts): every morning pulls what Meta reports on the live ones. (The Monday batch that drafted a week of
+// video ads is gone: the owner makes ads one set at a time, Nov 2026.)
 crons.daily("pull ad insights", { hourUTC: 9, minuteUTC: 35 }, internal.ads.pullInsights, {});
 // Mondays: search every trade's niche in Meta's Ad Library (only when the switch in Ops → Ads → Settings is on).
 crons.weekly("niche research", { dayOfWeek: "monday", hourUTC: 10, minuteUTC: 0 }, internal.ads.researchRun, { everyTrade: true });
