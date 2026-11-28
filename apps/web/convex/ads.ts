@@ -5626,7 +5626,7 @@ export const storeImageAd = internalMutation({
     const batchId = a.batchId ?? (await ctx.db.insert("adBatches", { trade: trade.slug, weekOf: weekOf(new Date()), status: "rendering", startedBy: a.startedBy, createdAt: nowIso() }));
     // Each new image ad takes the next of the three text layouts (top, band, low), so a set looks varied. The card
     // layout (3) is no longer given out: it covered the middle of the leading photo (the owner dropped it, Nov 2026).
-    const before = (await ctx.db.query("adCreatives").order("desc").take(200)).filter((c) => c.still).length;
+    const before = (await ctx.db.query("adCreatives").order("desc").take(200)).filter((c) => c.still && !c.still.clean).length;
     let name = `${creativeName(hookId, "4x5", new Date())}_${type.key}`;
     for (let n = 2; (await ctx.db.query("adCreatives").withIndex("by_name", (q) => q.eq("name", name)).first()) !== null; n++)
       name = `${creativeName(hookId, "4x5", new Date())}_${type.key}_${n}`;

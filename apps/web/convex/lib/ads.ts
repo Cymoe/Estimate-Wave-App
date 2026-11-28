@@ -1873,7 +1873,7 @@ export function imageAdPrompt(
     service
       ? `This ad is about ${service.label.toLowerCase()} and nothing else: every photo and every word. Don't drift to other work that happens to show in a photo (floors, stairs, a fireplace, counters).`
       : "",
-    type.key === "seasonal" ? `It is ${month} now.` : "",
+    `It is ${month} now.${type.key === "seasonal" ? "" : " Don't name a season or a time of year at all unless it is this one."}`,
     "",
     ...(basedOn
       ? [
